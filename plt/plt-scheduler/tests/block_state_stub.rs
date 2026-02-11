@@ -14,7 +14,15 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_scheduler::block_state::types::{TokenAccountState, TokenConfiguration};
+use plt_scheduler::block_state::blob_store::{BackingStoreLoad, Reference};
+use plt_scheduler::block_state::external::{
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
+    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
+};
+use plt_scheduler::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
+use plt_scheduler::block_state::{
+    ExecutionTimePltBlockState, ExternalBlockState, PltBlockState, PltBlockStateSavepoint,
+};
 use plt_scheduler::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
@@ -29,45 +37,45 @@ use plt_types::types::execution::TransactionOutcome;
 use plt_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
-/// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
-/// configuring the state of the block state.
-#[derive(Debug, Default)]
-pub struct BlockStateStub {
-    /// List of tokens in the stub
-    tokens: Vec<Token>,
+/// Block store load stub for tests.
+#[derive(Debug)]
+pub struct BlobStoreLoadStub;
+
+impl BackingStoreLoad for BlobStoreLoadStub {
+    fn load_raw(&mut self, location: Reference) -> Vec<u8> {
+        unimplemented!("should not be called")
+    }
+}
+
+type ExecutionTimePltBlockStateWithExternalStateStubbed =
+    ExecutionTimePltBlockState<BlobStoreLoadStub, ExternalBlockStateStub>;
+type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
+
+/// Block state where external interactions with the Haskell maintained block
+/// state is implemented by a stub.
+#[derive(Debug)]
+pub struct BlockStateWithExternalStateStubbed {
+    block_state: ExecutionTimePltBlockStateWithExternalStateStubbed,
+}
+
+/// Stubbed block state representing the Haskell maintained part of the block state.
+#[derive(Debug)]
+pub struct ExternalBlockStateStub {
     /// List of accounts in the stub.
-    accounts: Vec<Account>,
+    accounts: Vec<Account<Token>>,
     /// PLT update instruction sequence number
     plt_update_instruction_sequence_number: u64,
 }
 
-/// Internal representation of a token in [`BlockStateStub`].
+/// Internal representation of an account in [`BlockStateWithExternalStateStubbed`].
 #[derive(Debug)]
-struct Token {
-    /// Module state
-    module_state: StubTokenKeyValueState,
-    /// Token configuration
-    configuration: TokenConfiguration,
-    /// Circulating supply
-    circulating_supply: RawTokenAmount,
-}
-
-/// Representation of module state in the stub
-#[derive(Debug, Clone, Default)]
-pub struct StubTokenKeyValueState {
-    /// Token module managed state.
-    state: BTreeMap<TokenStateKey, TokenStateValue>,
-}
-
-/// Internal representation of an account in [`BlockStateStub`].
-#[derive(Debug)]
-pub struct Account {
+pub struct Account<Token> {
     /// The index of the account
     index: AccountIndex,
     /// The canonical account address of the account.
     address: AccountAddress,
     /// Tokens the account is holding
-    tokens: BTreeMap<TokenStubIndex, AccountToken>,
+    tokens: BTreeMap<Token, AccountToken>,
 }
 
 /// Internal representation of a token in an account.
@@ -77,19 +85,39 @@ struct AccountToken {
     balance: RawTokenAmount,
 }
 
-impl BlockStateStub {
+impl BlockStateWithExternalStateStubbed {
     /// Create block state stub
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
-            tokens: Default::default(),
+        let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
+
+        let external_block_state = ExternalBlockStateStub {
             accounts: Default::default(),
             plt_update_instruction_sequence_number: 0,
-        }
+        };
+
+        let block_state = ExecutionTimePltBlockState {
+            inner_block_state,
+            backing_store_load: BlobStoreLoadStub,
+            external_block_state,
+        };
+
+        Self { block_state }
+    }
+
+    /// Access to the underlying block state.
+    pub fn state(&self) -> &ExecutionTimePltBlockStateWithExternalStateStubbed {
+        &self.block_state
+    }
+
+    /// Mutable access to the underlying block state.
+    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithExternalStateStubbed {
+        &mut self.block_state
     }
 
     /// Create account in the stub and return stub representation of the account.
-    pub fn create_account(&mut self) -> AccountStubIndex {
-        let index = self.accounts.len();
+    pub fn create_account(&mut self) -> AccountIndex {
+        let index = self.block_state.external_block_state.accounts.len();
         let mut address = AccountAddress([0u8; 32]);
         address.0[..8].copy_from_slice(&index.to_be_bytes());
         let account_index = AccountIndex::from(index as u64);
@@ -98,14 +126,14 @@ impl BlockStateStub {
             address,
             tokens: Default::default(),
         };
-        let stub_index = AccountStubIndex(index);
-        self.accounts.push(account);
+        let stub_index = AccountIndex::from(index as u64);
+        self.block_state.external_block_state.accounts.push(account);
 
         stub_index
     }
 
-    pub fn account_canonical_address(&self, account: &AccountStubIndex) -> AccountAddress {
-        self.accounts[account.0].address
+    pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
+        self.block_state.external_block_state.accounts[account.index as usize].address
     }
 
     /// Create and initialize token in the stub and return stub representation of the token, together with
@@ -116,7 +144,7 @@ impl BlockStateStub {
         params: TokenInitTestParams,
         decimals: u8,
         initial_supply: Option<RawTokenAmount>,
-    ) -> (TokenStubIndex, AccountStubIndex) {
+    ) -> (Token, AccountIndex) {
         let gov_account = self.create_account();
         let gov_holder_account =
             CborHolderAccount::from(self.account_canonical_address(&gov_account));
@@ -140,9 +168,10 @@ impl BlockStateStub {
             decimals,
             initialization_parameters,
         });
-        scheduler::execute_chain_update(self, payload).expect("create and initialize token");
+        scheduler::execute_chain_update(self.state_mut(), payload)
+            .expect("create and initialize token");
 
-        let token = self.token_by_id(&token_id).expect("created token");
+        let token = self.state().token_by_id(&token_id).expect("created token");
 
         (token, gov_account)
     }
@@ -151,11 +180,11 @@ impl BlockStateStub {
     /// and transferring the given amount
     pub fn increment_account_balance(
         &mut self,
-        account: AccountStubIndex,
-        token: TokenStubIndex,
+        account: AccountIndex,
+        token: Token,
         balance: RawTokenAmount,
     ) {
-        let token_configuration = self.token_configuration(&token);
+        let token_configuration = self.state().token_configuration(&token);
         let operations = vec![
             TokenOperation::Mint(TokenSupplyUpdateDetails {
                 amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
@@ -171,10 +200,12 @@ impl BlockStateStub {
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
 
-        let token_info = queries::query_token_info(self, &token_configuration.token_id).unwrap();
+        let token_info =
+            queries::query_token_info(self.state(), &token_configuration.token_id).unwrap();
         let token_module_state: TokenModuleState =
             cbor::cbor_decode(&token_info.state.module_state).unwrap();
         let gov_account = self
+            .state()
             .account_by_address(
                 &token_module_state
                     .governance_account
@@ -187,7 +218,7 @@ impl BlockStateStub {
         let outcome = scheduler::execute_transaction(
             gov_account,
             token_module_state.governance_account.unwrap().address,
-            self,
+            self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -197,7 +228,9 @@ impl BlockStateStub {
 
     /// Return protocol-level token update instruction sequence number
     pub fn plt_update_instruction_sequence_number(&self) -> u64 {
-        self.plt_update_instruction_sequence_number
+        self.block_state
+            .external_block_state
+            .plt_update_instruction_sequence_number
     }
 }
 
@@ -239,173 +272,30 @@ impl TokenInitTestParams {
     }
 }
 
-/// Stub account object.
-/// When testing it is the index into the list of accounts tracked by the `KernelStub`.
-#[derive(Debug, Clone, Copy)]
-pub struct AccountStubIndex(usize);
-
-/// Stub token object.
-/// When testing it is the index into the list of accounts tracked by the `KernelStub`.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct TokenStubIndex(usize);
-
-impl BlockStateQuery for BlockStateStub {
-    type TokenKeyValueState = StubTokenKeyValueState;
-    type Account = AccountStubIndex;
-    type Token = TokenStubIndex;
-
-    fn plt_list(&self) -> impl Iterator<Item = TokenId> {
-        self.tokens
-            .iter()
-            .map(|token| token.configuration.token_id.clone())
-    }
-
-    fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
-        self.tokens
-            .iter()
-            .enumerate()
-            .find_map(|(i, token)| {
-                if token
-                    .configuration
-                    .token_id
-                    .as_ref()
-                    .eq_ignore_ascii_case(token_id.as_ref())
-                {
-                    Some(TokenStubIndex(i))
-                } else {
-                    None
-                }
-            })
-            .ok_or(TokenNotFoundByIdError(token_id.clone()))
-    }
-
-    fn mutable_token_key_value_state(&self, token: &Self::Token) -> StubTokenKeyValueState {
-        self.tokens[token.0].module_state.clone()
-    }
-
-    fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        self.tokens[token.0].configuration.clone()
-    }
-
-    fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        self.tokens[token.0].circulating_supply
-    }
-
-    fn lookup_token_state_value(
+impl ReadTokenAccountBalance for ExternalBlockStateStub {
+    fn read_token_account_balance(
         &self,
-        token_key_value_state: &StubTokenKeyValueState,
-        key: &TokenStateKey,
-    ) -> Option<TokenStateValue> {
-        token_key_value_state.state.get(key).cloned()
-    }
-
-    fn update_token_state_value(
-        &self,
-        token_key_value_state: &mut StubTokenKeyValueState,
-        key: &TokenStateKey,
-        value: Option<TokenStateValue>,
-    ) {
-        if let Some(value) = value {
-            token_key_value_state.state.insert(key.clone(), value);
-        } else {
-            token_key_value_state.state.remove(key);
-        }
-    }
-
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.accounts
-            .iter()
-            .enumerate()
-            .find_map(|(i, account)| {
-                if account.address.is_alias(address) {
-                    Some(AccountStubIndex(i))
-                } else {
-                    None
-                }
-            })
-            .ok_or(AccountNotFoundByAddressError(*address))
-    }
-
-    fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
-        if let Some(account) = self.accounts.get(index.index as usize) {
-            let account_with_canonical_address = AccountWithCanonicalAddress {
-                account: AccountStubIndex(index.index as usize),
-                canonical_account_address: account.address,
-            };
-            Ok(account_with_canonical_address)
-        } else {
-            Err(AccountNotFoundByIndexError(index))
-        }
-    }
-
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.accounts[account.0].index
-    }
-
-    fn account_token_balance(
-        &self,
-        account: &Self::Account,
-        token: &Self::Token,
+        account: AccountIndex,
+        token: TokenIndex,
     ) -> RawTokenAmount {
-        self.accounts[account.0]
+        self.accounts[account.index as usize]
             .tokens
-            .get(token)
+            .get(&token)
             .map(|token| token.balance)
             .unwrap_or_default()
     }
-
-    fn token_account_states(
-        &self,
-        account: &Self::Account,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
-        self.accounts[account.0]
-            .tokens
-            .iter()
-            .map(|(token, state)| {
-                let token_account_state = TokenAccountState {
-                    balance: state.balance,
-                };
-
-                (*token, token_account_state)
-            })
-    }
 }
 
-impl BlockStateOperations for BlockStateStub {
-    fn set_token_circulating_supply(
-        &mut self,
-        token: &Self::Token,
-        circulating_supply: RawTokenAmount,
-    ) {
-        self.tokens[token.0].circulating_supply = circulating_supply;
-    }
-
-    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        let stub_index = TokenStubIndex(self.tokens.len());
-        let token = Token {
-            module_state: Default::default(),
-            configuration,
-            circulating_supply: Default::default(),
-        };
-        self.tokens.push(token);
-        stub_index
-    }
-
+impl UpdateTokenAccountBalance for ExternalBlockStateStub {
     fn update_token_account_balance(
         &mut self,
-        token: &Self::Token,
-        account: &Self::Account,
+        account: AccountIndex,
+        token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        let balance = &mut self.accounts[account.0]
+        let balance = &mut self.accounts[account.index as usize]
             .tokens
-            .entry(*token)
+            .entry(token)
             .or_default()
             .balance;
         match amount_delta {
@@ -418,33 +308,81 @@ impl BlockStateOperations for BlockStateStub {
         }
         Ok(())
     }
+}
 
-    fn increment_plt_update_instruction_sequence_number(&mut self) {
+impl IncrementPltUpdateSequenceNumber for ExternalBlockStateStub {
+    fn increment_plt_update_sequence_number(&mut self) {
         self.plt_update_instruction_sequence_number += 1;
     }
+}
 
-    fn set_token_key_value_state(
-        &mut self,
-        token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
-    ) {
-        self.tokens[token.0].module_state = token_key_value_state;
+impl GetCanonicalAddressByAccountIndex for ExternalBlockStateStub {
+    fn account_canonical_address_by_account_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
+        if let Some(account) = self.accounts.get(account_index.index as usize) {
+            Ok(account.address)
+        } else {
+            Err(AccountNotFoundByIndexError(account_index))
+        }
     }
 }
+
+impl GetAccountIndexByAddress for ExternalBlockStateStub {
+    fn account_index_by_account_address(
+        &self,
+        account_address: &AccountAddress,
+    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
+        self.accounts
+            .iter()
+            .enumerate()
+            .find_map(|(i, account)| {
+                if account.address.is_alias(account_address) {
+                    Some(AccountIndex::from(i as u64))
+                } else {
+                    None
+                }
+            })
+            .ok_or(AccountNotFoundByAddressError(*account_address))
+    }
+}
+
+impl GetTokenAccountStates for ExternalBlockStateStub {
+    fn token_account_states(
+        &self,
+        account_index: AccountIndex,
+    ) -> Vec<(TokenIndex, TokenAccountState)> {
+        self.accounts[account_index.index as usize]
+            .tokens
+            .iter()
+            .map(|(token, state)| {
+                let token_account_state = TokenAccountState {
+                    balance: state.balance,
+                };
+
+                (*token, token_account_state)
+            })
+            .collect()
+    }
+}
+
+impl ExternalBlockState for ExternalBlockStateStub {}
 
 /// Test looking up account by alias.
 #[test]
 fn test_account_by_alias() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
 
     let account = stub.create_account();
     let account_address = stub.account_canonical_address(&account);
     let account_by_alias = stub
+        .state()
         .account_by_address(&account_address.get_alias(0).unwrap())
         .unwrap();
 
     assert_eq!(
-        stub.account_index(&account),
-        stub.account_index(&account_by_alias)
+        stub.state().account_index(&account),
+        stub.state().account_index(&account_by_alias)
     );
 }

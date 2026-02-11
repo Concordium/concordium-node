@@ -24,20 +24,22 @@ pub trait BackingStoreLoad {
 pub trait Loadable: Sized {
     fn load(
         loader: &mut impl BackingStoreLoad,
-        source: &mut impl std::io::Read,
+        source: impl AsRef<[u8]>,
     ) -> Result<Self, DecodeError>;
 
     fn load_from_location(
         loader: &mut impl BackingStoreLoad,
         location: Reference,
     ) -> Result<Self, DecodeError> {
-        let mut source = std::io::Cursor::new(loader.load_raw(location));
-        Self::load(loader, &mut source)
+        let bytes = loader.load_raw(location);
+        Self::load(loader, bytes)
     }
 }
 
 /// An error that may occur when loading data from persistent storage.
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
+    #[error("{0}")]
+    Decode(String),
     // add parsing errors here
 }

@@ -48,11 +48,11 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint)
 extern "C" fn ffi_hash_plt_block_state(
     mut load_callback: LoadCallback,
     destination: *mut u8,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *mut PltBlockStateSavepoint,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!destination.is_null(), "destination is a null pointer.");
-    let block_state = unsafe { &*block_state };
+    let block_state = unsafe { &mut *block_state };
     let hash = block_state.hash(&mut load_callback);
     unsafe {
         std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
@@ -74,10 +74,10 @@ extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
     blob_ref: blob_store::Reference,
 ) -> *mut PltBlockStateSavepoint {
-    match blob_store::Loadable::load_from_location(&mut load_callback, blob_ref) {
-        Ok(block_state) => Box::into_raw(Box::new(block_state)),
-        Err(_) => std::ptr::null_mut(),
-    }
+    // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    let block_state =
+        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
+    Box::into_raw(Box::new(block_state))
 }
 
 /// Store a PLT block state in the blob store.
