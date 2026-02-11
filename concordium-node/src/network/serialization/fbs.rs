@@ -242,30 +242,34 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
 }
 
 fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
+    println!("**** Deserializing response with timestamp: {}", root.timestamp());
+
     let response = root
         .payload_as_network_response()
         .context("missing network message payload (expected a response)")?;
 
     match response.variant() {
         network::ResponseVariant::Pong => {
+            println!("**** Deserialized a Pong response.");
             Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
 
-            //TODO: get these up from some kind of environment or config?
-            const MAX_ALLOWED_PEERS: usize = 1000; // The hard limit for safety
-            const DESIRED_GOOD_PEERS: usize = 50;
+            println!("**** Deserializing a PeerList response. Starting to parse peers...");
+
+            const MAX_ALLOWED_PEERS: usize = 5000; // The hard limit for safety
+            const DESIRED_GOOD_PEERS: usize = 2; //TODO: fine tune this number after local debugging
 
             if let Some(peers) = response
                 .payload_as_peer_list()
                 .and_then(|peers| peers.peers())
             {
-                let potential_size = min(peers.len(), MAX_ALLOWED_PEERS, DESIRED_GOOD_PEERS);
-                let mut list = Vec::with_capacity(potential_size);
-                let mut bad_list = Vec::new();
+                let potential_size = std::cmp::min(peers.len(), MAX_ALLOWED_PEERS);
+                let mut list = Vec::with_capacity(std::cmp::min(potential_size, DESIRED_GOOD_PEERS));
 
                 for i in 0..potential_size {
-                    if(list.len() >= DESIRED_GOOD_PEERS) {
+                    if list.len() >= DESIRED_GOOD_PEERS {
+                        println!("**** Reached the desired number of good peers ({}), stopping parsing the rest of the PeerList response.", DESIRED_GOOD_PEERS);
                         break;
                     }
 
@@ -287,12 +291,10 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                                 ip_variant => bail!("Unsupported IP variant {:?}", ip_variant),
                             }
                         } else {
-                            //bail!("missing peer ip in a PeerList response")
-                            bad_list.push(peer.id());
+                            bail!("missing peer ip in a PeerList response")
                         }
                     } else {
-                        //bail!("missing peer address in a PeerList response")
-                        bad_list.push(peer.id());
+                        bail!("missing peer address in a PeerList response")
                     };
 
                     let peer_type = match peer.variant() {
@@ -310,11 +312,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                     list.push(peer);
                 }
 
-                if list.len() < DESIRED_GOOD_PEERS && list.len() < peers.len() {
-                    // If we finished the loop but don't have enough
-                    bail!("Could not find enough valid peers. Found: {}, Desired: {}", list.len(), DESIRED_GOOD_PEERS);
-                }
-
                 Ok(NetworkPayload::NetworkResponse(NetworkResponse::PeerList(
                     list,
                 )))
@@ -322,7 +319,10 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                 bail!("missing peers in a PeerList response")
             }
         }
-        msg => bail!("Unsupported response variant {:?}", msg),
+        msg => {
+            println!("**** Unsupported response variant: {:?}", msg);
+            bail!("Unsupported response variant {:?}", msg)
+        }
     }
 }
 

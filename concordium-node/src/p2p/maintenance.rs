@@ -5,7 +5,7 @@ use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rand::{prelude::SliceRandom, thread_rng, Rng};
+use rand::{thread_rng, Rng, seq::index::sample};
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -874,18 +874,34 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             // Shuffle the peers we received try to discover more useful peers over time
             // and not get stuck continuously connecting to useless ones, and then dropping
             // connections.
-            peers.shuffle(&mut thread_rng());
+            //peers.shuffle(&mut thread_rng());
+
+            println!("==== Received {} new peers", peers.len());
+            // randomly sample the peers we received, given a list length, we want to sample up to desired_nodes_count peers
+            // with each connection attempt, we should be sampling randomly up to desired_nodes_count peers from the whole list
+            let mut rng = thread_rng();
+            let indices = sample(&mut rng, peers.len(), std::cmp::min(peers.len(), node.config.desired_nodes_count as usize));
+            println!("==== Sampled indices of peers to connect to: {:?}", indices);
+
+            let mut discovered_counter = 0;
 
             // Try to connect to each peer in turn.
             // If we are already connected to a peer, this will fail.
-            for peer in peers {
+            for i in indices {
                 if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
                     break;
                 }
 
+                println!("==== Trying to connect to peer with index {}", i);
+                let peer = peers.get(i).unwrap();
+
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
                 if let Err(e) = connect(node, PeerType::Node, peer.addr, Some(peer.id), true) {
-                    debug!("Could not connect to discovered peer {}", e);
+                    discovered_counter += 1;
+                    // Log every 10th failed connection attempt to a discovered peer to avoid spamming the logs in case of a large number of bad peers.
+                    if discovered_counter % 10 == 0 {
+                        debug!("Could not connect to discovered peer {}", e);
+                    }                       
                 } else {
                     new_peers += 1;
                 }
