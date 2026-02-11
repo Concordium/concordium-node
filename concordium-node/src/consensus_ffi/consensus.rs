@@ -55,7 +55,7 @@ pub struct BackgroundMessage {
     /// Shared pending semaphore counter for the peer that sent this message.
     ///
     /// - This atomicly tracks the number of pending background messages from the sending peer.
-    /// - When this message is processed, the counter is incremented 
+    /// - When this message is processed, the counter is incremented
     ///   to signal that a slot is freed for the peer to send another background message to this node.
     /// - It is used to share the queue capacity fairly among connected peers.
     semaphore_counter_of_sending_peer: Arc<AtomicU64>,

@@ -186,9 +186,8 @@ pub fn handle_pkt_out(
                             .received_consensus_messages
                             .with_label_values(&[packet_type.label(), "dropped"])
                             .inc();
-                        // FIXME: This is wrong - the queue is background, not low priority
-                        node.bad_events.inc_dropped_low_queue(peer_id);
-                        request.into_consensus_message(); // decrement the counter
+                        node.bad_events.inc_dropped_background_queue(peer_id);
+                        request.into_consensus_message(); // Increment the `pending_semaphore` counter for the sending peer again
                     }
                     TrySendError::Full(QueueMsg::Stop) => {
                         // Should not happen, as we are not sending Stop messages here.

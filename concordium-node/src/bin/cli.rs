@@ -421,7 +421,7 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
-            // Update size of queues
+            // Update size of queues in metrics
             node_ref
                 .stats
                 .inbound_low_priority_message_queue_size
@@ -487,7 +487,11 @@ fn start_consensus_message_threads(
             CALLBACK_QUEUE.inbound.receiver_background.lock().unwrap();
 
         loop {
-            // TODO: stats
+            // Update size of queues in metric
+            node_ref
+                .stats
+                .inbound_background_message_queue_size
+                .set(consensus_receiver_background.len() as i64);
             let Ok(message) = consensus_receiver_background.recv() else {
                 error!("Background consensus queue was disconnected unexpectedly.");
                 break;
@@ -529,7 +533,7 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
-            // Update size of queues
+            // Update size of queues in metrics
             node_ref
                 .stats
                 .outbound_low_priority_message_queue_size

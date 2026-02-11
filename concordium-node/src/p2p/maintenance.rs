@@ -214,6 +214,9 @@ pub struct BadEvents {
     /// Number of low priority messages that were dropped because they could not
     /// be enqueued.
     pub dropped_low_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    /// Number of background messages that were dropped because they could not
+    /// be enqueued.
+    pub dropped_background_queue: Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of invalid messages received from the given peer.
     pub invalid_messages: Mutex<HashMap<RemotePeerId, u64>>,
 }
@@ -232,6 +235,15 @@ impl BadEvents {
     /// dropped high priority messages for the peer.
     pub fn inc_dropped_low_queue(&self, peer_id: RemotePeerId) -> u64 {
         *lock_or_die!(self.dropped_low_queue)
+            .entry(peer_id)
+            .and_modify(|x| *x += 1)
+            .or_insert(1)
+    }
+
+    /// Register a new dropped value for the given peer and return the amount of
+    /// dropped background messages for the peer.
+    pub fn inc_dropped_background_queue(&self, peer_id: RemotePeerId) -> u64 {
+        *lock_or_die!(self.dropped_background_queue)
             .entry(peer_id)
             .and_modify(|x| *x += 1)
             .or_insert(1)
