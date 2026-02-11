@@ -242,7 +242,10 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
 }
 
 fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    println!("**** Deserializing response with timestamp: {}", root.timestamp());
+    println!(
+        "**** Deserializing response with timestamp: {}",
+        root.timestamp()
+    );
 
     let response = root
         .payload_as_network_response()
@@ -254,7 +257,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
             Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
-
             println!("**** Deserializing a PeerList response. Starting to parse peers...");
 
             const MAX_ALLOWED_PEERS: usize = 5000; // The hard limit for safety
@@ -265,7 +267,8 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                 .and_then(|peers| peers.peers())
             {
                 let potential_size = std::cmp::min(peers.len(), MAX_ALLOWED_PEERS);
-                let mut list = Vec::with_capacity(std::cmp::min(potential_size, DESIRED_GOOD_PEERS));
+                let mut list =
+                    Vec::with_capacity(std::cmp::min(potential_size, DESIRED_GOOD_PEERS));
 
                 for i in 0..potential_size {
                     if list.len() >= DESIRED_GOOD_PEERS {

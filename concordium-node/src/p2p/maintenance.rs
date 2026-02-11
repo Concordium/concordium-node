@@ -5,7 +5,7 @@ use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rand::{thread_rng, Rng, seq::index::sample};
+use rand::{seq::index::sample, thread_rng, Rng};
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -880,7 +880,11 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             // randomly sample the peers we received, given a list length, we want to sample up to desired_nodes_count peers
             // with each connection attempt, we should be sampling randomly up to desired_nodes_count peers from the whole list
             let mut rng = thread_rng();
-            let indices = sample(&mut rng, peers.len(), std::cmp::min(peers.len(), node.config.desired_nodes_count as usize));
+            let indices = sample(
+                &mut rng,
+                peers.len(),
+                std::cmp::min(peers.len(), node.config.desired_nodes_count as usize),
+            );
             println!("==== Sampled indices of peers to connect to: {:?}", indices);
 
             let mut discovered_counter = 0;
@@ -901,7 +905,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     // Log every 10th failed connection attempt to a discovered peer to avoid spamming the logs in case of a large number of bad peers.
                     if discovered_counter % 10 == 0 {
                         debug!("Could not connect to discovered peer {}", e);
-                    }                       
+                    }
                 } else {
                     new_peers += 1;
                 }
