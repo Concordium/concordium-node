@@ -865,7 +865,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 }
             }
         }
-        ConnChange::NewPeers(mut peers) => {
+        ConnChange::NewPeers(peers) => {
             let mut new_peers = 0;
             let current_peers = node.get_peer_stats(Some(PeerType::Node));
 
