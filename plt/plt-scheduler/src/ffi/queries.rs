@@ -15,6 +15,7 @@ use crate::ffi::block_state_callbacks::{
     GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
     GetTokenAccountStatesCallback, ReadTokenAccountBalanceCallback,
 };
+use crate::ffi::memory;
 use crate::queries;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
@@ -138,21 +139,13 @@ extern "C" fn ffi_query_plt_list(
 
     let token_ids = queries::plt_list(&block_state);
 
-    let mut return_data = common::to_bytes(&token_ids);
+    let return_data = common::to_bytes(&token_ids);
 
-    // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
-    return_data.shrink_to_fit();
-    // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(
-        return_data.capacity(),
-        return_data.len(),
-        "vec capacity not equal to length after call to shrink_to_fit"
-    );
+    let array = memory::alloc_array_from_vec(return_data);
     unsafe {
-        *return_data_len_out = return_data.len() as size_t;
-        *return_data_out = return_data.as_mut_ptr();
+        *return_data_len_out = array.length;
+        *return_data_out = array.array;
     }
-    std::mem::forget(return_data);
 
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     0

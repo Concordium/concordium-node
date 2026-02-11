@@ -18,6 +18,7 @@ use crate::ffi::block_state_callbacks::{
     GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
     ReadTokenAccountBalanceCallback, UpdateTokenAccountBalanceCallback,
 };
+use crate::ffi::memory;
 use crate::scheduler;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
@@ -242,7 +243,7 @@ extern "C" fn ffi_execute_transaction(
         *used_energy_out = summary.energy_used.energy;
     }
 
-    let (return_status, mut return_data) = match summary.outcome {
+    let (return_status, return_data) = match summary.outcome {
         TransactionOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
@@ -253,19 +254,11 @@ extern "C" fn ffi_execute_transaction(
         TransactionOutcome::Rejected(reject_reason) => (1, common::to_bytes(&reject_reason)),
     };
 
-    // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
-    return_data.shrink_to_fit();
-    // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(
-        return_data.capacity(),
-        return_data.len(),
-        "vec capacity not equal to length after call to shrink_to_fit"
-    );
+    let array = memory::alloc_array_from_vec(return_data);
     unsafe {
-        *return_data_len_out = return_data.len() as size_t;
-        *return_data_out = return_data.as_mut_ptr();
+        *return_data_len_out = array.length;
+        *return_data_out = array.array;
     }
-    std::mem::forget(return_data);
 
     return_status
 }
@@ -360,7 +353,7 @@ extern "C" fn ffi_execute_chain_update(
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let outcome = result.unwrap();
 
-    let (return_status, mut return_data) = match outcome {
+    let (return_status, return_data) = match outcome {
         ChainUpdateOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
@@ -371,19 +364,11 @@ extern "C" fn ffi_execute_chain_update(
         ChainUpdateOutcome::Failed(failure_kind) => (1, common::to_bytes(&failure_kind)),
     };
 
-    // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
-    return_data.shrink_to_fit();
-    // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(
-        return_data.capacity(),
-        return_data.len(),
-        "vec capacity not equal to length after call to shrink_to_fit"
-    );
+    let array = memory::alloc_array_from_vec(return_data);
     unsafe {
-        *return_data_len_out = return_data.len() as size_t;
-        *return_data_out = return_data.as_mut_ptr();
+        *return_data_len_out = array.length;
+        *return_data_out = array.array;
     }
-    std::mem::forget(return_data);
 
     return_status
 }
