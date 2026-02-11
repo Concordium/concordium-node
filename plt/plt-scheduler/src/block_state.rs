@@ -53,14 +53,14 @@ impl PltBlockStateSavepoint {
     }
 
     /// Store a PLT block state in a blob store.
-    pub fn store_update(&mut self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
+    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
         // todo
         storer.store_raw(&[])
     }
 
     /// Migrate the PLT block state from one blob store to another.
     pub fn migrate(
-        &mut self,
+        &self,
         _loader: &mut impl BackingStoreLoad,
         _storer: &mut impl BackingStoreStore,
     ) -> Self {
@@ -68,7 +68,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Cache the block state in memory.
-    pub fn cache(&mut self, _loader: &mut impl BackingStoreLoad) {
+    pub fn cache(&self, _loader: &mut impl BackingStoreLoad) {
         todo!()
     }
 
