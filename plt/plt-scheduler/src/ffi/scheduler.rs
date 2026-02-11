@@ -1,4 +1,4 @@
-//! This module provides a C ABI for the Rust PLT scheduler functions.
+//! This module provides a C ABI for the Rust PLT scheduler query functions.
 //!
 //! It is only available if the `ffi` feature is enabled.
 
@@ -7,7 +7,10 @@ use crate::block_state::external::{
     IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
 };
 use crate::block_state::types::{TokenAccountState, TokenIndex};
-use crate::block_state::{ExecutionTimePltBlockState, ExternalBlockState, PltBlockStateSavepoint};
+use crate::block_state::{
+    ExecutionTimePltBlockState, ExternalBlockStateOperations, ExternalBlockStateQuery,
+    PltBlockStateSavepoint,
+};
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::ffi::blob_store_callbacks::LoadCallback;
 use crate::ffi::block_state_callbacks::{
@@ -102,7 +105,9 @@ impl GetTokenAccountStates for ExternalBlockStateCallbacks {
     }
 }
 
-impl ExternalBlockState for ExternalBlockStateCallbacks {}
+impl ExternalBlockStateQuery for ExternalBlockStateCallbacks {}
+
+impl ExternalBlockStateOperations for ExternalBlockStateCallbacks {}
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///
@@ -121,7 +126,7 @@ impl ExternalBlockState for ExternalBlockStateCallbacks {}
 /// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
 /// - `get_account_index_by_address_callback` External function for getting account index by account address.
 /// - `get_token_account_states_callback` External function for getting token account states.
-/// - `block_state` Unique pointer to a block state to mutate during execution.
+/// - `block_state` Pointer to a block state to use as input state to execution.
 /// - `payload` Pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
@@ -138,7 +143,7 @@ impl ExternalBlockState for ExternalBlockStateCallbacks {}
 ///
 /// # Safety
 ///
-/// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::PltBlockState`].
+/// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::PltBlockStateSavepoint`].
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
 /// - Argument `block_state_out` must be a non-null and valid pointer for writing
@@ -197,7 +202,7 @@ extern "C" fn ffi_execute_transaction(
         get_token_account_states: get_token_account_states_callback,
     };
 
-    let mut block_state = ExecutionTimePltBlockState::<_, ExternalBlockStateCallbacks> {
+    let mut block_state = ExecutionTimePltBlockState {
         inner_block_state: unsafe { (*block_state).mutable_state() },
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
@@ -282,7 +287,7 @@ extern "C" fn ffi_execute_transaction(
 /// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
 /// - `get_account_index_by_address_callback` External function for getting account index by account address.
 /// - `get_token_account_states_callback` External function for getting token account states.
-/// - `block_state` Unique pointer to a block state to mutate during execution.
+/// - `block_state` Pointer to a block state to use as input state to execution.
 /// - `payload` Pointer to chain update payload bytes.
 /// - `payload_len` Byte length of chain update payload.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
@@ -295,7 +300,7 @@ extern "C" fn ffi_execute_transaction(
 ///
 /// # Safety
 ///
-/// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::PltBlockState`].
+/// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::PltBlockStateSavepoint`].
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `block_state_out` must be a non-null and valid pointer for writing
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
@@ -340,7 +345,7 @@ extern "C" fn ffi_execute_chain_update(
         get_token_account_states: get_token_account_states_callback,
     };
 
-    let mut block_state = ExecutionTimePltBlockState::<_, ExternalBlockStateCallbacks> {
+    let mut block_state = ExecutionTimePltBlockState {
         inner_block_state: unsafe { (*block_state).mutable_state() },
         backing_store_load: load_callback,
         external_block_state: external_callbacks,

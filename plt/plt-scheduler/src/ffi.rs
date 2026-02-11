@@ -6,4 +6,5 @@ mod blob_store_callbacks;
 mod block_state;
 mod block_state_callbacks;
 mod memory;
+mod queries;
 mod scheduler;

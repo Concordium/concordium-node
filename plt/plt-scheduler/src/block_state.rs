@@ -128,33 +128,54 @@ impl PltBlockState {
 }
 
 /// Runtime/execution state relevant for providing an implementation of
-/// [`BlockStateOperations`].
+/// [`BlockStateQuery`] and [`BlockStateOperations`].
 ///
 /// In addition to the PLT block state, this type contains callbacks
 /// for the parts of the state that is managed on the Haskell side.
 #[derive(Debug)]
-pub struct ExecutionTimePltBlockState<L, T> {
+pub struct ExecutionTimePltBlockState<IntState, Load, ExtState> {
     /// The library block state implementation.
-    pub inner_block_state: PltBlockState,
+    pub inner_block_state: IntState,
     /// External function for reading from the blob store.
-    pub backing_store_load: L,
+    pub backing_store_load: Load,
     /// Part of block state that is managed externally.
-    pub external_block_state: T,
+    pub external_block_state: ExtState,
 }
 
-/// Type definition for calls to externally managed parts of the block state.
-pub trait ExternalBlockState:
+/// Type definition for queries to externally managed parts of the block state.
+pub trait ExternalBlockStateQuery:
     ReadTokenAccountBalance
-    + UpdateTokenAccountBalance
-    + IncrementPltUpdateSequenceNumber
     + GetCanonicalAddressByAccountIndex
     + GetAccountIndexByAddress
     + GetTokenAccountStates
 {
 }
 
-impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
-    for ExecutionTimePltBlockState<L, T>
+/// Type definition for operations to externally managed parts of the block state.
+pub trait ExternalBlockStateOperations:
+    ExternalBlockStateQuery + UpdateTokenAccountBalance + IncrementPltUpdateSequenceNumber
+{
+}
+
+/// Provides access needed for querying block state (but not to do operations on the block state).
+trait HasQueryableBlockState {
+    fn block_state(&self) -> &SimplisticPltBlockState;
+}
+
+impl HasQueryableBlockState for PltBlockState {
+    fn block_state(&self) -> &SimplisticPltBlockState {
+        &self.state
+    }
+}
+
+impl HasQueryableBlockState for &PltBlockStateSavepoint {
+    fn block_state(&self) -> &SimplisticPltBlockState {
+        &self.block_state.state
+    }
+}
+
+impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
+    BlockStateQuery for ExecutionTimePltBlockState<IntState, Load, ExtState>
 {
     type TokenKeyValueState = SimplisticTokenKeyValueState;
     type Account = AccountIndex;
@@ -162,7 +183,7 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
         self.inner_block_state
-            .state
+            .block_state()
             .tokens
             .iter()
             .map(|token| token.configuration.token_id.clone())
@@ -170,7 +191,7 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
         self.inner_block_state
-            .state
+            .block_state()
             .tokens
             .iter()
             .enumerate()
@@ -190,13 +211,13 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
     }
 
     fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
-        self.inner_block_state.state.tokens[token.0 as usize]
+        self.inner_block_state.block_state().tokens[token.0 as usize]
             .key_value_state
             .clone()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        let configuration = self.inner_block_state.state.tokens[token.0 as usize]
+        let configuration = self.inner_block_state.block_state().tokens[token.0 as usize]
             .configuration
             .clone();
 
@@ -208,7 +229,7 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        self.inner_block_state.state.tokens[token.0 as usize].circulating_supply
+        self.inner_block_state.block_state().tokens[token.0 as usize].circulating_supply
     }
 
     fn lookup_token_state_value(
@@ -280,8 +301,8 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
     }
 }
 
-impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateOperations
-    for ExecutionTimePltBlockState<L, T>
+impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
+    for ExecutionTimePltBlockState<PltBlockState, Load, ExtState>
 {
     fn set_token_circulating_supply(
         &mut self,

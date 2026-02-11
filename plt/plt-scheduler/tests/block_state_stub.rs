@@ -21,7 +21,8 @@ use plt_scheduler::block_state::external::{
 };
 use plt_scheduler::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use plt_scheduler::block_state::{
-    ExecutionTimePltBlockState, ExternalBlockState, PltBlockState, PltBlockStateSavepoint,
+    ExecutionTimePltBlockState, ExternalBlockStateOperations, ExternalBlockStateQuery,
+    PltBlockState, PltBlockStateSavepoint,
 };
 use plt_scheduler::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -48,7 +49,7 @@ impl BackingStoreLoad for BlobStoreLoadStub {
 }
 
 type ExecutionTimePltBlockStateWithExternalStateStubbed =
-    ExecutionTimePltBlockState<BlobStoreLoadStub, ExternalBlockStateStub>;
+    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
 type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
@@ -367,7 +368,9 @@ impl GetTokenAccountStates for ExternalBlockStateStub {
     }
 }
 
-impl ExternalBlockState for ExternalBlockStateStub {}
+impl ExternalBlockStateQuery for ExternalBlockStateStub {}
+
+impl ExternalBlockStateOperations for ExternalBlockStateStub {}
 
 /// Test looking up account by alias.
 #[test]
