@@ -48,14 +48,15 @@ pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
 /// A background message that can be processed without acquiring the global block state lock.
 /// Currently, these are primarily catch-up messages.
 ///
-/// These messages are intended for non-blocking processing to avoid stalling the high/low priority threads?.
+/// These messages are intended for non-blocking processing to avoid stalling the high/low priority threads.
 pub struct BackgroundMessage {
     /// The consensus message.
     message: ConsensusMessage,
     /// Shared pending semaphore counter for the peer that sent this message.
     ///
-    /// - This atomicly tracks the number of pending background messages from the sending peer.
-    /// - When this message is processed, the counter is incremented
+    /// - This counter atomically tracks how many of the `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER`
+    ///   slots are currently still available for a given sending peer.
+    /// - When above message is processed, the counter is incremented
     ///   to signal that a slot is freed for the peer to send another background message to this node.
     /// - It is used to share the queue capacity fairly among connected peers.
     semaphore_counter_of_sending_peer: Arc<AtomicU64>,

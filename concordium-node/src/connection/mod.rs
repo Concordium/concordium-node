@@ -45,6 +45,8 @@ use std::{
     },
 };
 
+pub const MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER: u64 = 10;
+
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back.
@@ -384,11 +386,11 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
-    /// Semaphore for pending catch-up messages.
+    /// Semaphore for pending catch-up messages in background queue.
     /// When this semaphore reaches 0, any new catch-up requests from this peer
     /// will no longer be added to the node's background queue but instead ignored.
     /// This prevents a single peer from disproportionately filling up the background queue.
-    pub pending_semaphore: Arc<AtomicU64>,
+    pub pending_background_messages_semaphore: Arc<AtomicU64>,
 }
 
 impl PartialEq for Connection {
@@ -449,7 +451,9 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
-            pending_semaphore: Arc::new(AtomicU64::new(10)), // FIXME: magic number
+            pending_background_messages_semaphore: Arc::new(AtomicU64::new(
+                MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER,
+            )),
         })
     }
 

@@ -113,7 +113,7 @@ pub fn handle_pkt_out(
     peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
     is_broadcast: bool,
-    pending_semaphore: &Arc<AtomicU64>,
+    pending_background_messages_semaphore: &Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
     let (consensus_type_bytes, payload) = msg
         .split_at_checked(1)
@@ -162,7 +162,7 @@ pub fn handle_pkt_out(
             }
         }
         PacketType::CatchUpStatus => {
-            if pending_semaphore
+            if pending_background_messages_semaphore
                 .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
                     if count == 0 {
                         None
@@ -172,11 +172,15 @@ pub fn handle_pkt_out(
                 })
                 .is_err()
             {
-                debug!("Dropping catch-up request from peer `{}` as it exceeded its `pending_semaphore` value", peer_id);
+                // Ignore cath-up requests if peer already sent more than
+                // `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER` messages
+                // that are still pending to be progressed.
+                debug!("Dropping catch-up request from peer `{}` as it exceeded its `pending_background_messages_semaphore` value", peer_id);
                 return Ok(());
             }
 
-            let request = BackgroundMessage::new(request, Arc::clone(pending_semaphore));
+            let request =
+                BackgroundMessage::new(request, Arc::clone(pending_background_messages_semaphore));
             // Handle catch-up status as a background message, since it
             // does not require the consensus lock.
             if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
@@ -187,7 +191,7 @@ pub fn handle_pkt_out(
                             .with_label_values(&[packet_type.label(), "dropped"])
                             .inc();
                         node.bad_events.inc_dropped_background_queue(peer_id);
-                        request.into_consensus_message(); // Increment the `pending_semaphore` counter for the sending peer again
+                        request.into_consensus_message(); // Increment the `pending_background_messages_semaphore` counter for the sending peer again
                     }
                     TrySendError::Full(QueueMsg::Stop) => {
                         // Should not happen, as we are not sending Stop messages here.
