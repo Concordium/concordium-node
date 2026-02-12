@@ -65,7 +65,10 @@ impl Connection {
                 match self.handler.get_peers_request_semaphore.try_acquire() { 
                     Ok(permit) => { 
                         println!("***** Processing PeerList from peer {} with {} peers", peer_id, peers.len());
-                        // semaphore acquired, process the peer list
+                        // semaphore acquired, process the peer list 
+                        // and set the semaphore to 0 to indicate we don't want a peer list until we send another GetPeers request drop(permit);
+                        permit.forget();
+                        
                         self.handler
                             .register_conn_change(ConnChange::NewPeers(peers));
                         Ok(())
