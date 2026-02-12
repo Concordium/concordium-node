@@ -873,12 +873,12 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
 
             // Try to connect to each peer in turn.
             // If we are already connected to a peer, this will fail.
+            let mut rng = rand::thread_rng();
             while !peers.is_empty() {
                 if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
                     break;
                 }
 
-                let mut rng = rand::thread_rng();
                 let peer = peers.swap_remove(rng.gen_range(0..peers.len()));
 
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
