@@ -5,7 +5,7 @@ use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rand::{prelude::SliceRandom, thread_rng, Rng};
+use rand::Rng;
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -871,21 +871,19 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
 
             let curr_peer_count = current_peers.len();
 
-            // Shuffle the peers we received try to discover more useful peers over time
-            // and not get stuck continuously connecting to useless ones, and then dropping
-            // connections.
-            peers.shuffle(&mut thread_rng());
-
             // Try to connect to each peer in turn.
             // If we are already connected to a peer, this will fail.
-            for peer in peers {
+            let mut rng = rand::thread_rng();
+            while !peers.is_empty() {
                 if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
                     break;
                 }
 
+                let peer = peers.swap_remove(rng.gen_range(0..peers.len()));
+
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
                 if let Err(e) = connect(node, PeerType::Node, peer.addr, Some(peer.id), true) {
-                    debug!("Could not connect to discovered peer {}", e);
+                    trace!("Could not connect to discovered peer {}", e);
                 } else {
                     new_peers += 1;
                 }
