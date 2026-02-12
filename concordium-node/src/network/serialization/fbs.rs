@@ -29,7 +29,7 @@ use std::{
 /// even if the new fields are not understood, but a warning will be emitted.
 pub const HANDSHAKE_MESSAGE_VERSION: u8 = 0;
 
-const PEER_LIST_LIMIT: usize = 1000; // The hard limit for safety
+pub const PEER_LIST_LIMIT: usize = 1000; // The hard limit for safety
 
 impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available

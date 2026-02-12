@@ -45,6 +45,8 @@ use std::{
     },
 };
 
+use crate::network::serialization::fbs::PEER_LIST_LIMIT;
+
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back.
@@ -713,6 +715,7 @@ impl Connection {
                     )
                     .iter()
                     .filter_map(RemotePeer::peer)
+                    .take(PEER_LIST_LIMIT)
                     .collect::<Vec<_>>();
 
                 if !random_nodes.is_empty()
