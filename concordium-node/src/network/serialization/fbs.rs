@@ -242,7 +242,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
 }
 
 fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-
     let response = root
         .payload_as_network_response()
         .context("missing network message payload (expected a response)")?;
@@ -262,7 +261,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                 let mut list = Vec::with_capacity(potential_size);
 
                 for i in 0..potential_size {
-
                     let peer = peers.get(i);
 
                     let addr = if let Some(addr) = peer.addr() {
