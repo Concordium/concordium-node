@@ -253,7 +253,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
             Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
-
             if let Some(peers) = response
                 .payload_as_peer_list()
                 .and_then(|peers| peers.peers())
