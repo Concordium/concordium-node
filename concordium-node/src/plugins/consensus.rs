@@ -106,6 +106,30 @@ pub fn get_baker_data(
     Ok((genesis_data, private_data))
 }
 
+/// Returns true if the message is a catch-up response message.
+pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Result<bool> {
+    if request.variant != PacketType::CatchUpStatus {
+        return Ok(false);
+    }
+
+    let (discriminator, _payload) = request
+        .payload
+        .split_at_checked(7)
+        .context("Catch-up message payload should have at least 2 bytes")?;
+
+    let version = discriminator[5];
+    let tag = discriminator[6];
+
+    // Enforce valid version
+    if version != 0 && version != 1 {
+        anyhow::bail!("Invalid catch-up message version: {}, tag: {}, variant: {}, payload:{:?},discremin:{:?},_rest:{:?}", version,tag,request.variant, request
+        .payload,discriminator,_payload);
+    }
+
+    // Tag 2 or 3 indicates a response in the serialization.
+    Ok(tag == 2 || tag == 3)
+}
+
 /// Handles packets coming from other peers.
 pub fn handle_pkt_out(
     node: &P2PNode,
@@ -175,30 +199,69 @@ pub fn handle_pkt_out(
                 // Ignore cath-up requests if peer already sent more than
                 // `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER` messages
                 // that are still pending to be progressed.
-                debug!("Dropping catch-up request from peer `{}` as it exceeded its `pending_background_messages_semaphore` value", peer_id);
+                debug!("Dropping catch-up request from peer `{:?}` as it exceeded its `pending_background_messages_semaphore` value", peer_id);
                 return Ok(());
             }
 
-            let request =
-                BackgroundMessage::new(request, Arc::clone(pending_background_messages_semaphore));
-            // Handle catch-up status as a background message, since it
-            // does not require the consensus lock.
-            if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
-                match e.downcast::<TrySendError<QueueMsg<BackgroundMessage>>>()? {
-                    TrySendError::Full(QueueMsg::Relay(request)) => {
-                        node.stats
-                            .received_consensus_messages
-                            .with_label_values(&[packet_type.label(), "dropped"])
-                            .inc();
-                        node.bad_events.inc_dropped_background_queue(peer_id);
-                        request.into_consensus_message(); // Increment the `pending_background_messages_semaphore` counter for the sending peer again
+            if is_catch_up_response_message(&request)? {
+                // If we have catch-up response message put it in the high-priority queue.
+
+                // Check that we are catching-up with this peer (otherwise, banning peer for breach of protocol)
+
+                // TODO: Not reliablely working -> should we really soft-ban.
+                // let source = request.source_peer();
+                // let catch_up_peer = read_or_die!(node.peers).catch_up_peer;
+                // if catch_up_peer != Some(source) {
+                //     // Soft-banning peer
+                //     return Err(anyhow!(
+                //         "Got unsolicited catch-up response message from peer {:?}.
+                //     Currently catching up with peer instead `{:?}`",
+                //         source,
+                //         catch_up_peer
+                //     ));
+                // }
+
+                // Send responses if previously requested into high priority queue
+                if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
+                    match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                        TrySendError::Full(_) => {
+                            node.stats
+                                .received_consensus_messages
+                                .with_label_values(&[packet_type.label(), "dropped"])
+                                .inc();
+
+                            node.bad_events.inc_dropped_high_queue(peer_id);
+                        }
+                        TrySendError::Disconnected(_) => {
+                            panic!("High priority consensus queue has been shutdown!")
+                        }
                     }
-                    TrySendError::Full(QueueMsg::Stop) => {
-                        // Should not happen, as we are not sending Stop messages here.
-                        unreachable!();
-                    }
-                    TrySendError::Disconnected(_) => {
-                        panic!("Background consensus queue has been shutdown!")
+                }
+            } else {
+                let request = BackgroundMessage::new(
+                    request,
+                    Arc::clone(pending_background_messages_semaphore),
+                );
+
+                // Handle catch-up status as a background message, since it
+                // does not require the consensus lock.
+                if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
+                    match e.downcast::<TrySendError<QueueMsg<BackgroundMessage>>>()? {
+                        TrySendError::Full(QueueMsg::Relay(request)) => {
+                            node.stats
+                                .received_consensus_messages
+                                .with_label_values(&[packet_type.label(), "dropped"])
+                                .inc();
+                            node.bad_events.inc_dropped_background_queue(peer_id);
+                            request.into_consensus_message(); // Increment the `pending_background_messages_semaphore` counter for the sending peer again
+                        }
+                        TrySendError::Full(QueueMsg::Stop) => {
+                            // Should not happen, as we are not sending Stop messages here.
+                            unreachable!();
+                        }
+                        TrySendError::Disconnected(_) => {
+                            panic!("Background consensus queue has been shutdown!")
+                        }
                     }
                 }
             }
