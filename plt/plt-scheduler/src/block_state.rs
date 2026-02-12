@@ -62,7 +62,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Store a PLT block state in a blob store.
-    pub fn store_update(&mut self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
+    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let block_state_bytes = common::to_bytes(&self.block_state.state);
         storer.store_raw(&block_state_bytes)
@@ -70,7 +70,7 @@ impl PltBlockStateSavepoint {
 
     /// Migrate the PLT block state from one blob store to another.
     pub fn migrate(
-        &mut self,
+        &self,
         _loader: &mut impl BackingStoreLoad,
         _storer: &mut impl BackingStoreStore,
     ) -> Self {
@@ -79,7 +79,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Cache the block state in memory.
-    pub fn cache(&mut self, _loader: &mut impl BackingStoreLoad) {
+    pub fn cache(&self, _loader: &mut impl BackingStoreLoad) {
         // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
     }
 
@@ -135,7 +135,7 @@ impl PltBlockState {
 #[derive(Debug)]
 pub struct ExecutionTimePltBlockState<IntState, Load, ExtState> {
     /// The library block state implementation.
-    pub inner_block_state: IntState,
+    pub internal_block_state: IntState,
     /// External function for reading from the blob store.
     pub backing_store_load: Load,
     /// Part of block state that is managed externally.
@@ -182,7 +182,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
-        self.inner_block_state
+        self.internal_block_state
             .block_state()
             .tokens
             .iter()
@@ -190,7 +190,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
-        self.inner_block_state
+        self.internal_block_state
             .block_state()
             .tokens
             .iter()
@@ -211,13 +211,13 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     }
 
     fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
-        self.inner_block_state.block_state().tokens[token.0 as usize]
+        self.internal_block_state.block_state().tokens[token.0 as usize]
             .key_value_state
             .clone()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        let configuration = self.inner_block_state.block_state().tokens[token.0 as usize]
+        let configuration = self.internal_block_state.block_state().tokens[token.0 as usize]
             .configuration
             .clone();
 
@@ -229,7 +229,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        self.inner_block_state.block_state().tokens[token.0 as usize].circulating_supply
+        self.internal_block_state.block_state().tokens[token.0 as usize].circulating_supply
     }
 
     fn lookup_token_state_value(
@@ -309,18 +309,18 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        self.inner_block_state.state.tokens[token.0 as usize].circulating_supply =
+        self.internal_block_state.state.tokens[token.0 as usize].circulating_supply =
             circulating_supply;
     }
 
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        let token_index = TokenIndex(self.inner_block_state.state.tokens.len() as u64);
+        let token_index = TokenIndex(self.internal_block_state.state.tokens.len() as u64);
         let token = Token {
             key_value_state: Default::default(),
             configuration,
             circulating_supply: Default::default(),
         };
-        self.inner_block_state.state.tokens.push(token);
+        self.internal_block_state.state.tokens.push(token);
         token_index
     }
 
@@ -344,7 +344,7 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
         token: &Self::Token,
         token_key_value_state: Self::TokenKeyValueState,
     ) {
-        self.inner_block_state.state.tokens[token.0 as usize].key_value_state =
+        self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
             token_key_value_state;
     }
 }

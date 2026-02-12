@@ -74,10 +74,10 @@ extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
     blob_ref: blob_store::Reference,
 ) -> *mut PltBlockStateSavepoint {
-    match blob_store::Loadable::load_from_location(&mut load_callback, blob_ref) {
-        Ok(block_state) => Box::into_raw(Box::new(block_state)),
-        Err(_) => std::ptr::null_mut(),
-    }
+    // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    let block_state =
+        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
+    Box::into_raw(Box::new(block_state))
 }
 
 /// Store a PLT block state in the blob store.
@@ -94,10 +94,10 @@ extern "C" fn ffi_load_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
-    block_state: *mut PltBlockStateSavepoint,
+    block_state: *const PltBlockStateSavepoint,
 ) -> blob_store::Reference {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &mut *block_state };
+    let block_state = unsafe { &*block_state };
     block_state.store_update(&mut store_callback)
 }
 
@@ -117,10 +117,10 @@ extern "C" fn ffi_store_plt_block_state(
 extern "C" fn ffi_migrate_plt_block_state(
     mut load_callback: LoadCallback,
     mut store_callback: StoreCallback,
-    block_state: *mut PltBlockStateSavepoint,
+    block_state: *const PltBlockStateSavepoint,
 ) -> *mut PltBlockStateSavepoint {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &mut *block_state };
+    let block_state = unsafe { &*block_state };
     let new_block_state = block_state.migrate(&mut load_callback, &mut store_callback);
     Box::into_raw(Box::new(new_block_state))
 }
@@ -138,9 +138,9 @@ extern "C" fn ffi_migrate_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_cache_plt_block_state(
     mut load_callback: LoadCallback,
-    block_state: *mut PltBlockStateSavepoint,
+    block_state: *const PltBlockStateSavepoint,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &mut *block_state };
+    let block_state = unsafe { &*block_state };
     block_state.cache(&mut load_callback)
 }

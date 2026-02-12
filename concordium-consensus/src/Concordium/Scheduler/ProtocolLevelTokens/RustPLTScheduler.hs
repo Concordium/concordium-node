@@ -1,8 +1,8 @@
--- |
--- Bindings into the @plt-scheduler@ Rust library exposing safe wrappers.
+-- | Bindings into the Rust PLT Scheduler library. The module contains bindings to execute the payload of block items (currently for protocol-level tokens only).
+-- Notice that block item headers are handled outside of the Rust PLT Scheduler.
 --
--- Each foreign imported function must match the signature of functions found in @plt-scheduler/src/ffi.rs@.
-module Concordium.PLTScheduler (
+-- Each foreign imported function must match the signature of functions found on the Rust side.
+module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeTransaction,
     executeChainUpdate,
     TransactionExecutionSummary (..),
@@ -30,9 +30,9 @@ import qualified Foreign.C.Types as FFI
 
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
-import qualified Concordium.PLTScheduler.PLTBlockState as PLTBlockState
-import Concordium.PLTScheduler.PLTBlockStateCallbacks
-import qualified Concordium.PLTScheduler.PLTMemory as Memory
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
+import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Execution as Types
 import qualified Concordium.Utils.Serialization as CS

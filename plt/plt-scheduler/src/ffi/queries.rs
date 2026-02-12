@@ -111,7 +111,7 @@ extern "C" fn ffi_query_plt_list(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
-    return_data_out: *mut *const u8,
+    return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
@@ -131,8 +131,9 @@ extern "C" fn ffi_query_plt_list(
         get_token_account_states: get_token_account_states_callback,
     };
 
+    let internal_block_state = unsafe { &*block_state };
     let block_state = ExecutionTimePltBlockState {
-        inner_block_state: unsafe { &*block_state },
+        internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
     };
