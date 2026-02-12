@@ -447,11 +447,7 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
                         TokenUpdate{..} ->
-                            onlyWithPLT $
-                                case sPltStateVersionFor (protocolVersion @(MPV m)) of
-                                    SPLTStateV0 -> handleTokenUpdateHaskellManaged (mkWTC TTTokenUpdate) tuTokenId tuOperations
-                                    -- todo implement as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
-                                    SPLTStateV1 -> undefined
+                            onlyWithPLT $ handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2670,6 +2666,23 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         return (TxSuccess [CredentialKeysUpdated cid])
 
 -- | Handler for a token update transaction.
+handleTokenUpdate ::
+    forall m.
+    ( PVSupportsPLT (MPV m),
+      SchedulerMonad m
+    ) =>
+    WithDepositContext m ->
+    -- | Token symbol identifying the token to receive the operations.
+    TokenId ->
+    -- | Operations for the token.
+    TokenParameter ->
+    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+handleTokenUpdate depositContext tokenId tokenOperations = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateV0 -> handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations
+    -- todo implement as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
+    SPLTStateV1 -> undefined
+
+-- | Handler for a token update transaction, for protocol version where PLT state is managed in Haskell.
 handleTokenUpdateHaskellManaged ::
     forall m.
     ( PVSupportsHaskellManagedPLT (MPV m),
@@ -2832,13 +2845,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     STrue ->
                                         checkSigThen $
-                                            case sPltStateVersionFor (protocolVersion @(MPV m)) of
-                                                SPLTStateV0 ->
-                                                    handleCreatePLTHaskellManaged uiHeader payload >>= \case
-                                                        Left invalidReason -> return $ TxInvalid invalidReason
-                                                        Right valid -> buildValidTxSummary' valid
-                                                -- todo implement as part of https://linear.app/concordium/issue/PSR-14/dispatch-createplt-chain-updates-to-rust-plt-scheduler
-                                                SPLTStateV1 -> undefined
+                                            handleCreatePLT uiHeader payload >>= \case
+                                                Left invalidReason -> return $ TxInvalid invalidReason
+                                                Right valid -> buildValidTxSummary' valid
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
@@ -2891,6 +2900,18 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
     cHasSponsorDetails = (sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m))))
 
 -- | Handler for processing chain update creating a new protocol level token.
+-- It is assumed that the signatures have already been checked.
+--
+-- Unlike the other chain updates there is no support for queuing the update and the effective time
+-- is required to be zero.
+handleCreatePLT :: forall m. (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
+handleCreatePLT updateHeader payload = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateV0 ->
+        handleCreatePLTHaskellManaged updateHeader payload
+    -- todo implement as part of https://linear.app/concordium/issue/PSR-14/dispatch-createplt-chain-updates-to-rust-plt-scheduler
+    SPLTStateV1 -> undefined
+
+-- | Handler for processing chain update creating a new protocol level token, for protocol version where PLT state is managed in Haskell.
 -- It is assumed that the signatures have already been checked.
 --
 -- Unlike the other chain updates there is no support for queuing the update and the effective time
