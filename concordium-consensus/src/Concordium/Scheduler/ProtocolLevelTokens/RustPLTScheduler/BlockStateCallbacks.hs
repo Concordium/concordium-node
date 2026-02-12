@@ -2,7 +2,7 @@
 
 -- | Bindings for calling back from the Rust PLT Scheduler to the Haskell mainained part of the block state.
 --
--- Each foreign imported function must match the signature of functions found on the Rust side.
+-- Each foreign function definition must match the definitions of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks (
     ReadTokenAccountBalance,
     ReadTokenAccountBalanceCallbackPtr,

@@ -567,7 +567,7 @@ instance MonadTrans (KernelT fail ret) where
 -- | The block state types for `KernelT fail ret m` are derived from the base monad `m`.
 deriving via (MGSTrans (KernelT fail ret) m) instance BlockStateTypes (KernelT fail ret m)
 
-instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
+instance (BS.BlockStateOperations m, PVSupportsHaskellManagedPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
     type PLTAccount (KernelT fail ret m) = (AccountIndex, AccountAddress)
     getTokenState key = do
         mutableState <- asks _pltecMutableState
@@ -603,7 +603,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
         lift $ BS.getTokenCirculatingSupply bs tokenIx
     getDecimals = asks (_pltDecimals . _pltecConfiguration)
 
-instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
+instance (BS.BlockStateOperations m, PVSupportsHaskellManagedPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
     setTokenState key mValue = do
         plteStateIsDirty .= True
         mutableState <- asks _pltecMutableState
@@ -663,7 +663,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
                 plteBlockState .= bs1
                 return True
 
-instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
+instance (BS.BlockStateOperations m, PVSupportsHaskellManagedPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
     mint (accIx, accAddr) amount = do
         context <- ask
         let tokenIx = _pltecTokenIndex context
@@ -728,7 +728,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
 
 instance
     ( BS.BlockStateOperations m,
-      PVSupportsPLT (MPV m)
+      PVSupportsHaskellManagedPLT (MPV m)
     ) =>
     PLTKernelChargeEnergy (KernelT (PLTExecutionError fail) ret m)
     where

@@ -832,7 +832,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       --  used for rewarding bakers at the end of epochs.
       bspRewardDetails :: !(BlockRewardDetails pv),
       -- | The global state of protocol-level tokens.
-      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForPV pv)
+      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv))
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
@@ -991,7 +991,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     releaseSchedule <- emptyReleaseSchedule
     acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
-    plts <- PLT.emptyProtocolLevelTokensForPV
+    plts <- PLT.emptyProtocolLevelTokensForStateVersion
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -1033,7 +1033,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
     bspAccounts <- Accounts.emptyAccounts
-    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
+    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForStateVersion
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -4333,7 +4333,7 @@ doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
 --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
 doSetTokenCirculatingSupply ::
     forall pv m.
-    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    (SupportsPersistentState pv m, PVSupportsHaskellManagedPLT pv) =>
     PersistentBlockState pv ->
     PLT.TokenIndex ->
     PLT.TokenRawAmount ->
@@ -4351,7 +4351,7 @@ doSetTokenCirculatingSupply pbs tokIx newSupply = do
 --  @Nothing@.
 doCreateToken ::
     forall pv m.
-    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    (SupportsPersistentState pv m, PVSupportsHaskellManagedPLT pv) =>
     PersistentBlockState pv ->
     PLT.PLTConfiguration ->
     m (PLT.TokenIndex, PersistentBlockState pv)
@@ -4362,7 +4362,7 @@ doCreateToken pbs tokenConfig = do
 
 doSetTokenState ::
     forall pv m.
-    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    (SupportsPersistentState pv m, PVSupportsHaskellManagedPLT pv) =>
     PersistentBlockState pv ->
     PLT.TokenIndex ->
     StateV1.MutableState ->
@@ -4927,7 +4927,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
     logEvent GlobalState LLTrace "Migrating protocol-level tokens"
-    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
+    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForStateVersion migration bspProtocolLevelTokens
     return $!
         BlockStatePointers
             { bspAccounts = newAccounts,
