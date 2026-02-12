@@ -29,6 +29,8 @@ use std::{
 /// even if the new fields are not understood, but a warning will be emitted.
 pub const HANDSHAKE_MESSAGE_VERSION: u8 = 0;
 
+const MAX_ALLOWED_PEERS: usize = 1000; // The hard limit for safety
+
 impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available
     pub fn deserialize(buffer: &[u8]) -> anyhow::Result<Self> {
@@ -251,7 +253,6 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
             Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
-            const MAX_ALLOWED_PEERS: usize = 1000; // The hard limit for safety
 
             if let Some(peers) = response
                 .payload_as_peer_list()
