@@ -104,6 +104,9 @@ impl P2PNode {
             .map(|buf| self.send_over_all_connections(&buf, &filter))
         {
             error!("Can't send a GetPeers request: {}", e);
+        } else {
+            println!("Sent GetPeers request to all peers");
+            self.get_peers_request_semaphore.add_permits(1);
         }
     }
 

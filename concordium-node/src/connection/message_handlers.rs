@@ -61,9 +61,22 @@ impl Connection {
                     peers.len(),
                     peer_id
                 );
-                self.handler
-                    .register_conn_change(ConnChange::NewPeers(peers));
-                Ok(())
+
+                match self.handler.get_peers_request_semaphore.try_acquire() { 
+                    Ok(permit) => { 
+                        println!("***** Processing PeerList from peer {} with {} peers", peer_id, peers.len());
+                        // semaphore acquired, process the peer list
+                        self.handler
+                            .register_conn_change(ConnChange::NewPeers(peers));
+                        Ok(())
+                    }
+                    Err(_) => {
+                        // semaphore is 0, which means we got a peerlist before this
+                        // discarding this peer list
+                        println!("**** Discarding PeerList from peer {} because a previous PeerList is still being processed", peer_id); 
+                        Ok(())
+                    }
+                }
             }
             NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 debug!("Got a JoinNetwork request from peer {}", peer_id);

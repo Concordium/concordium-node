@@ -269,6 +269,8 @@ pub struct P2PNode {
     /// Cache of bad events that we report on each connection housekeeping
     /// interval to avoid spamming the logs in case of failure.
     pub bad_events: BadEvents,
+    /// semaphore for GetPeers request wanted
+    pub get_peers_request_semaphore: Arc<tokio::sync::Semaphore>
 }
 
 impl P2PNode {
@@ -413,6 +415,7 @@ impl P2PNode {
             kvs,
             peers: Default::default(),
             bad_events: BadEvents::default(),
+            get_peers_request_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
         });
 
         if node.config.clear_bans {
