@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Changes on PeerList processing to prevent performance degradation due to large peer lists
 
 # 10.0.5
 

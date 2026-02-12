@@ -259,22 +259,16 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
         network::ResponseVariant::PeerList => {
             println!("**** Deserializing a PeerList response. Starting to parse peers...");
 
-            const MAX_ALLOWED_PEERS: usize = 5000; // The hard limit for safety
-            const DESIRED_GOOD_PEERS: usize = 2; //TODO: fine tune this number after local debugging
+            const MAX_ALLOWED_PEERS: usize = 1000; // The hard limit for safety
 
             if let Some(peers) = response
                 .payload_as_peer_list()
                 .and_then(|peers| peers.peers())
             {
                 let potential_size = std::cmp::min(peers.len(), MAX_ALLOWED_PEERS);
-                let mut list =
-                    Vec::with_capacity(std::cmp::min(potential_size, DESIRED_GOOD_PEERS));
+                let mut list = Vec::with_capacity(potential_size);
 
                 for i in 0..potential_size {
-                    if list.len() >= DESIRED_GOOD_PEERS {
-                        println!("**** Reached the desired number of good peers ({}), stopping parsing the rest of the PeerList response.", DESIRED_GOOD_PEERS);
-                        break;
-                    }
 
                     let peer = peers.get(i);
 
