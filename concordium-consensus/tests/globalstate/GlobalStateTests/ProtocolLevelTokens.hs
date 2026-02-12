@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module GlobalStateTests.ProtocolLevelTokens where
@@ -11,11 +12,13 @@ import Test.QuickCheck as QuickCheck
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Types.Tokens
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState
 
 -- | Generate a 'TokenRawAmount' value.
 genTokenRawAmount :: Gen TokenRawAmount
@@ -49,8 +52,8 @@ configDEF =
           _pltDecimals = 0
         }
 
-emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForPV 'P9)
-emptyPLTPV = emptyProtocolLevelTokensForPV
+emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForStateVersion 'PLTStateV0)
+emptyPLTPV = emptyProtocolLevelTokensForStateVersion
 
 testCreateToken :: Assertion
 testCreateToken = runBlobStore $ do
@@ -95,13 +98,13 @@ testSetTokenCirculatingSupply = runBlobStore $ do
         =<< getTokenCirculatingSupply idxABC tokens2
     lift . assertEqual "getTokenCirculatingSupply for DEF returns expected amount" 0
         =<< getTokenCirculatingSupply idxDEF tokens2
-    hash2 <- getHashM @_ @ProtocolLevelTokensHash tokens2
+    (hash2 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens2
     tokens3 <- setTokenCirculatingSupply idxDEF 200 tokens2
     lift . assertEqual "getTokenCirculatingSupply for ABC returns expected amount" 100
         =<< getTokenCirculatingSupply idxABC tokens3
     lift . assertEqual "getTokenCirculatingSupply for DEF returns expected amount" 200
         =<< getTokenCirculatingSupply idxDEF tokens3
-    hash3 <- getHashM @_ @ProtocolLevelTokensHash tokens3
+    (hash3 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens3
     lift $ assertBool "Hash of tokens2 and tokens3 should be different" (hash2 /= hash3)
     tokens4 <- setTokenCirculatingSupply idxABC 0 tokens3
     lift . assertEqual "getTokenCirculatingSupply for ABC returns expected amount" 0
@@ -118,7 +121,7 @@ testSetTokenCirculatingSupply = runBlobStore $ do
         =<< getTokenCirculatingSupply idxABC tokens6
     lift . assertEqual "getTokenCirculatingSupply for DEF returns expected amount" 200
         =<< getTokenCirculatingSupply idxDEF tokens6
-    hash6 <- getHashM tokens6
+    hash6 <- uncond <$> getHashM tokens6
     lift $ assertEqual "Hash of tokens3 and tokens6 should be the same" hash3 hash6
 
 testUpdateTokenState :: Assertion
@@ -127,7 +130,7 @@ testUpdateTokenState = runBlobStore $ do
     (idxDEF, tokens1) <- createToken configDEF tokens0
     mutableStateABC <- getMutableTokenState idxABC tokens1
     mutableStateDEF <- getMutableTokenState idxDEF tokens1
-    hash1 <- getHashM @_ @ProtocolLevelTokensHash tokens1
+    (hash1 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens1
 
     lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" Nothing
         =<< lookupTokenState "TestKey1" mutableStateABC
@@ -155,9 +158,9 @@ testUpdateTokenState = runBlobStore $ do
     tokens2 <-
         setTokenState idxABC mutableStateABC tokens1
             >>= setTokenState idxDEF mutableStateDEF
-    hash2 <- getHashM @_ @ProtocolLevelTokensHash tokens2
+    (hash2 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens2
     lift $ assertBool "Hash of tokens1 and tokens2 should not be the same" (hash1 /= hash2)
-    hash1' <- getHashM @_ @ProtocolLevelTokensHash tokens1
+    hash1' <- uncond <$> getHashM tokens1
     lift $ assertEqual "Hash of tokens1 should stay the same" hash1 hash1'
 
     mutableStateABC2 <- getMutableTokenState idxABC tokens2
@@ -183,7 +186,7 @@ testUpdateTokenState = runBlobStore $ do
     tokens3 <-
         setTokenState idxABC mutableStateABC2 tokens2
             >>= setTokenState idxDEF mutableStateDEF2
-    hash3 <- getHashM @_ @ProtocolLevelTokensHash tokens3
+    hash3 <- uncond <$> getHashM tokens3
     lift $ assertEqual "Hash of tokens2 and tokens3 should be the same" hash2 hash3
 
 tests :: Spec

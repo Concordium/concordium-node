@@ -94,11 +94,11 @@ import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
-    ProtocolLevelTokensHash (..),
     TokenIndex,
     TokenStateKey,
     TokenStateValue,
  )
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState (ProtocolLevelTokensHash (..))
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -137,7 +137,7 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshBlockRewardDetails :: BlockRewardDetailsHash pv,
       -- | The protocol level tokens hash is present from protocol version 9.
       bshProtocolLevelTokens ::
-        Conditionally (SupportsPLT (AccountVersionFor pv)) ProtocolLevelTokensHash
+        Conditionally (PltStatePresent (PltStateVersionFor pv)) ProtocolLevelTokensHash
     }
     deriving (Show)
 
@@ -522,27 +522,27 @@ class (MonadProtocolVersion m, Monad m, TokenStateOperations ts m) => PLTQuery b
     -- | Get the 'TokenId's of all protocol-level tokens registered on the chain.
     --  If the protocol version does not support protocol-level tokens, this will return the empty
     --  list.
-    getPLTList :: bs -> m [TokenId]
+    getPLTList :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> m [TokenId]
 
     -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
-    getTokenIndex :: (PVSupportsPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
+    getTokenIndex :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
 
     -- | Convert a persistent state to a mutable one that can be updated by the scheduler.
     --
     -- Updates to this state will only persist in the block state using 'bsoSetTokenState'.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getMutableTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m ts
+    getMutableTokenState :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenIndex -> m ts
 
     -- | Get the configuration of a protocol-level token.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
+    getTokenConfiguration :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
 
     -- | Get the circulating supply of a protocol-level token.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenCirculatingSupply :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
+    getTokenCirculatingSupply :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
 
 -- | The block query methods can query block state. They are needed by
 --  consensus itself to compute stake, get a list of and information about
@@ -1559,7 +1559,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     -- To ensure this is future-proof, the mutable state should not be used after this call.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    bsoSetTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> MutableTokenState m -> m (UpdatableBlockState m)
+    bsoSetTokenState :: (PVSupportsHaskellManagedPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> MutableTokenState m -> m (UpdatableBlockState m)
 
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
@@ -1651,7 +1651,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     bsoSetTokenCirculatingSupply ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         -- | The current block state.
         UpdatableBlockState m ->
         -- | The token index to update.
@@ -1669,7 +1669,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     --  @Nothing@. The 'PLTConfiguration' MUST be valid, and in particular the
     --  '_pltGovernanceAccountIndex' MUST reference a valid account.
     bsoCreateToken ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         -- | The current block state @s@.
         UpdatableBlockState m ->
         -- | The configuration for the token @cfg@.

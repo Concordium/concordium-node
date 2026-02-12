@@ -1,8 +1,9 @@
+-- | Module that implements memory management specific bindings.
+--
 -- todo remove or change module as part of https://linear.app/concordium/issue/COR-2113/fix-rust-allocator-issue-related-to-multiple-rust-cdylibs
 -- The function rs_free_array_len already exists in concordium_base in Concordium.Crypto.FFIHelpers. If we build plt-scheduler and wasm-chain-integration in one library, we can use the one in Concordium.Crypto.FFIHelpers instead of rs_free_array_len_2 below (which links to the Rust PLT Scheduler library).
 -- The function copy_to_vec_ffi already exists in Concordium.GlobalState.ContractStateFFIHelpers. If we build plt-scheduler and wasm-chain-integration in one library, we can use the one in Concordium.GlobalState.ContractStateFFIHelpers instead of copy_to_vec_ffi_2 below (which links to the Rust PLT Scheduler library).
-
-module Concordium.PLTScheduler.PLTMemory (
+module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory (
     rs_free_array_len_2,
     copyToRustVec2,
     RustVec,
