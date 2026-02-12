@@ -1,7 +1,7 @@
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to query PLTs.
 --
 -- Each foreign imported function must match the signature of functions found on the Rust side.
-module Concordium.Scheduler.ProtocolLevelTokens.RustPLTQueries (
+module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryPLTList,
 ) where
 
@@ -18,9 +18,9 @@ import qualified Concordium.Utils.Serialization as CS
 
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
-import qualified Concordium.PLTScheduler.PLTBlockState as PLTBlockState
-import Concordium.PLTScheduler.PLTBlockStateCallbacks
-import qualified Concordium.PLTScheduler.PLTMemory as Memory
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
+import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
 -- | Query the list of PLTs in the block state.
 queryPLTList ::
