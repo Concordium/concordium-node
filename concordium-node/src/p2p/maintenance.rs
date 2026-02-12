@@ -5,7 +5,7 @@ use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rand::{seq::index::sample, thread_rng, Rng};
+use rand::Rng;
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
