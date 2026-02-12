@@ -166,9 +166,9 @@ extern "C" fn ffi_execute_transaction(
     sender_account_index: u64,
     sender_account_address: *const u8,
     remaining_energy: u64,
-    block_state_out: *mut *const PltBlockStateSavepoint,
+    block_state_out: *mut *mut PltBlockStateSavepoint,
     used_energy_out: *mut u64,
-    return_data_out: *mut *const u8,
+    return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
@@ -311,8 +311,8 @@ extern "C" fn ffi_execute_chain_update(
     block_state: *const PltBlockStateSavepoint,
     payload: *const u8,
     payload_len: size_t,
-    block_state_out: *mut *const PltBlockStateSavepoint,
-    return_data_out: *mut *const u8,
+    block_state_out: *mut *mut PltBlockStateSavepoint,
+    return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
