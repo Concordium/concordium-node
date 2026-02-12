@@ -415,7 +415,7 @@ impl P2PNode {
             kvs,
             peers: Default::default(),
             bad_events: BadEvents::default(),
-            get_peers_request_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
+            get_peers_request_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         });
 
         if node.config.clear_bans {
