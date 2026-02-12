@@ -1695,7 +1695,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
                 }
 
     initialBlockState ::
-        (Types.IsProtocolVersion pv, PVSupportsPLT pv) =>
+        (Types.IsProtocolVersion pv, PVSupportsHaskellManagedPLT pv) =>
         Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
     initialBlockState = do
         bs0 <-
