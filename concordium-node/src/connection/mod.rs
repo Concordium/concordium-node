@@ -739,6 +739,7 @@ impl Connection {
                         addr: stat.external_address(),
                         peer_type: stat.peer_type,
                     })
+                    .take(PEER_LIST_LIMIT)
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {
