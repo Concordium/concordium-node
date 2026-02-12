@@ -202,8 +202,9 @@ extern "C" fn ffi_execute_transaction(
         get_token_account_states: get_token_account_states_callback,
     };
 
+    let internal_block_state = unsafe { (*block_state).mutable_state() };
     let mut block_state = ExecutionTimePltBlockState {
-        inner_block_state: unsafe { (*block_state).mutable_state() },
+        internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
     };
@@ -246,7 +247,7 @@ extern "C" fn ffi_execute_transaction(
         TransactionOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
-                    Box::into_raw(Box::new(block_state.inner_block_state.savepoint()));
+                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
             }
             (0, common::to_bytes(&events))
         }
@@ -345,8 +346,9 @@ extern "C" fn ffi_execute_chain_update(
         get_token_account_states: get_token_account_states_callback,
     };
 
+    let internal_block_state = unsafe { (*block_state).mutable_state() };
     let mut block_state = ExecutionTimePltBlockState {
-        inner_block_state: unsafe { (*block_state).mutable_state() },
+        internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
     };
@@ -364,7 +366,7 @@ extern "C" fn ffi_execute_chain_update(
         ChainUpdateOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
-                    Box::into_raw(Box::new(block_state.inner_block_state.savepoint()));
+                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
             }
             (0, common::to_bytes(&events))
         }

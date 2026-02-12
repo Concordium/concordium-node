@@ -130,8 +130,9 @@ extern "C" fn ffi_query_plt_list(
         get_token_account_states: get_token_account_states_callback,
     };
 
+    let internal_block_state = unsafe { &*block_state };
     let block_state = ExecutionTimePltBlockState {
-        inner_block_state: unsafe { &*block_state },
+        internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
     };

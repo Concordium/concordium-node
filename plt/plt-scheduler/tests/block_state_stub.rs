@@ -98,7 +98,7 @@ impl BlockStateWithExternalStateStubbed {
         };
 
         let block_state = ExecutionTimePltBlockState {
-            inner_block_state,
+            internal_block_state: inner_block_state,
             backing_store_load: BlobStoreLoadStub,
             external_block_state,
         };
