@@ -871,12 +871,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
 
             let curr_peer_count = current_peers.len();
 
-            // Shuffle the peers we received try to discover more useful peers over time
-            // and not get stuck continuously connecting to useless ones, and then dropping
-            // connections.
-
-            println!("==== Received {} new peers", peers.len());
-
             // Try to connect to each peer in turn.
             // If we are already connected to a peer, this will fail.
             while !peers.is_empty() {

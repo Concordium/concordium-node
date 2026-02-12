@@ -242,10 +242,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
 }
 
 fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    println!(
-        "**** Deserializing response with timestamp: {}",
-        root.timestamp()
-    );
 
     let response = root
         .payload_as_network_response()
@@ -253,12 +249,9 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
 
     match response.variant() {
         network::ResponseVariant::Pong => {
-            println!("**** Deserialized a Pong response.");
             Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
-            println!("**** Deserializing a PeerList response. Starting to parse peers...");
-
             const MAX_ALLOWED_PEERS: usize = 1000; // The hard limit for safety
 
             if let Some(peers) = response
@@ -316,10 +309,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                 bail!("missing peers in a PeerList response")
             }
         }
-        msg => {
-            println!("**** Unsupported response variant: {:?}", msg);
-            bail!("Unsupported response variant {:?}", msg)
-        }
+        msg => bail!("Unsupported response variant {:?}", msg),
     }
 }
 
