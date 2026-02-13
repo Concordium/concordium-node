@@ -1,12 +1,12 @@
 //! Peer handling.
 
+use crate::connection::MessageSendingPriority;
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, PeerStats, PeerType},
-    connection::Connection,
     netmsg,
     network::NetworkRequest,
     p2p::{connectivity::connect, maintenance::attempt_bootstrap, P2PNode},
-    read_or_die,
+    read_or_die, write_or_die,
 };
 use anyhow::ensure;
 use chrono::Utc;
@@ -94,17 +94,34 @@ impl P2PNode {
         let request =
             NetworkRequest::GetPeers(read_or_die!(self.networks()).iter().copied().collect());
         let message = netmsg!(NetworkRequest, request);
-        let filter = |_: &Connection| true;
-
         let mut buf = Vec::with_capacity(256);
 
         if let Err(e) = message
             .serialize(&mut buf)
             .map(|_| buf)
-            .map(|buf| self.send_over_all_connections(&buf, &filter))
+            .map(|buf| self.send_get_peers_to_all_connections(&buf))
         {
             error!("Can't send a GetPeers request: {}", e);
         }
+    }
+
+    pub fn send_get_peers_to_all_connections(&self, data: &[u8]) -> usize {
+        let mut sent_messages = 0usize;
+        let data = Arc::from(data);
+
+        for conn in write_or_die!(self.connections()).values_mut() {
+            conn.get_peers_list_semaphore.add_permits(1);
+            println!(
+                "**** Armed semaphore for Peer {}. Permits: {} ****",
+                conn.remote_peer.local_id,
+                conn.get_peers_list_semaphore.available_permits()
+            );
+
+            conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
+            sent_messages += 1;
+        }
+        println!("**** number of sent messages: {} ****", sent_messages);
+        sent_messages
     }
 
     /// Update the timestamp of the last peer update.
