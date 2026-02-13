@@ -766,15 +766,6 @@ impl Connection {
                 "**** No peers to share with peer {} and not sending a PeerList response ****",
                 requestor
             );
-            match self.get_peers_list_semaphore.try_acquire() { 
-                    Ok(permit) => { 
-                        println!("**** Forget a permit as not enough peers to send, we forget this permit until next request comes in");
-                        permit.forget();
-                    }
-                    Err(_) => {
-                        println!("**** Unable to acquire permit");
-                    }
-            }
 
             debug!("I don't have any peers to share with peer {}", requestor);
             Ok(())
