@@ -108,7 +108,9 @@ impl P2PNode {
         } else {
             for conn in write_or_die!(self.connections()).values_mut() {
                 if filter(conn) {
-                    conn.get_peers_list_semaphore.add_permits(1);
+                    if conn.get_peers_list_semaphore.available_permits() < 2 {
+                        conn.get_peers_list_semaphore.add_permits(1);
+                    }
                     println!(
                         "**** Armed semaphore for Peer {}. Permits: {} ****", 
                         conn.remote_peer.local_id, 
