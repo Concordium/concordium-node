@@ -115,7 +115,7 @@ pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Resul
     let (discriminator, _payload) = request
         .payload
         .split_at_checked(7)
-        .context("Catch-up message payload should have at least 2 bytes")?;
+        .context("Catch-up message payload should have at least 7 bytes")?;
 
     let version = discriminator[5];
     let tag = discriminator[6];
