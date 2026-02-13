@@ -80,11 +80,11 @@ impl Connection {
                             .register_conn_change(ConnChange::NewPeers(peers));
                         Ok(())
                     }
-                    Err(_) => {
+                    Err(e) => {
                         // semaphore is 0, which means we got a peerlist before this
                         // discarding this peer list
                         println!("**** Discarding PeerList from peer {} because a previous PeerList is still being processed", peer_id); 
-                        Ok(())
+                        return Err(e.into());
                     }
                 }
             }

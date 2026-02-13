@@ -106,7 +106,7 @@ impl P2PNode {
         }                 
     }
 
-     pub fn send_get_peers_to_all_connections(
+    pub fn send_get_peers_to_all_connections(
         &self,
         data: &[u8],
     ) -> usize {
