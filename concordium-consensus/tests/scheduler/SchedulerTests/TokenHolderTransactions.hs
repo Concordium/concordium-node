@@ -12,14 +12,17 @@ module SchedulerTests.TokenHolderTransactions (tests) where
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
+import Concordium.Types.Queries.Tokens
 import Concordium.Types.Tokens
 
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.ProtocolLevelTokens.Module (tokenModuleV0Ref)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
@@ -189,7 +192,11 @@ data TransferConfig = TransferConfig
       -- | Transfer memo
       tcMemo :: Maybe CBOR.TaggableMemo,
       -- | Use short form of recipient address?
-      tcShortRecv :: Bool
+      tcShortRecv :: Bool,
+      -- | Use an alias for the sender account?
+      tcSenderAlias :: Bool,
+      -- | Use an alias for the recipient account?
+      tcRecvAlias :: Bool
     }
     deriving (Eq, Show)
 
@@ -212,6 +219,8 @@ instance Arbitrary TransferConfig where
                   Just . CBOR.CBORMemo <$> genMemo
                 ]
         tcShortRecv <- arbitrary
+        tcSenderAlias <- arbitrary
+        tcRecvAlias <- arbitrary
         return TransferConfig{..}
       where
         genMemo = do
@@ -222,6 +231,17 @@ instance Arbitrary TransferConfig where
             ++ [tc{tcDenyList = False, tcSenderDeny = False, tcRecvDeny = False} | tcDenyList tc]
             ++ [tc{tcMemo = Nothing} | isJust (tcMemo tc)]
 
+-- | An alias for an 'AccountAddress' that is distinct.
+distinctAlias :: AccountAddress -> AccountAddress
+distinctAlias addr
+    | alias == addr = alias2
+    | otherwise = alias
+  where
+    alias = createAlias addr 0
+    alias2 = createAlias addr 1
+
+-- | This test constructs a PLT and then attempts a transfer. The setup for the transfer is
+--  arbitrarily determined to cover possible failure cases and outside factors.
 testTransfer ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
@@ -262,10 +282,14 @@ testTransfer _ = property (ioProperty . theTest)
             invalidAddress = Helpers.accountAddressFromSeed (-1)
             actualRecipientAddress
                 | tcRecvInvalid = invalidAddress
+                | tcRecvAlias = distinctAlias dummyAddress2
                 | otherwise = dummyAddress2
             actualRecipient
                 | tcShortRecv = CBOR.accountTokenHolderShort actualRecipientAddress
                 | otherwise = CBOR.accountTokenHolder actualRecipientAddress
+            actualSenderAddress
+                | tcSenderAlias = distinctAlias dummyAddress
+                | otherwise = dummyAddress
             testOps =
                 mkOps . CBOR.TokenUpdateTransaction . Seq.singleton $
                     CBOR.TokenTransfer $
@@ -299,6 +323,56 @@ testTransfer _ = property (ioProperty . theTest)
                     . makeTokenModuleRejectReason pltName
                     . CBOR.encodeTokenRejectReason
                     $ trr
+            expectModuleState =
+                CBOR.tokenModuleStateToBytes $
+                    CBOR.TokenModuleState
+                        { tmsName = CBOR.tipName params,
+                          tmsMetadata = CBOR.tipMetadata params,
+                          tmsGovernanceAccount = Just (CBOR.accountTokenHolderShort dummyAddress),
+                          tmsPaused = Just tcPaused,
+                          tmsAllowList = Just tcAllowList,
+                          tmsDenyList = Just tcDenyList,
+                          tmsMintable = Just False,
+                          tmsBurnable = Just False,
+                          tmsAdditional = mempty
+                        }
+            expectSenderTokens sentOK =
+                [ Token
+                    { tokenAccountState =
+                        TokenAccountState
+                            { moduleAccountState =
+                                Just . CBOR.tokenModuleAccountStateToBytes $
+                                    CBOR.TokenModuleAccountState
+                                        { tmasDenyList =
+                                            if tcDenyList then Just tcSenderDeny else Nothing,
+                                          tmasAllowList =
+                                            if tcAllowList then Just tcSenderAllow else Nothing,
+                                          tmasAdditional = mempty
+                                        },
+                              balance = if sentOK then TokenAmount 0 0 else mintAmt
+                            },
+                      tokenId = pltName
+                    }
+                ]
+            expectDestTokens sentOK =
+                [ Token
+                    { tokenAccountState =
+                        TokenAccountState
+                            { moduleAccountState =
+                                Just . CBOR.tokenModuleAccountStateToBytes $
+                                    CBOR.TokenModuleAccountState
+                                        { tmasDenyList =
+                                            if tcDenyList then Just tcRecvDeny else Nothing,
+                                          tmasAllowList =
+                                            if tcAllowList then Just tcRecvAllow else Nothing,
+                                          tmasAdditional = mempty
+                                        },
+                              balance = if sentOK then mintAmt else TokenAmount 0 0
+                            },
+                      tokenId = pltName
+                    }
+                | sentOK || tcRecvAllow || tcRecvDeny
+                ]
             transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
@@ -346,17 +420,48 @@ testTransfer _ = property (ioProperty . theTest)
                                         { tuTokenId = pltName,
                                           tuOperations = testOps
                                         },
-                                  metadata = makeDummyHeader dummyAddress 2 testEnergy,
+                                  metadata = makeDummyHeader actualSenderAddress 2 testEnergy,
                                   keys = [(0, [(0, dummyKP)])]
                                 },
-                      biaaAssertion = \result _ ->
-                        return $
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        senderIndex <- fromJust <$> BS.getAccount st dummyAddress
+                        destIndex <- fromJust <$> BS.getAccount st dummyAddress2
+                        senderTokens <- queryAccountTokens senderIndex st
+                        destTokens <- queryAccountTokens destIndex st
+                        let postCheck sentOK = do
+                                assertEqual "Used energy" testEnergy (Helpers.srUsedEnergy result)
+                                assertEqual
+                                    "Sender tokens after transfer"
+                                    (expectSenderTokens sentOK)
+                                    senderTokens
+                                assertEqual
+                                    "Recipient tokens after transfer"
+                                    (expectDestTokens sentOK)
+                                    destTokens
+                        tokenInfo <- queryTokenInfo pltName st
+                        return $ do
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    TokenInfo
+                                        { tiTokenId = pltName,
+                                          tiTokenState =
+                                            TokenState
+                                                { tsTokenModuleRef = tokenModuleV0Ref,
+                                                  tsDecimals = 0,
+                                                  tsTotalSupply = mintAmt,
+                                                  tsModuleState = expectModuleState
+                                                }
+                                        }
+                                )
+                                tokenInfo
                             if
                                 | tcEnergyInsufficient -> do
                                     Helpers.assertRejectWithReason OutOfEnergy result
                                     -- The full supplied energy will be used in the case of an
                                     -- out-of-energy failure.
-                                    assertEqual "Used energy" testEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | tcPaused -> do
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
@@ -365,7 +470,7 @@ testTransfer _ = property (ioProperty . theTest)
                                               trrReason = Just "token operation transfer is paused"
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | tcRecvInvalid -> do
                                     assertTokenReject
                                         CBOR.AddressNotFound
@@ -373,16 +478,16 @@ testTransfer _ = property (ioProperty . theTest)
                                               trrAddress = actualRecipient
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | tcAllowList && not tcSenderAllow -> do
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
-                                              trrAddressNotPermitted = Just govAcct,
+                                              trrAddressNotPermitted = Just (CBOR.accountTokenHolder actualSenderAddress),
                                               trrReason = Just "sender not in allow list"
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | tcAllowList && not tcRecvAllow -> do
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
@@ -391,16 +496,16 @@ testTransfer _ = property (ioProperty . theTest)
                                               trrReason = Just "recipient not in allow list"
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | tcDenyList && tcSenderDeny -> do
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
-                                              trrAddressNotPermitted = Just govAcct,
+                                              trrAddressNotPermitted = Just (CBOR.accountTokenHolder actualSenderAddress),
                                               trrReason = Just "sender in deny list"
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | tcDenyList && tcRecvDeny -> do
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
@@ -409,7 +514,7 @@ testTransfer _ = property (ioProperty . theTest)
                                               trrReason = Just "recipient in deny list"
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | not tcSenderBalanceSufficient -> do
                                     assertTokenReject
                                         CBOR.TokenBalanceInsufficient
@@ -418,19 +523,19 @@ testTransfer _ = property (ioProperty . theTest)
                                               trrAvailableBalance = mintAmt
                                             }
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck False
                                 | otherwise -> do
                                     Helpers.assertSuccessWithEvents
                                         [ TokenTransfer
                                             { ettTokenId = pltName,
-                                              ettFrom = HolderAccount dummyAddress,
-                                              ettTo = HolderAccount dummyAddress2,
+                                              ettFrom = HolderAccount actualSenderAddress,
+                                              ettTo = HolderAccount actualRecipientAddress,
                                               ettAmount = mintAmt,
                                               ettMemo = CBOR.taggableMemoInner <$> tcMemo
                                             }
                                         ]
                                         result
-                                    assertEqual "Used energy" requiredEnergy (Helpers.srUsedEnergy result)
+                                    postCheck True
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -451,5 +556,5 @@ tests =
         case sSupportsPLT (sAccountVersionFor spv) of
             STrue -> describe pvString $ do
                 testTokenHolder spv pvString
-                it "PLT transfers" $ withMaxSuccess 200 $ testTransfer spv
+                it "PLT transfers" $ withMaxSuccess 500 $ testTransfer spv
             SFalse -> return ()
