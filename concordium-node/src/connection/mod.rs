@@ -448,7 +448,7 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
-            get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
+            get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 
