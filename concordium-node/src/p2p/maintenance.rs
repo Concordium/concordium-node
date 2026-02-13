@@ -268,7 +268,7 @@ pub struct P2PNode {
     pub peers: RwLock<PeerList>,
     /// Cache of bad events that we report on each connection housekeeping
     /// interval to avoid spamming the logs in case of failure.
-    pub bad_events: BadEvents
+    pub bad_events: BadEvents,
 }
 
 impl P2PNode {
@@ -412,7 +412,7 @@ impl P2PNode {
             stats,
             kvs,
             peers: Default::default(),
-            bad_events: BadEvents::default()
+            bad_events: BadEvents::default(),
         });
 
         if node.config.clear_bans {
