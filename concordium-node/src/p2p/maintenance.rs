@@ -415,7 +415,7 @@ impl P2PNode {
             kvs,
             peers: Default::default(),
             bad_events: BadEvents::default(),
-            get_peers_request_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
+            get_peers_request_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
         });
 
         if node.config.clear_bans {
@@ -948,6 +948,10 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
             Ok(nodes) => {
                 for addr in nodes {
                     info!("Using bootstrapper {}", addr);
+                    //we increment the get peers request semaphore here 
+                    // so that the when bootstrapper node sends peerlist, the node can process it
+                    println!("***** Bootstrapping with {} and increment semaphore by one *****", addr);
+                    node.get_peers_request_semaphore.add_permits(1);
                     node.register_conn_change(ConnChange::NewConn {
                         addr,
                         peer_type: PeerType::Bootstrapper,

@@ -105,8 +105,11 @@ impl P2PNode {
         {
             error!("Can't send a GetPeers request: {}", e);
         } else {
-            println!("Sent GetPeers request to all peers");
-            self.get_peers_request_semaphore.add_permits(1);
+            println!("**** Sent GetPeers request to all peers");
+            if self.get_peers_request_semaphore.available_permits() == 0 {
+                println!("**** GetPeers request sent, incrementing the semaphore by one to allow processing of one coming through ****");
+                self.get_peers_request_semaphore.add_permits(1);
+            }
         }
     }
 
