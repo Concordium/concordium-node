@@ -386,6 +386,8 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
+    /// Semaphore to limit concurrent processing of GetPeers requests.
+    pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl PartialEq for Connection {
@@ -446,6 +448,7 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
+            get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
         })
     }
 
@@ -759,6 +762,20 @@ impl Connection {
 
             Ok(())
         } else {
+            println!(
+                "**** No peers to share with peer {} and not sending a PeerList response ****",
+                requestor
+            );
+            match self.get_peers_list_semaphore.try_acquire() { 
+                    Ok(permit) => { 
+                        println!("**** Forget a permit as not enough peers to send, we forget this permit until next request comes in");
+                        permit.forget();
+                    }
+                    Err(_) => {
+                        println!("**** Unable to acquire permit");
+                    }
+            }
+
             debug!("I don't have any peers to share with peer {}", requestor);
             Ok(())
         }

@@ -7,6 +7,7 @@ use crate::{
     network::NetworkRequest,
     p2p::{connectivity::connect, maintenance::attempt_bootstrap, P2PNode},
     read_or_die,
+    write_or_die,
 };
 use anyhow::ensure;
 use chrono::Utc;
@@ -105,10 +106,15 @@ impl P2PNode {
         {
             error!("Can't send a GetPeers request: {}", e);
         } else {
-            println!("**** Sent GetPeers request to all peers");
-            if self.get_peers_request_semaphore.available_permits() == 0 {
-                println!("**** GetPeers request sent, incrementing the semaphore by one to allow processing of one coming through ****");
-                self.get_peers_request_semaphore.add_permits(1);
+            for conn in write_or_die!(self.connections()).values_mut() {
+                if filter(conn) {
+                    conn.get_peers_list_semaphore.add_permits(1);
+                    println!(
+                        "**** Armed semaphore for Peer {}. Permits: {} ****", 
+                        conn.remote_peer.local_id, 
+                        conn.get_peers_list_semaphore.available_permits()
+                    );
+                }
             }
         }
     }

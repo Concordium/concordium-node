@@ -268,9 +268,7 @@ pub struct P2PNode {
     pub peers: RwLock<PeerList>,
     /// Cache of bad events that we report on each connection housekeeping
     /// interval to avoid spamming the logs in case of failure.
-    pub bad_events: BadEvents,
-    /// semaphore for GetPeers request wanted
-    pub get_peers_request_semaphore: Arc<tokio::sync::Semaphore>
+    pub bad_events: BadEvents
 }
 
 impl P2PNode {
@@ -414,8 +412,7 @@ impl P2PNode {
             stats,
             kvs,
             peers: Default::default(),
-            bad_events: BadEvents::default(),
-            get_peers_request_semaphore: Arc::new(tokio::sync::Semaphore::new(0)),
+            bad_events: BadEvents::default()
         });
 
         if node.config.clear_bans {
@@ -948,10 +945,6 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
             Ok(nodes) => {
                 for addr in nodes {
                     info!("Using bootstrapper {}", addr);
-                    //we increment the get peers request semaphore here 
-                    // so that the when bootstrapper node sends peerlist, the node can process it
-                    println!("***** Bootstrapping with {} and increment semaphore by one *****", addr);
-                    node.get_peers_request_semaphore.add_permits(1);
                     node.register_conn_change(ConnChange::NewConn {
                         addr,
                         peer_type: PeerType::Bootstrapper,
