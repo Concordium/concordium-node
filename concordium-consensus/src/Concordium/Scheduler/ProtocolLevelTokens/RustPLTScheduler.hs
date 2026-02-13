@@ -177,6 +177,8 @@ executeTransaction
 -- - `0`: Transaction execution succeeded and transaction was applied to block state.
 -- - `1`: Transaction was rejected with a reject reason. Block state changes applied
 --   via callbacks must be rolled back.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_execute_transaction"
     ffiExecuteTransaction ::
         -- | Called to read data from blob store.
@@ -340,6 +342,8 @@ executeChainUpdate
 -- - `0`: Chain update execution succeeded and update was applied to block state.
 -- - `1`: Chain update failed. Block state changes applied
 --   via callbacks must be rolled back.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_execute_chain_update"
     ffiExecuteChainUpdate ::
         -- | Called to read data from blob store.

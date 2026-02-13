@@ -6,6 +6,11 @@ use libc::size_t;
 
 /// Free an array that was converted to a pointer from a vector.
 /// This assumes the vector's capacity and length were the same.
+///
+/// # Safety
+///
+/// - Argument `ptr` must be a non-null and valid unique pointer to a `Vec`.
+/// - Argument `len` must be equal to the length AND capacity of the given `Vec`
 #[unsafe(no_mangle)]
 extern "C" fn free_array_len_2(ptr: *mut u8, len: u64) {
     unsafe {
@@ -14,7 +19,9 @@ extern "C" fn free_array_len_2(ptr: *mut u8, len: u64) {
 }
 
 /// Take the byte array and copy it into a vector.
-/// The vector must be passed to Rust to be deallocated.
+///
+/// Returns pointer to a uniquely owned [`Vec`].
+/// The returned `Vec` must be deallocated passing the ownership back to the Rust code again.
 #[unsafe(no_mangle)]
 extern "C" fn copy_to_vec_ffi_2(data: *const u8, len: libc::size_t) -> *mut Vec<u8> {
     Box::into_raw(Box::new(
@@ -25,7 +32,7 @@ extern "C" fn copy_to_vec_ffi_2(data: *const u8, len: libc::size_t) -> *mut Vec<
 /// Allocated array together with the array length.
 /// Must be freed with [`free_array_len_2`].
 pub struct ArrayWithLength {
-    /// Pointer to first byte in array.
+    /// Unique pointer to first byte in array.
     pub array: *mut u8,
     ///  Length of the array
     pub length: size_t,
