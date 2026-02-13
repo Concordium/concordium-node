@@ -29,13 +29,14 @@ import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
 
-import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
-import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.ID.Types as Types
-import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Tokens as Tokens
 import qualified Concordium.Utils.Serialization as CS
+
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
 -- | Callback function for reading a token account balance.
 type ReadTokenAccountBalance =

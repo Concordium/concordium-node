@@ -1,9 +1,15 @@
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.Scheduler.ProtocolLevelTokens.Queries where
+module Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryTokenInfoError (..),
+    queryTokenInfo,
+    queryAccountTokens,
+    queryPLTList,
+) where
 
 import Control.Monad
 import Control.Monad.Cont
@@ -16,10 +22,13 @@ import Concordium.Types.Queries.Tokens
 
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens (TokenAccountState (tasBalance))
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
+import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.Types
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries as RustQ
 
 -- | The 'QueryContext' provides the context to run 'PLTKernelQuery' operations against a
 --  particular token index and block state.
@@ -170,5 +179,29 @@ queryPLTList bs =
     case sPltStateVersionFor (protocolVersion @(MPV m)) of
         SPLTStateNone -> return []
         SPLTStateV0 -> BS.getPLTList bs
-        -- todo implement as part of https://linear.app/concordium/issue/PSR-15/dispatch-plt-queries-to-the-rust-plt-library
-        SPLTStateV1 -> undefined
+        SPLTStateV1 -> undefined -- queryPLTListRustManaged bs todo ar
+
+-- | Get the list all tokens, for protocol version where the PLT state is managed in Rust.
+queryPLTListRustManaged ::
+    forall m.
+    (PVSupportsPLT (MPV m), BS.BlockStateQuery m, BS.UnliftBlockStateQuery m) =>
+    BlockState m ->
+    m [TokenId]
+queryPLTListRustManaged bs = BS.unliftBSQ $ \unlift ->
+    do
+        let readTokenAccountBalance :: AccountIndex -> TokenIndex -> IO TokenRawAmount
+            readTokenAccountBalance accountIndex tokenIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                unlift $ BS.getAccountTokenBalance account tokenIndex
+
+            liftedGetAccountIndexByAddress :: AccountAddress -> m (Maybe AccountIndex)
+            liftedGetAccountIndexByAddress = undefined
+
+            liftedGetAccountAddressByIndex :: AccountIndex -> m (Maybe AccountAddress)
+            liftedGetAccountAddressByIndex = undefined
+
+            liftedGetTokenAccountStates :: AccountIndex -> m [(TokenIndex, AccountTokens.TokenAccountState)]
+            liftedGetTokenAccountStates = undefined
+
+        undefined

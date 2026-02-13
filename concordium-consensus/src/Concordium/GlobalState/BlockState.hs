@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -757,6 +758,9 @@ class
 
     -- | Get the index of accounts in pre-pre-cooldown.
     getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
+class UnliftBlockStateQuery m where
+    unliftBSQ :: ((forall a. m a -> IO a) -> IO b) -> m b
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
