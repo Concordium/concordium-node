@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 - Changes on PeerList processing to prevent performance degradation due to large peer lists
+- Semaphore control on get peers requests and responses processing
 
 # 10.0.5
 
