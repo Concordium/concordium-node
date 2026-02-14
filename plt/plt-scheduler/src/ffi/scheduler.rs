@@ -2,7 +2,13 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{BlockStateExternal, ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use crate::block_state::external::{
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
+    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
+};
+use crate::block_state::types::{TokenAccountState, TokenIndex};
+use crate::block_state::{ExecutionTimePltBlockState, ExternalBlockState, PltBlockStateSavepoint};
+use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::ffi::blob_store_callbacks::LoadCallback;
 use crate::ffi::block_state_callbacks::{
     GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
@@ -16,19 +22,87 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
+use plt_types::types::tokens::RawTokenAmount;
 
 /// Callbacks types definition
-pub struct BlockStateCallbacks;
-
-impl BlockStateExternal for BlockStateCallbacks {
-    type ReadTokenAccountBalance = ReadTokenAccountBalanceCallback;
-    type UpdateTokenAccountBalance = UpdateTokenAccountBalanceCallback;
-    type IncrementPltUpdateSequenceNumber = IncrementPltUpdateSequenceNumberCallback;
-    type GetCanonicalAddressByAccountIndex = GetCanonicalAddressByAccountIndexCallback;
-    type GetAccountIndexByAddress = GetAccountIndexByAddressCallback;
-    type GetTokenAccountStates = GetTokenAccountStatesCallback;
+struct ExternalBlockStateCallbacks {
+    /// External function for reading the token balance for an account.
+    read_token_account_balance: ReadTokenAccountBalanceCallback,
+    /// External function for updating the token balance for an account.
+    update_token_account_balance: UpdateTokenAccountBalanceCallback,
+    /// External function for incrementing the PLT update sequence number.
+    increment_plt_update_sequence_number: IncrementPltUpdateSequenceNumberCallback,
+    /// External function for fetching account address by index.
+    get_account_address_by_index: GetCanonicalAddressByAccountIndexCallback,
+    /// External function for fetching account index by address.
+    get_account_index_by_address: GetAccountIndexByAddressCallback,
+    /// External function for getting token account states.
+    get_token_account_states: GetTokenAccountStatesCallback,
 }
+
+impl ReadTokenAccountBalance for ExternalBlockStateCallbacks {
+    fn read_token_account_balance(
+        &self,
+        account: AccountIndex,
+        token: TokenIndex,
+    ) -> RawTokenAmount {
+        self.read_token_account_balance
+            .read_token_account_balance(account, token)
+    }
+}
+
+impl UpdateTokenAccountBalance for ExternalBlockStateCallbacks {
+    fn update_token_account_balance(
+        &mut self,
+        account: AccountIndex,
+        token: TokenIndex,
+        amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), OverflowError> {
+        self.update_token_account_balance
+            .update_token_account_balance(account, token, amount_delta)
+    }
+}
+
+impl IncrementPltUpdateSequenceNumber for ExternalBlockStateCallbacks {
+    fn increment_plt_update_sequence_number(&mut self) {
+        self.increment_plt_update_sequence_number
+            .increment_plt_update_sequence_number()
+    }
+}
+
+impl GetCanonicalAddressByAccountIndex for ExternalBlockStateCallbacks {
+    fn account_canonical_address_by_account_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
+        self.get_account_address_by_index
+            .account_canonical_address_by_account_index(account_index)
+    }
+}
+
+impl GetAccountIndexByAddress for ExternalBlockStateCallbacks {
+    fn account_index_by_account_address(
+        &self,
+        account_address: &AccountAddress,
+    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
+        self.get_account_index_by_address
+            .account_index_by_account_address(account_address)
+    }
+}
+
+impl GetTokenAccountStates for ExternalBlockStateCallbacks {
+    fn token_account_states(
+        &self,
+        account_index: AccountIndex,
+    ) -> Vec<(TokenIndex, TokenAccountState)> {
+        self.get_token_account_states
+            .token_account_states(account_index)
+    }
+}
+
+impl ExternalBlockState for ExternalBlockStateCallbacks {}
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///
@@ -114,15 +188,19 @@ extern "C" fn ffi_execute_transaction(
         "return_data_out is a null pointer."
     );
 
-    let mut block_state = ExecutionTimePltBlockState::<_, BlockStateCallbacks> {
-        inner_block_state: unsafe { (*block_state).new_generation() },
-        backing_store_load: load_callback,
+    let external_callbacks = ExternalBlockStateCallbacks {
         read_token_account_balance: read_token_account_balance_callback,
         update_token_account_balance: update_token_account_balance_callback,
         increment_plt_update_sequence_number: increment_plt_update_sequence_number_callback,
         get_account_address_by_index: get_account_address_by_index_callback,
         get_account_index_by_address: get_account_index_by_address_callback,
         get_token_account_states: get_token_account_states_callback,
+    };
+
+    let mut block_state = ExecutionTimePltBlockState::<_, ExternalBlockStateCallbacks> {
+        inner_block_state: unsafe { (*block_state).mutable_state() },
+        backing_store_load: load_callback,
+        external_block_state: external_callbacks,
     };
 
     let sender_account_index = AccountIndex::from(sender_account_index);
@@ -253,15 +331,19 @@ extern "C" fn ffi_execute_chain_update(
         "return_data_out is a null pointer."
     );
 
-    let mut block_state = ExecutionTimePltBlockState::<_, BlockStateCallbacks> {
-        inner_block_state: unsafe { (*block_state).new_generation() },
-        backing_store_load: load_callback,
+    let external_callbacks = ExternalBlockStateCallbacks {
         read_token_account_balance: read_token_account_balance_callback,
         update_token_account_balance: update_token_account_balance_callback,
         increment_plt_update_sequence_number: increment_plt_update_sequence_number_callback,
         get_account_address_by_index: get_account_address_by_index_callback,
         get_account_index_by_address: get_account_index_by_address_callback,
         get_token_account_states: get_token_account_states_callback,
+    };
+
+    let mut block_state = ExecutionTimePltBlockState::<_, ExternalBlockStateCallbacks> {
+        inner_block_state: unsafe { (*block_state).mutable_state() },
+        backing_store_load: load_callback,
+        external_block_state: external_callbacks,
     };
 
     let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
