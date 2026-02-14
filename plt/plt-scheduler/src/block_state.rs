@@ -2,10 +2,7 @@
 //!
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
-use crate::block_state::external::{
-    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
-    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
-};
+use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -37,10 +34,10 @@ pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHas
 /// Immutable block state save-point.
 ///
 /// This is a wrapper around a [`PltBlockState`] ensuring further mutations can only be done by
-/// unwrapping using [`PltBlockStateSavepoint::mutable_state`] which creates a new generation.
+/// unwrapping using [`PltBlockStateSavepoint::mutable_state`].
 #[derive(Debug)]
 pub struct PltBlockStateSavepoint {
-    /// The inner block state, which will not be mutated further for this generation.
+    /// The inner block state, which will not be mutated.
     block_state: PltBlockState,
 }
 
@@ -140,21 +137,6 @@ pub struct ExecutionTimePltBlockState<IntState, Load, ExtState> {
     pub backing_store_load: Load,
     /// Part of block state that is managed externally.
     pub external_block_state: ExtState,
-}
-
-/// Type definition for queries to externally managed parts of the block state.
-pub trait ExternalBlockStateQuery:
-    ReadTokenAccountBalance
-    + GetCanonicalAddressByAccountIndex
-    + GetAccountIndexByAddress
-    + GetTokenAccountStates
-{
-}
-
-/// Type definition for operations to externally managed parts of the block state.
-pub trait ExternalBlockStateOperations:
-    ExternalBlockStateQuery + UpdateTokenAccountBalance + IncrementPltUpdateSequenceNumber
-{
 }
 
 /// Provides access needed for querying block state (but not to do operations on the block state).
