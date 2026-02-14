@@ -15,13 +15,10 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state::blob_store::{BackingStoreLoad, Reference};
-use plt_scheduler::block_state::external::{
-    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
-    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
-};
+use plt_scheduler::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use plt_scheduler::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use plt_scheduler::block_state::{
-    ExecutionTimePltBlockState, ExternalBlockState, PltBlockState, PltBlockStateSavepoint,
+    ExecutionTimePltBlockState, PltBlockState, PltBlockStateSavepoint,
 };
 use plt_scheduler::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -48,7 +45,7 @@ impl BackingStoreLoad for BlobStoreLoadStub {
 }
 
 type ExecutionTimePltBlockStateWithExternalStateStubbed =
-    ExecutionTimePltBlockState<BlobStoreLoadStub, ExternalBlockStateStub>;
+    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
 type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
@@ -97,7 +94,7 @@ impl BlockStateWithExternalStateStubbed {
         };
 
         let block_state = ExecutionTimePltBlockState {
-            inner_block_state,
+            internal_block_state: inner_block_state,
             backing_store_load: BlobStoreLoadStub,
             external_block_state,
         };
@@ -272,7 +269,7 @@ impl TokenInitTestParams {
     }
 }
 
-impl ReadTokenAccountBalance for ExternalBlockStateStub {
+impl ExternalBlockStateQuery for ExternalBlockStateStub {
     fn read_token_account_balance(
         &self,
         account: AccountIndex,
@@ -284,9 +281,54 @@ impl ReadTokenAccountBalance for ExternalBlockStateStub {
             .map(|token| token.balance)
             .unwrap_or_default()
     }
+
+    fn account_canonical_address_by_account_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
+        if let Some(account) = self.accounts.get(account_index.index as usize) {
+            Ok(account.address)
+        } else {
+            Err(AccountNotFoundByIndexError(account_index))
+        }
+    }
+
+    fn account_index_by_account_address(
+        &self,
+        account_address: &AccountAddress,
+    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
+        self.accounts
+            .iter()
+            .enumerate()
+            .find_map(|(i, account)| {
+                if account.address.is_alias(account_address) {
+                    Some(AccountIndex::from(i as u64))
+                } else {
+                    None
+                }
+            })
+            .ok_or(AccountNotFoundByAddressError(*account_address))
+    }
+
+    fn token_account_states(
+        &self,
+        account_index: AccountIndex,
+    ) -> Vec<(TokenIndex, TokenAccountState)> {
+        self.accounts[account_index.index as usize]
+            .tokens
+            .iter()
+            .map(|(token, state)| {
+                let token_account_state = TokenAccountState {
+                    balance: state.balance,
+                };
+
+                (*token, token_account_state)
+            })
+            .collect()
+    }
 }
 
-impl UpdateTokenAccountBalance for ExternalBlockStateStub {
+impl ExternalBlockStateOperations for ExternalBlockStateStub {
     fn update_token_account_balance(
         &mut self,
         account: AccountIndex,
@@ -308,66 +350,11 @@ impl UpdateTokenAccountBalance for ExternalBlockStateStub {
         }
         Ok(())
     }
-}
 
-impl IncrementPltUpdateSequenceNumber for ExternalBlockStateStub {
     fn increment_plt_update_sequence_number(&mut self) {
         self.plt_update_instruction_sequence_number += 1;
     }
 }
-
-impl GetCanonicalAddressByAccountIndex for ExternalBlockStateStub {
-    fn account_canonical_address_by_account_index(
-        &self,
-        account_index: AccountIndex,
-    ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
-        if let Some(account) = self.accounts.get(account_index.index as usize) {
-            Ok(account.address)
-        } else {
-            Err(AccountNotFoundByIndexError(account_index))
-        }
-    }
-}
-
-impl GetAccountIndexByAddress for ExternalBlockStateStub {
-    fn account_index_by_account_address(
-        &self,
-        account_address: &AccountAddress,
-    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
-        self.accounts
-            .iter()
-            .enumerate()
-            .find_map(|(i, account)| {
-                if account.address.is_alias(account_address) {
-                    Some(AccountIndex::from(i as u64))
-                } else {
-                    None
-                }
-            })
-            .ok_or(AccountNotFoundByAddressError(*account_address))
-    }
-}
-
-impl GetTokenAccountStates for ExternalBlockStateStub {
-    fn token_account_states(
-        &self,
-        account_index: AccountIndex,
-    ) -> Vec<(TokenIndex, TokenAccountState)> {
-        self.accounts[account_index.index as usize]
-            .tokens
-            .iter()
-            .map(|(token, state)| {
-                let token_account_state = TokenAccountState {
-                    balance: state.balance,
-                };
-
-                (*token, token_account_state)
-            })
-            .collect()
-    }
-}
-
-impl ExternalBlockState for ExternalBlockStateStub {}
 
 /// Test looking up account by alias.
 #[test]

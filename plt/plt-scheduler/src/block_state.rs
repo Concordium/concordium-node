@@ -2,10 +2,7 @@
 //!
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
-use crate::block_state::external::{
-    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
-    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
-};
+use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -37,10 +34,10 @@ pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHas
 /// Immutable block state save-point.
 ///
 /// This is a wrapper around a [`PltBlockState`] ensuring further mutations can only be done by
-/// unwrapping using [`PltBlockStateSavepoint::mutable_state`] which creates a new generation.
+/// unwrapping using [`PltBlockStateSavepoint::mutable_state`].
 #[derive(Debug)]
 pub struct PltBlockStateSavepoint {
-    /// The inner block state, which will not be mutated further for this generation.
+    /// The inner block state, which will not be mutated.
     block_state: PltBlockState,
 }
 
@@ -128,49 +125,55 @@ impl PltBlockState {
 }
 
 /// Runtime/execution state relevant for providing an implementation of
-/// [`BlockStateOperations`].
+/// [`BlockStateQuery`] and [`BlockStateOperations`].
 ///
 /// In addition to the PLT block state, this type contains callbacks
 /// for the parts of the state that is managed on the Haskell side.
 #[derive(Debug)]
-pub struct ExecutionTimePltBlockState<L, T> {
+pub struct ExecutionTimePltBlockState<IntState, Load, ExtState> {
     /// The library block state implementation.
-    pub inner_block_state: PltBlockState,
+    pub internal_block_state: IntState,
     /// External function for reading from the blob store.
-    pub backing_store_load: L,
+    pub backing_store_load: Load,
     /// Part of block state that is managed externally.
-    pub external_block_state: T,
+    pub external_block_state: ExtState,
 }
 
-/// Type definition for calls to externally managed parts of the block state.
-pub trait ExternalBlockState:
-    ReadTokenAccountBalance
-    + UpdateTokenAccountBalance
-    + IncrementPltUpdateSequenceNumber
-    + GetCanonicalAddressByAccountIndex
-    + GetAccountIndexByAddress
-    + GetTokenAccountStates
-{
+/// Provides access needed for querying block state (but not to do operations on the block state).
+trait HasQueryableBlockState {
+    fn block_state(&self) -> &SimplisticPltBlockState;
 }
 
-impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
-    for ExecutionTimePltBlockState<L, T>
+impl HasQueryableBlockState for PltBlockState {
+    fn block_state(&self) -> &SimplisticPltBlockState {
+        &self.state
+    }
+}
+
+impl HasQueryableBlockState for &PltBlockStateSavepoint {
+    fn block_state(&self) -> &SimplisticPltBlockState {
+        &self.block_state.state
+    }
+}
+
+impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
+    BlockStateQuery for ExecutionTimePltBlockState<IntState, Load, ExtState>
 {
     type TokenKeyValueState = SimplisticTokenKeyValueState;
     type Account = AccountIndex;
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
-        self.inner_block_state
-            .state
+        self.internal_block_state
+            .block_state()
             .tokens
             .iter()
             .map(|token| token.configuration.token_id.clone())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
-        self.inner_block_state
-            .state
+        self.internal_block_state
+            .block_state()
             .tokens
             .iter()
             .enumerate()
@@ -190,13 +193,13 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
     }
 
     fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
-        self.inner_block_state.state.tokens[token.0 as usize]
+        self.internal_block_state.block_state().tokens[token.0 as usize]
             .key_value_state
             .clone()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        let configuration = self.inner_block_state.state.tokens[token.0 as usize]
+        let configuration = self.internal_block_state.block_state().tokens[token.0 as usize]
             .configuration
             .clone();
 
@@ -208,7 +211,7 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        self.inner_block_state.state.tokens[token.0 as usize].circulating_supply
+        self.internal_block_state.block_state().tokens[token.0 as usize].circulating_supply
     }
 
     fn lookup_token_state_value(
@@ -280,26 +283,26 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateQuery
     }
 }
 
-impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateOperations
-    for ExecutionTimePltBlockState<L, T>
+impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
+    for ExecutionTimePltBlockState<PltBlockState, Load, ExtState>
 {
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        self.inner_block_state.state.tokens[token.0 as usize].circulating_supply =
+        self.internal_block_state.state.tokens[token.0 as usize].circulating_supply =
             circulating_supply;
     }
 
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        let token_index = TokenIndex(self.inner_block_state.state.tokens.len() as u64);
+        let token_index = TokenIndex(self.internal_block_state.state.tokens.len() as u64);
         let token = Token {
             key_value_state: Default::default(),
             configuration,
             circulating_supply: Default::default(),
         };
-        self.inner_block_state.state.tokens.push(token);
+        self.internal_block_state.state.tokens.push(token);
         token_index
     }
 
@@ -323,7 +326,7 @@ impl<L: BackingStoreLoad, T: ExternalBlockState> BlockStateOperations
         token: &Self::Token,
         token_key_value_state: Self::TokenKeyValueState,
     ) {
-        self.inner_block_state.state.tokens[token.0 as usize].key_value_state =
+        self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
             token_key_value_state;
     }
 }
