@@ -2,82 +2,17 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::external::{
-    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
-    ReadTokenAccountBalance,
-};
-use crate::block_state::types::{TokenAccountState, TokenIndex};
-use crate::block_state::{
-    ExecutionTimePltBlockState, ExternalBlockStateQuery, PltBlockStateSavepoint,
-};
+use crate::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
 use crate::ffi::blob_store_callbacks::LoadCallback;
 use crate::ffi::block_state_callbacks::{
-    GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
-    GetTokenAccountStatesCallback, ReadTokenAccountBalanceCallback,
+    ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
+    GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
+    ReadTokenAccountBalanceCallback,
 };
 use crate::ffi::memory;
 use crate::queries;
-use concordium_base::base::AccountIndex;
 use concordium_base::common;
-use concordium_base::contracts_common::AccountAddress;
 use libc::size_t;
-use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_types::types::tokens::RawTokenAmount;
-
-/// Callbacks types definition
-struct ExternalBlockStateQueryCallbacks {
-    /// External function for reading the token balance for an account.
-    read_token_account_balance: ReadTokenAccountBalanceCallback,
-    /// External function for fetching account address by index.
-    get_account_address_by_index: GetCanonicalAddressByAccountIndexCallback,
-    /// External function for fetching account index by address.
-    get_account_index_by_address: GetAccountIndexByAddressCallback,
-    /// External function for getting token account states.
-    get_token_account_states: GetTokenAccountStatesCallback,
-}
-
-impl ReadTokenAccountBalance for ExternalBlockStateQueryCallbacks {
-    fn read_token_account_balance(
-        &self,
-        account: AccountIndex,
-        token: TokenIndex,
-    ) -> RawTokenAmount {
-        self.read_token_account_balance
-            .read_token_account_balance(account, token)
-    }
-}
-
-impl GetCanonicalAddressByAccountIndex for ExternalBlockStateQueryCallbacks {
-    fn account_canonical_address_by_account_index(
-        &self,
-        account_index: AccountIndex,
-    ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
-        self.get_account_address_by_index
-            .account_canonical_address_by_account_index(account_index)
-    }
-}
-
-impl GetAccountIndexByAddress for ExternalBlockStateQueryCallbacks {
-    fn account_index_by_account_address(
-        &self,
-        account_address: &AccountAddress,
-    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
-        self.get_account_index_by_address
-            .account_index_by_account_address(account_address)
-    }
-}
-
-impl GetTokenAccountStates for ExternalBlockStateQueryCallbacks {
-    fn token_account_states(
-        &self,
-        account_index: AccountIndex,
-    ) -> Vec<(TokenIndex, TokenAccountState)> {
-        self.get_token_account_states
-            .token_account_states(account_index)
-    }
-}
-
-impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {}
 
 /// C-binding for calling [`queries::plt_list`].
 ///
@@ -129,10 +64,10 @@ extern "C" fn ffi_query_plt_list(
     );
 
     let external_callbacks = ExternalBlockStateQueryCallbacks {
-        read_token_account_balance: read_token_account_balance_callback,
-        get_account_address_by_index: get_account_address_by_index_callback,
-        get_account_index_by_address: get_account_index_by_address_callback,
-        get_token_account_states: get_token_account_states_callback,
+        read_token_account_balance_ptr: read_token_account_balance_callback,
+        get_account_address_by_index_ptr: get_account_address_by_index_callback,
+        get_account_index_by_address_ptr: get_account_index_by_address_callback,
+        get_token_account_states_ptr: get_token_account_states_callback,
     };
 
     let internal_block_state = unsafe { &*block_state };
