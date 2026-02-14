@@ -189,6 +189,8 @@ wrapGetAccountIndexByAddress func =
 --
 -- This is passed as a function pointer in FFI to call, see also 'GetAccountIndexByAddress'
 -- for the more type-safe variant.
+--
+-- See the corresponding function pointer definition in the Rust code for documentation of safety.
 type GetAccountIndexByAddressCallbackFFI =
     -- | Pointer for reading the 32 byte address of the account
     FFI.Ptr Word.Word8 ->
@@ -234,6 +236,8 @@ wrapGetAccountAddressByIndex func =
 --
 -- This is passed as a function pointer in FFI to call, see also 'GetAccountAddressByIndex'
 -- for the more type-safe variant.
+--
+-- See the corresponding function pointer definition in the Rust code for documentation of safety.
 type GetAccountAddressByIndexCallbackFFI =
     -- | The account index of the account.
     Word.Word64 ->

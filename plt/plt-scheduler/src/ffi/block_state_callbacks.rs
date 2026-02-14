@@ -197,6 +197,7 @@ pub type IncrementPltUpdateSequenceNumberCallback = extern "C" fn();
 ///
 /// - `account_index` Index of the (possibly existing) account to get.
 /// - `account_address_out` Pointer to where to write the canonical account address of 32 bytes.
+///   The pointer is a unique pointer, but ownership transfers back to the caller when the function returns.
 ///
 /// # Safety
 ///
@@ -221,8 +222,10 @@ pub type GetAccountIndexByAddressCallback =
     extern "C" fn(account_address: *const u8, account_index: *mut u64) -> u8;
 
 /// External function for getting token account states for an account.
-/// Returns pointer to a `Vec<u8>` which must be taken ownership of and deallocated.
-/// The bytes in the `Vec<u8>` contains binary serialized list of token indexes and token account states.
+/// The bytes in the returned `Vec<u8>` contains binary serialized list of token indexes and token account states.
+///
+/// Returns pointer to a uniquely owned [`Vec`].
+/// The returned `Vec` must be deallocated by the caller.
 ///
 /// # Arguments
 ///
