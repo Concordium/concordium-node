@@ -760,7 +760,12 @@ class
     getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
 
 class UnliftBlockStateQuery m where
-    unliftBSQ :: ((forall a. m a -> IO a) -> IO b) -> m b
+    withUnliftBSQ :: ((forall a. m a -> IO a) -> IO b) -> m b
+
+newtype UnliftBSQ m = UnliftBSQ { unliftBSQ :: forall a. m a -> IO a }
+
+askUnliftBSQ::(UnliftBlockStateQuery m) => m (UnliftBSQ m)
+askUnliftBSQ = withUnliftBSQ (\unlift -> return (UnliftBSQ unlift))
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts

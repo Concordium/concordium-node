@@ -187,25 +187,47 @@ queryPLTListRustManaged ::
     (PVSupportsPLT (MPV m), BS.BlockStateQuery m, BS.UnliftBlockStateQuery m) =>
     BlockState m ->
     m [TokenId]
-queryPLTListRustManaged bs = BS.unliftBSQ $ \unlift ->
+queryPLTListRustManaged bs = do
+    callbacks <- unliftBlockStateQueryCallbacks bs
+
+    undefined
+
+unliftBlockStateQueryCallbacks ::
+    forall m.
+    (PVSupportsPLT (MPV m), BS.BlockStateQuery m, BS.UnliftBlockStateQuery m) =>
+    BlockState m ->
+    m BlockStateQueryCallbacks
+-- unliftBlockStateQueryCallbacks bs = 
+--     do
+--         unlift <- BS.askUnliftBSQ
+
+--         let readTokenAccountBalance accountIndex tokenIndex = do
+--                 maybeAccount <- (BS.unliftBSQ unlift) $ BS.getAccountByIndex bs accountIndex
+--                 let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+--                 (BS.unliftBSQ unlift) $ BS.getAccountTokenBalance account tokenIndex
+--             getAccountIndexByAddress = undefined
+--             getAccountAddressByIndex = undefined
+--             getTokenAccountStates = undefined
+
+--         return BlockStateQueryCallbacks{..}
+unliftBlockStateQueryCallbacks bs = BS.withUnliftBSQ $ \unlift ->
     do
-        let readTokenAccountBalance :: AccountIndex -> TokenIndex -> IO TokenRawAmount
-            readTokenAccountBalance accountIndex tokenIndex = do
+        let readTokenAccountBalance accountIndex tokenIndex = do
                 maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
                 let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 unlift $ BS.getAccountTokenBalance account tokenIndex
+            getAccountIndexByAddress = undefined
+            getAccountAddressByIndex = undefined
+            getTokenAccountStates = undefined
 
-            liftedGetAccountIndexByAddress :: AccountAddress -> m (Maybe AccountIndex)
-            liftedGetAccountIndexByAddress = undefined
+        return BlockStateQueryCallbacks{..}
 
-            liftedGetAccountAddressByIndex :: AccountIndex -> m (Maybe AccountAddress)
-            liftedGetAccountAddressByIndex = undefined
-
-            liftedGetTokenAccountStates :: AccountIndex -> m [(TokenIndex, AccountTokens.TokenAccountState)]
-            liftedGetTokenAccountStates = undefined
-
-        undefined
-
+data BlockStateQueryCallbacks = BlockStateQueryCallbacks
+    { readTokenAccountBalance :: RustQ.ReadTokenAccountBalance,
+      getAccountIndexByAddress :: RustQ.GetAccountIndexByAddress,
+      getAccountAddressByIndex :: RustQ.GetAccountAddressByIndex,
+      getTokenAccountStates :: RustQ.GetTokenAccountStates
+    }
 
 -- lowPLTList :: (BlobStore.MonadBlobStore m') => m' TokenRawAmount
 --     lowPLTList = RustQ.queryPLTList undefined (unlift liftedReadTokenAccountBalance)
