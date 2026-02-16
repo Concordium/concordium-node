@@ -101,13 +101,7 @@ impl P2PNode {
             return;
         }
 
-        self.send_get_peers_to_all_connections(&buf);
-    }
-
-    pub fn send_get_peers_to_all_connections(&self, data: &[u8]) -> usize {
-        let mut sent_messages = 0usize;
-        let data = Arc::from(data);
-
+        let data: Arc<[u8]> = Arc::from(buf);
         for conn in write_or_die!(self.connections()).values_mut() {
             conn.get_peers_list_semaphore.add_permits(1);
             println!(
@@ -117,10 +111,7 @@ impl P2PNode {
             );
 
             conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
-            sent_messages += 1;
         }
-        println!("**** number of sent messages: {} ****", sent_messages);
-        sent_messages
     }
 
     /// Update the timestamp of the last peer update.

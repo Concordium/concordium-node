@@ -64,29 +64,15 @@ impl Connection {
 
                 println!("**** Current permits within this connection with peerId {} before acquisition: {}", peer_id, self.get_peers_list_semaphore.available_permits());
 
-                match self.get_peers_list_semaphore.try_acquire() {
-                    Ok(permit) => {
-                        println!(
-                            "***** Processing PeerList from peer {} with {} peers",
-                            peer_id,
-                            peers.len()
-                        );
-                        // semaphore acquired, process the peer list
-                        // and decrement the semaphore by one, if it reaches 0 then we don't want a peer list until we send another GetPeers request drop(permit);
-                        permit.forget();
-                        println!("**** REDUCING Current permits within this connection with peerId {} after acquisition: {} ****", peer_id, self.get_peers_list_semaphore.available_permits());
+                let permit = self.get_peers_list_semaphore.try_acquire()?;
+                // semaphore acquired, process the peer list
+                // and decrement the semaphore by one, if it reaches 0 then we don't want a peer list until we send another GetPeers request drop(permit);
+                permit.forget();
+                println!("**** REDUCING Current permits within this connection with peerId {} after acquisition: {} ****", peer_id, self.get_peers_list_semaphore.available_permits());
 
-                        self.handler
-                            .register_conn_change(ConnChange::NewPeers(peers));
-                        Ok(())
-                    }
-                    Err(e) => {
-                        // semaphore is 0, which means we got a peerlist before this
-                        // discarding this peer list
-                        println!("**** Discarding PeerList from peer {} because a previous PeerList is still being processed", peer_id);
-                        return Err(e.into());
-                    }
-                }
+                self.handler
+                    .register_conn_change(ConnChange::NewPeers(peers));
+                Ok(())
             }
             NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 debug!("Got a JoinNetwork request from peer {}", peer_id);
