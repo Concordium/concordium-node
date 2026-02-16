@@ -20,6 +20,7 @@ import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import Concordium.GlobalState.Types (BlockState)
 import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.ProtocolLevelTokens.Module (tokenModuleV0Ref)
 import Concordium.Scheduler.ProtocolLevelTokens.Queries
@@ -28,7 +29,6 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
 
-import Concordium.GlobalState.Types (BlockState)
 import Data.Bool.Singletons
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as BSS
