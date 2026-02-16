@@ -75,7 +75,6 @@ impl P2PNode {
             conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
             sent_messages += 1;
         }
-        println!("**** number of sent messages: {} ****", sent_messages);
         sent_messages
     }
 

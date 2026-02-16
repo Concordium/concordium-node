@@ -62,13 +62,10 @@ impl Connection {
                     peer_id
                 );
 
-                println!("**** Current permits within this connection with peerId {} before acquisition: {}", peer_id, self.get_peers_list_semaphore.available_permits());
-
                 let permit = self.get_peers_list_semaphore.try_acquire()?;
                 // semaphore acquired, process the peer list
                 // and decrement the semaphore by one, if it reaches 0 then we don't want a peer list until we send another GetPeers request drop(permit);
                 permit.forget();
-                println!("**** REDUCING Current permits within this connection with peerId {} after acquisition: {} ****", peer_id, self.get_peers_list_semaphore.available_permits());
 
                 self.handler
                     .register_conn_change(ConnChange::NewPeers(peers));

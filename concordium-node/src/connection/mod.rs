@@ -762,11 +762,6 @@ impl Connection {
 
             Ok(())
         } else {
-            println!(
-                "**** No peers to share with peer {} and not sending a PeerList response ****",
-                requestor
-            );
-
             debug!("I don't have any peers to share with peer {}", requestor);
             Ok(())
         }

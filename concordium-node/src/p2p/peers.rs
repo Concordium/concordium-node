@@ -104,12 +104,6 @@ impl P2PNode {
         let data: Arc<[u8]> = Arc::from(buf);
         for conn in write_or_die!(self.connections()).values_mut() {
             conn.get_peers_list_semaphore.add_permits(1);
-            println!(
-                "**** Armed semaphore for Peer {}. Permits: {} ****",
-                conn.remote_peer.local_id,
-                conn.get_peers_list_semaphore.available_permits()
-            );
-
             conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
         }
     }
