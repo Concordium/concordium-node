@@ -391,6 +391,8 @@ pub struct Connection {
     /// will no longer be added to the node's background queue but instead ignored.
     /// This prevents a single peer from disproportionately filling up the background queue.
     pub pending_background_messages_semaphore: Arc<AtomicU64>,
+    /// Semaphore to limit concurrent processing of GetPeers requests.
+    pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl PartialEq for Connection {
@@ -454,6 +456,8 @@ impl Connection {
             pending_background_messages_semaphore: Arc::new(AtomicU64::new(
                 MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER,
             )),
+            // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
+            get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 

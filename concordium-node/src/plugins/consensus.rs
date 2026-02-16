@@ -122,8 +122,7 @@ pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Resul
 
     // Enforce valid version
     if version != 0 && version != 1 {
-        anyhow::bail!("Invalid catch-up message version: {}, tag: {}, variant: {}, payload:{:?},discremin:{:?},_rest:{:?}", version,tag,request.variant, request
-        .payload,discriminator,_payload);
+        anyhow::bail!("Invalid catch-up message version: {}", version);
     }
 
     // Tag 2 or 3 indicates a response in the serialization.
@@ -199,9 +198,11 @@ pub fn handle_pkt_out(
                 })?;
 
             if is_catch_up_response_message(&request)? {
-                // If we have catch-up response message put it in the high-priority queue.
-
-                // Send responses if previously requested into high priority queue
+                // Send responses if previously requested into the high priority queue.
+                // These messages need to be processed in the high priority queue synchronously to avoid race-conditions.
+                // Otherwise, a new block received via regular consensus messages
+                // may also be processed by the background queue if it was part of
+                // a catch-up response, which can lead to conflicts.
                 if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
                     match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                         TrySendError::Full(_) => {

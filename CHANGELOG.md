@@ -1,9 +1,10 @@
 # Changelog
 
 ## Unreleased changes
-- Changes on PeerList processing to prevent performance degradation due to large peer lists
 
+- Prohibit peers from sending unsolicited PeerList messages
 - Improve node performance via soft-banning peers that are too agressive in their catch-up messaging. 
+- Introcude a background queue for processing messages (primarly catch-up messages currently) that don't require the global block state lock. 
 
 # 10.0.5
 
