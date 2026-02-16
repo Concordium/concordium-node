@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased changes
-- Changes on PeerList processing to prevent performance degradation due to large peer lists
+- Prohibit peers from sending unsolicited PeerList messages
 
 # 10.0.5
 
