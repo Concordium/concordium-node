@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Changes on PeerList processing to prevent performance degradation due to large peer lists
 
 - Improve node performance via soft-banning peers that are too agressive in their catch-up messaging. 
 

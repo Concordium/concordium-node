@@ -29,6 +29,8 @@ use std::{
 /// even if the new fields are not understood, but a warning will be emitted.
 pub const HANDSHAKE_MESSAGE_VERSION: u8 = 0;
 
+pub const PEER_LIST_LIMIT: usize = 1000; // The hard limit for safety
+
 impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available
     pub fn deserialize(buffer: &[u8]) -> anyhow::Result<Self> {
@@ -255,8 +257,10 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                 .payload_as_peer_list()
                 .and_then(|peers| peers.peers())
             {
-                let mut list = Vec::with_capacity(peers.len());
-                for i in 0..peers.len() {
+                let potential_size = std::cmp::min(peers.len(), PEER_LIST_LIMIT);
+                let mut list = Vec::with_capacity(potential_size);
+
+                for i in 0..potential_size {
                     let peer = peers.get(i);
 
                     let addr = if let Some(addr) = peer.addr() {

@@ -11,8 +11,10 @@ use circular_queue::CircularQueue;
 use low_level::ConnectionLowLevel;
 use mio::{net::TcpStream, Interest, Token};
 
+use crate::consensus_ffi::helpers::PacketType;
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
+use crate::network::serialization::fbs::PEER_LIST_LIMIT;
 use crate::{
     common::{
         get_current_stamp,
@@ -29,8 +31,6 @@ use crate::{
     p2p::P2PNode,
     read_or_die, write_or_die,
 };
-
-use crate::consensus_ffi::helpers::PacketType;
 
 use std::{
     collections::VecDeque,
@@ -723,6 +723,7 @@ impl Connection {
                     )
                     .iter()
                     .filter_map(RemotePeer::peer)
+                    .take(PEER_LIST_LIMIT)
                     .collect::<Vec<_>>();
 
                 if !random_nodes.is_empty()
@@ -746,6 +747,7 @@ impl Connection {
                         addr: stat.external_address(),
                         peer_type: stat.peer_type,
                     })
+                    .take(PEER_LIST_LIMIT)
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {
