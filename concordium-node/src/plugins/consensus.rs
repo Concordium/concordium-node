@@ -186,7 +186,7 @@ pub fn handle_pkt_out(
             }
         }
         PacketType::CatchUpStatus => {
-            if pending_background_messages_semaphore
+            pending_background_messages_semaphore
                 .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
                     if count == 0 {
                         None
@@ -194,32 +194,12 @@ pub fn handle_pkt_out(
                         Some(count - 1)
                     }
                 })
-                .is_err()
-            {
-                // Ignore cath-up requests if peer already sent more than
-                // `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER` messages
-                // that are still pending to be progressed.
-                debug!("Dropping catch-up request from peer `{:?}` as it exceeded its `pending_background_messages_semaphore` value", peer_id);
-                return Ok(());
-            }
+                .map_err(|_| {
+                    anyhow::anyhow!("Exceeded maximum number of pending catch-up messages")
+                })?;
 
             if is_catch_up_response_message(&request)? {
                 // If we have catch-up response message put it in the high-priority queue.
-
-                // Check that we are catching-up with this peer (otherwise, banning peer for breach of protocol)
-
-                // TODO: Not reliablely working -> should we really soft-ban.
-                // let source = request.source_peer();
-                // let catch_up_peer = read_or_die!(node.peers).catch_up_peer;
-                // if catch_up_peer != Some(source) {
-                //     // Soft-banning peer
-                //     return Err(anyhow!(
-                //         "Got unsolicited catch-up response message from peer {:?}.
-                //     Currently catching up with peer instead `{:?}`",
-                //         source,
-                //         catch_up_peer
-                //     ));
-                // }
 
                 // Send responses if previously requested into high priority queue
                 if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {

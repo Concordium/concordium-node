@@ -46,61 +46,6 @@ use tokio::sync::broadcast;
 
 use concordium_node::stats_export_service::start_push_gateway;
 use std::net::SocketAddr;
-// use std::sync::Mutex;
-// use std::collections::HashMap;
-// use std::time::{Duration, Instant};
-// use concordium_node::common::p2p_peer::RemotePeerId;
-
-// const CATCH_UP_RATE_LIMIT_PER_PEER_PER_SECOND: u8 = 5;
-
-// pub struct CatchUpRateLimiter {
-//     /// Max number of catch-up messages allowed per interval.
-//     max_tokens: u8,
-//     /// Interval duration (e.g. 1 second).
-//     interval: Duration,
-//     /// Map of peer -> limiter state.
-//     peers: Mutex<HashMap<RemotePeerId, PeerLimiter>>,
-// }
-
-// struct PeerLimiter {
-//     tokens: u8,
-//     last_refill: Instant,
-// }
-
-// impl CatchUpRateLimiter {
-//     pub fn new(max_tokens: u8, interval: Duration) -> Self {
-//         Self {
-//             max_tokens,
-//             interval,
-//             peers: Mutex::new(HashMap::new()),
-//         }
-//     }
-
-//     /// Returns true if the peer is allowed to request a catch-up message.
-//     pub fn allow(&self, peer_id: RemotePeerId) -> bool {
-//         let now = Instant::now();
-//         let mut peers = self.peers.lock().unwrap();
-
-//         let entry = peers.entry(peer_id).or_insert(PeerLimiter {
-//             tokens: self.max_tokens,
-//             last_refill: now,
-//         });
-
-//         // Refill if interval elapsed
-//         let elapsed = now.duration_since(entry.last_refill);
-//         if elapsed >= self.interval {
-//             entry.tokens = self.max_tokens;
-//             entry.last_refill = now;
-//         }
-
-//         if entry.tokens > 0 {
-//             entry.tokens -= 1;
-//             true
-//         } else {
-//             false
-//         }
-//     }
-// }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -536,11 +481,6 @@ fn start_consensus_message_threads(
         }
     }));
 
-    // let catchup_rate_limiter = CatchUpRateLimiter::new(
-    //     CATCH_UP_RATE_LIMIT_PER_PEER_PER_SECOND,
-    //     Duration::from_secs(1),
-    // );
-
     let node_ref = Arc::clone(node);
     threads.push(spawn_or_die!("background consensus requests", {
         let consensus_receiver_background =
@@ -562,20 +502,11 @@ fn start_consensus_message_threads(
                     break;
                 }
                 QueueMsg::Relay(message) => {
-                    let request = message.into_consensus_message();
-                    // let source = request.source_peer();
-
-                    // if !catchup_rate_limiter.allow(source) {
-                    //     debug!(
-                    //         "Dropping catch-up from peer {} due to rate limiting",
-                    //         source
-                    //     );
-                    //     continue;
-                    // };
-
-                    if let Err(e) =
-                        handle_consensus_inbound_msg(&node_ref, &background_consensus, request)
-                    {
+                    if let Err(e) = handle_consensus_inbound_msg(
+                        &node_ref,
+                        &background_consensus,
+                        message.into_consensus_message(),
+                    ) {
                         error!(
                             "There's an issue with a background consensus request: {}",
                             e

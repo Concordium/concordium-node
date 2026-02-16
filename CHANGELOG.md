@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Improve node performance via soft-banning peers that are too agressive in their catch-up messaging. 
+
 # 10.0.5
 
 - Disable administrative gRPC endpoints by default. These can be enabled by specifying a
