@@ -96,13 +96,11 @@ impl P2PNode {
         let message = netmsg!(NetworkRequest, request);
         let mut buf = Vec::with_capacity(256);
 
-        if let Err(e) = message
-            .serialize(&mut buf)            
-        {
+        if let Err(e) = message.serialize(&mut buf) {
             error!("Can't send a GetPeers request: {}", e);
             return;
         }
-        
+
         self.send_get_peers_to_all_connections(&buf);
     }
 
