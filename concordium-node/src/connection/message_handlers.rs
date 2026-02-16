@@ -63,8 +63,8 @@ impl Connection {
                 );
 
                 // semaphore acquired, process the peer list
-                // and decrement the semaphore by one, 
-                // if it reaches 0 then we don't want a peer list 
+                // and decrement the semaphore by one,
+                // if it reaches 0 then we don't want a peer list
                 // until we send another GetPeers request drop(permit);
                 let permit = self.get_peers_list_semaphore.try_acquire()?;
                 permit.forget();
