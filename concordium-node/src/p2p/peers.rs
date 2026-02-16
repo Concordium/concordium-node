@@ -97,12 +97,13 @@ impl P2PNode {
         let mut buf = Vec::with_capacity(256);
 
         if let Err(e) = message
-            .serialize(&mut buf)
-            .map(|_| buf)
-            .map(|buf| self.send_get_peers_to_all_connections(&buf))
+            .serialize(&mut buf)            
         {
             error!("Can't send a GetPeers request: {}", e);
+            return;
         }
+        
+        self.send_get_peers_to_all_connections(&buf);
     }
 
     pub fn send_get_peers_to_all_connections(&self, data: &[u8]) -> usize {
