@@ -5,6 +5,7 @@
 -- Each foreign function definition must match the definitions of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks (
     BlockStateQueryCallbacks (..),
+    BlockStateOperationCallbacks (..),
     ReadTokenAccountBalance,
     ReadTokenAccountBalanceCallbackPtr,
     wrapReadTokenAccountBalance,
@@ -46,6 +47,13 @@ data BlockStateQueryCallbacks = BlockStateQueryCallbacks
       getAccountIndexByAddress :: GetAccountIndexByAddress,
       getAccountAddressByIndex :: GetAccountAddressByIndex,
       getTokenAccountStates :: GetTokenAccountStates
+    }
+
+-- | Block state operation callbacks. These are used by the Rust PLT Scheduler library to
+-- perform operations on the part of the block state that is maintained by Haskell.
+data BlockStateOperationCallbacks = BlockStateOperationCallbacks
+    { updateTokenAccountBalance :: UpdateTokenAccountBalance,
+      incrementPltUpdateSequenceNumber :: IncrementPltUpdateSequenceNumber
     }
 
 -- | Callback function for reading a token account balance.

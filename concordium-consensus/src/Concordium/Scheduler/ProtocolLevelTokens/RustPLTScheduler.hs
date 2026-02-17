@@ -51,18 +51,10 @@ executeTransaction ::
     Types.SProtocolVersion pv ->
     -- | Block state to mutate.
     PLTBlockState.ForeignPLTBlockStatePtr ->
-    -- | Callback for reading the token balance of an account.
-    ReadTokenAccountBalance ->
-    -- | Callback for updating the token balance of an account.
-    UpdateTokenAccountBalance ->
-    -- | Callback for incrementing PLT update sequence number.
-    IncrementPltUpdateSequenceNumber ->
-    -- | Callback to get account index by account address
-    GetAccountIndexByAddress ->
-    -- | Callback to get account address by account index
-    GetAccountAddressByIndex ->
-    -- | Callback to get token account states for an account
-    GetTokenAccountStates ->
+    -- | Callbacks need for block state queries on the state maintained by Haskell.
+    BlockStateQueryCallbacks ->
+    -- | Callbacks need for block state operations on the state maintained by Haskell.
+    BlockStateOperationCallbacks ->            
     -- | Transaction payload byte string.
     BS.ByteString ->
     -- | The account index of the account which signed as the sender of the transaction.
@@ -76,12 +68,8 @@ executeTransaction ::
 executeTransaction
     spv
     blockState
-    readTokenAccountBalance
-    updateTokenAccountBalance
-    incrementPltUpdateSequence
-    getAccountIndexByAddress
-    getAccountAddressByIndex
-    getTokenAccountStates
+    queryCallbacks
+    operationCallbacks
     transactionPayload
     senderAccountIndex
     (Types.AccountAddress senderAccountAddress)
@@ -91,12 +79,12 @@ executeTransaction
             liftIO $ FFI.alloca $ \usedEnergyOutPtr -> FFI.alloca $ \resultingBlockStateOutPtr ->
                 FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
-                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance readTokenAccountBalance
-                        updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance updateTokenAccountBalance
-                        incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber incrementPltUpdateSequence
-                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress getAccountIndexByAddress
-                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex getAccountAddressByIndex
-                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates getTokenAccountStates
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
+                        incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                         -- Invoke the ffi call
                         statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
                             FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
@@ -235,18 +223,10 @@ executeChainUpdate ::
     Types.SProtocolVersion pv ->
     -- | Block state to mutate.
     PLTBlockState.ForeignPLTBlockStatePtr ->
-    -- | Callback for reading the token balance of an account.
-    ReadTokenAccountBalance ->
-    -- | Callback for updating the token balance of an account.
-    UpdateTokenAccountBalance ->
-    -- | Callback for incrementing PLT update sequence number.
-    IncrementPltUpdateSequenceNumber ->
-    -- | Callback to get account index by account address
-    GetAccountIndexByAddress ->
-    -- | Callback to get account address by account index
-    GetAccountAddressByIndex ->
-    -- | Callback to get token account states for an account
-    GetTokenAccountStates ->
+    -- | Callbacks need for block state queries on the state maintained by Haskell.
+    BlockStateQueryCallbacks ->
+    -- | Callbacks need for block state operations on the state maintained by Haskell.
+    BlockStateOperationCallbacks ->   
     -- | Chain update payload byte string.
     BS.ByteString ->
     -- | Outcome of the execution
@@ -254,24 +234,20 @@ executeChainUpdate ::
 executeChainUpdate
     spv
     blockState
-    readTokenAccountBalance
-    updateTokenAccountBalance
-    incrementPltUpdateSequence
-    getAccountIndexByAddress
-    getAccountAddressByIndex
-    getTokenAccountStates
+    queryCallbacks
+    operationCallbacks
     chainUpdatePayload =
         do
             loadCallbackPtr <- fst <$> BlobStore.getCallbacks
             liftIO $ FFI.alloca $ \resultingBlockStateOutPtr ->
                 FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
-                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance readTokenAccountBalance
-                        updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance updateTokenAccountBalance
-                        incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber incrementPltUpdateSequence
-                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress getAccountIndexByAddress
-                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex getAccountAddressByIndex
-                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates getTokenAccountStates
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
+                        incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                         -- Invoke the ffi call
                         statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
                             BS.unsafeUseAsCStringLen chainUpdatePayload $ \(chainUpdatePayloadPtr, chainUpdatePayloadLen) ->
