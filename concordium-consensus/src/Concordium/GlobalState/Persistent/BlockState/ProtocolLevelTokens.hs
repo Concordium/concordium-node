@@ -235,6 +235,12 @@ storePLTs ::
     m (ProtocolLevelTokensForStateVersion 'PLTStateV0)
 storePLTs = fmap ProtocolLevelTokensV0 . refMake
 
+-- | Get 'ForeignPLTBlockStatePtr' in the Rust managed version of 'ProtocolLevelTokensForStateVersion'.
+getRustPLTBlockState ::
+    ProtocolLevelTokensForStateVersion 'PLTStateV1 ->
+    RustBS.ForeignPLTBlockStatePtr
+getRustPLTBlockState (ProtocolLevelTokensV1 state) = state
+
 -- | An empty 'ProtocolLevelTokensForStateVersion' with no tokens.
 emptyProtocolLevelTokensForStateVersion ::
     forall m pltsv.

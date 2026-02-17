@@ -534,6 +534,7 @@ newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = Persist
           MonadLogger,
           MonadError e,
           BlockStateQuery,
+          ForeingLowLevelBlockStateQuery,
           AccountOperations,
           BlockStateOperations,
           BlockStateStorage,

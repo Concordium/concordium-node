@@ -3,6 +3,10 @@
 -- Each foreign imported function must match the signature of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryPLTList,
+    ReadTokenAccountBalance,
+    GetAccountIndexByAddress,
+    GetAccountAddressByIndex,
+    GetTokenAccountStates,
 ) where
 
 import Control.Monad.IO.Class (liftIO)
@@ -22,35 +26,27 @@ import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelToken
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
--- | Query the list of PLTs in the block state.
+-- | Query the list of PLTs in the block state. The function is a wrapper around an FFI call
+-- to the Rust PLT Scheduler library.
 queryPLTList ::
     (BlobStore.MonadBlobStore m) =>
     -- | Block state to query.
     PLTBlockState.ForeignPLTBlockStatePtr ->
-    -- | Callback for reading the token balance of an account.
-    ReadTokenAccountBalance ->
-    -- | Callback to get account index by account address
-    GetAccountIndexByAddress ->
-    -- | Callback to get account address by account index
-    GetAccountAddressByIndex ->
-    -- | Callback to get token account states for an account
-    GetTokenAccountStates ->
+    -- | Callback need for queries.
+    BlockStateQueryCallbacks ->
     -- | The list of token ids
     m [Types.TokenId]
 queryPLTList
     blockState
-    readTokenAccountBalance
-    getAccountIndexByAddress
-    getAccountAddressByIndex
-    getTokenAccountStates =
+    queryCallbacks =
         do
             loadCallbackPtr <- fst <$> BlobStore.getCallbacks
             liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                 do
-                    readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance readTokenAccountBalance
-                    getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress getAccountIndexByAddress
-                    getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex getAccountAddressByIndex
-                    getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates getTokenAccountStates
+                    readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                    getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                    getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                    getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
                     -- Invoke the ffi call
                     statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
                         ffiQueryPLTList

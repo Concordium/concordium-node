@@ -57,6 +57,7 @@ deriving via (MGSTrans AccountNonceQueryT m) instance GSTypes.BlockStateTypes (A
 deriving via (MGSTrans AccountNonceQueryT m) instance (TokenStateOperations ts m) => TokenStateOperations ts (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (PLTQuery bs ts m) => PLTQuery bs ts (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (BlockStateQuery m) => BlockStateQuery (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (ForeingLowLevelBlockStateQuery m) => ForeingLowLevelBlockStateQuery (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (ContractStateOperations m) => ContractStateOperations (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (AccountOperations m) => AccountOperations (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (ModuleQuery m) => ModuleQuery (AccountNonceQueryT m)

@@ -1,9 +1,15 @@
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.Scheduler.ProtocolLevelTokens.Queries where
+module Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryTokenInfoError (..),
+    queryTokenInfo,
+    queryAccountTokens,
+    queryPLTList,
+) where
 
 import Control.Monad
 import Control.Monad.Cont
@@ -20,6 +26,8 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConf
 import Concordium.GlobalState.Types
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks as RustCB
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries as RustQ
 
 -- | The 'QueryContext' provides the context to run 'PLTKernelQuery' operations against a
 --  particular token index and block state.
@@ -170,5 +178,41 @@ queryPLTList bs =
     case sPltStateVersionFor (protocolVersion @(MPV m)) of
         SPLTStateNone -> return []
         SPLTStateV0 -> BS.getPLTList bs
-        -- todo implement as part of https://linear.app/concordium/issue/PSR-15/dispatch-plt-queries-to-the-rust-plt-library
-        SPLTStateV1 -> undefined
+        SPLTStateV1 -> queryPLTListRustManaged bs
+
+-- | Get the list all tokens, for protocol version where the PLT state is managed in Rust.
+queryPLTListRustManaged ::
+    forall m.
+    (PVSupportsRustManagedPLT (MPV m), BS.BlockStateQuery m) =>
+    BlockState m ->
+    m [TokenId]
+queryPLTListRustManaged bs = do
+    queryCallbacks <- unliftBlockStateQueryCallbacks bs
+    BS.withRustPLTState bs $ \pltState ->
+        RustQ.queryPLTList pltState queryCallbacks
+
+-- | "Unlifts" the callback queries from the 'BlockStateQuery' monad into the IO monad, such that they can
+-- be converted to FFI function pointers.
+unliftBlockStateQueryCallbacks ::
+    forall m.
+    (PVSupportsPLT (MPV m), BS.BlockStateQuery m) =>
+    BlockState m ->
+    m RustCB.BlockStateQueryCallbacks
+unliftBlockStateQueryCallbacks bs = BS.withUnliftBSQ $ \unlift ->
+    do
+        let readTokenAccountBalance accountIndex tokenIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                unlift $ BS.getAccountTokenBalance account tokenIndex
+            getAccountIndexByAddress accountAddress = do
+                maybeAccount <- unlift $ BS.getAccount bs accountAddress
+                return $ fst <$> maybeAccount
+            getAccountAddressByIndex accountIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                forM maybeAccount $ \(_, account) -> unlift $ BS.getAccountCanonicalAddress account
+            getTokenAccountStates accountIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                fmap Map.toList $ unlift $ BS.getAccountTokens account
+
+        return RustCB.BlockStateQueryCallbacks{..}

@@ -41,7 +41,8 @@ import qualified Data.FixedByteString as FixedByteString
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
 -- amount of energy used by the execution is returned. The returned values are represented
--- via the type 'TransactionExecutionSummary'.
+-- via the type 'TransactionExecutionSummary'. The function is a wrapper around an FFI call
+-- to the Rust PLT Scheduler library.
 --
 -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case of the transaction being rejected.
 executeTransaction ::
@@ -224,7 +225,8 @@ foreign import ccall "ffi_execute_transaction"
         IO Word.Word8
 
 -- | Execute a chain update modifying `block_state` accordingly.
--- Returns the events produced if successful, otherwise a failure kind.
+-- Returns the events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
+-- to the Rust PLT Scheduler library.
 --
 -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
 executeChainUpdate ::
