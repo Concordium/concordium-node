@@ -4615,12 +4615,17 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeingLowLevelBlo
             unliftContext :: PersistentBlockStateContext pv
             unliftContext = PersistentBlockStateContext{..}
 
+        -- Extract LogMethod action than can run in IO monad
+        logMethod <- logEventIO
+
         -- Run query with the unlift function as argument
         let queryIo = query $ \m ->
-                runSilentLogger $ -- todo ar logger
-                    runReaderT
+                runLoggerT
+                    ( runReaderT
                         (runPersistentBlockStateMonad m)
                         unliftContext
+                    )
+                    logMethod
         liftIO queryIo
 
     withRustPLTState bs query = do
