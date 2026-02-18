@@ -764,10 +764,10 @@ class
     -- | Get the index of accounts in pre-pre-cooldown.
     getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
 
--- | Low-level block state query access needed for foreign function interface access,
--- specifially the Rust PLT Scheduler library. The functions in this type class
--- generally break the abstractions of the 'BlockStateQuery' monad, and should only
--- be used when low-level access is required.
+-- | Low-level block state query access needed for foreign function interface access.
+-- This is specifially used by the integration with the the Rust PLT Scheduler library.
+-- The functions in this type class  generally break the abstractions of the 'BlockStateQuery' monad,
+-- and should only be used when low-level access is required.
 class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateQuery m where
     -- | Allows construction of an IO action in a context where 'BlockStateQuery' actions
     -- can be unlifted into the IO monad. The resulting IO action is then lifted
