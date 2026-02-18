@@ -20,7 +20,6 @@ use concordium_node::{
         },
         ffi,
         helpers::QueueMsg,
-        messaging::ConsensusMessage,
     },
     p2p::{
         connectivity::connect,
@@ -435,7 +434,11 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                        handle_consensus_inbound_msg(
+                            &node_ref,
+                            &consensus,
+                            msg.into_consensus_message(),
+                        )
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -449,7 +452,11 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                    handle_consensus_inbound_msg(
+                        &node_ref,
+                        &consensus,
+                        msg.into_consensus_message(),
+                    )
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -464,7 +471,11 @@ fn start_consensus_message_threads(
                 match msg {
                     Ok(message) => {
                         let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                            handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                            handle_consensus_inbound_msg(
+                                &node_ref,
+                                &consensus,
+                                msg.into_consensus_message(),
+                            )
                         });
                         if stop_loop {
                             break 'outer_loop;
@@ -597,9 +608,9 @@ fn start_consensus_message_threads(
     threads
 }
 
-fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
+fn handle_queue_stop<F, M>(msg: QueueMsg<M>, dir: &'static str, f: F) -> bool
 where
-    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>,
+    F: FnOnce(M) -> anyhow::Result<()>,
 {
     match msg {
         QueueMsg::Relay(msg) => {

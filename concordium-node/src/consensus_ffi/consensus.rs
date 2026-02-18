@@ -49,7 +49,7 @@ pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
 /// Currently, these are primarily catch-up messages.
 ///
 /// These messages are intended for non-blocking processing to avoid stalling the high/low priority threads.
-pub struct BackgroundMessage {
+pub struct SemphoredMessage {
     /// The consensus message.
     message: ConsensusMessage,
     /// Shared pending semaphore counter for the peer that sent this message.
@@ -62,7 +62,7 @@ pub struct BackgroundMessage {
     semaphore_counter_of_sending_peer: Arc<AtomicU64>,
 }
 
-impl BackgroundMessage {
+impl SemphoredMessage {
     pub fn new(
         message: ConsensusMessage,
         semaphore_counter_of_sending_peer: Arc<AtomicU64>,
@@ -81,16 +81,16 @@ impl BackgroundMessage {
 }
 
 pub struct ConsensusInboundQueues {
-    pub receiver_high_priority: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_high_priority: QueueSyncSender<ConsensusMessage>,
-    pub receiver_low_priority: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_low_priority: QueueSyncSender<ConsensusMessage>,
+    pub receiver_high_priority: Mutex<QueueReceiver<SemphoredMessage>>,
+    pub sender_high_priority: QueueSyncSender<SemphoredMessage>,
+    pub receiver_low_priority: Mutex<QueueReceiver<SemphoredMessage>>,
+    pub sender_low_priority: QueueSyncSender<SemphoredMessage>,
     /// Receiver for background message processing queue.
     /// This queue is for consensus messages that can be processed without
     /// blocking (as they don't require the global block state lock)- specifically catch-up messages.
-    pub receiver_background: Mutex<QueueReceiver<BackgroundMessage>>,
+    pub receiver_background: Mutex<QueueReceiver<SemphoredMessage>>,
     /// Sender for background message processing queue.
-    pub sender_background: QueueSyncSender<BackgroundMessage>,
+    pub sender_background: QueueSyncSender<SemphoredMessage>,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -141,21 +141,21 @@ pub struct ConsensusQueues {
 }
 
 impl ConsensusQueues {
-    pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
+    pub fn send_in_high_priority_message(&self, message: SemphoredMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_high_priority
             .send_msg(message)
             .map_err(|e| e.into())
     }
 
-    pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
+    pub fn send_in_low_priority_message(&self, message: SemphoredMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_low_priority
             .send_msg(message)
             .map_err(|e| e.into())
     }
 
-    pub fn send_in_background_message(&self, message: BackgroundMessage) -> anyhow::Result<()> {
+    pub fn send_in_background_message(&self, message: SemphoredMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_background
             .send_msg(message)

@@ -45,7 +45,7 @@ use std::{
     },
 };
 
-pub const MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER: u64 = 10;
+pub const MAX_QUEUED_MESSAGES_PER_PEER: u64 = 20;
 
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
@@ -386,11 +386,13 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
-    /// Semaphore for pending catch-up messages in background queue.
+    /// Semaphore for pending messages in queues, high and low priority queues.
     /// When this semaphore reaches 0, any new catch-up requests from this peer
-    /// will no longer be added to the node's background queue but instead ignored.
-    /// This prevents a single peer from disproportionately filling up the background queue.
-    pub pending_background_messages_semaphore: Arc<AtomicU64>,
+    /// will no longer be added to the node's queue but instead ignored.
+    /// This prevents a single peer from disproportionately filling up the queue.
+    pub pending_messages_semaphore: Arc<AtomicU64>,
+    /// TODO: Docs
+    pub semophore_reached: Arc<bool>,
     /// Semaphore to limit concurrent processing of GetPeers requests.
     pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
@@ -453,9 +455,8 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
-            pending_background_messages_semaphore: Arc::new(AtomicU64::new(
-                MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER,
-            )),
+            pending_messages_semaphore: Arc::new(AtomicU64::new(MAX_QUEUED_MESSAGES_PER_PEER)),
+            semophore_reached: Arc::new(false),
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
             get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
@@ -540,10 +541,44 @@ impl Connection {
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
+        if self
+            .pending_messages_semaphore
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
+                if count == 0 {
+                    self.semophore_reached = Arc::new(true);
+                    None
+                } else {
+                    self.semophore_reached = Arc::new(false);
+                    Some(count - 1)
+                }
+            })
+            .is_err()
+        {
+            debug!("Dropping/Delaying rropping request from peer `{:?}` as it exceeded its `pending_semaphore` value", self.remote_peer);
+            return Ok(true);
+        }
+
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
-                ReadResult::Incomplete => {}
+                ReadResult::Incomplete => {
+                    if self
+                        .pending_messages_semaphore
+                        .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
+                            if count == 0 {
+                                self.semophore_reached = Arc::new(true);
+                                None
+                            } else {
+                                self.semophore_reached = Arc::new(false);
+                                Some(count - 1)
+                            }
+                        })
+                        .is_err()
+                    {
+                        debug!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_semaphore` value", self.remote_peer);
+                        return Ok(true);
+                    }
+                }
                 ReadResult::WouldBlock => return Ok(true),
                 ReadResult::Closed => return Ok(false),
             }
