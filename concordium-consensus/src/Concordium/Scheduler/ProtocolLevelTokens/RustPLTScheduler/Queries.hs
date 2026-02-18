@@ -1,43 +1,82 @@
+{-# LANGUAGE RankNTypes #-}
+
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to query PLTs.
 --
 -- Each foreign imported function must match the signature of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryPLTList,
-    ReadTokenAccountBalance,
-    GetAccountIndexByAddress,
-    GetAccountAddressByIndex,
-    GetTokenAccountStates,
 ) where
 
+import Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
 import qualified Foreign.C.Types as FFI
 
-import qualified Concordium.Types as Types
+import Concordium.Types
 import qualified Concordium.Utils.Serialization as CS
 
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
+import qualified Concordium.GlobalState.Types as BS
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
+-- | Get the list all tokens, for protocol version where the PLT state is managed in Rust.
+queryPLTList ::
+    forall m.
+    (PVSupportsRustManagedPLT (MPV m), BS.BlockStateQuery m) =>
+    BS.BlockState m ->
+    m [TokenId]
+queryPLTList bs = do
+    queryCallbacks <- unliftBlockStateQueryCallbacks bs
+    BS.withRustPLTState bs $ \pltBlockState ->
+        queryPLTListInBlobStoreMonad pltBlockState queryCallbacks
+
+-- | "Unlifts" the callback queries from the 'BlockStateQuery' monad into the IO monad, such that they can
+-- be converted to FFI function pointers.
+unliftBlockStateQueryCallbacks ::
+    forall m.
+    (PVSupportsPLT (MPV m), BS.BlockStateQuery m) =>
+    BS.BlockState m ->
+    m BlockStateQueryCallbacks
+unliftBlockStateQueryCallbacks bs = BS.withUnliftBSQ $ \unlift ->
+    do
+        let readTokenAccountBalance accountIndex tokenIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                unlift $ BS.getAccountTokenBalance account tokenIndex
+            getAccountIndexByAddress accountAddress = do
+                maybeAccount <- unlift $ BS.getAccount bs accountAddress
+                return $ fst <$> maybeAccount
+            getAccountAddressByIndex accountIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                forM maybeAccount $ \(_, account) -> unlift $ BS.getAccountCanonicalAddress account
+            getTokenAccountStates accountIndex = do
+                maybeAccount <- unlift $ BS.getAccountByIndex bs accountIndex
+                let account = snd $ maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                fmap Map.toList $ unlift $ BS.getAccountTokens account
+
+        return BlockStateQueryCallbacks{..}
+
 -- | Query the list of PLTs in the block state. The function is a wrapper around an FFI call
 -- to the Rust PLT Scheduler library.
-queryPLTList ::
+queryPLTListInBlobStoreMonad ::
     (BlobStore.MonadBlobStore m) =>
     -- | Block state to query.
     PLTBlockState.ForeignPLTBlockStatePtr ->
     -- | Callback need for queries.
     BlockStateQueryCallbacks ->
     -- | The list of token ids
-    m [Types.TokenId]
-queryPLTList
-    blockState
+    m [TokenId]
+queryPLTListInBlobStoreMonad
+    pltBlockState
     queryCallbacks =
         do
             loadCallbackPtr <- fst <$> BlobStore.getCallbacks
@@ -48,14 +87,14 @@ queryPLTList
                     getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
                     getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
                     -- Invoke the ffi call
-                    statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
+                    statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
                         ffiQueryPLTList
                             loadCallbackPtr
                             readTokenAccountBalanceCallbackPtr
                             getAccountIndexByAddressCallbackPtr
                             getAccountAddressByIndexCallbackPtr
                             getTokenAccountStatesCallbackPtr
-                            blockStatePtr
+                            pltBlockStatePtr
                             returnDataPtrOutPtr
                             returnDataLenOutPtr
                     -- Free the function pointers we have just created
