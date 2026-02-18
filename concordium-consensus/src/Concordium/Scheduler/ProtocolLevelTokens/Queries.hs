@@ -96,6 +96,7 @@ data QueryTokenInfoError
       QTIEUnknownToken
     | -- | An error occurred in the token module.
       QTIEInternal !QueryTokenError
+    deriving (Eq)
 
 instance Show QueryTokenInfoError where
     show QTIEUnknownToken = "unknown token"
