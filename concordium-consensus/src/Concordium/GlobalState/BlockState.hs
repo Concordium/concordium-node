@@ -1757,6 +1757,38 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     -- | Roll back to the state at the snapshot. This should be used with caution.
     bsoRollback :: UpdatableBlockState m -> StateSnapshot m -> m (UpdatableBlockState m)
 
+-- | Low-level block state operation access needed for foreign function interface access.
+-- This is specifially used by the integration with the the Rust PLT Scheduler library.
+-- The functions in this type class  generally break the abstractions of the 'BlockStateOperations' monad,
+-- and should only be used when low-level access is required.
+class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateOperations m where
+    -- | Allows construction of an IO action in a context where 'BlockStateOperations' actions
+    -- can be unlifted into the IO monad. The resulting IO action is then lifted
+    -- in to the 'BlockStateOperations' monad and returned.
+    withUnliftBSO ::
+        ( forall m'.
+          ( BlockStateOperations m',
+            MPV m ~ MPV m',
+            UpdatableBlockState m ~ UpdatableBlockState m',
+            Account m ~ Account m'
+          ) =>
+          (m' (UpdatableBlockState m') -> IO ()) -> IO ()
+        ) ->
+        m ()
+
+    -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
+    -- state foreing pointer can be updated. The resulting 'MonadBlobStore' action
+    -- is then converted into a 'BlockStateOperations' action and returned.
+    updateRustPLTState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        ( forall m'.
+          (MonadBlobStore m') =>
+          RustBS.ForeignPLTBlockStatePtr ->
+          m' (Maybe RustBS.ForeignPLTBlockStatePtr, a)
+        ) ->
+        m a
+
 -- | Block state storage operations
 class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
     -- | Derive a mutable state instance from a block state instance. The mutable

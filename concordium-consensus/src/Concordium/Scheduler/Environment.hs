@@ -30,7 +30,7 @@ import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState (AccountOperations (..), ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
+import Concordium.GlobalState.BlockState (AccountOperations (..), BlockStateOperations, ContractStateOperations (..), ForeingLowLevelBlockStateOperations, InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
 import Concordium.GlobalState.Classes (MGSTrans (..))
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -431,6 +431,24 @@ class
         (PVSupportsHaskellManagedPLT (MPV m)) =>
         Token.PLTConfiguration ->
         m Token.TokenIndex
+
+-- todo ar docs
+
+-- | Low-level block state operation access needed for foreign function interface access.
+-- This is specifially used by the integration with the the Rust PLT Scheduler library.
+-- The functions in this type class  generally break the abstractions of the 'BlockStateOperations' monad,
+-- and should only be used when low-level access is required.
+class (Monad m, MonadProtocolVersion m) => ForeingLowLevelSchedulerMonad m where
+    -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
+    -- state foreing pointer can be updated. The resulting 'MonadBlobStore' action
+    -- is then converted into a 'BlockStateOperations' action and returned.
+    updateBlockState ::
+        ( forall m'.
+          (BlockStateOperations m', ForeingLowLevelBlockStateOperations m') => -- todo ar remove constraint again
+          UpdatableBlockState m' ->
+          m' (Maybe (UpdatableBlockState m'), a)
+        ) ->
+        m a
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the

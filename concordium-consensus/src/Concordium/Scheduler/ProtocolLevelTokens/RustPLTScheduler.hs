@@ -1,3 +1,7 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to execute the payload of block items (currently for protocol-level tokens only).
 -- Notice that block item headers are handled outside of the Rust PLT Scheduler.
 --
@@ -5,19 +9,6 @@
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeTransaction,
     executeChainUpdate,
-    TransactionExecutionSummary (..),
-    TransactionExecutionOutcome (..),
-    TransactionExecutionReject (..),
-    TransactionExecutionSuccess (..),
-    ChainUpdateExecutionOutcome (..),
-    ChainUpdateExecutionFailed (..),
-    ChainUpdateExecutionSuccess (..),
-    ReadTokenAccountBalance,
-    UpdateTokenAccountBalance,
-    IncrementPltUpdateSequenceNumber,
-    GetAccountIndexByAddress,
-    GetAccountAddressByIndex,
-    GetTokenAccountStates,
 ) where
 
 import Control.Monad.IO.Class (liftIO)
@@ -28,15 +19,20 @@ import qualified Data.Word as Word
 import qualified Foreign as FFI
 import qualified Foreign.C.Types as FFI
 
-import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
-import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
-import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
-import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
-import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Execution as Types
 import qualified Concordium.Utils.Serialization as CS
 import qualified Data.FixedByteString as FixedByteString
+
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as EI
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
+import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
+import qualified Concordium.GlobalState.Types as BS
+import qualified Concordium.Scheduler.Environment as EI
+import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
@@ -54,7 +50,7 @@ executeTransaction ::
     -- | Callbacks need for block state queries on the state maintained by Haskell.
     BlockStateQueryCallbacks ->
     -- | Callbacks need for block state operations on the state maintained by Haskell.
-    BlockStateOperationCallbacks ->            
+    BlockStateOperationCallbacks ->
     -- | Transaction payload byte string.
     BS.ByteString ->
     -- | The account index of the account which signed as the sender of the transaction.
@@ -212,12 +208,33 @@ foreign import ccall "ffi_execute_transaction"
         --   via callbacks must be rolled back.
         IO Word.Word8
 
+-- todo ar unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
+
+-- | Get the list all tokens, for protocol version where the PLT state is managed in Rust.
+executeChainUpdate ::
+    forall m.
+    (Types.PVSupportsRustManagedPLT (Types.MPV m), EI.SchedulerMonad m, EI.ForeingLowLevelSchedulerMonad m) =>
+    m (Either Types.FailureKind Types.ValidResult)
+executeChainUpdate = do
+    let queryCallbacks = undefined
+    let operationCallbacks = undefined
+    outcome <- EI.updateBlockState $ \bs -> do
+        BS.updateRustPLTState bs $ \pltBlockState -> do
+            outcome <- executeChainUpdateInBlobStoreMonad (Types.protocolVersion @(Types.MPV m)) pltBlockState queryCallbacks operationCallbacks undefined
+            undefined
+
+    -- outcome <- BS.updateRustPLTState bs $ \pltBlockState -> do
+    --     outcome <- executeChainUpdateInBlobStoreMonad (Types.protocolVersion @(Types.MPV m)) pltBlockState queryCallbacks operationCallbacks undefined
+    --     undefined
+
+    undefined
+
 -- | Execute a chain update modifying `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
 -- to the Rust PLT Scheduler library.
 --
 -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
-executeChainUpdate ::
+executeChainUpdateInBlobStoreMonad ::
     (BlobStore.MonadBlobStore m) =>
     -- | Block protocol version
     Types.SProtocolVersion pv ->
@@ -226,12 +243,12 @@ executeChainUpdate ::
     -- | Callbacks need for block state queries on the state maintained by Haskell.
     BlockStateQueryCallbacks ->
     -- | Callbacks need for block state operations on the state maintained by Haskell.
-    BlockStateOperationCallbacks ->   
+    BlockStateOperationCallbacks ->
     -- | Chain update payload byte string.
     BS.ByteString ->
     -- | Outcome of the execution
     m ChainUpdateExecutionOutcome
-executeChainUpdate
+executeChainUpdateInBlobStoreMonad
     spv
     blockState
     queryCallbacks
