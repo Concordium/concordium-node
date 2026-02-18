@@ -5,10 +5,6 @@
 -- Each foreign imported function must match the signature of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryPLTList,
-    ReadTokenAccountBalance,
-    GetAccountIndexByAddress,
-    GetAccountAddressByIndex,
-    GetTokenAccountStates,
 ) where
 
 import Control.Monad
