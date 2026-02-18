@@ -45,7 +45,7 @@ use std::{
     },
 };
 
-pub const MAX_QUEUED_MESSAGES_PER_PEER: u64 = 20;
+pub const MAX_QUEUED_MESSAGES_PER_PEER: u64 = 50;
 
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
@@ -541,27 +541,15 @@ impl Connection {
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
-        if self
-            .pending_messages_semaphore
-            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
-                if count == 0 {
-                    self.semophore_reached = Arc::new(true);
-                    None
-                } else {
-                    self.semophore_reached = Arc::new(false);
-                    Some(count - 1)
-                }
-            })
-            .is_err()
-        {
-            debug!("Dropping/Delaying rropping request from peer `{:?}` as it exceeded its `pending_semaphore` value", self.remote_peer);
+        let semaphore = self.pending_messages_semaphore.load(Ordering::SeqCst);
+        if semaphore == 0u64 {
+            self.semophore_reached = Arc::new(true);
             return Ok(true);
         }
 
         loop {
             match self.low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
-                ReadResult::Incomplete => {
+                ReadResult::Complete(msg) => {
                     if self
                         .pending_messages_semaphore
                         .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
@@ -578,7 +566,9 @@ impl Connection {
                         debug!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_semaphore` value", self.remote_peer);
                         return Ok(true);
                     }
+                    self.process_message(Arc::from(msg), conn_stats)?
                 }
+                ReadResult::Incomplete => {}
                 ReadResult::WouldBlock => return Ok(true),
                 ReadResult::Closed => return Ok(false),
             }
