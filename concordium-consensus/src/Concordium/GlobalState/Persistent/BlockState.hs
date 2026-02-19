@@ -4595,7 +4595,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getPreCooldownAccounts = doGetPreCooldownAccounts . hpbsPointers
     getPrePreCooldownAccounts = doGetPrePreCooldownAccounts . hpbsPointers
 
-instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeingLowLevelBlockStateQuery (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlockStateQuery (PersistentBlockStateMonad pv r m) where
     withUnliftBSQ query = do
         -- Construct the context needed for running block state query actions that we unlift
         context <- ask

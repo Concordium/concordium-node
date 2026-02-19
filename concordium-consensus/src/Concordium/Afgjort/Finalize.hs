@@ -1142,7 +1142,7 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
           TimerMonad,
           BlockStateTypes,
           BlockStateQuery,
-          ForeingLowLevelBlockStateQuery,
+          ForeignLowLevelBlockStateQuery,
           AccountOperations,
           ContractStateOperations,
           ModuleQuery,

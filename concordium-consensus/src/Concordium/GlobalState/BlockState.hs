@@ -553,7 +553,7 @@ class
       AccountOperations m,
       ModuleQuery m,
       PLTQuery (BlockState m) (MutableTokenState m) m,
-      ForeingLowLevelBlockStateQuery m
+      ForeignLowLevelBlockStateQuery m
     ) =>
     BlockStateQuery m
     where
@@ -768,7 +768,7 @@ class
 -- This is specifially used by the integration with the the Rust PLT Scheduler library.
 -- The functions in this type class  generally break the abstractions of the 'BlockStateQuery' monad,
 -- and should only be used when low-level access is required.
-class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateQuery m where
+class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateQuery m where
     -- | Allows construction of an IO action in a context where 'BlockStateQuery' actions
     -- can be unlifted into the IO monad. The resulting IO action is then lifted
     -- in to the 'BlockStateQuery' monad and returned.
@@ -784,7 +784,7 @@ class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateQuery m wher
         m b
 
     -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
-    -- state foreing pointer can be accessed. The resulting 'MonadBlobStore' action
+    -- state foreign pointer can be accessed. The resulting 'MonadBlobStore' action
     -- is then converted into a 'BlockStateQuery' action and returned.
     withRustPLTState ::
         (PVSupportsRustManagedPLT (MPV m)) =>
@@ -1979,7 +1979,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getPreCooldownAccounts #-}
     {-# INLINE getPrePreCooldownAccounts #-}
 
-instance (Monad (t m), MonadTrans t, ForeingLowLevelBlockStateQuery m) => ForeingLowLevelBlockStateQuery (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (MGSTrans t m) where
     withRustPLTState bs query = lift $ withRustPLTState bs query
     withUnliftBSQ unliftQuery = lift $ withUnliftBSQ unliftQuery
     {-# INLINE withRustPLTState #-}
@@ -2224,7 +2224,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
 deriving via (MGSTrans MaybeT m) instance (TokenStateOperations ts m) => TokenStateOperations ts (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (PLTQuery bs ts m) => PLTQuery bs ts (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance (ForeingLowLevelBlockStateQuery m) => ForeingLowLevelBlockStateQuery (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance (ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ModuleQuery m) => ModuleQuery (MaybeT m)
@@ -2234,7 +2234,7 @@ deriving via (MGSTrans MaybeT m) instance (BlockStateStorage m) => BlockStateSto
 deriving via (MGSTrans (ExceptT e) m) instance (TokenStateOperations ts m) => TokenStateOperations ts (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (PLTQuery bs ts m) => PLTQuery bs ts (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateQuery m) => BlockStateQuery (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance (ForeingLowLevelBlockStateQuery m) => ForeingLowLevelBlockStateQuery (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance (ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (AccountOperations m) => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ContractStateOperations m) => ContractStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ModuleQuery m) => ModuleQuery (ExceptT e m)
