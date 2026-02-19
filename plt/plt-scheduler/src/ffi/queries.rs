@@ -9,6 +9,7 @@ use crate::ffi::block_state_callbacks::{
     GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
     ReadTokenAccountBalanceCallback,
 };
+use crate::ffi::memory;
 use crate::queries;
 use concordium_base::common;
 use libc::size_t;
@@ -26,23 +27,27 @@ use libc::size_t;
 /// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
 /// - `get_account_index_by_address_callback` External function for getting account index by account address.
 /// - `get_token_account_states_callback` External function for getting token account states.
-/// - `block_state` Pointer to a block state to use for queries.
+/// - `block_state` Shared pointer to a block state to use for queries.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is serialized tokens ids.
 ///   If the return value is `0`, the data is a list of token ids.
-///   The caller must free the written block state using `free_array_len_2` when it is no longer used.    
+///   The pointer written is to a uniquely owned array.
+///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
 ///
 /// # Safety
 ///
-/// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - All callback arguments must be a valid function pointers to functions with a signature matching the
+///   signature of Rust type of the function pointer.
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_plt_list(
     load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
-    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
+    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
     return_data_out: *mut *mut u8,
@@ -74,21 +79,13 @@ extern "C" fn ffi_query_plt_list(
 
     let token_ids = queries::plt_list(&block_state);
 
-    let mut return_data = common::to_bytes(&token_ids);
+    let return_data = common::to_bytes(&token_ids);
 
-    // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
-    return_data.shrink_to_fit();
-    // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(
-        return_data.capacity(),
-        return_data.len(),
-        "vec capacity not equal to length after call to shrink_to_fit"
-    );
+    let array = memory::alloc_array_from_vec(return_data);
     unsafe {
-        *return_data_len_out = return_data.len() as size_t;
-        *return_data_out = return_data.as_mut_ptr();
+        *return_data_len_out = array.length;
+        *return_data_out = array.array;
     }
-    std::mem::forget(return_data);
 
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     0

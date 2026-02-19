@@ -48,7 +48,7 @@ preConfHook args flags = do
 
     -- Build and copy/symlink PLT scheduler project
     pltWorkspace <- canonicalizePath pltWorkspaceRelative
-    runCmd verbosity $ "cargo build --release --locked --features ffi -p plt-scheduler --manifest-path=" ++ pltWorkspace ++ "/Cargo.toml"
+    withCurrentDirectory pltWorkspace $ runCmd verbosity $ "cargo build --release --locked --features ffi -p plt-scheduler"
     case buildOS of
         Windows -> do
             runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ libraryDestination

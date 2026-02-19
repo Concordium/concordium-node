@@ -27,10 +27,10 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallb
 ) where
 
 import qualified Data.ByteString.Unsafe as BS
+import Data.Maybe
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
-import Data.Maybe
 
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types as Types
@@ -40,7 +40,6 @@ import qualified Concordium.Utils.Serialization as CS
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
-
 
 -- | Block state query callbacks. These are used by the Rust PLT Scheduler library to
 -- query the part of the block state that is maintained by Haskell.
@@ -210,6 +209,8 @@ wrapGetAccountIndexByAddress func =
 --
 -- This is passed as a function pointer in FFI to call, see also 'GetAccountIndexByAddress'
 -- for the more type-safe variant.
+--
+-- See the corresponding function pointer definition in the Rust code for documentation of safety.
 type GetAccountIndexByAddressCallbackFFI =
     -- | Pointer for reading the 32 byte address of the account
     FFI.Ptr Word.Word8 ->
@@ -255,6 +256,8 @@ wrapGetAccountAddressByIndex func =
 --
 -- This is passed as a function pointer in FFI to call, see also 'GetAccountAddressByIndex'
 -- for the more type-safe variant.
+--
+-- See the corresponding function pointer definition in the Rust code for documentation of safety.
 type GetAccountAddressByIndexCallbackFFI =
     -- | The account index of the account.
     Word.Word64 ->

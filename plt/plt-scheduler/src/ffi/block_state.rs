@@ -5,9 +5,10 @@
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
-/// Allocate a new empty PLT block state.
+/// Allocate a new empty PLT block state and returns it.
 ///
-/// It is up to the caller to free this memory using [`ffi_free_plt_block_state`].
+/// The returned pointer is to a uniquely owned instance.
+/// It must be freed by calling [`ffi_free_plt_block_state`].
 #[unsafe(no_mangle)]
 extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
     let block_state = PltBlockStateSavepoint::empty();
@@ -22,9 +23,8 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
 ///
 /// # Safety
 ///
-/// Caller must ensure:
-///
-/// - Argument `block_state` cannot be referenced by anyone else.
+/// - Argument `block_state` must be unique, non-null pointer to well-formed [`PltBlockStateSavepoint`].
+///   No other pointers to the block state must exist.
 /// - Freeing is only ever done once.
 #[unsafe(no_mangle)]
 extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint) {
@@ -38,12 +38,15 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint)
 /// # Arguments
 ///
 /// - `load_callback` External function to call for loading bytes a reference from the blob store.
-/// - `block_state` Pointer to the PLT block state to compute a hash for.
+/// - `block_state` Shared pointer to the PLT block state to compute a hash for.
 /// - `destination` Unique pointer with location to write the 32 bytes for the hash.
 ///
 /// # Safety
 ///
-/// Caller must ensure `destination` can hold 32 bytes for the hash.
+/// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
+/// - Argument `destination` must be non-null and valid for writes of 32 bytes.
 #[unsafe(no_mangle)]
 extern "C" fn ffi_hash_plt_block_state(
     mut load_callback: LoadCallback,
@@ -59,16 +62,19 @@ extern "C" fn ffi_hash_plt_block_state(
     }
 }
 
-/// Load a PLT block state from the blob store.
+/// Load a PLT block state from the blob store and return it.
+///
+/// The returned pointer is to a uniquely owned instance.
+/// It must be freed by calling [`ffi_free_plt_block_state`].
 ///
 /// # Arguments
 ///
-/// - `load_callback` External function to call for loading bytes a reference from the blob store.
+/// - `load_callback` External function to call for loading bytes from the blob store.
 /// - `blob_ref` Blob store reference to load the block state from.
 ///
 /// # Safety
 ///
-/// Caller must ensure `blob_ref` is a valid reference in the blob store.
+/// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
 #[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
@@ -90,7 +96,9 @@ extern "C" fn ffi_load_plt_block_state(
 ///
 /// # Safety
 ///
-/// Caller must ensure `block_state` is non-null and points to a valid block state.
+/// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
@@ -101,7 +109,10 @@ extern "C" fn ffi_store_plt_block_state(
     block_state.store_update(&mut store_callback)
 }
 
-/// Migrate the PLT block state from one blob store to another.
+/// Migrate the PLT block state from one blob store to another and return the migrated state.
+///
+/// The returned pointer is to a uniquely owned instance.
+/// It must be freed by calling [`ffi_free_plt_block_state`].
 ///
 /// # Arguments
 ///
@@ -112,7 +123,10 @@ extern "C" fn ffi_store_plt_block_state(
 ///
 /// # Safety
 ///
-/// Caller must ensure `block_state` is non-null and points to a valid block state.
+/// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
+/// - Argument `store_callback` must be a valid function pointer to a function with a signature matching [`StoreCallback`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_migrate_plt_block_state(
     mut load_callback: LoadCallback,
@@ -134,7 +148,9 @@ extern "C" fn ffi_migrate_plt_block_state(
 ///
 /// # Safety
 ///
-/// Caller must ensure `block_state` is non-null and points to a valid block state.
+/// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_cache_plt_block_state(
     mut load_callback: LoadCallback,

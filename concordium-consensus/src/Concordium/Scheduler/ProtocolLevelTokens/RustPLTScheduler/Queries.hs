@@ -28,7 +28,7 @@ import qualified Concordium.GlobalState.Types as BS
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
--- | Get the list all tokens, for protocol version where the PLT state is managed in Rust.
+-- | Get the list of all tokens, for protocol version where the PLT state is managed in Rust.
 queryPLTList ::
     forall m.
     (PVSupportsRustManagedPLT (MPV m), BS.BlockStateQuery m) =>
@@ -128,6 +128,8 @@ queryPLTListInBlobStoreMonad
 -- Returns a byte representing the result:
 --
 -- - `0`: The query was successful
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_query_plt_list"
     ffiQueryPLTList ::
         -- | Called to read data from blob store.
