@@ -278,7 +278,7 @@ impl P2PNode {
                     return;
                 }
 
-                if conn.semaphore_reached
+                if conn.pending_messages_semaphore_reached
                     || (events
                         .iter()
                         .any(|event| event.token() == conn.token() && event.is_readable()))

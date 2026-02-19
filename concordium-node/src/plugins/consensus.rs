@@ -104,6 +104,8 @@ pub fn get_baker_data(
 }
 
 /// Returns true if the message is a catch-up response message.
+/// See: Serialization of a 'VersionedCatchUpStatus' message.
+/// https://github.com/Concordium/concordium-node/blob/main/concordium-consensus/src/Concordium/Types/CatchUp.hs#L24
 pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Result<bool> {
     if request.variant != PacketType::CatchUpStatus {
         return Ok(false);
@@ -122,8 +124,16 @@ pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Resul
         anyhow::bail!("Invalid catch-up message version: {}", version);
     }
 
-    // Tag 2 or 3 indicates a response in the serialization.
-    Ok(tag == 2 || tag == 3)
+    // Version 0/1, use tag bytes 2 or 3 for response messages.
+    // Version 0 ("no genesis"), use tag byte 6 for response messages.
+    //
+    // This means any tag with the bit 1 set, is a response message.
+    // That is, tag AND 0b10 equals 0b10.
+    //
+    // 2 → 0b10
+    // 3 → 0b11
+    // 6 → 0b110
+    Ok(tag & 0x02 == 0x02)
 }
 
 /// Handles packets coming from other peers.

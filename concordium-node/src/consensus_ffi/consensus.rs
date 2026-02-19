@@ -46,32 +46,22 @@ pub const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
 
-/// A background message that can be processed without acquiring the global block state lock.
-/// Currently, these are primarily catch-up messages.
-///
-/// These messages are intended for non-blocking processing to avoid stalling the high/low priority threads.
+/// A message with a semaphore attached to it that will be released once the `SemaphoredMessage` is dropped.
 pub struct SemaphoredMessage {
     /// The consensus message.
     pub message: ConsensusMessage,
-    /// Shared pending messages semaphore counter for the peer that sent this message.
-    ///
-    /// - This semaphore atomically tracks how many of the `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER`
-    ///   slots are currently still available for a given sending peer.
-    /// - When the the sturct is dropped, the semaphore is incremented
-    ///   to signal that a slot is freed for the peer to send another background message to this node.
-    /// - It is used to share the queue capacity fairly among connected peers.
-    pub semaphore_counter_of_sending_peer: OwnedSemaphorePermit,
+    /// Permit of the semaphore tracking the pending messages of the peer that sent this message.
+    /// The semaphore should track how many of the `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER`
+    /// slots are currently still available for a given sending peer.
+    /// When the the struct is dropped, the semaphore is incremented to signal that a slot is freed
+    /// for the peer to send another message to this node again.
+    /// This is used to share queue capacity fairly among connected peers.
+    pub permit: OwnedSemaphorePermit,
 }
 
 impl SemaphoredMessage {
-    pub fn new(
-        message: ConsensusMessage,
-        semaphore_counter_of_sending_peer: OwnedSemaphorePermit,
-    ) -> Self {
-        Self {
-            message,
-            semaphore_counter_of_sending_peer,
-        }
+    pub fn new(message: ConsensusMessage, permit: OwnedSemaphorePermit) -> Self {
+        Self { message, permit }
     }
 }
 

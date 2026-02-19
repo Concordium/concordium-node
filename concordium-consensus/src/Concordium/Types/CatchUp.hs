@@ -22,7 +22,7 @@ data VersionedCatchUpStatus where
 
 -- | Serialize a 'VersionedCatchUpStatus' message.
 -- | Note: Ensure the serialization is kept in sync with the `is_catch_up_response_message` function in the P2P layer
--- | in `https://github.com/Concordium/concordium-node/blob/739c4968946b6cc962aa915dfb75cdf364481774/concordium-node/src/plugins/consensus.rs#L110`. 
+-- | in `https://github.com/Concordium/concordium-node/blob/739c4968946b6cc962aa915dfb75cdf364481774/concordium-node/src/plugins/consensus.rs#L110`.
 putVersionedCatchUpStatus :: Putter VersionedCatchUpStatus
 putVersionedCatchUpStatus VersionedCatchUpStatusNoGenesis = do
     -- This is serialized as a version 0 catch-up status message with the tag byte 6.

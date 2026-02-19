@@ -386,13 +386,16 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
-    /// Semaphore for pending messages in queues, high and low priority queues.
-    /// When this semaphore reaches 0, any new catch-up requests from this peer
-    /// will no longer be added to the node's queue but instead ignored.
+    /// Semaphore for pending messages across all incoming messages processing queues.
+    /// When this semaphore reaches 0, any new message from this peer
+    /// will no longer be added to the node's queue but instead dropped/delayed.
     /// This prevents a single peer from disproportionately filling up the queue.
     pub pending_messages_semaphore: Arc<tokio::sync::Semaphore>,
-    /// TODO: Docs
-    pub semaphore_reached: bool,
+    /// The value will be set to `true` when above semaphore reaches 0,
+    /// allowing the node to re-check at every read polling cycle
+    /// if a semaphore permit got released so remaining incoming messages
+    /// can be read from the peer's socket.
+    pub pending_messages_semaphore_reached: bool,
     /// Semaphore to limit concurrent processing of GetPeers requests.
     pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
@@ -458,7 +461,7 @@ impl Connection {
             pending_messages_semaphore: Arc::new(tokio::sync::Semaphore::new(
                 MAX_QUEUED_MESSAGES_PER_PEER,
             )),
-            semaphore_reached: false,
+            pending_messages_semaphore_reached: false,
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
             get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
@@ -538,29 +541,20 @@ impl Connection {
         Ok(is_duplicate)
     }
 
-    /// Keeps reading from the socket as long as there is data to be read
-    /// and the operation is not blocking.
+    /// Keeps reading from the socket as long as there is data to be read, the operation is not blocking
+    /// and the sending peer's `pending_messages_semaphore` value hasn't be exhausted.
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
         let semaphore = self.pending_messages_semaphore.available_permits();
         if semaphore == 0usize {
-            self.semaphore_reached = true;
+            self.pending_messages_semaphore_reached = true;
             return Ok(true);
         }
 
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => {
-                    // TODO: Handle `semophore_reached`
-                    //  if count == 0 {
-                    //                 self.semophore_reached = Arc::new(true);
-                    //                 None
-                    //             } else {
-                    //                 self.semophore_reached = Arc::new(false);
-                    //                 Some(count - 1)
-                    //             }
-
                     // Acquire an owned permit
                     if self
                         .pending_messages_semaphore
@@ -568,9 +562,11 @@ impl Connection {
                         .try_acquire_owned()
                         .is_err()
                     {
-                        debug!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_semaphore` value", self.remote_peer);
+                        trace!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value", self.remote_peer);
+                        self.pending_messages_semaphore_reached = true;
                         return Ok(true);
                     }
+                    self.pending_messages_semaphore_reached = false;
                     self.process_message(Arc::from(msg), conn_stats)?
                 }
                 ReadResult::Incomplete => {}
