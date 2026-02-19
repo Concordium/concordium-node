@@ -11,8 +11,12 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeChainUpdate,
 ) where
 
+import Control.Monad
+import Control.Monad.Except
+import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
@@ -28,12 +32,10 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
+import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
-import Control.Monad
-import Control.Monad.Except
-import Control.Monad.Trans
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
@@ -220,9 +222,9 @@ executeChainUpdate ::
 executeChainUpdate updateHeader createPLT =
     fmap join $ runExceptT $ do
         unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
-        let queryCallbacks = undefined
-        let operationCallbacks = undefined
         lift $ EI.updateBlockState $ \bs -> do
+            queryCallbacks <- unliftBlockStateQueryCallbacks bs
+            let operationCallbacks = undefined
             BS.updateRustPLTState bs $ \pltBlockState -> do
                 outcome <-
                     executeChainUpdateInBlobStoreMonad
@@ -236,8 +238,6 @@ executeChainUpdate updateHeader createPLT =
                         (Just updatedPltBlockState, Right $ Types.TxSuccess events)
                     ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
                         (Nothing, Left failureKind)
-
--- todo ar unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
 
 -- | Execute a chain update modifying `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
@@ -426,3 +426,29 @@ data ChainUpdateExecutionSuccess = ChainUpdateExecutionSuccess
       -- | Events produced during the execution
       cuesEvents :: [Types.Event]
     }
+
+-- | "Unlifts" the callback queries from the 'BlockStateOperations' monad into the IO monad, such that they can
+-- be converted to FFI function pointers.
+unliftBlockStateQueryCallbacks ::
+    forall m.
+    (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m, BS.ForeingLowLevelBlockStateOperations m) =>
+    BS.UpdatableBlockState m ->
+    m BlockStateQueryCallbacks
+unliftBlockStateQueryCallbacks bs = BS.withUnliftBSO $ \unlift ->
+    do
+        let readTokenAccountBalance accountIndex tokenIndex = do
+                maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
+                let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                unlift $ BS.getAccountTokenBalance account tokenIndex
+            getAccountIndexByAddress accountAddress = do
+                maybeAccount <- unlift $ BS.bsoGetAccount bs accountAddress
+                return $ fst <$> maybeAccount
+            getAccountAddressByIndex accountIndex = do
+                maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
+                forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
+            getTokenAccountStates accountIndex = do
+                maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
+                let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
+                fmap Map.toList $ unlift $ BS.getAccountTokens account
+
+        return BlockStateQueryCallbacks{..}

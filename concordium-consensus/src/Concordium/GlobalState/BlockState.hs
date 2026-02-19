@@ -1772,9 +1772,9 @@ class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateOperations m
             UpdatableBlockState m ~ UpdatableBlockState m',
             Account m ~ Account m'
           ) =>
-          (m' (UpdatableBlockState m') -> IO ()) -> IO ()
+          (forall a. m' a -> IO a) -> IO b
         ) ->
-        m ()
+        m b
 
     -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
     -- state foreing pointer can be updated. The resulting 'MonadBlobStore' action
