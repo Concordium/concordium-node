@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -98,7 +99,7 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     TokenStateKey,
     TokenStateValue,
  )
-import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState (ProtocolLevelTokensHash (..))
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as RustBS
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -548,7 +549,12 @@ class (MonadProtocolVersion m, Monad m, TokenStateOperations ts m) => PLTQuery b
 --  consensus itself to compute stake, get a list of and information about
 --  bakers, finalization committee, etc.
 class
-    (ContractStateOperations m, AccountOperations m, ModuleQuery m, PLTQuery (BlockState m) (MutableTokenState m) m) =>
+    ( ContractStateOperations m,
+      AccountOperations m,
+      ModuleQuery m,
+      PLTQuery (BlockState m) (MutableTokenState m) m,
+      ForeignLowLevelBlockStateQuery m
+    ) =>
     BlockStateQuery m
     where
     -- | Get the module source from the module table as deployed to the chain.
@@ -757,6 +763,38 @@ class
 
     -- | Get the index of accounts in pre-pre-cooldown.
     getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
+-- | Low-level block state query access needed for foreign function interface access.
+-- This is specifially used by the integration with the the Rust PLT Scheduler library.
+-- The functions in this type class  generally break the abstractions of the 'BlockStateQuery' monad,
+-- and should only be used when low-level access is required.
+class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateQuery m where
+    -- | Allows construction of an IO action in a context where 'BlockStateQuery' actions
+    -- can be unlifted into the IO monad. The resulting IO action is then lifted
+    -- in to the 'BlockStateQuery' monad and returned.
+    withUnliftBSQ ::
+        ( forall m'.
+          ( BlockStateQuery m',
+            MPV m ~ MPV m',
+            BlockState m ~ BlockState m',
+            Account m ~ Account m'
+          ) =>
+          (forall a. m' a -> IO a) -> IO b
+        ) ->
+        m b
+
+    -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
+    -- state foreign pointer can be accessed. The resulting 'MonadBlobStore' action
+    -- is then converted into a 'BlockStateQuery' action and returned.
+    withRustPLTState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        BlockState m ->
+        ( forall m'.
+          (MonadBlobStore m') =>
+          RustBS.ForeignPLTBlockStatePtr ->
+          m' a
+        ) ->
+        m a
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -1941,6 +1979,12 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getPreCooldownAccounts #-}
     {-# INLINE getPrePreCooldownAccounts #-}
 
+instance (Monad (t m), MonadTrans t, ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (MGSTrans t m) where
+    withRustPLTState bs query = lift $ withRustPLTState bs query
+    withUnliftBSQ unliftQuery = lift $ withUnliftBSQ unliftQuery
+    {-# INLINE withRustPLTState #-}
+    {-# INLINE withUnliftBSQ #-}
+
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
     getAccountAmount = lift . getAccountAmount
@@ -2180,6 +2224,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
 deriving via (MGSTrans MaybeT m) instance (TokenStateOperations ts m) => TokenStateOperations ts (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (PLTQuery bs ts m) => PLTQuery bs ts (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance (ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ModuleQuery m) => ModuleQuery (MaybeT m)
@@ -2189,6 +2234,7 @@ deriving via (MGSTrans MaybeT m) instance (BlockStateStorage m) => BlockStateSto
 deriving via (MGSTrans (ExceptT e) m) instance (TokenStateOperations ts m) => TokenStateOperations ts (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (PLTQuery bs ts m) => PLTQuery bs ts (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateQuery m) => BlockStateQuery (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance (ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (AccountOperations m) => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ContractStateOperations m) => ContractStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ModuleQuery m) => ModuleQuery (ExceptT e m)

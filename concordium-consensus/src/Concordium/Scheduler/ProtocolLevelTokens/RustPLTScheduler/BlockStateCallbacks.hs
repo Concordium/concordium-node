@@ -4,6 +4,7 @@
 --
 -- Each foreign function definition must match the definitions of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks (
+    BlockStateQueryCallbacks (..),
     ReadTokenAccountBalance,
     ReadTokenAccountBalanceCallbackPtr,
     wrapReadTokenAccountBalance,
@@ -29,13 +30,23 @@ import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
 
-import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
-import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.ID.Types as Types
-import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Tokens as Tokens
 import qualified Concordium.Utils.Serialization as CS
+
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+
+-- | Block state query callbacks. These are used by the Rust PLT Scheduler library to
+-- query the part of the block state that is maintained by Haskell.
+data BlockStateQueryCallbacks = BlockStateQueryCallbacks
+    { readTokenAccountBalance :: ReadTokenAccountBalance,
+      getAccountIndexByAddress :: GetAccountIndexByAddress,
+      getAccountAddressByIndex :: GetAccountAddressByIndex,
+      getTokenAccountStates :: GetTokenAccountStates
+    }
 
 -- | Callback function for reading a token account balance.
 type ReadTokenAccountBalance =

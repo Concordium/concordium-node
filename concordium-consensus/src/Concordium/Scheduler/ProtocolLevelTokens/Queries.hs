@@ -1,9 +1,15 @@
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.Scheduler.ProtocolLevelTokens.Queries where
+module Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryTokenInfoError (..),
+    queryTokenInfo,
+    queryAccountTokens,
+    queryPLTList,
+) where
 
 import Control.Monad
 import Control.Monad.Cont
@@ -20,6 +26,7 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConf
 import Concordium.GlobalState.Types
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries as RustQ
 
 -- | The 'QueryContext' provides the context to run 'PLTKernelQuery' operations against a
 --  particular token index and block state.
@@ -170,5 +177,4 @@ queryPLTList bs =
     case sPltStateVersionFor (protocolVersion @(MPV m)) of
         SPLTStateNone -> return []
         SPLTStateV0 -> BS.getPLTList bs
-        -- todo implement as part of https://linear.app/concordium/issue/PSR-15/dispatch-plt-queries-to-the-rust-plt-library
-        SPLTStateV1 -> undefined
+        SPLTStateV1 -> RustQ.queryPLTList bs

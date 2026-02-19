@@ -7,6 +7,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -4593,6 +4594,38 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getCooldownAccounts = doGetCooldownAccounts . hpbsPointers
     getPreCooldownAccounts = doGetPreCooldownAccounts . hpbsPointers
     getPrePreCooldownAccounts = doGetPrePreCooldownAccounts . hpbsPointers
+
+instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlockStateQuery (PersistentBlockStateMonad pv r m) where
+    withUnliftBSQ query = do
+        -- Construct the context needed for running block state query actions that we unlift
+        context <- ask
+        let bscBlobStore = blobStore context
+            bscLoadCallback = blobLoadCallback context
+            bscStoreCallback = blobStoreCallback context
+            pbscBlobStore = BlobStore{..}
+
+            pbscAccountCache = Cache.projectCache context
+            pbscModuleCache = Cache.projectCache context
+
+            _dbhStoreEnv = context ^. LMDBAccountMap.dbhStoreEnv
+            _dbhAccountMapStore = context ^. LMDBAccountMap.dbhAccountMapStore
+            _dbhModuleMapStore = context ^. LMDBAccountMap.dbhModuleMapStore
+            pbscAccountMap = LMDBAccountMap.DatabaseHandlers{..}
+
+            unliftContext :: PersistentBlockStateContext pv
+            unliftContext = PersistentBlockStateContext{..}
+
+        -- Run query with the unlift function as argument
+        let queryIo = query $ \m ->
+                runSilentLogger $ -- todo ar logger
+                    runReaderT
+                        (runPersistentBlockStateMonad m)
+                        unliftContext
+        liftIO queryIo
+
+    withRustPLTState bs query = do
+        bsp <- loadPBS $ hpbsPointers bs
+        query $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst

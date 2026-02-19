@@ -256,6 +256,11 @@ deriving via
 deriving via
     (PersistentBlockStateMonadHelper pv)
     instance
+        (IsProtocolVersion pv) => ForeignLowLevelBlockStateQuery (TestMonad pv)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv)
+    instance
         (IsProtocolVersion pv) => BlockStateQuery (TestMonad pv)
 
 deriving via
