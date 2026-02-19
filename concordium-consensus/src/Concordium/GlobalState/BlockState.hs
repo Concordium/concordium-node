@@ -769,6 +769,11 @@ class
 -- The functions in this type class  generally break the abstractions of the 'BlockStateQuery' monad,
 -- and should only be used when low-level access is required.
 class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateQuery m where
+    -- | Get the foreign pointer to the Rust managed PLT sate
+    getRustPLTBlockState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        BlockState m -> m RustBS.ForeignPLTBlockStatePtr
+
     -- | Allows construction of an IO action in a context where 'BlockStateQuery' actions
     -- can be unlifted into the IO monad. The resulting IO action is then lifted
     -- in to the 'BlockStateQuery' monad and returned.
@@ -783,18 +788,8 @@ class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateQuery m wher
         ) ->
         m b
 
-    -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
-    -- state foreign pointer can be accessed. The resulting 'MonadBlobStore' action
-    -- is then converted into a 'BlockStateQuery' action and returned.
-    withRustPLTState ::
-        (PVSupportsRustManagedPLT (MPV m)) =>
-        BlockState m ->
-        ( forall m'.
-          (MonadBlobStore m') =>
-          RustBS.ForeignPLTBlockStatePtr ->
-          m' a
-        ) ->
-        m a
+    -- | Lifts 'MonadBlobStore' action into the 'BlockStateQuery' monad.
+    liftBlobStore :: (MonadBlobStore m') => m' a -> m a
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -1768,6 +1763,16 @@ class
 -- The functions in this type class  generally break the abstractions of the 'BlockStateOperations' monad,
 -- and should only be used when low-level access is required.
 class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateOperations m where
+    -- | Get the foreign pointer to the Rust managed PLT state
+    bsoGetRustPLTBlockState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        UpdatableBlockState m -> m RustBS.ForeignPLTBlockStatePtr
+
+    -- | Set the foreign pointer to the Rust managed PLT state
+    bsoSetRustPLTBlockState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        UpdatableBlockState m -> RustBS.ForeignPLTBlockStatePtr -> m (UpdatableBlockState m)
+
     -- | Allows construction of an IO action in a context where 'BlockStateOperations' actions
     -- can be unlifted into the IO monad. The resulting IO action is then lifted
     -- in to the 'BlockStateOperations' monad and returned.
@@ -1781,19 +1786,6 @@ class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateOperations m
           (forall a. m' a -> IO a) -> IO b
         ) ->
         m b
-
-    -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
-    -- state foreing pointer can be updated. The resulting 'MonadBlobStore' action
-    -- is then converted into a 'BlockStateOperations' action and returned.
-    updateRustPLTState ::
-        (PVSupportsRustManagedPLT (MPV m)) =>
-        UpdatableBlockState m ->
-        ( forall m'.
-          (MonadBlobStore m') =>
-          RustBS.ForeignPLTBlockStatePtr ->
-          m' (Maybe RustBS.ForeignPLTBlockStatePtr, a)
-        ) ->
-        m (Maybe (UpdatableBlockState m), a)
 
 -- | Block state storage operations
 class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
