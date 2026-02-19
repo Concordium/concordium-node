@@ -215,7 +215,7 @@ foreign import ccall "ffi_execute_transaction"
 -- is executed via the Rust PLT Scheduler library. Only `CratePLT` chain updates are currently supported.
 executeChainUpdate ::
     forall m.
-    (Types.PVSupportsRustManagedPLT (Types.MPV m), EI.SchedulerMonad m, EI.ForeingLowLevelSchedulerMonad m) =>
+    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     Types.UpdateHeader ->
     Types.CreatePLT ->
     m (Either Types.FailureKind Types.ValidResult)
@@ -431,7 +431,7 @@ data ChainUpdateExecutionSuccess = ChainUpdateExecutionSuccess
 -- be converted to FFI function pointers.
 unliftBlockStateQueryCallbacks ::
     forall m.
-    (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m, BS.ForeingLowLevelBlockStateOperations m) =>
+    (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
     BS.UpdatableBlockState m ->
     m BlockStateQueryCallbacks
 unliftBlockStateQueryCallbacks bs = BS.withUnliftBSO $ \unlift ->

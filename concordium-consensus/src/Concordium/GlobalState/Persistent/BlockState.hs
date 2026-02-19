@@ -4782,10 +4782,48 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
 
--- todo ar
 instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeingLowLevelBlockStateOperations (PersistentBlockStateMonad pv r m) where
-    withUnliftBSO unliftOperation = undefined
-    updateRustPLTState bs operation = undefined
+    withUnliftBSO operation = do
+        -- Construct the context needed for running block state operation actions that we unlift
+        context <- ask
+        let bscBlobStore = blobStore context
+            bscLoadCallback = blobLoadCallback context
+            bscStoreCallback = blobStoreCallback context
+            pbscBlobStore = BlobStore{..}
+
+            pbscAccountCache = Cache.projectCache context
+            pbscModuleCache = Cache.projectCache context
+
+            _dbhStoreEnv = context ^. LMDBAccountMap.dbhStoreEnv
+            _dbhAccountMapStore = context ^. LMDBAccountMap.dbhAccountMapStore
+            _dbhModuleMapStore = context ^. LMDBAccountMap.dbhModuleMapStore
+            pbscAccountMap = LMDBAccountMap.DatabaseHandlers{..}
+
+            unliftContext :: PersistentBlockStateContext pv
+            unliftContext = PersistentBlockStateContext{..}
+
+        -- Extract LogMethod action than can run in IO monad
+        logMethod <- logEventIO
+
+        -- Run operation with the unlift function as argument
+        let operationIo = operation $ \m ->
+                runLoggerT
+                    ( runReaderT
+                        (runPersistentBlockStateMonad m)
+                        unliftContext
+                    )
+                    logMethod
+        liftIO operationIo
+
+    updateRustPLTState pbs operation = do
+        bsp <- loadPBS pbs
+        (maybeNewRustPltBlockState, result) <- operation $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
+        case maybeNewRustPltBlockState of
+            Just newRustPltBlockState -> do
+                newPbs <- storePBS pbs bsp{bspProtocolLevelTokens = PLT.makeRustPLTBlockState newRustPltBlockState}
+                return (Just newPbs, result)
+            Nothing ->
+                return (Nothing, result)
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState = doThawBlockState

@@ -2230,7 +2230,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
 
 instance (Monad (t m), MonadTrans t, ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (MGSTrans t m) where
     withUnliftBSO unliftOperation = lift $ withUnliftBSO unliftOperation
-    updateRustPLTState bs operation = lift $ updateRustPLTState bs operation
+    updateRustPLTState pbs operation = lift $ updateRustPLTState pbs operation
     {-# INLINE withUnliftBSO #-}
     {-# INLINE updateRustPLTState #-}
 

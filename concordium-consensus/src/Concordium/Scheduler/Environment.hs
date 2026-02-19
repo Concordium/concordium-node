@@ -30,7 +30,7 @@ import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState (AccountOperations (..), BlockStateOperations, ContractStateOperations (..), ForeingLowLevelBlockStateOperations, InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
+import Concordium.GlobalState.BlockState (AccountOperations (..), BlockStateOperations, ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
 import Concordium.GlobalState.Classes (MGSTrans (..))
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -103,7 +103,16 @@ data PLTExecutionError fail
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
-    (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m) =>
+    ( Monad m,
+      StaticInformation m,
+      AccountOperations m,
+      ContractStateOperations m,
+      ModuleQuery m,
+      MonadLogger m,
+      MonadProtocolVersion m,
+      TVer.TransactionVerifier m,
+      ForeingLowLevelSchedulerMonad m
+    ) =>
     SchedulerMonad m
     where
     -- | Get the 'AccountIndex' for an account, if it exists.

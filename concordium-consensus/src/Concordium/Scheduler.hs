@@ -2909,7 +2909,7 @@ handleCreatePLT :: forall m. (SchedulerMonad m, PVSupportsPLT (MPV m)) => Update
 handleCreatePLT updateHeader payload = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateV0 ->
         handleCreatePLTHaskellManaged updateHeader payload
-    SPLTStateV1 -> undefined -- todo ar RustScheduler.executeChainUpdate
+    SPLTStateV1 -> RustScheduler.executeChainUpdate updateHeader payload
 
 -- | Handler for processing chain update creating a new protocol level token, for protocol version where PLT state is managed in Haskell.
 -- It is assumed that the signatures have already been checked.
