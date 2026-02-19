@@ -124,6 +124,7 @@ deriving instance
 
 instance MonadLogger (PersistentBSM pv) where
     logEvent src lvl msg = PersistentBSM (logEvent src lvl msg)
+    logEventIO = PersistentBSM logEventIO
 
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
