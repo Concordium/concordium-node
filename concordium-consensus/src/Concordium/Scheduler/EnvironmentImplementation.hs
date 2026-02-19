@@ -556,7 +556,7 @@ instance
             Nothing -> do
                 -- Operation did not return a new block state.
                 -- Rollback to snapshot taken before operation.
-                -- This is needed due to interior mutability inside the block state.
+                -- This is needed due to interior mutability inside the block state s0.
                 s1 <- lift $ BS.bsoRollback s0 snapshot
                 ssBlockState .= s1
         return res
