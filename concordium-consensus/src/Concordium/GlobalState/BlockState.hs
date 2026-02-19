@@ -2010,10 +2010,12 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getPrePreCooldownAccounts #-}
 
 instance (Monad (t m), MonadTrans t, ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (MGSTrans t m) where
-    withUnliftBSQ unliftQuery = lift $ withUnliftBSQ unliftQuery
-    withRustPLTState bs query = lift $ withRustPLTState bs query
+    getRustPLTBlockState bs = lift $ getRustPLTBlockState bs
+    withUnliftBSQ query = lift $ withUnliftBSQ query
+    liftBlobStore m = lift $ liftBlobStore m
+    {-# INLINE getRustPLTBlockState #-}
     {-# INLINE withUnliftBSQ #-}
-    {-# INLINE withRustPLTState #-}
+    {-# INLINE liftBlobStore #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -2221,10 +2223,12 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoRollback #-}
 
 instance (Monad (t m), MonadTrans t, ForeignLowLevelBlockStateOperations m) => ForeignLowLevelBlockStateOperations (MGSTrans t m) where
+    bsoGetRustPLTBlockState pbs = lift $ bsoGetRustPLTBlockState pbs
+    bsoSetRustPLTBlockState pbs pltState = lift $ bsoSetRustPLTBlockState pbs pltState
     withUnliftBSO unliftOperation = lift $ withUnliftBSO unliftOperation
-    updateRustPLTState pbs operation = lift $ updateRustPLTState pbs operation
+    {-# INLINE bsoGetRustPLTBlockState #-}
+    {-# INLINE bsoSetRustPLTBlockState #-}
     {-# INLINE withUnliftBSO #-}
-    {-# INLINE updateRustPLTState #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
