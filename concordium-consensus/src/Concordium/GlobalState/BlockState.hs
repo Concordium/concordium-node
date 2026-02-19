@@ -784,7 +784,7 @@ class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateQuery m wher
         m b
 
     -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
-    -- state foreing pointer can be accessed. The resulting 'MonadBlobStore' action
+    -- state foreign pointer can be accessed. The resulting 'MonadBlobStore' action
     -- is then converted into a 'BlockStateQuery' action and returned.
     withRustPLTState ::
         (PVSupportsRustManagedPLT (MPV m)) =>
