@@ -278,7 +278,7 @@ impl P2PNode {
                     return;
                 }
 
-                if conn.semophore_reached == Arc::new(true)
+                if conn.semaphore_reached
                     || (events
                         .iter()
                         .any(|event| event.token() == conn.token() && event.is_readable()))

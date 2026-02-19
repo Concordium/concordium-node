@@ -9,7 +9,7 @@ use crate::{
     consensus_ffi::{
         catch_up::{PeerList, PeerStatus},
         consensus::{
-            ConsensusContainer, ConsensusRuntimeParameters, SemphoredMessage, CALLBACK_QUEUE,
+            ConsensusContainer, ConsensusRuntimeParameters, SemaphoredMessage, CALLBACK_QUEUE,
         },
         ffi::{self, ExecuteBlockCallback, StartConsensusConfig},
         helpers::{
@@ -32,10 +32,7 @@ use std::{
     convert::TryFrom,
     io::{Cursor, Read},
     path::Path,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 
 /// Initializes the consensus layer with the given setup.
@@ -136,7 +133,7 @@ pub fn handle_pkt_out(
     peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
     is_broadcast: bool,
-    pending_messages_semaphore: &Arc<AtomicU64>,
+    pending_messages_semaphore: &Arc<tokio::sync::Semaphore>,
 ) -> anyhow::Result<()> {
     let (consensus_type_bytes, payload) = msg
         .split_at_checked(1)
@@ -165,9 +162,9 @@ pub fn handle_pkt_out(
         "SEMAPHORE VALUE; SEMAPHORE VALUE; SEMAPHORE VALUE:{:?}",
         pending_messages_semaphore
     );
-    let request = SemphoredMessage::new(
+    let request = SemaphoredMessage::new(
         consensus_message.clone(),
-        Arc::clone(pending_messages_semaphore),
+        pending_messages_semaphore.clone().try_acquire_owned()?,
     );
 
     match packet_type {
@@ -201,7 +198,7 @@ pub fn handle_pkt_out(
                 // may also be processed by the background queue if it was part of
                 // a catch-up response, which can lead to conflicts.
                 if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
-                    match e.downcast::<TrySendError<QueueMsg<SemphoredMessage>>>()? {
+                    match e.downcast::<TrySendError<QueueMsg<SemaphoredMessage>>>()? {
                         TrySendError::Full(_) => {
                             node.stats
                                 .received_consensus_messages
@@ -219,15 +216,13 @@ pub fn handle_pkt_out(
                 // Handle catch-up status as a background message, since it
                 // does not require the consensus lock.
                 if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
-                    match e.downcast::<TrySendError<QueueMsg<SemphoredMessage>>>()? {
+                    match e.downcast::<TrySendError<QueueMsg<SemaphoredMessage>>>()? {
                         TrySendError::Full(QueueMsg::Relay(_request)) => {
                             node.stats
                                 .received_consensus_messages
                                 .with_label_values(&[packet_type.label(), "dropped"])
                                 .inc();
                             node.bad_events.inc_dropped_background_queue(peer_id);
-                            // ????????????
-                            // request.into_consensus_message(); // Increment the `pending_messages_semaphore` counter for the sending peer again
                         }
                         TrySendError::Full(QueueMsg::Stop) => {
                             // Should not happen, as we are not sending Stop messages here.

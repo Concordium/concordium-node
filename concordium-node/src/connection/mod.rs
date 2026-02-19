@@ -45,7 +45,7 @@ use std::{
     },
 };
 
-pub const MAX_QUEUED_MESSAGES_PER_PEER: u64 = 50;
+pub const MAX_QUEUED_MESSAGES_PER_PEER: usize = 50;
 
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
@@ -390,9 +390,9 @@ pub struct Connection {
     /// When this semaphore reaches 0, any new catch-up requests from this peer
     /// will no longer be added to the node's queue but instead ignored.
     /// This prevents a single peer from disproportionately filling up the queue.
-    pub pending_messages_semaphore: Arc<AtomicU64>,
+    pub pending_messages_semaphore: Arc<tokio::sync::Semaphore>,
     /// TODO: Docs
-    pub semophore_reached: Arc<bool>,
+    pub semaphore_reached: bool,
     /// Semaphore to limit concurrent processing of GetPeers requests.
     pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
@@ -455,8 +455,10 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
-            pending_messages_semaphore: Arc::new(AtomicU64::new(MAX_QUEUED_MESSAGES_PER_PEER)),
-            semophore_reached: Arc::new(false),
+            pending_messages_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                MAX_QUEUED_MESSAGES_PER_PEER,
+            )),
+            semaphore_reached: false,
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
             get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
@@ -541,26 +543,29 @@ impl Connection {
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
-        let semaphore = self.pending_messages_semaphore.load(Ordering::SeqCst);
-        if semaphore == 0u64 {
-            self.semophore_reached = Arc::new(true);
+        let semaphore = self.pending_messages_semaphore.available_permits();
+        if semaphore == 0usize {
+            self.semaphore_reached = true;
             return Ok(true);
         }
 
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => {
+                    // TODO: Handle `semophore_reached`
+                    //  if count == 0 {
+                    //                 self.semophore_reached = Arc::new(true);
+                    //                 None
+                    //             } else {
+                    //                 self.semophore_reached = Arc::new(false);
+                    //                 Some(count - 1)
+                    //             }
+
+                    // Acquire an owned permit
                     if self
                         .pending_messages_semaphore
-                        .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
-                            if count == 0 {
-                                self.semophore_reached = Arc::new(true);
-                                None
-                            } else {
-                                self.semophore_reached = Arc::new(false);
-                                Some(count - 1)
-                            }
-                        })
+                        .clone()
+                        .try_acquire_owned()
                         .is_err()
                     {
                         debug!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_semaphore` value", self.remote_peer);

@@ -11,10 +11,11 @@ use std::{
     convert::TryFrom,
     path::Path,
     sync::{
-        atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex, RwLock,
     },
 };
+use tokio::sync::OwnedSemaphorePermit;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {
@@ -49,48 +50,42 @@ pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
 /// Currently, these are primarily catch-up messages.
 ///
 /// These messages are intended for non-blocking processing to avoid stalling the high/low priority threads.
-pub struct SemphoredMessage {
+pub struct SemaphoredMessage {
     /// The consensus message.
-    message: ConsensusMessage,
-    /// Shared pending semaphore counter for the peer that sent this message.
+    pub message: ConsensusMessage,
+    /// Shared pending messages semaphore counter for the peer that sent this message.
     ///
-    /// - This counter atomically tracks how many of the `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER`
+    /// - This semaphore atomically tracks how many of the `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER`
     ///   slots are currently still available for a given sending peer.
-    /// - When above message is processed, the counter is incremented
+    /// - When the the sturct is dropped, the semaphore is incremented
     ///   to signal that a slot is freed for the peer to send another background message to this node.
     /// - It is used to share the queue capacity fairly among connected peers.
-    semaphore_counter_of_sending_peer: Arc<AtomicU64>,
+    pub semaphore_counter_of_sending_peer: OwnedSemaphorePermit,
 }
 
-impl SemphoredMessage {
+impl SemaphoredMessage {
     pub fn new(
         message: ConsensusMessage,
-        semaphore_counter_of_sending_peer: Arc<AtomicU64>,
+        semaphore_counter_of_sending_peer: OwnedSemaphorePermit,
     ) -> Self {
         Self {
             message,
             semaphore_counter_of_sending_peer,
         }
     }
-    pub fn into_consensus_message(self) -> ConsensusMessage {
-        // When this message is processed, the counter is incremented to signal that a slot is freed for the sending peer.
-        self.semaphore_counter_of_sending_peer
-            .fetch_add(1, Ordering::Relaxed);
-        self.message
-    }
 }
 
 pub struct ConsensusInboundQueues {
-    pub receiver_high_priority: Mutex<QueueReceiver<SemphoredMessage>>,
-    pub sender_high_priority: QueueSyncSender<SemphoredMessage>,
-    pub receiver_low_priority: Mutex<QueueReceiver<SemphoredMessage>>,
-    pub sender_low_priority: QueueSyncSender<SemphoredMessage>,
+    pub receiver_high_priority: Mutex<QueueReceiver<SemaphoredMessage>>,
+    pub sender_high_priority: QueueSyncSender<SemaphoredMessage>,
+    pub receiver_low_priority: Mutex<QueueReceiver<SemaphoredMessage>>,
+    pub sender_low_priority: QueueSyncSender<SemaphoredMessage>,
     /// Receiver for background message processing queue.
     /// This queue is for consensus messages that can be processed without
     /// blocking (as they don't require the global block state lock)- specifically catch-up messages.
-    pub receiver_background: Mutex<QueueReceiver<SemphoredMessage>>,
+    pub receiver_background: Mutex<QueueReceiver<SemaphoredMessage>>,
     /// Sender for background message processing queue.
-    pub sender_background: QueueSyncSender<SemphoredMessage>,
+    pub sender_background: QueueSyncSender<SemaphoredMessage>,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -141,21 +136,21 @@ pub struct ConsensusQueues {
 }
 
 impl ConsensusQueues {
-    pub fn send_in_high_priority_message(&self, message: SemphoredMessage) -> anyhow::Result<()> {
+    pub fn send_in_high_priority_message(&self, message: SemaphoredMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_high_priority
             .send_msg(message)
             .map_err(|e| e.into())
     }
 
-    pub fn send_in_low_priority_message(&self, message: SemphoredMessage) -> anyhow::Result<()> {
+    pub fn send_in_low_priority_message(&self, message: SemaphoredMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_low_priority
             .send_msg(message)
             .map_err(|e| e.into())
     }
 
-    pub fn send_in_background_message(&self, message: SemphoredMessage) -> anyhow::Result<()> {
+    pub fn send_in_background_message(&self, message: SemaphoredMessage) -> anyhow::Result<()> {
         self.inbound
             .sender_background
             .send_msg(message)
