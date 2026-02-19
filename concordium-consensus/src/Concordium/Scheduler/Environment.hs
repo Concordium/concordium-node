@@ -110,8 +110,7 @@ class
       ModuleQuery m,
       MonadLogger m,
       MonadProtocolVersion m,
-      TVer.TransactionVerifier m,
-      ForeingLowLevelSchedulerMonad m
+      TVer.TransactionVerifier m
     ) =>
     SchedulerMonad m
     where
@@ -441,23 +440,22 @@ class
         Token.PLTConfiguration ->
         m Token.TokenIndex
 
--- | Low-level block state access needed for foreign function interface access.
--- This is specifially used by the integration with the the Rust PLT Scheduler library.
--- The functions in this type class generally break the abstractions of the 'SchedulerMonad',
--- and should only be used when low-level access is required.
-class (Monad m, MonadProtocolVersion m) => ForeingLowLevelSchedulerMonad m where
-    -- | Get the block state
-    getBlockState :: m (UpdatableBlockState m)
-
-    -- | Set the block state
-    setBlockState :: UpdatableBlockState m -> m ()
-
-    -- | Lifts 'BlockStateOperations' action into the 'SchedulerMonad' monad.
-    liftBlockStateOperations ::
-        ( BlockStateOperations m',
-          MPV m ~ MPV m'
-        ) =>
-        m' a -> m a
+    -- | Allows construction of a 'BlockStateOperations' action in which the block state
+    -- can be updated. If `Just newBlockState` is returned, `newBlockState` is set
+    -- as the new block state in the scheduler monad. If `Nothing` is returned,
+    -- the block state is rolled back to the state before 'updateBlockState'
+    -- was called.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    updateBlockState ::
+        ( forall m'.
+          ( BlockStateOperations m',
+            MPV m ~ MPV m'
+          ) =>
+          UpdatableBlockState m' ->
+          m' (Maybe (UpdatableBlockState m'), a)
+        ) ->
+        m a
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the

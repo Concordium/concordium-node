@@ -36,8 +36,8 @@ queryPLTList ::
     m [TokenId]
 queryPLTList bs = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
-    BS.withRustPLTState bs $ \pltBlockState ->
-        queryPLTListInBlobStoreMonad pltBlockState queryCallbacks
+    pltState <- BS.getRustPLTBlockState bs
+    BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks
 
 -- | "Unlifts" the callback queries from the 'BlockStateQuery' monad into the IO monad, such that they can
 -- be converted to FFI function pointers.

@@ -537,13 +537,6 @@ instance
         ssBlockState .= s'
         return tokenIx
 
-instance
-    ( BS.BlockStateOperations m,
-      MonadLogger m,
-      MonadProtocolVersion m
-    ) =>
-    ForeingLowLevelSchedulerMonad (SchedulerT m)
-    where
     updateBlockState operation = do
         s0 <- use ssBlockState
         snapshot <- lift $ BS.bsoSnapshotState s0

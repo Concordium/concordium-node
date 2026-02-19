@@ -84,10 +84,8 @@ deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ModuleQuery (Globa
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => TokenStateOperations StateV1.MutableState (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (GlobalStateM pv)
-deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ForeignLowLevelBlockStateQuery (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateQuery (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateOperations (GlobalStateM pv)
-deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ForeignLowLevelBlockStateOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateStorage (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockPointerMonad (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => SkovQueryMonad (GlobalStateM pv)
@@ -570,14 +568,6 @@ deriving instance
     BlockStateQuery (SkovT pv h c m)
 
 deriving instance
-    ( IsProtocolVersion pv,
-      MonadIO m,
-      MonadLogger m,
-      c ~ SkovConfig pv finconfig handlerconfig
-    ) =>
-    ForeignLowLevelBlockStateQuery (SkovT pv h c m)
-
-deriving instance
     ( MonadIO m,
       IsProtocolVersion pv,
       MonadLogger m,
@@ -608,14 +598,6 @@ deriving instance
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     BlockStateOperations (SkovT pv h c m)
-
-deriving instance
-    ( IsProtocolVersion pv,
-      MonadIO m,
-      MonadLogger m,
-      c ~ SkovConfig pv finconfig handlerconfig
-    ) =>
-    ForeignLowLevelBlockStateOperations (SkovT pv h c m)
 
 deriving instance
     ( IsProtocolVersion pv,
