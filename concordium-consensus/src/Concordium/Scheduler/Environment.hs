@@ -432,21 +432,20 @@ class
         Token.PLTConfiguration ->
         m Token.TokenIndex
 
--- todo ar docs
-
--- | Low-level block state operation access needed for foreign function interface access.
+-- | Low-level block state access needed for foreign function interface access.
 -- This is specifially used by the integration with the the Rust PLT Scheduler library.
--- The functions in this type class  generally break the abstractions of the 'BlockStateOperations' monad,
+-- The functions in this type class generally break the abstractions of the 'SchedulerMonad',
 -- and should only be used when low-level access is required.
 class (Monad m, MonadProtocolVersion m) => ForeingLowLevelSchedulerMonad m where
-    -- | Allows construction of a 'MonadBlobStore' action in which the Rust PLT block
-    -- state foreing pointer can be updated. The resulting 'MonadBlobStore' action
-    -- is then converted into a 'BlockStateOperations' action and returned.
+    -- | Allows construction of a 'BlockStateOperations' action in which the block state
+    -- can be updated. If `Just newBlockState` is returned, `newBlockState` is set
+    -- as the new block state in the scheduler monad. If `Nothing` is returned,
+    -- the block state is rolled back to the state before 'updateBlockState'
+    -- was called.
     updateBlockState ::
         ( forall m'.
           ( BlockStateOperations m',
-            ForeingLowLevelBlockStateOperations m',
-            MPV m ~ MPV m' -- todo ar remove constraint again
+            MPV m ~ MPV m'
           ) =>
           UpdatableBlockState m' ->
           m' (Maybe (UpdatableBlockState m'), a)

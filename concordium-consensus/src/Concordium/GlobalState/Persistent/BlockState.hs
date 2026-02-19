@@ -4782,6 +4782,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
 
+-- todo ar
+instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeingLowLevelBlockStateOperations (PersistentBlockStateMonad pv r m) where
+    withUnliftBSO unliftOperation = undefined
+    updateRustPLTState bs operation = undefined
+
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState = doThawBlockState
 

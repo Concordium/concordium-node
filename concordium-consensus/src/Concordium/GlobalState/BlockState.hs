@@ -881,7 +881,13 @@ type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 -- | Block state update operations parametrized by a monad. The operations which
 --  mutate the state all also return an 'UpdatableBlockState' handle. This is to
 --  support different implementations, from pure ones to stateful ones.
-class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m) m) => BlockStateOperations m where
+class
+    ( BlockStateQuery m,
+      PLTQuery (UpdatableBlockState m) (MutableTokenState m) m,
+      ForeingLowLevelBlockStateOperations m
+    ) =>
+    BlockStateOperations m
+    where
     -- | Get the module from the module table of the state instance.
     bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
 
@@ -2012,10 +2018,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getPrePreCooldownAccounts #-}
 
 instance (Monad (t m), MonadTrans t, ForeingLowLevelBlockStateQuery m) => ForeingLowLevelBlockStateQuery (MGSTrans t m) where
-    withRustPLTState bs query = lift $ withRustPLTState bs query
     withUnliftBSQ unliftQuery = lift $ withUnliftBSQ unliftQuery
-    {-# INLINE withRustPLTState #-}
+    withRustPLTState bs query = lift $ withRustPLTState bs query
     {-# INLINE withUnliftBSQ #-}
+    {-# INLINE withRustPLTState #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -2222,6 +2228,12 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 
+instance (Monad (t m), MonadTrans t, ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (MGSTrans t m) where
+    withUnliftBSO unliftOperation = lift $ withUnliftBSO unliftOperation
+    updateRustPLTState bs operation = lift $ updateRustPLTState bs operation
+    {-# INLINE withUnliftBSO #-}
+    {-# INLINE updateRustPLTState #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
@@ -2261,6 +2273,7 @@ deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperat
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ModuleQuery m) => ModuleQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateOperations m) => BlockStateOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance (ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateStorage m) => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance (TokenStateOperations ts m) => TokenStateOperations ts (ExceptT e m)
@@ -2271,6 +2284,7 @@ deriving via (MGSTrans (ExceptT e) m) instance (AccountOperations m) => AccountO
 deriving via (MGSTrans (ExceptT e) m) instance (ContractStateOperations m) => ContractStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ModuleQuery m) => ModuleQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateOperations m) => BlockStateOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance (ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateStorage m) => BlockStateStorage (ExceptT e m)
 
 deriving via (MGSTrans (ReaderT r) m) instance (AccountOperations m) => AccountOperations (ReaderT r m)

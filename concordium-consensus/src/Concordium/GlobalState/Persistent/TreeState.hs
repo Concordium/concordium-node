@@ -537,6 +537,7 @@ newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = Persist
           ForeingLowLevelBlockStateQuery,
           AccountOperations,
           BlockStateOperations,
+          ForeingLowLevelBlockStateOperations,
           BlockStateStorage,
           ContractStateOperations,
           ModuleQuery,

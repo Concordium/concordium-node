@@ -1147,6 +1147,7 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
           ContractStateOperations,
           ModuleQuery,
           BlockStateOperations,
+          ForeingLowLevelBlockStateOperations,
           BlockStateStorage,
           BlockPointerMonad,
           AccountNonceQuery,

@@ -224,7 +224,7 @@ executeChainUpdate updateHeader createPLT =
         unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
         lift $ EI.updateBlockState $ \bs -> do
             queryCallbacks <- unliftBlockStateQueryCallbacks bs
-            let operationCallbacks = undefined
+            let operationCallbacks = undefined -- todo ar
             BS.updateRustPLTState bs $ \pltBlockState -> do
                 outcome <-
                     executeChainUpdateInBlobStoreMonad
