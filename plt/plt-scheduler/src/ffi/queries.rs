@@ -46,8 +46,8 @@ use libc::size_t;
 extern "C" fn ffi_query_plt_list(
     load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
-    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
+    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
     return_data_out: *mut *mut u8,
