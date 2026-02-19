@@ -36,6 +36,7 @@ import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import qualified Control.Concurrent as Conc
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
@@ -222,10 +223,11 @@ executeChainUpdate ::
 executeChainUpdate updateHeader createPLT =
     fmap join $ runExceptT $ do
         unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
-        lift $ EI.updateBlockState $ \bs -> do
-            queryCallbacks <- unliftBlockStateQueryCallbacks bs
-            let operationCallbacks = undefined -- todo ar
-            BS.updateRustPLTState bs $ \pltBlockState -> do
+        lift $ EI.updateBlockState $ \pbs -> do
+            pbsMVar <- liftIO $ Conc.newMVar pbs
+            queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
+            operationCallbacks <- unliftBlockStateOperationCallbacks pbsMVar
+            BS.updateRustPLTState pbs $ \pltBlockState -> do
                 outcome <-
                     executeChainUpdateInBlobStoreMonad
                         (Types.protocolVersion @(Types.MPV m))
@@ -432,23 +434,44 @@ data ChainUpdateExecutionSuccess = ChainUpdateExecutionSuccess
 unliftBlockStateQueryCallbacks ::
     forall m.
     (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
-    BS.UpdatableBlockState m ->
+    Conc.MVar (BS.UpdatableBlockState m) ->
     m BlockStateQueryCallbacks
-unliftBlockStateQueryCallbacks bs = BS.withUnliftBSO $ \unlift ->
+unliftBlockStateQueryCallbacks pbsMVar = BS.withUnliftBSO $ \unlift ->
     do
-        let readTokenAccountBalance accountIndex tokenIndex = do
-                maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
+        let readTokenAccountBalance accountIndex tokenIndex = Conc.withMVar pbsMVar $ \pbs -> do
+                maybeAccount <- unlift $ BS.bsoGetAccountByIndex pbs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 unlift $ BS.getAccountTokenBalance account tokenIndex
-            getAccountIndexByAddress accountAddress = do
-                maybeAccount <- unlift $ BS.bsoGetAccount bs accountAddress
+            getAccountIndexByAddress accountAddress = Conc.withMVar pbsMVar $ \pbs -> do
+                maybeAccount <- unlift $ BS.bsoGetAccount pbs accountAddress
                 return $ fst <$> maybeAccount
-            getAccountAddressByIndex accountIndex = do
-                maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
+            getAccountAddressByIndex accountIndex = Conc.withMVar pbsMVar $ \pbs -> do
+                maybeAccount <- unlift $ BS.bsoGetAccountByIndex pbs accountIndex
                 forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
-            getTokenAccountStates accountIndex = do
-                maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
+            getTokenAccountStates accountIndex = Conc.withMVar pbsMVar $ \pbs -> do
+                maybeAccount <- unlift $ BS.bsoGetAccountByIndex pbs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 fmap Map.toList $ unlift $ BS.getAccountTokens account
 
         return BlockStateQueryCallbacks{..}
+
+-- | "Unlifts" the callback operations from the 'BlockStateOperations' monad into the IO monad, such that they can
+-- be converted to FFI function pointers.
+unliftBlockStateOperationCallbacks ::
+    forall m.
+    (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
+    Conc.MVar (BS.UpdatableBlockState m) ->
+    m BlockStateOperationCallbacks
+unliftBlockStateOperationCallbacks pbsMVar = BS.withUnliftBSO $ \unlift ->
+    do
+        let updateTokenAccountBalance accountIndex tokenIndex tokenAmountDelta =
+                Conc.modifyMVar pbsMVar $ \pbs -> do
+                    maybePbs1 <- unlift $ BS.bsoUpdateTokenAccountBalance pbs tokenIndex accountIndex tokenAmountDelta
+                    return $ case maybePbs1 of
+                        Just pbs1 -> (pbs1, Just ())
+                        Nothing -> (pbs, Nothing)
+            incrementPltUpdateSequenceNumber =
+                Conc.modifyMVar_ pbsMVar $ \pbs -> do
+                    unlift $ BS.bsoIncrementPLTUpdateSequenceNumber pbs
+
+        return BlockStateOperationCallbacks{..}

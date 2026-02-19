@@ -30,6 +30,7 @@ import qualified Data.ByteString.Unsafe as BS
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
+import Data.Maybe
 
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types as Types
@@ -39,6 +40,7 @@ import qualified Concordium.Utils.Serialization as CS
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+
 
 -- | Block state query callbacks. These are used by the Rust PLT Scheduler library to
 -- query the part of the block state that is maintained by Haskell.
@@ -105,8 +107,8 @@ type UpdateTokenAccountBalance =
     Tokens.TokenIndex ->
     -- | The change to account balance.
     AccountTokens.TokenAmountDelta ->
-    -- | Status code, where 'False' represents a balance overflow.
-    IO Bool
+    -- | Status code, where 'Nothing' represents a balance overflow.
+    IO (Maybe ())
 
 -- | Internal helper function for mapping the 'UpdateTokenAccountBalance' into the more
 -- low-level function pointer which can be passed in FFI.
@@ -121,8 +123,8 @@ wrapUpdateTokenAccountBalance func =
                     0 -> AccountTokens.TokenAmountDelta $ -fromIntegral amount
                     1 -> AccountTokens.TokenAmountDelta $ fromIntegral amount
                     _ -> error ("Boolean argument must be 0 or 1, was " ++ (show addAmount))
-        overflow <- func (fromIntegral accountIndex) (fromIntegral tokenIndex) amountDelta
-        return $ if overflow then 1 else 0
+        result <- func (fromIntegral accountIndex) (fromIntegral tokenIndex) amountDelta
+        return $ if isJust result then 0 else 1
 
 -- | Callback function for updating a token account balance.
 --
