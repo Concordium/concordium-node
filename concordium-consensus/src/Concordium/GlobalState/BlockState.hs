@@ -789,7 +789,7 @@ class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateQuery m wher
         m b
 
     -- | Lifts 'MonadBlobStore' action into the 'BlockStateQuery' monad.
-    liftBlobStore :: (MonadBlobStore m') => m' a -> m a
+    liftBlobStore :: (forall m'.(MonadBlobStore m') =>  m' a) -> m a
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts

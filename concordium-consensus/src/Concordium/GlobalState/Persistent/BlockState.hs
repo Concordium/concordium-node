@@ -4628,9 +4628,12 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlo
                     logMethod
         liftIO queryIo
 
-    withRustPLTState bs query = do
-        bsp <- loadPBS $ hpbsPointers bs
-        query $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
+-- todo ar
+    -- withRustPLTState bs query = do
+    --     bsp <- loadPBS $ hpbsPointers bs
+    --     query $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
+
+    liftBlobStore = id
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -4815,15 +4818,16 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlo
                     logMethod
         liftIO operationIo
 
-    updateRustPLTState pbs operation = do
-        bsp <- loadPBS pbs
-        (maybeNewRustPltBlockState, result) <- operation $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
-        case maybeNewRustPltBlockState of
-            Just newRustPltBlockState -> do
-                newPbs <- storePBS pbs bsp{bspProtocolLevelTokens = PLT.makeRustPLTBlockState newRustPltBlockState}
-                return (Just newPbs, result)
-            Nothing ->
-                return (Nothing, result)
+-- todo ar
+    -- updateRustPLTState pbs operation = do
+    --     bsp <- loadPBS pbs
+    --     (maybeNewRustPltBlockState, result) <- operation $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
+    --     case maybeNewRustPltBlockState of
+    --         Just newRustPltBlockState -> do
+    --             newPbs <- storePBS pbs bsp{bspProtocolLevelTokens = PLT.makeRustPLTBlockState newRustPltBlockState}
+    --             return (Just newPbs, result)
+    --         Nothing ->
+    --             return (Nothing, result)
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState = doThawBlockState
