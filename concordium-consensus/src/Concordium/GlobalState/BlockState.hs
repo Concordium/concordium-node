@@ -884,7 +884,7 @@ type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 class
     ( BlockStateQuery m,
       PLTQuery (UpdatableBlockState m) (MutableTokenState m) m,
-      ForeingLowLevelBlockStateOperations m
+      ForeignLowLevelBlockStateOperations m
     ) =>
     BlockStateOperations m
     where
@@ -1767,7 +1767,7 @@ class
 -- This is specifially used by the integration with the the Rust PLT Scheduler library.
 -- The functions in this type class  generally break the abstractions of the 'BlockStateOperations' monad,
 -- and should only be used when low-level access is required.
-class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateOperations m where
+class (Monad m, MonadProtocolVersion m) => ForeignLowLevelBlockStateOperations m where
     -- | Allows construction of an IO action in a context where 'BlockStateOperations' actions
     -- can be unlifted into the IO monad. The resulting IO action is then lifted
     -- in to the 'BlockStateOperations' monad and returned.
@@ -2228,7 +2228,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 
-instance (Monad (t m), MonadTrans t, ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, ForeignLowLevelBlockStateOperations m) => ForeignLowLevelBlockStateOperations (MGSTrans t m) where
     withUnliftBSO unliftOperation = lift $ withUnliftBSO unliftOperation
     updateRustPLTState pbs operation = lift $ updateRustPLTState pbs operation
     {-# INLINE withUnliftBSO #-}
@@ -2273,7 +2273,7 @@ deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperat
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ModuleQuery m) => ModuleQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateOperations m) => BlockStateOperations (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance (ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance (ForeignLowLevelBlockStateOperations m) => ForeignLowLevelBlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateStorage m) => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance (TokenStateOperations ts m) => TokenStateOperations ts (ExceptT e m)
@@ -2284,7 +2284,7 @@ deriving via (MGSTrans (ExceptT e) m) instance (AccountOperations m) => AccountO
 deriving via (MGSTrans (ExceptT e) m) instance (ContractStateOperations m) => ContractStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ModuleQuery m) => ModuleQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateOperations m) => BlockStateOperations (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance (ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance (ForeignLowLevelBlockStateOperations m) => ForeignLowLevelBlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateStorage m) => BlockStateStorage (ExceptT e m)
 
 deriving via (MGSTrans (ReaderT r) m) instance (AccountOperations m) => AccountOperations (ReaderT r m)

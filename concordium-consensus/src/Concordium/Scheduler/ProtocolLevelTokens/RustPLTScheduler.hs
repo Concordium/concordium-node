@@ -227,6 +227,7 @@ executeChainUpdate updateHeader createPLT =
             pbsMVar <- liftIO $ Conc.newMVar pbs
             queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
             operationCallbacks <- unliftBlockStateOperationCallbacks pbsMVar
+
             BS.updateRustPLTState pbs $ \pltBlockState -> do
                 outcome <-
                     executeChainUpdateInBlobStoreMonad

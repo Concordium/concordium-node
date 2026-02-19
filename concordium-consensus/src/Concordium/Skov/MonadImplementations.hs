@@ -87,7 +87,7 @@ deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (HashedPe
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ForeingLowLevelBlockStateQuery (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateQuery (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateOperations (GlobalStateM pv)
-deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ForeingLowLevelBlockStateOperations (GlobalStateM pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ForeignLowLevelBlockStateOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateStorage (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockPointerMonad (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => SkovQueryMonad (GlobalStateM pv)
@@ -615,7 +615,7 @@ deriving instance
       MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
-    ForeingLowLevelBlockStateOperations (SkovT pv h c m)
+    ForeignLowLevelBlockStateOperations (SkovT pv h c m)
 
 deriving instance
     ( IsProtocolVersion pv,

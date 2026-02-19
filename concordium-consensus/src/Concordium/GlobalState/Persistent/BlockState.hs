@@ -4782,7 +4782,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
 
-instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeingLowLevelBlockStateOperations (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlockStateOperations (PersistentBlockStateMonad pv r m) where
     withUnliftBSO operation = do
         -- Construct the context needed for running block state operation actions that we unlift
         context <- ask

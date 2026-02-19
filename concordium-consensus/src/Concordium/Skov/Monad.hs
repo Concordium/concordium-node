@@ -29,7 +29,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState (AccountOperations, BlockStateOperations, BlockStateQuery, BlockStateStorage, ContractStateOperations, ForeingLowLevelBlockStateOperations, ForeingLowLevelBlockStateQuery, ModuleQuery, PLTQuery, TokenStateOperations)
+import Concordium.GlobalState.BlockState (AccountOperations, BlockStateOperations, BlockStateQuery, BlockStateStorage, ContractStateOperations, ForeignLowLevelBlockStateOperations, ForeingLowLevelBlockStateQuery, ModuleQuery, PLTQuery, TokenStateOperations)
 import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -473,7 +473,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance (AccountNonceQuery m) => Acco
 deriving via (MGSTrans SkovQueryMonadT m) instance (TS.TreeStateMonad m) => TS.TreeStateMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (BlockStateStorage m) => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (BlockStateOperations m) => BlockStateOperations (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance (ForeingLowLevelBlockStateOperations m) => ForeingLowLevelBlockStateOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance (ForeignLowLevelBlockStateOperations m) => ForeignLowLevelBlockStateOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (TimeMonad m) => TimeMonad (SkovQueryMonadT m)
 
 instance
