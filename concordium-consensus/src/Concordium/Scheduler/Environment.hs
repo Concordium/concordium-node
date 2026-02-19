@@ -444,7 +444,10 @@ class (Monad m, MonadProtocolVersion m) => ForeingLowLevelSchedulerMonad m where
     -- is then converted into a 'BlockStateOperations' action and returned.
     updateBlockState ::
         ( forall m'.
-          (BlockStateOperations m', ForeingLowLevelBlockStateOperations m') => -- todo ar remove constraint again
+          ( BlockStateOperations m',
+            ForeingLowLevelBlockStateOperations m',
+            MPV m ~ MPV m' -- todo ar remove constraint again
+          ) =>
           UpdatableBlockState m' ->
           m' (Maybe (UpdatableBlockState m'), a)
         ) ->

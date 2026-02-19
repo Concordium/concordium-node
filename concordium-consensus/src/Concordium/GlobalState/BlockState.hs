@@ -1787,7 +1787,7 @@ class (Monad m, MonadProtocolVersion m) => ForeingLowLevelBlockStateOperations m
           RustBS.ForeignPLTBlockStatePtr ->
           m' (Maybe RustBS.ForeignPLTBlockStatePtr, a)
         ) ->
-        m a
+        m (Maybe (UpdatableBlockState m), a)
 
 -- | Block state storage operations
 class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where

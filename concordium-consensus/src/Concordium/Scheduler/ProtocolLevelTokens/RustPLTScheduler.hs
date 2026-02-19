@@ -11,7 +11,6 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeChainUpdate,
 ) where
 
-import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.Serialize as S
@@ -21,18 +20,20 @@ import qualified Foreign.C.Types as FFI
 
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Execution as Types
+import qualified Concordium.Types.Updates as Types
 import qualified Concordium.Utils.Serialization as CS
 import qualified Data.FixedByteString as FixedByteString
 
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as EI
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
-import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import Control.Monad
+import Control.Monad.Except
+import Control.Monad.Trans
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
@@ -208,26 +209,35 @@ foreign import ccall "ffi_execute_transaction"
         --   via callbacks must be rolled back.
         IO Word.Word8
 
--- todo ar unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
-
--- | Get the list all tokens, for protocol version where the PLT state is managed in Rust.
+-- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
+-- is executed via the Rust PLT Scheduler library. Only `CratePLT` chain updates are currently supported.
 executeChainUpdate ::
     forall m.
     (Types.PVSupportsRustManagedPLT (Types.MPV m), EI.SchedulerMonad m, EI.ForeingLowLevelSchedulerMonad m) =>
+    Types.UpdateHeader ->
+    Types.CreatePLT ->
     m (Either Types.FailureKind Types.ValidResult)
-executeChainUpdate = do
-    let queryCallbacks = undefined
-    let operationCallbacks = undefined
-    outcome <- EI.updateBlockState $ \bs -> do
-        BS.updateRustPLTState bs $ \pltBlockState -> do
-            outcome <- executeChainUpdateInBlobStoreMonad (Types.protocolVersion @(Types.MPV m)) pltBlockState queryCallbacks operationCallbacks undefined
-            undefined
+executeChainUpdate updateHeader createPLT =
+    fmap join $ runExceptT $ do
+        unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
+        let queryCallbacks = undefined
+        let operationCallbacks = undefined
+        lift $ EI.updateBlockState $ \bs -> do
+            BS.updateRustPLTState bs $ \pltBlockState -> do
+                outcome <-
+                    executeChainUpdateInBlobStoreMonad
+                        (Types.protocolVersion @(Types.MPV m))
+                        pltBlockState
+                        queryCallbacks
+                        operationCallbacks
+                        createPLT
+                return $ case outcome of
+                    ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess updatedPltBlockState events) ->
+                        (Just updatedPltBlockState, Right $ Types.TxSuccess events)
+                    ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
+                        (Nothing, Left failureKind)
 
-    -- outcome <- BS.updateRustPLTState bs $ \pltBlockState -> do
-    --     outcome <- executeChainUpdateInBlobStoreMonad (Types.protocolVersion @(Types.MPV m)) pltBlockState queryCallbacks operationCallbacks undefined
-    --     undefined
-
-    undefined
+-- todo ar unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
 
 -- | Execute a chain update modifying `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
@@ -244,8 +254,8 @@ executeChainUpdateInBlobStoreMonad ::
     BlockStateQueryCallbacks ->
     -- | Callbacks need for block state operations on the state maintained by Haskell.
     BlockStateOperationCallbacks ->
-    -- | Chain update payload byte string.
-    BS.ByteString ->
+    -- | Create PLT chain update.
+    Types.CreatePLT ->
     -- | Outcome of the execution
     m ChainUpdateExecutionOutcome
 executeChainUpdateInBlobStoreMonad
@@ -255,6 +265,7 @@ executeChainUpdateInBlobStoreMonad
     operationCallbacks
     chainUpdatePayload =
         do
+            let chainUpdatePayloadByteString = S.runPut $ Types.putUpdatePayload $ Types.CreatePLTUpdatePayload chainUpdatePayload
             loadCallbackPtr <- fst <$> BlobStore.getCallbacks
             liftIO $ FFI.alloca $ \resultingBlockStateOutPtr ->
                 FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
@@ -267,7 +278,7 @@ executeChainUpdateInBlobStoreMonad
                         incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                         -- Invoke the ffi call
                         statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
-                            BS.unsafeUseAsCStringLen chainUpdatePayload $ \(chainUpdatePayloadPtr, chainUpdatePayloadLen) ->
+                            BS.unsafeUseAsCStringLen chainUpdatePayloadByteString $ \(chainUpdatePayloadPtr, chainUpdatePayloadLen) ->
                                 ffiExecuteChainUpdate
                                     loadCallbackPtr
                                     readTokenAccountBalanceCallbackPtr
