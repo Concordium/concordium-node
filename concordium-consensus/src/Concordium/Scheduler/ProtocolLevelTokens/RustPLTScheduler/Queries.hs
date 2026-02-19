@@ -128,6 +128,8 @@ queryPLTListInBlobStoreMonad
 -- Returns a byte representing the result:
 --
 -- - `0`: The query was successful
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_query_plt_list"
     ffiQueryPLTList ::
         -- | Called to read data from blob store.

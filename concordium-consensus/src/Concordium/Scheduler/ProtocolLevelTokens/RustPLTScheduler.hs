@@ -178,6 +178,8 @@ executeTransaction
 -- - `0`: Transaction execution succeeded and transaction was applied to block state.
 -- - `1`: Transaction was rejected with a reject reason. Block state changes applied
 --   via callbacks must be rolled back.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_execute_transaction"
     ffiExecuteTransaction ::
         -- | Called to read data from blob store.
@@ -217,7 +219,7 @@ foreign import ccall "ffi_execute_transaction"
         -- If the return value is `0`, the data is a list of transaction events. If the return value is `1`, it is a reject reason.
         FFI.Ptr (FFI.Ptr Word.Word8) ->
         -- | Output location for writing the length of the return data.
-        FFI.Ptr Word.Word64 ->
+        FFI.Ptr FFI.CSize ->
         -- | Status code:
         -- * `0` if transaction was executed and applied successfully.
         -- * `1` if transaction was rejected. Block state changes applied
@@ -342,6 +344,8 @@ executeChainUpdate
 -- - `0`: Chain update execution succeeded and update was applied to block state.
 -- - `1`: Chain update failed. Block state changes applied
 --   via callbacks must be rolled back.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_execute_chain_update"
     ffiExecuteChainUpdate ::
         -- | Called to read data from blob store.
@@ -371,7 +375,7 @@ foreign import ccall "ffi_execute_chain_update"
         -- If the return value is `0`, the data is a list of events. If the return value is `1`, it is a failure kind.
         FFI.Ptr (FFI.Ptr Word.Word8) ->
         -- | Output location for writing the length of the return data.
-        FFI.Ptr Word.Word64 ->
+        FFI.Ptr FFI.CSize ->
         -- | Status code:
         -- * `0` if chain update was executed and applied successfully.
         -- * `1` if chain update failed. Block state changes applied

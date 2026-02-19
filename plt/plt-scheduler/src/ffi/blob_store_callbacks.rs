@@ -4,11 +4,14 @@ use libc::size_t;
 use std::mem;
 
 /// A [loader](BackingStoreLoad) implemented by an external function.
-/// This is the dual to [`StoreCallback`]
+/// This is the dual to [`StoreCallback`].
+///
+/// Returns pointer to a uniquely owned [`Vec`].
+/// The returned `Vec` must be deallocated by the caller.
 pub type LoadCallback = extern "C" fn(blob_store::Reference) -> *mut Vec<u8>;
 
 /// A [storer](BackingStoreStore) implemented by an external function.
-/// The function is passed a pointer to data to store, and the size of data. It
+/// The function is passed a (shared) pointer to data to store, and the size of data. It
 /// should return the location where the data can be loaded via a
 /// [`LoadCallback`].
 pub type StoreCallback = extern "C" fn(data: *const u8, len: size_t) -> blob_store::Reference;
