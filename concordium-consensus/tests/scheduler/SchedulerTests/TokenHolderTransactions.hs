@@ -23,9 +23,11 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
 
+import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
+import Data.Singletons
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
@@ -164,7 +166,11 @@ tests =
             Helpers.forEveryProtocolVersion testCases
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-    testCases spv pvString =
+    testCases spv pvString = do
         case sSupportsPLT (sAccountVersionFor spv) of
-            STrue -> testTokenHolder spv pvString
+            STrue ->
+                -- todo enable tests as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
+                unless
+                    (fromSing spv == P11)
+                    $ testTokenHolder spv pvString
             SFalse -> return ()
