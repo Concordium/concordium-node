@@ -1,7 +1,10 @@
 //! Types returned by queries.
 
 use crate::types::tokens::TokenAmount;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef};
+use concordium_base::{
+    common::{Buffer, Put, Serial},
+    protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef},
+};
 
 /// Token state at the block level
 ///
@@ -19,6 +22,15 @@ pub struct TokenState {
     pub module_state: RawCbor,
 }
 
+impl Serial for TokenState {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        out.put(&self.token_module_ref);
+        out.put(&self.decimals);
+        out.put(&self.total_supply);
+        out.put(&self.module_state);
+    }
+}
+
 /// The token state at the block level.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenInfo`
@@ -28,6 +40,13 @@ pub struct TokenInfo {
     pub token_id: TokenId,
     /// The associated block level state.
     pub state: TokenState,
+}
+
+impl Serial for TokenInfo {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        out.put(&self.token_id);
+        out.put(&self.state);
+    }
 }
 
 /// State of a protocol level token associated with some account.
@@ -41,6 +60,13 @@ pub struct TokenAccountState {
     pub module_state: RawCbor,
 }
 
+impl Serial for TokenAccountState {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        out.put(&self.balance);
+        out.put(&self.module_state);
+    }
+}
+
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.Token`
@@ -50,4 +76,11 @@ pub struct TokenAccountInfo {
     pub token_id: TokenId,
     /// The state of the token associated with the account.
     pub account_state: TokenAccountState,
+}
+
+impl Serial for TokenAccountInfo {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        out.put(&self.token_id);
+        out.put(&self.account_state);
+    }
 }
