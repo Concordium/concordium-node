@@ -1,7 +1,10 @@
 # Changelog
 
 ## Unreleased changes
+
 - Prohibit peers from sending unsolicited PeerList messages
+- Enhance node performance by limiting queue saturation from peers that send catch-up or finalization messages aggressively by using semaphore-based backpressure.
+- Introcude a background queue for processing messages (primarly catch-up messages currently) that don't require the global block state lock. 
 
 # 10.0.5
 

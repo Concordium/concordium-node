@@ -177,6 +177,7 @@ impl Connection {
             peer_id,
             pac.message,
             is_broadcast,
+            &self.pending_messages_semaphore,
         )
     }
 }

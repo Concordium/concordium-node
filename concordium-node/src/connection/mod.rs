@@ -11,8 +11,10 @@ use circular_queue::CircularQueue;
 use low_level::ConnectionLowLevel;
 use mio::{net::TcpStream, Interest, Token};
 
+use crate::consensus_ffi::helpers::PacketType;
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
+use crate::network::serialization::fbs::PEER_LIST_LIMIT;
 use crate::{
     common::{
         get_current_stamp,
@@ -30,8 +32,6 @@ use crate::{
     read_or_die, write_or_die,
 };
 
-use crate::consensus_ffi::helpers::PacketType;
-
 use std::{
     collections::VecDeque,
     convert::TryFrom,
@@ -45,7 +45,7 @@ use std::{
     },
 };
 
-use crate::network::serialization::fbs::PEER_LIST_LIMIT;
+pub const MAX_QUEUED_MESSAGES_PER_PEER: usize = 50;
 
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
@@ -386,6 +386,16 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
+    /// Semaphore for pending messages across all incoming messages processing queues.
+    /// When this semaphore reaches 0, any new message from this peer
+    /// will no longer be added to the node's queue but instead dropped/delayed.
+    /// This prevents a single peer from disproportionately filling up the queue.
+    pub pending_messages_semaphore: Arc<tokio::sync::Semaphore>,
+    /// The value will be set to `true` when above semaphore reaches 0,
+    /// allowing the node to re-check at every read polling cycle
+    /// if a semaphore permit got released so remaining incoming messages
+    /// can be read from the peer's socket.
+    pub pending_messages_semaphore_reached: bool,
     /// Semaphore to limit concurrent processing of GetPeers requests.
     pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
@@ -448,6 +458,10 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
+            pending_messages_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                MAX_QUEUED_MESSAGES_PER_PEER,
+            )),
+            pending_messages_semaphore_reached: false,
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
             get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
@@ -527,14 +541,34 @@ impl Connection {
         Ok(is_duplicate)
     }
 
-    /// Keeps reading from the socket as long as there is data to be read
-    /// and the operation is not blocking.
+    /// Keeps reading from the socket as long as there is data to be read, the operation is not blocking
+    /// and the sending peer's `pending_messages_semaphore` value hasn't be exhausted.
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
+        let semaphore = self.pending_messages_semaphore.available_permits();
+        if semaphore == 0usize {
+            self.pending_messages_semaphore_reached = true;
+            return Ok(true);
+        }
+
         loop {
+            self.pending_messages_semaphore_reached = false;
             match self.low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
+                ReadResult::Complete(msg) => {
+                    // Acquire an owned permit
+                    if self
+                        .pending_messages_semaphore
+                        .clone()
+                        .try_acquire_owned()
+                        .is_err()
+                    {
+                        trace!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value", self.remote_peer);
+                        self.pending_messages_semaphore_reached = true;
+                        return Ok(true);
+                    }
+                    self.process_message(Arc::from(msg), conn_stats)?
+                }
                 ReadResult::Incomplete => {}
                 ReadResult::WouldBlock => return Ok(true),
                 ReadResult::Closed => return Ok(false),

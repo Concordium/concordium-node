@@ -20,7 +20,6 @@ use concordium_node::{
         },
         ffi,
         helpers::QueueMsg,
-        messaging::ConsensusMessage,
     },
     p2p::{
         connectivity::connect,
@@ -406,6 +405,7 @@ fn start_consensus_message_threads(
     consensus: ConsensusContainer,
 ) -> Vec<JoinHandle<()>> {
     let mut threads: Vec<JoinHandle<()>> = Default::default();
+    let background_consensus = consensus.clone();
 
     let node_ref = Arc::clone(node);
     threads.push(spawn_or_die!("inbound consensus requests", {
@@ -420,7 +420,7 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
-            // Update size of queues
+            // Update size of queues in metrics
             node_ref
                 .stats
                 .inbound_low_priority_message_queue_size
@@ -434,7 +434,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                        handle_consensus_inbound_msg(&node_ref, &consensus, msg.message)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -448,7 +448,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                    handle_consensus_inbound_msg(&node_ref, &consensus, msg.message)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -463,7 +463,7 @@ fn start_consensus_message_threads(
                 match msg {
                     Ok(message) => {
                         let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                            handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                            handle_consensus_inbound_msg(&node_ref, &consensus, msg.message)
                         });
                         if stop_loop {
                             break 'outer_loop;
@@ -474,6 +474,42 @@ fn start_consensus_message_threads(
                         // the queue sender is dropped.
                         error!("Inbound consensus queue was disconnected unexpectedly.");
                         break 'outer_loop;
+                    }
+                }
+            }
+        }
+    }));
+
+    let node_ref = Arc::clone(node);
+    threads.push(spawn_or_die!("background consensus requests", {
+        let consensus_receiver_background =
+            CALLBACK_QUEUE.inbound.receiver_background.lock().unwrap();
+
+        loop {
+            // Update size of queues in metric
+            node_ref
+                .stats
+                .inbound_background_message_queue_size
+                .set(consensus_receiver_background.len() as i64);
+            let Ok(message) = consensus_receiver_background.recv() else {
+                error!("Background consensus queue was disconnected unexpectedly.");
+                break;
+            };
+            match message {
+                QueueMsg::Stop => {
+                    debug!("Closing the background consensus channel");
+                    break;
+                }
+                QueueMsg::Relay(message) => {
+                    if let Err(e) = handle_consensus_inbound_msg(
+                        &node_ref,
+                        &background_consensus,
+                        message.message,
+                    ) {
+                        error!(
+                            "There's an issue with a background consensus request: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -496,7 +532,7 @@ fn start_consensus_message_threads(
 
         'outer_loop: loop {
             exhausted = false;
-            // Update size of queues
+            // Update size of queues in metrics
             node_ref
                 .stats
                 .outbound_low_priority_message_queue_size
@@ -560,9 +596,9 @@ fn start_consensus_message_threads(
     threads
 }
 
-fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
+fn handle_queue_stop<F, M>(msg: QueueMsg<M>, dir: &'static str, f: F) -> bool
 where
-    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>,
+    F: FnOnce(M) -> anyhow::Result<()>,
 {
     match msg {
         QueueMsg::Relay(msg) => {

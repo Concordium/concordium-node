@@ -278,9 +278,10 @@ impl P2PNode {
                     return;
                 }
 
-                if events
-                    .iter()
-                    .any(|event| event.token() == conn.token() && event.is_readable())
+                if conn.pending_messages_semaphore_reached
+                    || (events
+                        .iter()
+                        .any(|event| event.token() == conn.token() && event.is_readable()))
                 {
                     match conn.read_stream(&conn_stats) {
                         Err(e) => {
