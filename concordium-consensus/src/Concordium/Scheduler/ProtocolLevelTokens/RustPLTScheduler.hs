@@ -214,6 +214,9 @@ foreign import ccall "ffi_execute_transaction"
         --   via callbacks must be rolled back.
         IO Word.Word8
 
+
+-- todo ar use try in mvar operations
+
 -- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
 -- is executed via the Rust PLT Scheduler library. Only `CratePLT` chain updates are currently supported.
 executeChainUpdate ::
