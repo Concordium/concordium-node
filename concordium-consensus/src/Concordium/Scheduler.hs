@@ -105,6 +105,7 @@ import Lens.Micro.Platform
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..))
 import qualified Concordium.Scheduler.ProtocolLevelTokens.Module as TokenModule
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler as RustScheduler
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
 import Concordium.Types.Option
@@ -2908,8 +2909,7 @@ handleCreatePLT :: forall m. (SchedulerMonad m, PVSupportsPLT (MPV m)) => Update
 handleCreatePLT updateHeader payload = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateV0 ->
         handleCreatePLTHaskellManaged updateHeader payload
-    -- todo implement as part of https://linear.app/concordium/issue/PSR-14/dispatch-createplt-chain-updates-to-rust-plt-scheduler
-    SPLTStateV1 -> undefined
+    SPLTStateV1 -> RustScheduler.executeChainUpdate updateHeader payload
 
 -- | Handler for processing chain update creating a new protocol level token, for protocol version where PLT state is managed in Haskell.
 -- It is assumed that the signatures have already been checked.

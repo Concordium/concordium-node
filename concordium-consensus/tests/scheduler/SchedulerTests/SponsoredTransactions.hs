@@ -481,7 +481,6 @@ deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance BlockStateTypes (
 deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (TokenStateOperations ts m) => TokenStateOperations ts (TestAccountNonceQueryT bs m)
 deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (PLTQuery bs' ts m) => PLTQuery bs' ts (TestAccountNonceQueryT bs m)
 deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (BlockStateQuery m) => BlockStateQuery (TestAccountNonceQueryT bs m)
-deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (ForeignLowLevelBlockStateQuery m) => ForeignLowLevelBlockStateQuery (TestAccountNonceQueryT bs m)
 deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (ContractStateOperations m) => ContractStateOperations (TestAccountNonceQueryT bs m)
 deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (AccountOperations m) => AccountOperations (TestAccountNonceQueryT bs m)
 deriving via (MGSTrans (TestAccountNonceQueryT bs) m) instance (ModuleQuery m) => ModuleQuery (TestAccountNonceQueryT bs m)

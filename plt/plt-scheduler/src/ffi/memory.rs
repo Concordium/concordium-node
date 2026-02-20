@@ -13,6 +13,7 @@ use libc::size_t;
 /// - Argument `len` must be equal to the length AND capacity of the given `Vec`
 #[unsafe(no_mangle)]
 extern "C" fn free_array_len_2(ptr: *mut u8, len: u64) {
+    println!("entry free_array_len_2"); // todo ar
     unsafe {
         Vec::from_raw_parts(ptr, len as usize, len as usize);
     }
@@ -24,6 +25,7 @@ extern "C" fn free_array_len_2(ptr: *mut u8, len: u64) {
 /// The returned `Vec` must be deallocated passing the ownership back to the Rust code again.
 #[unsafe(no_mangle)]
 extern "C" fn copy_to_vec_ffi_2(data: *const u8, len: libc::size_t) -> *mut Vec<u8> {
+    println!("entry copy_to_vec_ffi_2"); // todo ar
     Box::into_raw(Box::new(
         unsafe { std::slice::from_raw_parts(data, len) }.to_vec(),
     ))

@@ -537,6 +537,23 @@ instance
         ssBlockState .= s'
         return tokenIx
 
+    updateBlockState operation = do
+        s0 <- use ssBlockState
+        snapshot <- lift $ BS.bsoSnapshotState s0
+        (maybeS1, res) <- lift $ operation s0
+        case maybeS1 of
+            Just s1 ->
+                -- Operation returned new block state.
+                -- Set this state in the scheduler.
+                ssBlockState .= s1
+            Nothing -> do
+                -- Operation did not return a new block state.
+                -- Rollback to snapshot taken before operation.
+                -- This is needed due to interior mutability inside the block state s0.
+                s1 <- lift $ BS.bsoRollback s0 snapshot
+                ssBlockState .= s1
+        return res
+
 -- | Execute the computation using the provided context and scheduler state.
 -- The return value is the value produced by the computation and the updated state of the scheduler.
 runSchedulerT ::

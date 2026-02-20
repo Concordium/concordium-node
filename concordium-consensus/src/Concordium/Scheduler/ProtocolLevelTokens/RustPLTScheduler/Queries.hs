@@ -1,4 +1,5 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to query PLTs.
 --
@@ -35,9 +36,10 @@ queryPLTList ::
     BS.BlockState m ->
     m [TokenId]
 queryPLTList bs = do
+    (_ :: ()) <- BS.liftBlobStore $ liftIO $ putStrLn "begin queryPLTList" -- todo ar
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
-    BS.withRustPLTState bs $ \pltBlockState ->
-        queryPLTListInBlobStoreMonad pltBlockState queryCallbacks
+    pltState <- BS.getRustPLTBlockState bs
+    BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks
 
 -- | "Unlifts" the callback queries from the 'BlockStateQuery' monad into the IO monad, such that they can
 -- be converted to FFI function pointers.
@@ -87,6 +89,7 @@ queryPLTListInBlobStoreMonad
                     getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
                     getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
                     -- Invoke the ffi call
+                    putStrLn "call ffi_query_plt_list" -- todo ar
                     statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
                         ffiQueryPLTList
                             loadCallbackPtr
@@ -97,6 +100,7 @@ queryPLTListInBlobStoreMonad
                             pltBlockStatePtr
                             returnDataPtrOutPtr
                             returnDataLenOutPtr
+                    putStrLn "return ffi_query_plt_list" -- todo ar
                     -- Free the function pointers we have just created
                     -- (loadCallbackPtr is created in another context,
                     -- so we should not free it)

@@ -53,6 +53,7 @@ extern "C" fn ffi_query_plt_list(
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
+    println!("entry ffi_query_plt_list"); // todo ar
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(
         !return_data_len_out.is_null(),

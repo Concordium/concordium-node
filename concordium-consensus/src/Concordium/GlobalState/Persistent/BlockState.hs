@@ -4594,8 +4594,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getCooldownAccounts = doGetCooldownAccounts . hpbsPointers
     getPreCooldownAccounts = doGetPreCooldownAccounts . hpbsPointers
     getPrePreCooldownAccounts = doGetPrePreCooldownAccounts . hpbsPointers
+    getRustPLTBlockState bs = PLT.getRustPLTBlockState . bspProtocolLevelTokens <$> (loadPBS $ hpbsPointers bs)
 
-instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlockStateQuery (PersistentBlockStateMonad pv r m) where
+    liftBlobStore = id
+
     withUnliftBSQ query = do
         -- Construct the context needed for running block state query actions that we unlift
         context <- ask
@@ -4627,10 +4629,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => ForeignLowLevelBlo
                     )
                     logMethod
         liftIO queryIo
-
-    withRustPLTState bs query = do
-        bsp <- loadPBS $ hpbsPointers bs
-        query $ PLT.getRustPLTBlockState $ bspProtocolLevelTokens bsp
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -4778,9 +4776,45 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSetTokenState = doSetTokenState
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
     bsoTouchTokenAccount = doTouchTokenAccount
+    bsoGetRustPLTBlockState pbs = PLT.getRustPLTBlockState . bspProtocolLevelTokens <$> loadPBS pbs
+    bsoSetRustPLTBlockState pbs pltState = do
+        bsp <- loadPBS pbs
+        storePBS pbs bsp{bspProtocolLevelTokens = PLT.makeRustPLTBlockState pltState}
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
+
+    withUnliftBSO operation = do
+        -- Construct the context needed for running block state operation actions that we unlift
+        context <- ask
+        let bscBlobStore = blobStore context
+            bscLoadCallback = blobLoadCallback context
+            bscStoreCallback = blobStoreCallback context
+            pbscBlobStore = BlobStore{..}
+
+            pbscAccountCache = Cache.projectCache context
+            pbscModuleCache = Cache.projectCache context
+
+            _dbhStoreEnv = context ^. LMDBAccountMap.dbhStoreEnv
+            _dbhAccountMapStore = context ^. LMDBAccountMap.dbhAccountMapStore
+            _dbhModuleMapStore = context ^. LMDBAccountMap.dbhModuleMapStore
+            pbscAccountMap = LMDBAccountMap.DatabaseHandlers{..}
+
+            unliftContext :: PersistentBlockStateContext pv
+            unliftContext = PersistentBlockStateContext{..}
+
+        -- Extract LogMethod action than can run in IO monad
+        logMethod <- logEventIO
+
+        -- Run operation with the unlift function as argument
+        let operationIo = operation $ \m ->
+                runLoggerT
+                    ( runReaderT
+                        (runPersistentBlockStateMonad m)
+                        unliftContext
+                    )
+                    logMethod
+        liftIO operationIo
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState = doThawBlockState

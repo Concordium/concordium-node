@@ -5,6 +5,7 @@
 -- Each foreign function definition must match the definitions of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks (
     BlockStateQueryCallbacks (..),
+    BlockStateOperationCallbacks (..),
     ReadTokenAccountBalance,
     ReadTokenAccountBalanceCallbackPtr,
     wrapReadTokenAccountBalance,
@@ -26,6 +27,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallb
 ) where
 
 import qualified Data.ByteString.Unsafe as BS
+import Data.Maybe
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
@@ -48,6 +50,13 @@ data BlockStateQueryCallbacks = BlockStateQueryCallbacks
       getTokenAccountStates :: GetTokenAccountStates
     }
 
+-- | Block state operation callbacks. These are used by the Rust PLT Scheduler library to
+-- perform operations on the part of the block state that is maintained by Haskell.
+data BlockStateOperationCallbacks = BlockStateOperationCallbacks
+    { updateTokenAccountBalance :: UpdateTokenAccountBalance,
+      incrementPltUpdateSequenceNumber :: IncrementPltUpdateSequenceNumber
+    }
+
 -- | Callback function for reading a token account balance.
 type ReadTokenAccountBalance =
     -- | Index of the account to read a token balance for. The account must exist.
@@ -65,6 +74,7 @@ wrapReadTokenAccountBalance func =
   where
     callback :: ReadTokenAccountBalanceCallbackFFI
     callback accountIndex tokenIndex = do
+        putStrLn "entry ReadTokenAccountBalanceCallbackFFI" -- todo ar
         amount <- func (fromIntegral accountIndex) (fromIntegral tokenIndex)
         return $ Tokens.theTokenRawAmount amount
 
@@ -97,8 +107,8 @@ type UpdateTokenAccountBalance =
     Tokens.TokenIndex ->
     -- | The change to account balance.
     AccountTokens.TokenAmountDelta ->
-    -- | Status code, where 'False' represents a balance overflow.
-    IO Bool
+    -- | Status code, where 'Nothing' represents a balance overflow.
+    IO (Maybe ())
 
 -- | Internal helper function for mapping the 'UpdateTokenAccountBalance' into the more
 -- low-level function pointer which can be passed in FFI.
@@ -108,13 +118,14 @@ wrapUpdateTokenAccountBalance func =
   where
     callback :: UpdateTokenAccountBalanceCallbackFFI
     callback accountIndex tokenIndex amount addAmount = do
+        putStrLn "entry UpdateTokenAccountBalanceCallbackFFI" -- todo ar
         let amountDelta =
                 case addAmount of
                     0 -> AccountTokens.TokenAmountDelta $ -fromIntegral amount
                     1 -> AccountTokens.TokenAmountDelta $ fromIntegral amount
                     _ -> error ("Boolean argument must be 0 or 1, was " ++ (show addAmount))
-        overflow <- func (fromIntegral accountIndex) (fromIntegral tokenIndex) amountDelta
-        return $ if overflow then 1 else 0
+        result <- func (fromIntegral accountIndex) (fromIntegral tokenIndex) amountDelta
+        return $ if isJust result then 0 else 1
 
 -- | Callback function for updating a token account balance.
 --
@@ -152,7 +163,9 @@ wrapIncrementPltUpdateSequenceNumber func =
     ffiWrapIncrementPltUpdateSequenceNumberCallback callback
   where
     callback :: IncrementPltUpdateSequenceNumberCallbackFFI
-    callback = func
+    callback = do
+        putStrLn "entry IncrementPltUpdateSequenceNumberCallbackFFI" -- todo ar
+        func
 
 -- | Callback function for incrementing the PLT update sequence number.
 --
@@ -185,6 +198,7 @@ wrapGetAccountIndexByAddress func =
   where
     callback :: GetAccountIndexByAddressCallbackFFI
     callback accountAddressPtr accountIndexOutPtr = do
+        putStrLn "entry GetAccountIndexByAddressCallbackFFI" -- todo ar
         accountAddress <- Types.AccountAddress <$> (FFI.peek $ FFI.castPtr accountAddressPtr)
 
         accountIndexMaybe <- func accountAddress
@@ -234,6 +248,7 @@ wrapGetAccountAddressByIndex func =
   where
     callback :: GetAccountAddressByIndexCallbackFFI
     callback accountIndex accountAddressOutPtr = do
+        putStrLn "entry GetAccountAddressByIndexCallbackFFI" -- todo ar
         accountAddressMaybe <- func (fromIntegral accountIndex)
         case accountAddressMaybe of
             Just (Types.AccountAddress accountAddressBytes) ->
@@ -281,6 +296,7 @@ wrapGetTokenAccountStates func =
   where
     callback :: GetTokenAccountStatesCallbackFFI
     callback accountIndex = do
+        putStrLn "entry GetTokenAccountStatesCallbackFFI" -- todo ar
         tokenAccountStates <- func (fromIntegral accountIndex)
         let putStates = CS.putListOf S.put tokenAccountStates
         let bytes = S.runPut putStates

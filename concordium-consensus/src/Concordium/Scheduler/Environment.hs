@@ -30,7 +30,7 @@ import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState (AccountOperations (..), ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
+import Concordium.GlobalState.BlockState (AccountOperations (..), BlockStateOperations, ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
 import Concordium.GlobalState.Classes (MGSTrans (..))
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -103,7 +103,15 @@ data PLTExecutionError fail
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
-    (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m) =>
+    ( Monad m,
+      StaticInformation m,
+      AccountOperations m,
+      ContractStateOperations m,
+      ModuleQuery m,
+      MonadLogger m,
+      MonadProtocolVersion m,
+      TVer.TransactionVerifier m
+    ) =>
     SchedulerMonad m
     where
     -- | Get the 'AccountIndex' for an account, if it exists.
@@ -431,6 +439,23 @@ class
         (PVSupportsHaskellManagedPLT (MPV m)) =>
         Token.PLTConfiguration ->
         m Token.TokenIndex
+
+    -- | Allows construction of a 'BlockStateOperations' action in which the block state
+    -- can be updated. If `Just newBlockState` is returned, `newBlockState` is set
+    -- as the new block state in the scheduler monad. If `Nothing` is returned,
+    -- the block state is rolled back to the state before 'updateBlockState'
+    -- was called.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    updateBlockState ::
+        ( forall m'.
+          ( BlockStateOperations m',
+            MPV m ~ MPV m'
+          ) =>
+          UpdatableBlockState m' ->
+          m' (Maybe (UpdatableBlockState m'), a)
+        ) ->
+        m a
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the

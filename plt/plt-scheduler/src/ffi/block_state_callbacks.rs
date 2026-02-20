@@ -35,7 +35,9 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
         account: AccountIndex,
         token: TokenIndex,
     ) -> RawTokenAmount {
+        println!("call read_token_account_balance_ptr"); // todo ar
         let value = (self.read_token_account_balance_ptr)(account.index, token.0);
+        println!("return read_token_account_balance_ptr"); // todo ar
 
         RawTokenAmount(value)
     }
@@ -46,10 +48,12 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
     ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
         let mut account_address = AccountAddress([0; 32]);
 
+        println!("call get_account_address_by_index_ptr"); // todo ar
         let result = (self.get_account_address_by_index_ptr)(
             account_index.index,
             account_address.0.as_mut_ptr(),
         );
+        println!("return get_account_address_by_index_ptr"); // todo ar
 
         match result {
             0 => Ok(account_address),
@@ -67,10 +71,12 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
     ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
         let mut account_index = AccountIndex { index: 0 };
 
+        println!("call get_account_index_by_address_ptr"); // todo ar
         let result = (self.get_account_index_by_address_ptr)(
             account_address.0.as_ptr(),
             &mut account_index.index,
         );
+        println!("return get_account_index_by_address_ptr"); // todo ar
 
         match result {
             0 => Ok(account_index),
@@ -86,8 +92,10 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
         &self,
         account_index: AccountIndex,
     ) -> Vec<(TokenIndex, TokenAccountState)> {
+        println!("call get_token_account_states_ptr"); // todo ar
         let bytes =
             unsafe { Box::from_raw((self.get_token_account_states_ptr)(account_index.index)) };
+        println!("return get_token_account_states_ptr"); // todo ar
         common::from_bytes_complete(*bytes)
             .expect("Invalid serialization of (TokenIndex, TokenAccountState) list")
     }
@@ -100,6 +108,7 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
         token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
+        println!("call update_token_account_balance_ptr"); // todo ar
         let result = (self.update_token_account_balance_ptr)(
             account.index,
             token.0,
@@ -112,6 +121,7 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
                 RawTokenAmountDelta::Subtract(_) => 0,
             },
         );
+        println!("return update_token_account_balance_ptr"); // todo ar
 
         match result {
             0 => Ok(()),
@@ -124,7 +134,9 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
     }
 
     fn increment_plt_update_sequence_number(&mut self) {
+        println!("call increment_plt_update_sequence_number_ptr"); // todo ar
         (self.increment_plt_update_sequence_number_ptr)();
+        println!("return increment_plt_update_sequence_number_ptr"); // todo ar
     }
 }
 
