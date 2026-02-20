@@ -11,6 +11,8 @@ use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 /// It must be freed by calling [`ffi_free_plt_block_state`].
 #[unsafe(no_mangle)]
 extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
+    println!("######################################"); // todo ar
+    // panic!();
     let block_state = PltBlockStateSavepoint::empty();
     Box::into_raw(Box::new(block_state))
 }
