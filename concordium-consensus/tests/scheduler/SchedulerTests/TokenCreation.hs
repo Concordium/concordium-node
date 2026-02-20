@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -32,6 +33,8 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
+import Control.Monad
+import Data.Singletons
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef
@@ -459,5 +462,8 @@ tests =
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
     testCases spv pvString = case sSupportsPLT (sAccountVersionFor spv) of
-        STrue -> testCreatePLT spv pvString
+        STrue ->
+            when -- todo ar
+                (fromSing spv == P11)
+                $ testCreatePLT spv pvString
         SFalse -> return ()

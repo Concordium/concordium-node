@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
@@ -61,6 +62,7 @@ import qualified Concordium.Scheduler.Runner as SchedTest
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 import Concordium.Types (SProtocolVersion)
+import qualified Debug.Trace as Trace
 
 getResults :: [(a, Types.TransactionSummary tov)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))

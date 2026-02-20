@@ -52,8 +52,9 @@ withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr fore
 -- | Allocate new empty block state.
 empty :: (BlobStore.MonadBlobStore m) => m ForeignPLTBlockStatePtr
 empty = liftIO $ do
-    liftIO $ print "calling ffi_empty_plt_block_state" -- todo ar
+    liftIO $ putStrLn "call ffi_empty_plt_block_state" -- todo ar
     state <- ffiEmptyPLTBlockState
+    liftIO $ putStrLn "return ffi_empty_plt_block_state" -- todo ar
     wrapFFIPtr state
 
 -- | Allocate new empty block state.
@@ -66,15 +67,17 @@ instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBloc
     load = do
         blobRef <- S.get
         pure $! do
-            liftIO $ print "calling ffi_load_plt_block_state" -- todo ar
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
+                print "call ffi_load_plt_block_state" -- todo ar
                 blockState <- ffiLoadPLTBlockState loadCallback blobRef
+                print "return ffi_load_plt_block_state" -- todo ar
                 wrapFFIPtr blockState
     storeUpdate pltBlockState = do
-        liftIO $ print "calling ffi_store_plt_block_state" -- todo ar
         storeCallback <- snd <$> BlobStore.getCallbacks
+        liftIO $ putStrLn "call ffi_store_plt_block_state" -- todo ar
         blobRef <- liftIO $ withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback
+        liftIO $ putStrLn "return ffi_store_plt_block_state" -- todo ar
         return (S.put blobRef, pltBlockState)
 
 -- | Load PLT block state from the given disk reference.
@@ -103,9 +106,10 @@ foreign import ccall "ffi_store_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
     cache blockState = do
-        liftIO $ print "calling ffi_cache_plt_block_state" -- todo ar
         loadCallback <- fst <$> BlobStore.getCallbacks
+        liftIO $ putStrLn "call ffi_cache_plt_block_state" -- todo ar
         liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
+        liftIO $ putStrLn "return ffi_cache_plt_block_state" -- todo ar
         return blockState
 
 -- | Cache block state into memory.
@@ -125,12 +129,13 @@ newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelToken
 
 instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTokensHash ForeignPLTBlockStatePtr where
     getHashM blockState = do
-        liftIO $ print "calling ffi_hash_plt_block_state" -- todo ar
         loadCallback <- fst <$> BlobStore.getCallbacks
+        liftIO $ putStrLn "call ffi_hash_plt_block_state" -- todo ar
         ((), hash) <-
             liftIO $
                 withPLTBlockState blockState $
                     FixedByteString.createWith . ffiHashPLTBlockState loadCallback
+        liftIO $ putStrLn "return ffi_hash_plt_block_state" -- todo ar
         return $ ProtocolLevelTokensHash (SHA256.Hash hash)
 
 -- | Compute the hash of the block state.
@@ -154,10 +159,11 @@ migrate ::
     -- | New migrated block state
     t m ForeignPLTBlockStatePtr
 migrate currentState = do
-    liftIO $ print "calling ffi_migrate_plt_block_state" -- todo ar
     loadCallback <- fst <$> lift BlobStore.getCallbacks
     storeCallback <- snd <$> BlobStore.getCallbacks
+    liftIO $ putStrLn "call ffi_migrate_plt_block_state" -- todo ar
     newState <- liftIO $ withPLTBlockState currentState $ ffiMigratePLTBlockState loadCallback storeCallback
+    liftIO $ putStrLn "return ffi_migrate_plt_block_state" -- todo ar
     liftIO $ wrapFFIPtr newState
 
 -- | Migrate PLT block state from one blob store to another.

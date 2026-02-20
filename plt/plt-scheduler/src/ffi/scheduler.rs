@@ -237,7 +237,7 @@ extern "C" fn ffi_execute_chain_update(
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
-    println!("called ffi_execute_chain_update"); // todo ar
+    println!("entry ffi_execute_chain_update"); // todo ar
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!payload.is_null(), "payload is a null pointer.");
     assert!(

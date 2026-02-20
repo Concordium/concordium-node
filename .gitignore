@@ -48,6 +48,7 @@ genesis_data
 /concordium-consensus/a.out
 /concordium-consensus/HSdll.dll
 /concordium-consensus/HSdll.dll.a
+/concordium-consensus/*.dat
 /concordium-consensus/lib
 concordium-node/deps/static-libs
 .dir-locals.el
