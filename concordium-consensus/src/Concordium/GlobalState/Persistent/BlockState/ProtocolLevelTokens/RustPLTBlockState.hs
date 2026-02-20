@@ -22,7 +22,6 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.Types.HashableTo as Hashable
 import Control.Monad.Trans (lift, liftIO)
 import qualified Data.FixedByteString as FixedByteString
-import qualified Debug.Trace as Trace
 
 -- | Opaque type representing a Rust maintained PLT state.
 -- The value is allocated in Rust and must be deallocated in Rust.
@@ -53,7 +52,7 @@ withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr fore
 -- | Allocate new empty block state.
 empty :: (BlobStore.MonadBlobStore m) => m ForeignPLTBlockStatePtr
 empty = liftIO $ do
-    -- _ <- error (Trace.traceShowId "======================== empty") -- todo ar
+    liftIO $ print "calling ffi_empty_plt_block_state" -- todo ar
     state <- ffiEmptyPLTBlockState
     wrapFFIPtr state
 
@@ -65,15 +64,15 @@ foreign import ccall "ffi_empty_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBlockStatePtr where
     load = do
-        _ <- error "======================== load" -- todo ar
         blobRef <- S.get
         pure $! do
+            liftIO $ print "calling ffi_load_plt_block_state" -- todo ar
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
                 blockState <- ffiLoadPLTBlockState loadCallback blobRef
                 wrapFFIPtr blockState
     storeUpdate pltBlockState = do
-        _ <- error "======================== store" -- todo ar
+        liftIO $ print "calling ffi_store_plt_block_state" -- todo ar
         storeCallback <- snd <$> BlobStore.getCallbacks
         blobRef <- liftIO $ withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback
         return (S.put blobRef, pltBlockState)
@@ -104,7 +103,7 @@ foreign import ccall "ffi_store_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
     cache blockState = do
-        _ <- error "======================== cache" -- todo ar
+        liftIO $ print "calling ffi_cache_plt_block_state" -- todo ar
         loadCallback <- fst <$> BlobStore.getCallbacks
         liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
         return blockState
@@ -126,7 +125,7 @@ newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelToken
 
 instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTokensHash ForeignPLTBlockStatePtr where
     getHashM blockState = do
-        _ <- error "======================== getHashM" -- todo ar
+        liftIO $ print "calling ffi_hash_plt_block_state" -- todo ar
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
             liftIO $
@@ -155,7 +154,7 @@ migrate ::
     -- | New migrated block state
     t m ForeignPLTBlockStatePtr
 migrate currentState = do
-    _ <- error "======================== migrate" -- todo ar
+    liftIO $ print "calling ffi_migrate_plt_block_state" -- todo ar
     loadCallback <- fst <$> lift BlobStore.getCallbacks
     storeCallback <- snd <$> BlobStore.getCallbacks
     newState <- liftIO $ withPLTBlockState currentState $ ffiMigratePLTBlockState loadCallback storeCallback

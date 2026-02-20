@@ -32,8 +32,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
-import Control.Monad
-import Data.Singletons
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef

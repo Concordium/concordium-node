@@ -35,6 +35,7 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
         account: AccountIndex,
         token: TokenIndex,
     ) -> RawTokenAmount {
+        println!("calling read_token_account_balance_ptr"); // todo ar
         let value = (self.read_token_account_balance_ptr)(account.index, token.0);
 
         RawTokenAmount(value)
@@ -46,6 +47,7 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
     ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
         let mut account_address = AccountAddress([0; 32]);
 
+        println!("calling get_account_address_by_index_ptr"); // todo ar
         let result = (self.get_account_address_by_index_ptr)(
             account_index.index,
             account_address.0.as_mut_ptr(),
@@ -67,6 +69,7 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
     ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
         let mut account_index = AccountIndex { index: 0 };
 
+        println!("calling get_account_index_by_address_ptr"); // todo ar
         let result = (self.get_account_index_by_address_ptr)(
             account_address.0.as_ptr(),
             &mut account_index.index,
@@ -86,6 +89,7 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
         &self,
         account_index: AccountIndex,
     ) -> Vec<(TokenIndex, TokenAccountState)> {
+        println!("calling get_token_account_states_ptr"); // todo ar
         let bytes =
             unsafe { Box::from_raw((self.get_token_account_states_ptr)(account_index.index)) };
         common::from_bytes_complete(*bytes)
@@ -100,6 +104,7 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
         token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
+        println!("calling update_token_account_balance_ptr"); // todo ar
         let result = (self.update_token_account_balance_ptr)(
             account.index,
             token.0,
@@ -124,6 +129,7 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
     }
 
     fn increment_plt_update_sequence_number(&mut self) {
+        println!("calling increment_plt_update_sequence_number_ptr"); // todo ar
         (self.increment_plt_update_sequence_number_ptr)();
     }
 }
