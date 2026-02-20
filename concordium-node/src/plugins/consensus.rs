@@ -168,10 +168,7 @@ pub fn handle_pkt_out(
         None,
     );
     // TODO: Temporal logging
-    info!(
-        "SEMAPHORE VALUE; SEMAPHORE VALUE; SEMAPHORE VALUE:{:?}",
-        pending_messages_semaphore
-    );
+    info!("SEMAPHORE VALUE:{:?}", pending_messages_semaphore);
     let request = SemaphoredMessage::new(
         consensus_message.clone(),
         pending_messages_semaphore.clone().try_acquire_owned()?,
@@ -223,8 +220,8 @@ pub fn handle_pkt_out(
                     }
                 }
             } else {
-                // Handle catch-up status as a background message, since it
-                // does not require the consensus lock.
+                // Handle catch-up message in the background queue, since it
+                // does not require the block state lock.
                 if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
                     match e.downcast::<TrySendError<QueueMsg<SemaphoredMessage>>>()? {
                         TrySendError::Full(QueueMsg::Relay(_request)) => {

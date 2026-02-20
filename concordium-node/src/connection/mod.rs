@@ -553,6 +553,7 @@ impl Connection {
         }
 
         loop {
+            self.pending_messages_semaphore_reached = false;
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => {
                     // Acquire an owned permit
@@ -566,7 +567,6 @@ impl Connection {
                         self.pending_messages_semaphore_reached = true;
                         return Ok(true);
                     }
-                    self.pending_messages_semaphore_reached = false;
                     self.process_message(Arc::from(msg), conn_stats)?
                 }
                 ReadResult::Incomplete => {}

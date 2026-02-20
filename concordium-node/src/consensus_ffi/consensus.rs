@@ -53,8 +53,8 @@ pub struct SemaphoredMessage {
     /// Permit of the semaphore tracking the pending messages of the peer that sent this message.
     /// The semaphore should track how many of the `MAX_QUEUED_BACKGROUND_MESSAGES_PER_PEER`
     /// slots are currently still available for a given sending peer.
-    /// When the the struct is dropped, the semaphore is incremented to signal that a slot is freed
-    /// for the peer to send another message to this node again.
+    /// When the struct is dropped, the semaphore is incremented to signal that a slot is freed,
+    /// and the sending peer of the message is allowed to send another message to this node.
     /// This is used to share queue capacity fairly among connected peers.
     pub permit: OwnedSemaphorePermit,
 }
