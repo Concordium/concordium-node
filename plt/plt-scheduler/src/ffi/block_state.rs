@@ -87,9 +87,6 @@ extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
     blob_ref: blob_store::Reference,
 ) -> *mut PltBlockStateSavepoint {
-    if true {
-        panic!("fail for test"); // todo ar !
-    }
     println!("entry ffi_load_plt_block_state"); // todo ar
     // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let block_state =
@@ -148,9 +145,6 @@ extern "C" fn ffi_migrate_plt_block_state(
     mut store_callback: StoreCallback,
     block_state: *const PltBlockStateSavepoint,
 ) -> *mut PltBlockStateSavepoint {
-    if true {
-        panic!("fail for test"); // todo ar !
-    }
     println!("entry ffi_migrate_plt_block_state"); // todo ar
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     println!("plt state: 0x{:016x}", block_state as usize); // todo ar
@@ -178,9 +172,6 @@ extern "C" fn ffi_cache_plt_block_state(
     mut load_callback: LoadCallback,
     block_state: *const PltBlockStateSavepoint,
 ) {
-    if true {
-        panic!("fail for test"); // todo ar !
-    }
     println!("entry ffi_cache_plt_block_state"); // todo ar
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     println!("plt state: 0x{:016x}", block_state as usize); // todo ar
