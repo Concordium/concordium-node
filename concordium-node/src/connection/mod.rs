@@ -10,6 +10,7 @@ use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use low_level::ConnectionLowLevel;
 use mio::{net::TcpStream, Interest, Token};
+use tokio::sync::OwnedSemaphorePermit;
 
 use crate::consensus_ffi::helpers::PacketType;
 #[cfg(feature = "network_dump")]
@@ -546,28 +547,41 @@ impl Connection {
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
-        let semaphore = self.pending_messages_semaphore.available_permits();
-        if semaphore == 0usize {
-            self.pending_messages_semaphore_reached = true;
-            return Ok(true);
-        }
+        // Acquire an owned permit
+        let permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                trace!(
+            "Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value",
+            self.remote_peer
+        );
+                self.pending_messages_semaphore_reached = true;
+                return Ok(true);
+            }
+        };
+        self.pending_messages_semaphore_reached = false;
 
         loop {
-            self.pending_messages_semaphore_reached = false;
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => {
                     // Acquire an owned permit
-                    if self
-                        .pending_messages_semaphore
-                        .clone()
-                        .try_acquire_owned()
-                        .is_err()
+                    let permit2 = match self.pending_messages_semaphore.clone().try_acquire_owned()
                     {
-                        trace!("Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value", self.remote_peer);
-                        self.pending_messages_semaphore_reached = true;
-                        return Ok(true);
-                    }
-                    self.process_message(Arc::from(msg), conn_stats)?
+                        Ok(permit2) => permit2,
+                        Err(_) => {
+                            trace!(
+            "Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value",
+            self.remote_peer
+        );
+                            self.pending_messages_semaphore_reached = true;
+                            return Ok(true);
+                        }
+                    };
+
+                    // TODO: Temporal logging
+                    info!("SEMAPHORE PERMIT:{:?}", permit2);
+
+                    self.process_message(Arc::from(msg), permit2, conn_stats)?
                 }
                 ReadResult::Incomplete => {}
                 ReadResult::WouldBlock => return Ok(true),
@@ -580,6 +594,7 @@ impl Connection {
     fn process_message(
         &mut self,
         bytes: Arc<[u8]>,
+        permit: OwnedSemaphorePermit,
         conn_stats: &[PeerStats],
     ) -> anyhow::Result<()> {
         self.update_last_seen();
@@ -613,7 +628,7 @@ impl Connection {
         }
 
         // process the incoming message
-        self.handle_incoming_message(message, conn_stats)
+        self.handle_incoming_message(message, permit, conn_stats)
     }
 
     /// Concludes the connection's handshake process.

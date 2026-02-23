@@ -1,6 +1,7 @@
 //! Consensus layer handling.
 use anyhow::{bail, Context};
 use crossbeam_channel::TrySendError;
+use tokio::sync::OwnedSemaphorePermit;
 
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId},
@@ -104,8 +105,8 @@ pub fn get_baker_data(
 }
 
 /// Returns true if the message is a catch-up response message.
-/// See: Serialization of a 'VersionedCatchUpStatus' message.
-/// https://github.com/Concordium/concordium-node/blob/main/concordium-consensus/src/Concordium/Types/CatchUp.hs#L24
+/// See: Serialization of a 'VersionedCatchUpStatus' message
+/// in `concordium-consensus/src/Concordium/Types/CatchUp.hs`.
 pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Result<bool> {
     if request.variant != PacketType::CatchUpStatus {
         return Ok(false);
@@ -142,8 +143,8 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<RemotePeerId>,
     peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
+    permit: OwnedSemaphorePermit,
     is_broadcast: bool,
-    pending_messages_semaphore: &Arc<tokio::sync::Semaphore>,
 ) -> anyhow::Result<()> {
     let (consensus_type_bytes, payload) = msg
         .split_at_checked(1)
@@ -167,12 +168,8 @@ pub fn handle_pkt_out(
         dont_relay_to,
         None,
     );
-    // TODO: Temporal logging
-    info!("SEMAPHORE VALUE:{:?}", pending_messages_semaphore);
-    let request = SemaphoredMessage::new(
-        consensus_message.clone(),
-        pending_messages_semaphore.clone().try_acquire_owned()?,
-    );
+
+    let request = SemaphoredMessage::new(consensus_message.clone(), permit);
 
     match packet_type {
         PacketType::Transaction => {
@@ -304,7 +301,7 @@ pub fn handle_consensus_outbound_msg(
 pub fn handle_consensus_inbound_msg(
     node: &P2PNode,
     consensus: &ConsensusContainer,
-    request: ConsensusMessage,
+    request: SemaphoredMessage,
 ) -> anyhow::Result<()> {
     // If the drop_rebroadcast_probability parameter is set, do not
     // rebroadcast the packet to the network with the given chance.
@@ -321,29 +318,30 @@ pub fn handle_consensus_inbound_msg(
         _ => false,
     };
 
-    let source = request.source_peer();
+    let source = request.message.source_peer();
     // relay external messages to Consensus
-    let (consensus_result, finalizer) = send_msg_to_consensus(node, source, consensus, &request)?;
+    let (consensus_result, finalizer) =
+        send_msg_to_consensus(node, source, consensus, &request.message)?;
     // adjust the peer state(s) based on the feedback from Consensus
-    update_peer_states(node, &request, consensus_result);
+    update_peer_states(node, &request.message, consensus_result);
 
     // Update metric tracking received messages.
     node.stats
         .received_consensus_messages
-        .with_label_values(&[request.variant.label(), consensus_result.label()])
+        .with_label_values(&[request.message.variant.label(), consensus_result.label()])
         .inc();
 
     // rebroadcast incoming broadcasts if applicable
     if !drop_message
-        && request.distribution_mode() == DistributionMode::Broadcast
-        && request.variant.is_rebroadcastable()
-        && consensus_result.is_rebroadcastable(request.variant)
+        && request.message.distribution_mode() == DistributionMode::Broadcast
+        && request.message.variant.is_rebroadcastable()
+        && consensus_result.is_rebroadcastable(request.message.variant)
     {
         send_consensus_msg_to_net(
             node,
-            request.dont_relay_to(),
+            request.message.dont_relay_to(),
             None,
-            (request.payload, request.variant),
+            (request.message.payload, request.message.variant),
         );
     }
     // Execute any finalizer returned from the consensus layer.
