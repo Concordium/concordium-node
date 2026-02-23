@@ -462,8 +462,5 @@ tests =
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
     testCases spv pvString = case sSupportsPLT (sAccountVersionFor spv) of
-        STrue ->
-            when -- todo ar
-                (fromSing spv == P11)
-                $ testCreatePLT spv pvString
+        STrue -> testCreatePLT spv pvString
         SFalse -> return ()

@@ -38,6 +38,7 @@ import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import Control.Exception
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
@@ -215,8 +216,6 @@ foreign import ccall "ffi_execute_transaction"
         --   via callbacks must be rolled back.
         IO Word.Word8
 
--- todo ar use try in mvar operations
-
 -- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
 -- is executed via the Rust PLT Scheduler library. Only `CratePLT` chain updates are currently supported.
 executeChainUpdate ::
@@ -231,8 +230,9 @@ executeChainUpdate updateHeader createPLT =
         lift $ EI.updateBlockState $ \pbs0 -> do
             (_ :: ()) <- BS.liftBlobStore $ liftIO $ putStrLn "begin executeChainUpdate" -- todo ar
             pltState <- BS.bsoGetRustPLTBlockState pbs0
-            queryCallbacks <- unliftBlockStateQueryCallbacks pbs0
-            (operationCallbacks, pbsMVar) <- unliftBlockStateOperationCallbacks pbs0
+            pbsMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar pbs0
+            queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
+            operationCallbacks <- unliftBlockStateOperationCallbacks pbsMVar
 
             outcome <-
                 BS.liftBlobStore $
@@ -245,7 +245,7 @@ executeChainUpdate updateHeader createPLT =
 
             case outcome of
                 ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess updatedPltBlockState events) -> do
-                    pbs1 <- BS.liftBlobStore $ liftIO $ Conc.takeMVar pbsMVar
+                    pbs1 <- BS.liftBlobStore $ liftIO $ takeMVarNow pbsMVar
                     pbs2 <- BS.bsoSetRustPLTBlockState pbs1 updatedPltBlockState
                     return (Just pbs2, Right $ Types.TxSuccess events)
                 ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
@@ -448,21 +448,21 @@ data ChainUpdateExecutionSuccess = ChainUpdateExecutionSuccess
 unliftBlockStateQueryCallbacks ::
     forall m.
     (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
-    BS.UpdatableBlockState m ->
+    Conc.MVar (BS.UpdatableBlockState m) ->
     m BlockStateQueryCallbacks
-unliftBlockStateQueryCallbacks pbs = BS.withUnliftBSO $ \unlift ->
+unliftBlockStateQueryCallbacks pbsMVar = BS.withUnliftBSO $ \unlift ->
     do
-        let readTokenAccountBalance accountIndex tokenIndex = do
+        let readTokenAccountBalance accountIndex tokenIndex = withMVarNow pbsMVar $ \pbs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex pbs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 unlift $ BS.getAccountTokenBalance account tokenIndex
-            getAccountIndexByAddress accountAddress = do
+            getAccountIndexByAddress accountAddress = withMVarNow pbsMVar $ \pbs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccount pbs accountAddress
                 return $ fst <$> maybeAccount
-            getAccountAddressByIndex accountIndex = do
+            getAccountAddressByIndex accountIndex = withMVarNow pbsMVar $ \pbs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex pbs accountIndex
                 forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
-            getTokenAccountStates accountIndex = do
+            getTokenAccountStates accountIndex = withMVarNow pbsMVar $ \pbs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex pbs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 fmap Map.toList $ unlift $ BS.getAccountTokens account
@@ -474,19 +474,49 @@ unliftBlockStateQueryCallbacks pbs = BS.withUnliftBSO $ \unlift ->
 unliftBlockStateOperationCallbacks ::
     forall m.
     (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
-    BS.UpdatableBlockState m ->
-    m (BlockStateOperationCallbacks, Conc.MVar (BS.UpdatableBlockState m))
-unliftBlockStateOperationCallbacks pbs0 = BS.withUnliftBSO $ \unlift ->
+    Conc.MVar (BS.UpdatableBlockState m) ->
+    m BlockStateOperationCallbacks
+unliftBlockStateOperationCallbacks pbsMVar = BS.withUnliftBSO $ \unlift ->
     do
-        pbsMVar <- liftIO $ Conc.newMVar pbs0
         let updateTokenAccountBalance accountIndex tokenIndex tokenAmountDelta =
-                Conc.modifyMVar pbsMVar $ \pbs -> do
+                modifyMVarNow pbsMVar $ \pbs -> do
                     maybePbs1 <- unlift $ BS.bsoUpdateTokenAccountBalance pbs tokenIndex accountIndex tokenAmountDelta
                     return $ case maybePbs1 of
                         Just pbs1 -> (pbs1, Just ())
                         Nothing -> (pbs, Nothing)
             incrementPltUpdateSequenceNumber =
-                Conc.modifyMVar_ pbsMVar $ \pbs -> do
+                modifyMVarNow_ pbsMVar $ \pbs -> do
                     unlift $ BS.bsoIncrementPLTUpdateSequenceNumber pbs
 
-        return (BlockStateOperationCallbacks{..}, pbsMVar)
+        return BlockStateOperationCallbacks{..}
+
+withMVarNow :: Conc.MVar a -> (a -> IO b) -> IO b
+withMVarNow m io =
+    bracket
+        (takeMVarNow m)
+        (putMVarNow m)
+        io
+
+modifyMVarNow :: Conc.MVar a -> (a -> IO (a, b)) -> IO b
+modifyMVarNow m io =
+    mask $ \restore -> do
+        a <- takeMVarNow m
+        (a', b) <- restore (io a) `onException` putMVarNow m a
+        putMVarNow m a'
+        return b
+
+modifyMVarNow_ :: Conc.MVar a -> (a -> IO a) -> IO ()
+modifyMVarNow_ m io = modifyMVarNow m (\a -> (,()) <$> io a)
+
+takeMVarNow :: Conc.MVar a -> IO a
+takeMVarNow m = do
+    aMaybe <- Conc.tryTakeMVar m
+    return $ maybe (error "Block state MVar empty") id aMaybe
+
+putMVarNow :: Conc.MVar a -> a -> IO ()
+putMVarNow m a = do
+    putSuccessful <- Conc.tryPutMVar m a
+    unless
+        putSuccessful
+        (error "Block state MVar full")
+    return ()
