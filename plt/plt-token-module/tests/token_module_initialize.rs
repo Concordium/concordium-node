@@ -82,7 +82,7 @@ fn test_initialize_token_additional_parameter() {
     assert_matches!(
         res,
         Err(TokenInitializationError::InvalidInitializationParameters(err))
-            if err == "Unknown additional parameters: _param1"
+            if err == "Unknown additional parameters: [\"_param1\"]"
     );
 }
 
