@@ -27,8 +27,8 @@ pub const NOISE_MAX_MESSAGE_LEN: usize = 64 * 1024 - 1; // 65535
 const NOISE_AUTH_TAG_LEN: usize = 16;
 pub const NOISE_MAX_PAYLOAD_LEN: usize = NOISE_MAX_MESSAGE_LEN - NOISE_AUTH_TAG_LEN;
 pub const HANDSHAKE_SIZE_LIMIT: usize = 1024;
-/// Not really a PSK, but serves a PSK-like function
-pub const PSK: &[u8] = b"b6461bd246843f70ac1328401405b2b4e725994d7d144a75bff1a04a247d64b7";
+pub const NETWORK_IDENTIFIER: &[u8] =
+    b"b6461bd246843f70ac1328401405b2b4e725994d7d144a75bff1a04a247d64b7";
 /// The size of the initial socket write queue allocation.
 const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 
@@ -276,7 +276,7 @@ impl ConnectionLowLevel {
     /// Immediately sends the XX-A handshake message
     pub fn send_handshake_message_a(&mut self) -> anyhow::Result<()> {
         let pad = 16;
-        send_xx_msg!(self, DHLEN, PSK, pad, "A");
+        send_xx_msg!(self, DHLEN, NETWORK_IDENTIFIER, pad, "A");
         Ok(())
     }
 
@@ -454,7 +454,8 @@ impl ConnectionLowLevel {
                 }?;
 
                 if !self.noise_session.is_initiator() {
-                    if self.noise_session.get_message_count() == 1 && payload != PSK {
+                    if self.noise_session.get_message_count() == 1 && payload != NETWORK_IDENTIFIER
+                    {
                         bail!("Invalid PSK");
                     } else if self.noise_session.get_message_count() == 2 {
                         // message C doesn't carry a payload; break the reading loop
