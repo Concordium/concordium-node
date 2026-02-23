@@ -548,7 +548,7 @@ impl Connection {
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
         // Acquire an owned permit
-        let permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
+        let _permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
                 trace!(
