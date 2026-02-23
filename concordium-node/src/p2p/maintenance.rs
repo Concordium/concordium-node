@@ -19,7 +19,11 @@ use crate::{
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
         catch_up::PeerList,
-        consensus::{ConsensusContainer, Regenesis, CALLBACK_QUEUE},
+        consensus::{
+            ConsensusContainer, Regenesis, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_BG,
+            CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_IN_LO, CONSENSUS_QUEUE_DEPTH_OUT_HI,
+            CONSENSUS_QUEUE_DEPTH_OUT_LO,
+        },
     },
     lock_or_die,
     network::{Buckets, NetworkId, Networks},
@@ -56,6 +60,7 @@ use std::{
 pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
+    pub max_queued_messages_per_peer: usize,
     pub no_bootstrap_dns: bool,
     /// Clear persistent bans on startup.
     pub clear_bans: bool,
@@ -348,9 +353,29 @@ impl P2PNode {
 
         let given_addresses = RwLock::new(parse_config_nodes(&conf.connection)?);
 
+        // Should not overflow as multiplication is between `u16` and `usize` types.
+        let max_queue_size: u128 = (conf.connection.desired_nodes as u128)
+            * conf.connection.max_queued_messages_per_peer as u128;
+
+        let min_queue_size = CONSENSUS_QUEUE_DEPTH_OUT_HI
+            .min(CONSENSUS_QUEUE_DEPTH_OUT_LO)
+            .min(CONSENSUS_QUEUE_DEPTH_IN_HI)
+            .min(CONSENSUS_QUEUE_DEPTH_IN_LO)
+            .min(CONSENSUS_QUEUE_DEPTH_IN_BG);
+
+        if max_queue_size > min_queue_size as u128 {
+            return Err(anyhow::anyhow!(
+                "The max queue size (desired_nodes * max_queued_messages_per_peer) = {} \
+        exceeds the smallest consensus queue size of {}. \
+        Adjust the relevant node environment variables or configuration",
+                max_queue_size,
+                min_queue_size
+            ));
+        }
         let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
+            max_queued_messages_per_peer: conf.connection.max_queued_messages_per_peer,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
             clear_bans: conf.connection.clear_bans,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,

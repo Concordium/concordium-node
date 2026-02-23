@@ -570,6 +570,14 @@ pub struct ConnectionConfig {
     )]
     pub desired_nodes: u16,
     #[structopt(
+        long = "max-queued-messages-per-peer",
+        help = "Maximum number of queued messages per peer. Once this limit is reached, \
+        the node will delay or drop additional incoming messages from that peer.",
+        default_value = "50",
+        env = "CONCORDIUM_NODE_CONNECTION_MAX_QUEUED_MESSAGES_PER_PEER"
+    )]
+    pub max_queued_messages_per_peer: usize,
+    #[structopt(
         long = "max-allowed-nodes",
         help = "Maximum nodes to allow a connection to",
         env = "CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES"

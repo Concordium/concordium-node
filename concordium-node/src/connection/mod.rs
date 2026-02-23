@@ -46,8 +46,6 @@ use std::{
     },
 };
 
-pub const MAX_QUEUED_MESSAGES_PER_PEER: usize = 50;
-
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back.
@@ -460,7 +458,7 @@ impl Connection {
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
             pending_messages_semaphore: Arc::new(tokio::sync::Semaphore::new(
-                MAX_QUEUED_MESSAGES_PER_PEER,
+                handler.config.max_queued_messages_per_peer,
             )),
             pending_messages_semaphore_reached: false,
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
@@ -548,7 +546,7 @@ impl Connection {
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
         // Acquire an owned permit
-        let _permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
+        let mut permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
                 trace!(
@@ -564,10 +562,11 @@ impl Connection {
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => {
-                    // Acquire an owned permit
-                    let permit2 = match self.pending_messages_semaphore.clone().try_acquire_owned()
-                    {
-                        Ok(permit2) => permit2,
+                    self.process_message(Arc::from(msg), permit, conn_stats)?;
+
+                    // Acquire an owned permit again for the next loop cycle
+                    permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
                         Err(_) => {
                             trace!(
             "Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value",
@@ -577,11 +576,6 @@ impl Connection {
                             return Ok(true);
                         }
                     };
-
-                    // TODO: Temporal logging
-                    info!("SEMAPHORE PERMIT:{:?}", permit2);
-
-                    self.process_message(Arc::from(msg), permit2, conn_stats)?
                 }
                 ReadResult::Incomplete => {}
                 ReadResult::WouldBlock => return Ok(true),

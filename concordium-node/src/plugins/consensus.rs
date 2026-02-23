@@ -180,7 +180,7 @@ pub fn handle_pkt_out(
                 )
             }
             if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
-                match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                match e {
                     TrySendError::Full(_) => {
                         node.stats
                             .received_consensus_messages
@@ -198,11 +198,12 @@ pub fn handle_pkt_out(
             if is_catch_up_response_message(&consensus_message)? {
                 // Send responses if previously requested into the high priority queue.
                 // These messages need to be processed in the high priority queue synchronously to avoid race-conditions.
-                // Otherwise, a new block received via regular consensus messages
-                // may also be processed by the background queue if it was part of
-                // a catch-up response, which can lead to conflicts.
+                // The issue is that a catch-up response needs to be processed after any other (direct) messages (typically blocks)
+                // that were sent as part of the response.
+                // If not, the consensus may treat it as a protocol violation if the catch-up response message includes
+                // finalization messages associated with blocks that were sent but have not been processed.
                 if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
-                    match e.downcast::<TrySendError<QueueMsg<SemaphoredMessage>>>()? {
+                    match e {
                         TrySendError::Full(_) => {
                             node.stats
                                 .received_consensus_messages
@@ -220,7 +221,7 @@ pub fn handle_pkt_out(
                 // Handle catch-up message in the background queue, since it
                 // does not require the block state lock.
                 if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
-                    match e.downcast::<TrySendError<QueueMsg<SemaphoredMessage>>>()? {
+                    match e {
                         TrySendError::Full(QueueMsg::Relay(_request)) => {
                             node.stats
                                 .received_consensus_messages
@@ -242,7 +243,7 @@ pub fn handle_pkt_out(
         _ => {
             // high priority message
             if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
-                match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                match e {
                     TrySendError::Full(_) => {
                         node.stats
                             .received_consensus_messages
@@ -301,7 +302,7 @@ pub fn handle_consensus_outbound_msg(
 pub fn handle_consensus_inbound_msg(
     node: &P2PNode,
     consensus: &ConsensusContainer,
-    request: SemaphoredMessage,
+    request: ConsensusMessage,
 ) -> anyhow::Result<()> {
     // If the drop_rebroadcast_probability parameter is set, do not
     // rebroadcast the packet to the network with the given chance.
@@ -318,30 +319,29 @@ pub fn handle_consensus_inbound_msg(
         _ => false,
     };
 
-    let source = request.message.source_peer();
+    let source = request.source_peer();
     // relay external messages to Consensus
-    let (consensus_result, finalizer) =
-        send_msg_to_consensus(node, source, consensus, &request.message)?;
+    let (consensus_result, finalizer) = send_msg_to_consensus(node, source, consensus, &request)?;
     // adjust the peer state(s) based on the feedback from Consensus
-    update_peer_states(node, &request.message, consensus_result);
+    update_peer_states(node, &request, consensus_result);
 
     // Update metric tracking received messages.
     node.stats
         .received_consensus_messages
-        .with_label_values(&[request.message.variant.label(), consensus_result.label()])
+        .with_label_values(&[request.variant.label(), consensus_result.label()])
         .inc();
 
     // rebroadcast incoming broadcasts if applicable
     if !drop_message
-        && request.message.distribution_mode() == DistributionMode::Broadcast
-        && request.message.variant.is_rebroadcastable()
-        && consensus_result.is_rebroadcastable(request.message.variant)
+        && request.distribution_mode() == DistributionMode::Broadcast
+        && request.variant.is_rebroadcastable()
+        && consensus_result.is_rebroadcastable(request.variant)
     {
         send_consensus_msg_to_net(
             node,
-            request.message.dont_relay_to(),
+            request.dont_relay_to(),
             None,
-            (request.message.payload, request.message.variant),
+            (request.payload, request.variant),
         );
     }
     // Execute any finalizer returned from the consensus layer.

@@ -434,7 +434,11 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                        handle_consensus_inbound_msg(
+                            &node_ref,
+                            &consensus,
+                            msg.into_consensus_message(),
+                        )
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -448,7 +452,11 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                    handle_consensus_inbound_msg(
+                        &node_ref,
+                        &consensus,
+                        msg.into_consensus_message(),
+                    )
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -463,7 +471,11 @@ fn start_consensus_message_threads(
                 match msg {
                     Ok(message) => {
                         let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                            handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                            handle_consensus_inbound_msg(
+                                &node_ref,
+                                &consensus,
+                                msg.into_consensus_message(),
+                            )
                         });
                         if stop_loop {
                             break 'outer_loop;
@@ -501,9 +513,11 @@ fn start_consensus_message_threads(
                     break;
                 }
                 QueueMsg::Relay(message) => {
-                    if let Err(e) =
-                        handle_consensus_inbound_msg(&node_ref, &background_consensus, message)
-                    {
+                    if let Err(e) = handle_consensus_inbound_msg(
+                        &node_ref,
+                        &background_consensus,
+                        message.into_consensus_message(),
+                    ) {
                         error!(
                             "There's an issue with a background consensus request: {}",
                             e
