@@ -457,7 +457,7 @@ impl ConnectionLowLevel {
                 if !self.noise_session.is_initiator() {
                     if self.noise_session.get_message_count() == 1 && payload != NETWORK_IDENTIFIER
                     {
-                        bail!("Invalid PSK");
+                        bail!("Invalid NETWORK_IDENTIFIER");
                     } else if self.noise_session.get_message_count() == 2 {
                         // message C doesn't carry a payload; break the reading loop
                         self.socket_buffer.reset();
