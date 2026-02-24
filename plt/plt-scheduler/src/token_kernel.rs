@@ -17,7 +17,7 @@ use plt_scheduler_interface::token_kernel_interface::{
 use plt_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
-use plt_types::types::tokens::{RawTokenAmount, TokenAmount};
+use plt_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
 /// Implementation of token kernel queries with a specific token in context.
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
@@ -134,7 +134,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Issue event
         let event = BlockItemEvent::TokenMint(TokenMintEvent {
             token_id: self.token_configuration.token_id.clone(),
-            target: account.1,
+            target: TokenHolder::Account(account.1),
             amount: TokenAmount {
                 amount,
                 decimals: self.block_state.token_configuration(self.token).decimals,
@@ -177,7 +177,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Issue event
         let event = BlockItemEvent::TokenBurn(TokenBurnEvent {
             token_id: self.token_configuration.token_id.clone(),
-            target: account.1,
+            target: TokenHolder::Account(account.1),
             amount: TokenAmount {
                 amount,
                 decimals: self.block_state.token_configuration(self.token).decimals,
@@ -220,8 +220,8 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Issue event
         let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
             token_id: self.token_configuration.token_id.clone(),
-            from: from.1,
-            to: to.1,
+            from: TokenHolder::Account(from.1),
+            to: TokenHolder::Account(to.1),
             amount: TokenAmount {
                 amount,
                 decimals: self.block_state.token_configuration(self.token).decimals,

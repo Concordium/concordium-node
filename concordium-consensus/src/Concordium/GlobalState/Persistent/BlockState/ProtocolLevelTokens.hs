@@ -241,6 +241,12 @@ getRustPLTBlockState ::
     RustBS.ForeignPLTBlockStatePtr
 getRustPLTBlockState (ProtocolLevelTokensV1 state) = state
 
+-- | Set 'ForeignPLTBlockStatePtr' in the Rust managed version of 'ProtocolLevelTokensForStateVersion'.
+makeRustPLTBlockState ::
+    RustBS.ForeignPLTBlockStatePtr ->
+    ProtocolLevelTokensForStateVersion 'PLTStateV1
+makeRustPLTBlockState = ProtocolLevelTokensV1
+
 -- | An empty 'ProtocolLevelTokensForStateVersion' with no tokens.
 emptyProtocolLevelTokensForStateVersion ::
     forall m pltsv.

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -25,13 +26,16 @@ import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 import Concordium.Types.Tokens
 import Concordium.Types.Updates
 
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import Concordium.Scheduler.ProtocolLevelTokens.Queries
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
+import Test.HUnit
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef
@@ -103,8 +107,15 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT1,
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                            assertEqual
+                                "PLT list"
+                                [plt1]
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -117,13 +128,19 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT2,
-                      biaaAssertion = \result _ -> do
-                        return $
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
                             Helpers.assertSuccessWithEvents
                                 [ TokenCreated{etcPayload = createPLT2},
                                   TokenMint{etmTokenId = plt2, etmAmount = TokenAmount 10 0, etmTarget = dummyTokenHolder}
                                 ]
                                 result
+                            assertEqual
+                                "PLT list"
+                                [plt2]
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -152,8 +169,15 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT1MinimalParameters,
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1MinimalParameters}] result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1MinimalParameters}] result
+                            assertEqual
+                                "PLT list"
+                                [plt1]
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -174,8 +198,15 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT1MissingNameParameter,
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Token name is missing") result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Token name is missing") result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -203,8 +234,15 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT1AdditionalNameParameter,
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Unknown additional parameters: [\"_param1\"]") result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Unknown additional parameters: [\"_param1\"]") result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -217,13 +255,27 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT1,
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                            assertEqual
+                                "PLT list"
+                                [plt1]
+                                pltList
                     },
                   Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 2 createPLT1,
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason (DuplicateTokenId plt1) result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason (DuplicateTokenId plt1) result
+                            assertEqual
+                                "PLT list"
+                                [plt1]
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -243,8 +295,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                            assertEqual
+                                "PLT list"
+                                [plt1]
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -264,8 +323,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                            assertEqual
+                                "PLT list"
+                                [plt1]
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -285,8 +351,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 23)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -306,8 +379,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(0, DummyData.deterministicKP 0)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -327,8 +407,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -348,8 +435,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(0, DummyData.deterministicKP 0)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
+                            Helpers.assertUpdateFailureWithReason IncorrectSignature result
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -369,8 +463,15 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(0, DummyData.deterministicKP 1)],
-                      biaaAssertion = \result _ -> do
-                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
+                            Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -384,11 +485,17 @@ testCreatePLT _ pvString = describe pvString $ do
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 1 createPLT1{_cpltTokenModule = invalidRef},
-                      biaaAssertion = \result _ -> do
-                        return $
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        pltList <- queryPLTList st
+                        return $ do
                             Helpers.assertUpdateFailureWithReason
                                 (InvalidTokenModuleRef invalidRef)
                                 result
+                            assertEqual
+                                "PLT list"
+                                []
+                                pltList
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates

@@ -537,6 +537,17 @@ instance
         ssBlockState .= s'
         return tokenIx
 
+    type SchedulerBlockState (SchedulerT m) = UpdatableBlockState m
+
+    {-# INLINE getBlockState #-}
+    getBlockState = use ssBlockState
+
+    {-# INLINE setBlockState #-}
+    setBlockState = (ssBlockState .=)
+
+    {-# INLINE liftBlockStateOperations #-}
+    liftBlockStateOperations = lift
+
 -- | Execute the computation using the provided context and scheduler state.
 -- The return value is the value produced by the computation and the updated state of the scheduler.
 runSchedulerT ::

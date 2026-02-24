@@ -62,15 +62,15 @@ impl Serial for FailureKind {
     fn serial<B: Buffer>(&self, out: &mut B) {
         match self {
             FailureKind::DuplicateTokenId(token_id) => {
-                out.put(&17u8);
+                out.put(&18u8);
                 out.put(token_id);
             }
             FailureKind::TokenInitializeFailure(error) => {
-                out.put(&18u8);
+                out.put(&19u8);
                 out.put(error);
             }
             FailureKind::InvalidTokenModuleRef(module_ref) => {
-                out.put(&19u8);
+                out.put(&20u8);
                 out.put(module_ref);
             }
         }
@@ -88,7 +88,7 @@ mod test {
         let failure_kind = FailureKind::DuplicateTokenId("tokenid1".parse().unwrap());
 
         let bytes = common::to_bytes(&failure_kind);
-        assert_eq!(hex::encode(&bytes), "1108746f6b656e696431");
+        assert_eq!(hex::encode(&bytes), "1208746f6b656e696431");
     }
 
     #[test]
@@ -96,7 +96,7 @@ mod test {
         let failure_kind = FailureKind::TokenInitializeFailure("error1".parse().unwrap());
 
         let bytes = common::to_bytes(&failure_kind);
-        assert_eq!(hex::encode(&bytes), "1200000000000000066572726f7231");
+        assert_eq!(hex::encode(&bytes), "1300000000000000066572726f7231");
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod test {
         let bytes = common::to_bytes(&failure_kind);
         assert_eq!(
             hex::encode(&bytes),
-            "130505050505050505050505050505050505050505050505050505050505050505"
+            "140505050505050505050505050505050505050505050505050505050505050505"
         );
     }
 }

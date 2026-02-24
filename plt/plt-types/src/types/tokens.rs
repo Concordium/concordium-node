@@ -2,6 +2,7 @@ use concordium_base::common::__serialize_private::anyhow::bail;
 use concordium_base::common::{
     Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial, Serialize,
 };
+use concordium_base::contracts_common::AccountAddress;
 
 /// Token amount without decimals specified. The token amount represented by
 /// this type must always be represented with the number of decimals
@@ -103,11 +104,20 @@ pub struct TokenAmount {
     pub decimals: u8,
 }
 
+/// Token holder.
+///
+/// Corresponding Haskell type: `Concordium.Types.TokenHolder`
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize)]
+pub enum TokenHolder {
+    Account(AccountAddress),
+}
+
 #[cfg(test)]
 mod test {
-    use crate::types::tokens::{RawTokenAmount, TokenAmount};
+    use crate::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
     use concordium_base::common;
     use concordium_base::common::ParseResult;
+    use concordium_base::contracts_common::AccountAddress;
     use proptest::prelude::ProptestConfig;
     use proptest::{prop_assert, prop_assert_eq, proptest};
 
@@ -287,5 +297,20 @@ mod test {
         let token_amount_deserialized: TokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
+    }
+
+    #[test]
+    fn test_token_holder() {
+        let token_holder = TokenHolder::Account(AccountAddress([5; 32]));
+
+        let bytes = common::to_bytes(&token_holder);
+        assert_eq!(
+            hex::encode(&bytes),
+            "000505050505050505050505050505050505050505050505050505050505050505"
+        );
+
+        let token_holder_deserialized: TokenHolder =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_holder_deserialized, token_holder);
     }
 }

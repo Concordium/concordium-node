@@ -1,9 +1,8 @@
 //! Events produced by block items executed by the scheduler.
 //! Events generally represents observable changes to the chain state.
 
-use crate::types::tokens::TokenAmount;
+use crate::types::tokens::{TokenAmount, TokenHolder};
 use concordium_base::common::{Buffer, Put, Serial};
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
@@ -60,9 +59,9 @@ pub struct TokenTransferEvent {
     /// The canonical token id.
     pub token_id: TokenId,
     /// The token holder from which the tokens are transferred.
-    pub from: AccountAddress,
+    pub from: TokenHolder,
     /// The token holder to which the tokens are transferred.
-    pub to: AccountAddress,
+    pub to: TokenHolder,
     /// The amount of tokens transferred.
     pub amount: TokenAmount,
     /// An optional memo field that can be used to attach a message to the token
@@ -95,7 +94,7 @@ pub struct TokenMintEvent {
     /// The canonical token id.
     pub token_id: TokenId,
     /// The account whose balance the amount is minted to.
-    pub target: AccountAddress,
+    pub target: TokenHolder,
     /// The minted amount
     pub amount: TokenAmount,
 }
@@ -120,7 +119,7 @@ pub struct TokenBurnEvent {
     /// The canonical token id.
     pub token_id: TokenId,
     /// The account whose balance the amount is burned from.
-    pub target: AccountAddress,
+    pub target: TokenHolder,
     /// The burned amount
     pub amount: TokenAmount,
 }
@@ -162,7 +161,7 @@ mod test {
         BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenCreateEvent, TokenMintEvent,
         TokenTransferEvent,
     };
-    use crate::types::tokens::{RawTokenAmount, TokenAmount};
+    use crate::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
     use concordium_base::common;
     use concordium_base::contracts_common::AccountAddress;
     use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleRef};
@@ -189,8 +188,8 @@ mod test {
         // no memo
         let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
             token_id: "tokenid1".parse().unwrap(),
-            from: AccountAddress([1; 32]),
-            to: AccountAddress([2; 32]),
+            from: TokenHolder::Account(AccountAddress([1; 32])),
+            to: TokenHolder::Account(AccountAddress([2; 32])),
             amount: TokenAmount {
                 amount: RawTokenAmount(1000),
                 decimals: 4,
@@ -201,14 +200,14 @@ mod test {
         let bytes = common::to_bytes(&event);
         assert_eq!(
             hex::encode(&bytes),
-            "27000008746f6b656e69643101010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202876804"
+            "27000008746f6b656e696431000101010101010101010101010101010101010101010101010101010101010101000202020202020202020202020202020202020202020202020202020202020202876804"
         );
 
         // with memo
         let reject_reason = BlockItemEvent::TokenTransfer(TokenTransferEvent {
             token_id: "tokenid1".parse().unwrap(),
-            from: AccountAddress([1; 32]),
-            to: AccountAddress([2; 32]),
+            from: TokenHolder::Account(AccountAddress([1; 32])),
+            to: TokenHolder::Account(AccountAddress([2; 32])),
             amount: TokenAmount {
                 amount: RawTokenAmount(1000),
                 decimals: 4,
@@ -219,7 +218,7 @@ mod test {
         let bytes = common::to_bytes(&reject_reason);
         assert_eq!(
             hex::encode(&bytes),
-            "27000108746f6b656e696431010101010101010101010101010101010101010101010101010101010101010102020202020202020202020202020202020202020202020202020202020202028768040003010203"
+            "27000108746f6b656e6964310001010101010101010101010101010101010101010101010101010101010101010002020202020202020202020202020202020202020202020202020202020202028768040003010203"
         );
     }
 
@@ -227,7 +226,7 @@ mod test {
     fn test_token_mint_event_serial() {
         let event = BlockItemEvent::TokenMint(TokenMintEvent {
             token_id: "tokenid1".parse().unwrap(),
-            target: AccountAddress([1; 32]),
+            target: TokenHolder::Account(AccountAddress([1; 32])),
             amount: TokenAmount {
                 amount: RawTokenAmount(1000),
                 decimals: 4,
@@ -237,7 +236,7 @@ mod test {
         let bytes = common::to_bytes(&event);
         assert_eq!(
             hex::encode(&bytes),
-            "28000008746f6b656e6964310101010101010101010101010101010101010101010101010101010101010101876804"
+            "28000008746f6b656e696431000101010101010101010101010101010101010101010101010101010101010101876804"
         );
     }
 
@@ -245,7 +244,7 @@ mod test {
     fn test_token_burn_event_serial() {
         let event = BlockItemEvent::TokenBurn(TokenBurnEvent {
             token_id: "tokenid1".parse().unwrap(),
-            target: AccountAddress([1; 32]),
+            target: TokenHolder::Account(AccountAddress([1; 32])),
             amount: TokenAmount {
                 amount: RawTokenAmount(1000),
                 decimals: 4,
@@ -255,7 +254,7 @@ mod test {
         let bytes = common::to_bytes(&event);
         assert_eq!(
             hex::encode(&bytes),
-            "29000008746f6b656e6964310101010101010101010101010101010101010101010101010101010101010101876804"
+            "29000008746f6b656e696431000101010101010101010101010101010101010101010101010101010101010101876804"
         );
     }
 

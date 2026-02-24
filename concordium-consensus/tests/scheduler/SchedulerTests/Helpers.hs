@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
@@ -108,7 +109,6 @@ deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.PersistentBloc
 deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.HashedPersistentBlockState pv) StateV1.MutableState (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
-deriving instance (Types.IsProtocolVersion pv) => BS.ForeignLowLevelBlockStateQuery (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => Types.MonadProtocolVersion (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateStorage (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.ModuleQuery (PersistentBSM pv)
@@ -146,7 +146,8 @@ forEveryProtocolVersion check =
       check Types.SP7 "P7",
       check Types.SP8 "P8",
       check Types.SP9 "P9",
-      check Types.SP10 "P10"
+      check Types.SP10 "P10",
+      check Types.SP11 "P11"
     ]
 
 -- | Convert an energy value to an amount, based on the exchange rates used in

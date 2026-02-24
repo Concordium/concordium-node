@@ -50,8 +50,8 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint)
 #[unsafe(no_mangle)]
 extern "C" fn ffi_hash_plt_block_state(
     mut load_callback: LoadCallback,
-    destination: *mut u8,
     block_state: *const PltBlockStateSavepoint,
+    destination: *mut u8,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!destination.is_null(), "destination is a null pointer.");

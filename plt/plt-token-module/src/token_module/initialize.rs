@@ -16,7 +16,7 @@ use plt_scheduler_interface::token_kernel_interface::{
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenInitializationError {
-    #[error("Invalid token initialization parameters: {0}")]
+    #[error("Token initialization parameters could not be deserialized: {0}")]
     InvalidInitializationParameters(String),
     #[error("CBOR serialization error during token initialization: {0}")]
     CborSerialization(#[from] CborSerializationError),
@@ -57,13 +57,13 @@ fn initialize_token_impl(
     if !init_params.additional.is_empty() {
         return Err(TokenInitializationError::InvalidInitializationParameters(
             format!(
-                "Unknown additional parameters: {}",
+                "Unknown additional parameters: [{}]",
                 init_params
                     .additional
                     .keys()
-                    .map(|k| k.as_str())
+                    .map(|k| format!("\"{}\"", k.as_str()))
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join(",")
             ),
         ));
     }
