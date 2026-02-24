@@ -50,7 +50,7 @@ pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
 /// A message with a semaphore permit attached to it that will be released once the `SemaphoredMessage` is dropped.
 pub struct SemaphoredMessage {
     /// The consensus message.
-    message: ConsensusMessage,
+    pub message: ConsensusMessage,
     /// Permit of the semaphore tracking the pending messages of the peer that sent this message.
     /// The semaphore should track how many of the `max_queued_messages_per_peer`
     /// slots are currently still available for a given sending peer.

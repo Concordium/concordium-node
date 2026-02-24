@@ -169,7 +169,7 @@ pub fn handle_pkt_out(
         None,
     );
 
-    let request = SemaphoredMessage::new(consensus_message.clone(), permit);
+    let request = SemaphoredMessage::new(consensus_message, permit);
 
     match packet_type {
         PacketType::Transaction => {
@@ -195,7 +195,7 @@ pub fn handle_pkt_out(
             }
         }
         PacketType::CatchUpStatus => {
-            if is_catch_up_response_message(&consensus_message)? {
+            if is_catch_up_response_message(&request.message)? {
                 // Send responses if previously requested into the high priority queue.
                 // These messages need to be processed in the high priority queue synchronously to avoid race-conditions.
                 // The issue is that a catch-up response needs to be processed after any other (direct) messages (typically blocks)

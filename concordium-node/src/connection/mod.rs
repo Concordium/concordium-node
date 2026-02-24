@@ -386,8 +386,8 @@ pub struct Connection {
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
     /// Semaphore for pending messages across all incoming messages processing queues.
-    /// When this semaphore reaches 0, any new message from this peer
-    /// will no longer be added to the node's queue but instead dropped/delayed.
+    /// When this semaphore reaches 0, new messages from this peer
+    /// will not be read until the pending messages have been dequeued.
     /// This prevents a single peer from disproportionately filling up the queue.
     pub pending_messages_semaphore: Arc<tokio::sync::Semaphore>,
     /// The value will be set to `true` when above semaphore reaches 0,
@@ -550,7 +550,7 @@ impl Connection {
             Ok(permit) => permit,
             Err(_) => {
                 trace!(
-            "Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value",
+            "Delaying read from peer `{:?}` as it reached its `pending_messages_semaphore` limit",
             self.remote_peer
         );
                 self.pending_messages_semaphore_reached = true;
@@ -569,7 +569,7 @@ impl Connection {
                         Ok(permit) => permit,
                         Err(_) => {
                             trace!(
-            "Dropping/Delaying request from peer `{:?}` as it exceeded its `pending_messages_semaphore` value",
+            "Delaying read from peer `{:?}` as it reached its `pending_messages_semaphore` limit",
             self.remote_peer
         );
                             self.pending_messages_semaphore_reached = true;

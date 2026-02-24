@@ -21,8 +21,7 @@ use crate::{
         catch_up::PeerList,
         consensus::{
             ConsensusContainer, Regenesis, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_BG,
-            CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_IN_LO, CONSENSUS_QUEUE_DEPTH_OUT_HI,
-            CONSENSUS_QUEUE_DEPTH_OUT_LO,
+            CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_IN_LO,
         },
     },
     lock_or_die,
@@ -357,20 +356,18 @@ impl P2PNode {
         let max_queue_size: u128 = (conf.connection.desired_nodes as u128)
             * conf.connection.max_queued_messages_per_peer as u128;
 
-        let min_queue_size = CONSENSUS_QUEUE_DEPTH_OUT_HI
-            .min(CONSENSUS_QUEUE_DEPTH_OUT_LO)
-            .min(CONSENSUS_QUEUE_DEPTH_IN_HI)
+        let min_queue_size = CONSENSUS_QUEUE_DEPTH_IN_HI
             .min(CONSENSUS_QUEUE_DEPTH_IN_LO)
             .min(CONSENSUS_QUEUE_DEPTH_IN_BG);
 
         if max_queue_size > min_queue_size as u128 {
-            return Err(anyhow::anyhow!(
+            warn!(
                 "The max queue size (desired_nodes * max_queued_messages_per_peer) = {} \
-        exceeds the smallest consensus queue size of {}. \
-        Adjust the relevant node environment variables or configuration",
-                max_queue_size,
-                min_queue_size
-            ));
+        exceeds the smallest incoming consensus queue size of {}. \
+        Adjust the relevant node environment variables or configuration 
+        as inbound messages could be dropped under such configuration.",
+                max_queue_size, min_queue_size
+            );
         }
         let config = NodeConfig {
             no_net: conf.cli.no_network,
