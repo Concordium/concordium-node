@@ -14,6 +14,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.Queries (
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Reader
+import Data.Functor
 import qualified Data.Map.Strict as Map
 import Data.Void
 
@@ -27,7 +28,6 @@ import Concordium.GlobalState.Types
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries as RustQ
-import Data.Functor
 
 -- | The 'QueryContext' provides the context to run 'PLTKernelQuery' operations against a
 --  particular token index and block state.
