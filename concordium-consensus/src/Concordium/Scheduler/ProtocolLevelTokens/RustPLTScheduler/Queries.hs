@@ -36,6 +36,7 @@ queryPLTList ::
     BS.BlockState m ->
     m [TokenId]
 queryPLTList bs = do
+    (_ :: ()) <- BS.liftBlobStore $ liftIO $ putStrLn "begin queryPLTList" -- todo ar
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
     BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks
@@ -88,6 +89,7 @@ queryPLTListInBlobStoreMonad
                     getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
                     getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
                     -- Invoke the ffi call
+                    putStrLn "call ffi_query_plt_list" -- todo ar
                     statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
                         ffiQueryPLTList
                             loadCallbackPtr
@@ -98,6 +100,7 @@ queryPLTListInBlobStoreMonad
                             pltBlockStatePtr
                             returnDataPtrOutPtr
                             returnDataLenOutPtr
+                    putStrLn "return ffi_query_plt_list" -- todo ar
                     -- Free the function pointers we have just created
                     -- (loadCallbackPtr is created in another context,
                     -- so we should not free it)

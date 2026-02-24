@@ -74,6 +74,7 @@ wrapReadTokenAccountBalance func =
   where
     callback :: ReadTokenAccountBalanceCallbackFFI
     callback accountIndex tokenIndex = do
+        putStrLn "entry ReadTokenAccountBalanceCallbackFFI" -- todo ar
         amount <- func (fromIntegral accountIndex) (fromIntegral tokenIndex)
         return $ Tokens.theTokenRawAmount amount
 
@@ -117,6 +118,7 @@ wrapUpdateTokenAccountBalance func =
   where
     callback :: UpdateTokenAccountBalanceCallbackFFI
     callback accountIndex tokenIndex amount addAmount = do
+        putStrLn "entry UpdateTokenAccountBalanceCallbackFFI" -- todo ar
         let amountDelta =
                 case addAmount of
                     0 -> AccountTokens.TokenAmountDelta $ -fromIntegral amount
@@ -161,7 +163,9 @@ wrapIncrementPltUpdateSequenceNumber func =
     ffiWrapIncrementPltUpdateSequenceNumberCallback callback
   where
     callback :: IncrementPltUpdateSequenceNumberCallbackFFI
-    callback = func
+    callback = do
+        putStrLn "entry IncrementPltUpdateSequenceNumberCallbackFFI" -- todo ar
+        func
 
 -- | Callback function for incrementing the PLT update sequence number.
 --
@@ -194,6 +198,7 @@ wrapGetAccountIndexByAddress func =
   where
     callback :: GetAccountIndexByAddressCallbackFFI
     callback accountAddressPtr accountIndexOutPtr = do
+        putStrLn "entry GetAccountIndexByAddressCallbackFFI" -- todo ar
         accountAddress <- Types.AccountAddress <$> (FFI.peek $ FFI.castPtr accountAddressPtr)
 
         accountIndexMaybe <- func accountAddress
@@ -243,6 +248,7 @@ wrapGetAccountAddressByIndex func =
   where
     callback :: GetAccountAddressByIndexCallbackFFI
     callback accountIndex accountAddressOutPtr = do
+        putStrLn "entry GetAccountAddressByIndexCallbackFFI" -- todo ar
         accountAddressMaybe <- func (fromIntegral accountIndex)
         case accountAddressMaybe of
             Just (Types.AccountAddress accountAddressBytes) ->
@@ -290,6 +296,7 @@ wrapGetTokenAccountStates func =
   where
     callback :: GetTokenAccountStatesCallbackFFI
     callback accountIndex = do
+        putStrLn "entry GetTokenAccountStatesCallbackFFI" -- todo ar
         tokenAccountStates <- func (fromIntegral accountIndex)
         let putStates = CS.putListOf S.put tokenAccountStates
         let bytes = S.runPut putStates
