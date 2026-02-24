@@ -14,7 +14,6 @@ use crate::queries;
 use crate::queries::QueryTokenInfoError;
 use concordium_base::common;
 use libc::size_t;
-use plt_types::types::queries::TokenInfo;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///
@@ -175,7 +174,8 @@ extern "C" fn ffi_query_token_info(
     let (return_status, return_data) = match token_info {
         Ok(token_info) => {
             let return_data = todo!(); // common::to_bytes(&token_info); todo ar
-            (0, token_info)
+            // (0, token_info)
+            (0, Vec::new())
         }
         Err(QueryTokenInfoError::TokenDoesNotExist(_)) => (1, Vec::new()),
         Err(_) => {
