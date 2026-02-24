@@ -220,8 +220,11 @@ foreign import ccall "ffi_execute_transaction"
 executeChainUpdate ::
     forall m.
     (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
+    -- | Chain update header.
     Types.UpdateHeader ->
+    -- | Chain update payload.
     Types.CreatePLT ->
+    -- | Failure or events.
     m (Either Types.FailureKind Types.ValidResult)
 executeChainUpdate updateHeader createPLT =
     fmap join $ runExceptT $ do
