@@ -39,6 +39,52 @@ import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallb
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import Control.Exception
 
+-- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The trainsaction
+-- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' chain updates are currently supported.
+executeTransaction ::
+    forall m.
+    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>    
+    -- | Transaction payload.
+    Types.Payload ->
+    -- | Failure or events.
+    m (Either Types.FailureKind Types.ValidResult)
+executeTransaction tokenUpdate =
+    fmap join $ runExceptT $ do
+        -- unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
+        -- We need to run with block state rollback, since callbacks may modify the block state, and
+        -- it is modified in a non-functional way via interior mutability (PersistentBlockState is an IORef).
+        lift $ EI.withBlockStateRollback $ do
+            pbs0 <- EI.getBlockState
+            (pbs2Maybe, ret) <- EI.liftBlockStateOperations $ do
+                pltState <- BS.bsoGetRustPLTBlockState pbs0
+                pbsMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar pbs0
+                queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
+                operationCallbacks <- unliftBlockStateOperationCallbacks pbsMVar
+
+                outcome <-
+                    BS.liftBlobStore $
+                        executeTransactionInBlobStoreMonad
+                            (Types.protocolVersion @(Types.MPV m))
+                            pltState
+                            queryCallbacks
+                            operationCallbacks
+                            createPLT
+
+                case outcome of
+                    ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess updatedPltBlockState events) -> do
+                        pbs1 <- BS.liftBlobStore $ liftIO $ takeMVarNow pbsMVar
+                        pbs2 <- BS.bsoSetRustPLTBlockState pbs1 updatedPltBlockState
+                        return (Just pbs2, Right $ Types.TxSuccess events)
+                    ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
+                        return (Nothing, Left failureKind)
+
+            case pbs2Maybe of
+                Just pbs2 -> do
+                    EI.setBlockState pbs2
+                    return (ret, False)
+                Nothing ->
+                    return (ret, True)
+
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
 -- amount of energy used by the execution is returned. The returned values are represented
@@ -46,7 +92,7 @@ import Control.Exception
 -- to the Rust PLT Scheduler library.
 --
 -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case of the transaction being rejected.
-executeTransaction ::
+executeTransactionInBlobStoreMonad ::
     (BlobStore.MonadBlobStore m) =>
     -- | Block protocol version
     Types.SProtocolVersion pv ->
@@ -66,7 +112,7 @@ executeTransaction ::
     Types.Energy ->
     -- | Outcome of the execution
     m TransactionExecutionSummary
-executeTransaction
+executeTransactionInBlobStoreMonad
     spv
     blockState
     queryCallbacks
@@ -216,7 +262,7 @@ foreign import ccall "ffi_execute_transaction"
         IO Word.Word8
 
 -- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
--- is executed via the Rust PLT Scheduler library. Only `CratePLT` chain updates are currently supported.
+-- is executed via the Rust PLT Scheduler library. Only 'CratePLT' chain updates are currently supported.
 executeChainUpdate ::
     forall m.
     (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
