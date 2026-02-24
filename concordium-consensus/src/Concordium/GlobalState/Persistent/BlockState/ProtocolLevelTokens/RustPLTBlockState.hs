@@ -22,6 +22,8 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.Types.HashableTo as Hashable
 import Control.Monad.Trans (lift, liftIO)
 import qualified Data.FixedByteString as FixedByteString
+import Control.Exception
+import GHC.Stack
 
 -- | Opaque type representing a Rust maintained PLT state.
 -- The value is allocated in Rust and must be deallocated in Rust.
@@ -65,7 +67,6 @@ foreign import ccall "ffi_empty_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBlockStatePtr where
     load = do
-        _ <- error "fail at load" -- todo ar !
         blobRef <- S.get
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
@@ -107,7 +108,6 @@ foreign import ccall "ffi_store_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
     cache blockState = do
-        _ <- error "fail at cache" -- todo ar !
         loadCallback <- fst <$> BlobStore.getCallbacks
         liftIO $ putStrLn "call ffi_cache_plt_block_state" -- todo ar
         liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
@@ -161,7 +161,6 @@ migrate ::
     -- | New migrated block state
     t m ForeignPLTBlockStatePtr
 migrate currentState = do
-    _ <- error "fail at migrate" -- todo ar !
     loadCallback <- fst <$> lift BlobStore.getCallbacks
     storeCallback <- snd <$> BlobStore.getCallbacks
     liftIO $ putStrLn "call ffi_migrate_plt_block_state" -- todo ar
