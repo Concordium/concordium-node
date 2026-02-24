@@ -228,7 +228,6 @@ executeChainUpdate updateHeader createPLT =
     fmap join $ runExceptT $ do
         unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
         lift $ EI.updateBlockState $ \pbs0 -> do
-            (_ :: ()) <- BS.liftBlobStore $ liftIO $ putStrLn "begin executeChainUpdate" -- todo ar
             pltState <- BS.bsoGetRustPLTBlockState pbs0
             pbsMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar pbs0
             queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
@@ -289,7 +288,6 @@ executeChainUpdateInBlobStoreMonad
                         updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
                         incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                         -- Invoke the ffi call
-                        putStrLn "call ffi_execute_chain_update" -- todo ar
                         statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
                             BS.unsafeUseAsCStringLen chainUpdatePayloadByteString $ \(chainUpdatePayloadPtr, chainUpdatePayloadLen) ->
                                 ffiExecuteChainUpdate
@@ -306,7 +304,6 @@ executeChainUpdateInBlobStoreMonad
                                     resultingBlockStateOutPtr
                                     returnDataPtrOutPtr
                                     returnDataLenOutPtr
-                        putStrLn "return ffi_execute_chain_update" -- todo ar
                         -- Free the function pointers we have just created
                         -- (loadCallbackPtr is created in another context,
                         -- so we should not free it)

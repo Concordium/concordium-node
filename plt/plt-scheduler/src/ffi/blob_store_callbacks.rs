@@ -18,18 +18,13 @@ pub type StoreCallback = extern "C" fn(data: *const u8, len: size_t) -> blob_sto
 
 impl BackingStoreStore for StoreCallback {
     fn store_raw(&mut self, data: &[u8]) -> blob_store::Reference {
-        println!("call store_raw"); // todo ar
-        let ret = self(data.as_ptr(), data.len());
-        println!("return store_raw"); // todo ar
-        ret
+        self(data.as_ptr(), data.len())
     }
 }
 
 impl BackingStoreLoad for LoadCallback {
     fn load_raw(&mut self, location: blob_store::Reference) -> Vec<u8> {
-        println!("call load_raw"); // todo ar
         let vec_from_different_allocator = unsafe { Box::from_raw(self(location)) };
-        println!("return load_raw"); // todo ar
 
         let vec = vec_from_different_allocator.as_ref().clone();
 
