@@ -497,7 +497,7 @@ jobs:
             {
               "env": "flynet",
               "tld": "com",
-              "genesis_path": "flynet/2023-02-01/genesis_data",
+              "genesis_path": "flynet/2024-09-18/genesis_data",
               "grpc_port": 20002,
               "listen_port": 8890
             }
