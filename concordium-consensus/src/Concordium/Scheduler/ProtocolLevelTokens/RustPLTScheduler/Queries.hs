@@ -203,7 +203,7 @@ queryTokenInfoInBlobStoreMonad
                             (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
                     case statusCode of
                         0 -> do
-                            let getTokenInfo = S.isolate (BS.length returnData) undefined -- todo ar S.get
+                            let getTokenInfo = S.isolate (BS.length returnData) S.get
                             let tokenInfo =
                                     either
                                         (\message -> error $ "Token info from Rust PLT Scheduler could not be deserialized: " ++ message)
