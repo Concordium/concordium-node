@@ -2,14 +2,14 @@
 
 use crate::types::tokens::TokenAmount;
 use concordium_base::{
-    common::{Buffer, Put, Serial},
+    common::{Deserial, Serial},
     protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef},
 };
 
 /// Token state at the block level
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenState`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
 pub struct TokenState {
     /// The reference of the module implementing this token.
     pub token_module_ref: TokenModuleRef,
@@ -22,19 +22,10 @@ pub struct TokenState {
     pub module_state: RawCbor,
 }
 
-impl Serial for TokenState {
-    fn serial<B: Buffer>(&self, out: &mut B) {
-        out.put(&self.token_module_ref);
-        out.put(&self.decimals);
-        out.put(&self.total_supply);
-        out.put(&self.module_state);
-    }
-}
-
 /// The token state at the block level.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenInfo`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
 pub struct TokenInfo {
     /// The canonical identifier/symbol for the protocol level token.
     pub token_id: TokenId,
@@ -42,17 +33,10 @@ pub struct TokenInfo {
     pub state: TokenState,
 }
 
-impl Serial for TokenInfo {
-    fn serial<B: Buffer>(&self, out: &mut B) {
-        out.put(&self.token_id);
-        out.put(&self.state);
-    }
-}
-
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenAccountState`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
 pub struct TokenAccountState {
     /// The token balance of the account.
     pub balance: TokenAmount,
@@ -60,17 +44,10 @@ pub struct TokenAccountState {
     pub module_state: RawCbor,
 }
 
-impl Serial for TokenAccountState {
-    fn serial<B: Buffer>(&self, out: &mut B) {
-        out.put(&self.balance);
-        out.put(&self.module_state);
-    }
-}
-
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.Token`
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
 pub struct TokenAccountInfo {
     /// The canonical identifier/symbol for the protocol level token.
     pub token_id: TokenId,
@@ -78,9 +55,91 @@ pub struct TokenAccountInfo {
     pub account_state: TokenAccountState,
 }
 
-impl Serial for TokenAccountInfo {
-    fn serial<B: Buffer>(&self, out: &mut B) {
-        out.put(&self.token_id);
-        out.put(&self.account_state);
+#[cfg(test)]
+mod test {
+    use concordium_base::{
+        common,
+        protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef},
+    };
+
+    use crate::types::{
+        queries::{TokenAccountInfo, TokenAccountState, TokenInfo, TokenState},
+        tokens::{RawTokenAmount, TokenAmount},
+    };
+
+    fn module_state_fixture() -> RawCbor {
+        vec![1, 2, 3].into()
+    }
+
+    fn token_amount_fixture(decimals: u8) -> TokenAmount {
+        TokenAmount {
+            amount: RawTokenAmount(100),
+            decimals,
+        }
+    }
+
+    fn token_state_fixture() -> TokenState {
+        TokenState {
+            token_module_ref: TokenModuleRef::from([1; 32]),
+            decimals: 10,
+            total_supply: token_amount_fixture(10),
+            module_state: module_state_fixture(),
+        }
+    }
+
+    fn token_id_fixture() -> TokenId {
+        "token"
+            .to_string()
+            .try_into()
+            .expect("token id must be valid")
+    }
+
+    fn token_account_state_fixture() -> TokenAccountState {
+        TokenAccountState {
+            balance: token_amount_fixture(10),
+            module_state: module_state_fixture(),
+        }
+    }
+
+    #[test]
+    fn test_token_state_serial() {
+        let token_state = token_state_fixture();
+
+        let bytes = common::to_bytes(&token_state);
+        let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_state, deserialized);
+    }
+
+    #[test]
+    fn test_token_info_serial() {
+        let token_info = TokenInfo {
+            token_id: token_id_fixture(),
+            state: token_state_fixture(),
+        };
+
+        let bytes = common::to_bytes(&token_info);
+        let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_info, deserialized);
+    }
+
+    #[test]
+    fn test_token_account_state_serial() {
+        let token_account_state = token_account_state_fixture();
+
+        let bytes = common::to_bytes(&token_account_state);
+        let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_account_state, deserialized);
+    }
+
+    #[test]
+    fn test_token_account_info_serial() {
+        let token_account_info = TokenAccountInfo {
+            token_id: token_id_fixture(),
+            account_state: token_account_state_fixture(),
+        };
+
+        let bytes = common::to_bytes(&token_account_info);
+        let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_account_info, deserialized);
     }
 }
