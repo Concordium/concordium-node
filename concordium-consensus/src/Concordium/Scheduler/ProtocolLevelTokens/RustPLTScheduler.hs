@@ -43,7 +43,7 @@ import Control.Exception
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' chain updates are currently supported.
 executeTransaction ::
     forall m.
-    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>    
+    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     -- | Transaction payload.
     Types.Payload ->
     -- | Failure or events.
@@ -61,31 +61,39 @@ executeTransaction tokenUpdate =
                 queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
                 operationCallbacks <- unliftBlockStateOperationCallbacks pbsMVar
 
-                outcome <-
+                (outcome :: TransactionExecutionSummary) <-
                     BS.liftBlobStore $
                         executeTransactionInBlobStoreMonad
                             (Types.protocolVersion @(Types.MPV m))
                             pltState
                             queryCallbacks
                             operationCallbacks
-                            createPLT
+                            tokenUpdate
+                            undefined
+                            undefined
+                            undefined
 
-                case outcome of
-                    ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess updatedPltBlockState events) -> do
-                        pbs1 <- BS.liftBlobStore $ liftIO $ takeMVarNow pbsMVar
-                        pbs2 <- BS.bsoSetRustPLTBlockState pbs1 updatedPltBlockState
-                        return (Just pbs2, Right $ Types.TxSuccess events)
-                    ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
-                        return (Nothing, Left failureKind)
+                undefined
 
-            case pbs2Maybe of
-                Just pbs2 -> do
-                    EI.setBlockState pbs2
-                    return (ret, False)
-                Nothing ->
-                    return (ret, True)
+            undefined
+
+--     case outcome of
+--         ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess updatedPltBlockState events) -> do
+--             pbs1 <- BS.liftBlobStore $ liftIO $ takeMVarNow pbsMVar
+--             pbs2 <- BS.bsoSetRustPLTBlockState pbs1 updatedPltBlockState
+--             return (Just pbs2, Right $ Types.TxSuccess events)
+--         ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
+--             return (Nothing, Left failureKind)
+
+-- case pbs2Maybe of
+--     Just pbs2 -> do
+--         EI.setBlockState pbs2
+--         return (ret, False)
+--     Nothing ->
+--         return (ret, True)
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
+-- Only 'TokenUpdate' chain updates are currently supported.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
 -- amount of energy used by the execution is returned. The returned values are represented
 -- via the type 'TransactionExecutionSummary'. The function is a wrapper around an FFI call
@@ -102,8 +110,8 @@ executeTransactionInBlobStoreMonad ::
     BlockStateQueryCallbacks ->
     -- | Callbacks need for block state operations on the state maintained by Haskell.
     BlockStateOperationCallbacks ->
-    -- | Transaction payload byte string.
-    BS.ByteString ->
+    -- | Transaction payload.
+    Types.Payload ->
     -- | The account index of the account which signed as the sender of the transaction.
     Types.AccountIndex ->
     -- | The account address of the account which signed as the sender of the transaction.
@@ -122,6 +130,7 @@ executeTransactionInBlobStoreMonad
     (Types.AccountAddress senderAccountAddress)
     remainingEnergy =
         do
+            let transactionPayloadByteString = S.runPut $ Types.putPayload transactionPayload
             loadCallbackPtr <- fst <$> BlobStore.getCallbacks
             liftIO $ FFI.alloca $ \usedEnergyOutPtr -> FFI.alloca $ \resultingBlockStateOutPtr ->
                 FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
@@ -135,7 +144,7 @@ executeTransactionInBlobStoreMonad
                         -- Invoke the ffi call
                         statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
                             FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
-                                BS.unsafeUseAsCStringLen transactionPayload $ \(transactionPayloadPtr, transactionPayloadLen) ->
+                                BS.unsafeUseAsCStringLen transactionPayloadByteString $ \(transactionPayloadPtr, transactionPayloadLen) ->
                                     ffiExecuteTransaction
                                         loadCallbackPtr
                                         readTokenAccountBalanceCallbackPtr
@@ -280,7 +289,7 @@ executeChainUpdate updateHeader createPLT =
         lift $ EI.withBlockStateRollback $ do
             pbs0 <- EI.getBlockState
             (pbs2Maybe, ret) <- EI.liftBlockStateOperations $ do
-                pltState <- BS.bsoGetRustPLTBlockState pbs0
+                pltState0 <- BS.bsoGetRustPLTBlockState pbs0
                 pbsMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar pbs0
                 queryCallbacks <- unliftBlockStateQueryCallbacks pbsMVar
                 operationCallbacks <- unliftBlockStateOperationCallbacks pbsMVar
@@ -289,15 +298,15 @@ executeChainUpdate updateHeader createPLT =
                     BS.liftBlobStore $
                         executeChainUpdateInBlobStoreMonad
                             (Types.protocolVersion @(Types.MPV m))
-                            pltState
+                            pltState0
                             queryCallbacks
                             operationCallbacks
                             createPLT
 
                 case outcome of
-                    ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess updatedPltBlockState events) -> do
+                    ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess pltState1 events) -> do
                         pbs1 <- BS.liftBlobStore $ liftIO $ takeMVarNow pbsMVar
-                        pbs2 <- BS.bsoSetRustPLTBlockState pbs1 updatedPltBlockState
+                        pbs2 <- BS.bsoSetRustPLTBlockState pbs1 pltState1
                         return (Just pbs2, Right $ Types.TxSuccess events)
                     ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
                         return (Nothing, Left failureKind)

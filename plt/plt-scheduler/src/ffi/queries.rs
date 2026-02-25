@@ -175,7 +175,8 @@ extern "C" fn ffi_query_token_info(
     let (return_status, return_data) = match token_info {
         Ok(token_info) => {
             let return_data = todo!(); // common::to_bytes(&token_info); todo ar
-            (0, token_info)
+            // (0, token_info) todo ar
+            (0, Vec::new())
         }
         Err(QueryTokenInfoError::TokenDoesNotExist(_)) => (1, Vec::new()),
         Err(_) => {
