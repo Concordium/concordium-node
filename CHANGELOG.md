@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+# 10.0.6
+
 - Prohibit peers from sending unsolicited PeerList messages
 - Enhance node performance by limiting queue saturation from peers that send messages aggressively by using backpressure.
 - Introduce a background queue for processing messages that don't require the global block state lock. 
