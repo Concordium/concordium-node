@@ -8,6 +8,7 @@ use std::{fmt, sync::Arc};
 ///
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
+#[derive(Clone)]
 pub struct ConsensusMessage {
     pub direction: MessageType,
     pub variant: PacketType,
@@ -74,7 +75,7 @@ impl fmt::Display for ConsensusMessage {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 /// The type indicating the source/target of a ConsensusMessage.
 pub enum MessageType {
     /// Inbound messages come from other peers; they contain their PeerId and

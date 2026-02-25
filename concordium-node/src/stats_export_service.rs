@@ -172,6 +172,8 @@ pub struct StatsExportService {
     pub inbound_high_priority_message_queue_size: IntGauge,
     /// Current number of inbound low priority messages in queue.
     pub inbound_low_priority_message_queue_size: IntGauge,
+    /// Current number of inbound background messages in queue.
+    pub inbound_background_message_queue_size: IntGauge,
     /// Current number of outbound high priority messages in queue.
     pub outbound_high_priority_message_queue_size: IntGauge,
     /// Current number of outbound low priority messages in queue.
@@ -317,6 +319,12 @@ impl StatsExportService {
             "Current number of inbound low priority messages in queue",
         ))?;
         registry.register(Box::new(inbound_low_priority_message_queue_size.clone()))?;
+
+        let inbound_background_message_queue_size = IntGauge::with_opts(Opts::new(
+            "network_inbound_background_message_queue_size",
+            "Current number of inbound background messages in queue",
+        ))?;
+        registry.register(Box::new(inbound_background_message_queue_size.clone()))?;
 
         let outbound_high_priority_message_queue_size = IntGauge::with_opts(Opts::new(
             "network_outbound_high_priority_message_queue_size",
@@ -497,6 +505,7 @@ impl StatsExportService {
             connections_received,
             inbound_high_priority_message_queue_size,
             inbound_low_priority_message_queue_size,
+            inbound_background_message_queue_size,
             outbound_high_priority_message_queue_size,
             outbound_low_priority_message_queue_size,
             received_bytes,

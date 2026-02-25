@@ -51,7 +51,7 @@ enum ServiceError<'a> {
     ServiceNotFound { service: &'a str },
 }
 
-impl<'a> ServiceError<'a> {
+impl ServiceError<'_> {
     pub fn is_not_found(&self) -> bool {
         matches!(self, Self::ServiceNotFound { .. })
     }
