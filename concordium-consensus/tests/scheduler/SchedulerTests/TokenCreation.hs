@@ -26,6 +26,7 @@ import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 import Concordium.Types.Queries.Tokens
 import Concordium.Types.Updates
 
+import Concordium.Crypto.ByteStringHelpers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -35,6 +36,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Queries
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
+import Data.Either
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef
@@ -117,7 +119,8 @@ testCreatePLT _ pvString = describe pvString $ do
                                 [plt1]
                                 pltList
                             assertEqual
-                                "Token info"
+                                ("Token info actual: " ++ show (ShortByteStringHex $ BSS.toShort (tsModuleState (tiTokenState (fromRight undefined tokenInfo))))
+                                   ++ " expected: " ++ show (ShortByteStringHex $ BSS.toShort (tsModuleState (tiTokenState (expectedTokenInfo1)))))
                                 (Right expectedTokenInfo1)
                                 tokenInfo
                     }
