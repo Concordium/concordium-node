@@ -37,6 +37,8 @@ wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO ForeignPLTBlockStatePtr
 wrapFFIPtr blockStatePtr = ForeignPLTBlockStatePtr <$> FFI.newForeignPtr ffiFreePLTBlockState blockStatePtr
 
 -- | Deallocate a pointer to `PLTBlockState`.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall unsafe "&ffi_free_plt_block_state"
     ffiFreePLTBlockState :: FFI.FinalizerPtr RustPLTBlockState
 
@@ -47,12 +49,15 @@ foreign import ccall unsafe "&ffi_free_plt_block_state"
 withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr RustPLTBlockState -> IO a) -> IO a
 withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr foreignPtr
 
--- | Allocate new empty block state
+-- | Allocate new empty block state.
 empty :: (BlobStore.MonadBlobStore m) => m ForeignPLTBlockStatePtr
 empty = liftIO $ do
     state <- ffiEmptyPLTBlockState
     wrapFFIPtr state
 
+-- | Allocate new empty block state.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_empty_plt_block_state"
     ffiEmptyPLTBlockState :: IO (FFI.Ptr RustPLTBlockState)
 
@@ -70,6 +75,8 @@ instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBloc
         return (S.put blobRef, pltBlockState)
 
 -- | Load PLT block state from the given disk reference.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_load_plt_block_state"
     ffiLoadPLTBlockState ::
         -- | Called to read data from blob store.
@@ -80,6 +87,8 @@ foreign import ccall "ffi_load_plt_block_state"
         IO (FFI.Ptr RustPLTBlockState)
 
 -- | Write out the block state using the provided callback, and return a `BlobRef`.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_store_plt_block_state"
     ffiStorePLTBlockState ::
         -- | The provided closure is called to write data to blob store.
@@ -96,6 +105,8 @@ instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockSt
         return blockState
 
 -- | Cache block state into memory.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_cache_plt_block_state"
     ffiCachePLTBlockState ::
         -- | Called to read data from blob store.
@@ -118,6 +129,8 @@ instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTok
         return $ ProtocolLevelTokensHash (SHA256.Hash hash)
 
 -- | Compute the hash of the block state.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_hash_plt_block_state"
     ffiHashPLTBlockState ::
         -- | Called to read data from blob store.
@@ -142,6 +155,8 @@ migrate currentState = do
     liftIO $ wrapFFIPtr newState
 
 -- | Migrate PLT block state from one blob store to another.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_migrate_plt_block_state"
     ffiMigratePLTBlockState ::
         -- | Called to read data from the old blob store.

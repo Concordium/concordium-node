@@ -41,7 +41,8 @@ import qualified Data.FixedByteString as FixedByteString
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
 -- amount of energy used by the execution is returned. The returned values are represented
--- via the type 'TransactionExecutionSummary'.
+-- via the type 'TransactionExecutionSummary'. The function is a wrapper around an FFI call
+-- to the Rust PLT Scheduler library.
 --
 -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case of the transaction being rejected.
 executeTransaction ::
@@ -177,6 +178,8 @@ executeTransaction
 -- - `0`: Transaction execution succeeded and transaction was applied to block state.
 -- - `1`: Transaction was rejected with a reject reason. Block state changes applied
 --   via callbacks must be rolled back.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_execute_transaction"
     ffiExecuteTransaction ::
         -- | Called to read data from blob store.
@@ -216,7 +219,7 @@ foreign import ccall "ffi_execute_transaction"
         -- If the return value is `0`, the data is a list of transaction events. If the return value is `1`, it is a reject reason.
         FFI.Ptr (FFI.Ptr Word.Word8) ->
         -- | Output location for writing the length of the return data.
-        FFI.Ptr Word.Word64 ->
+        FFI.Ptr FFI.CSize ->
         -- | Status code:
         -- * `0` if transaction was executed and applied successfully.
         -- * `1` if transaction was rejected. Block state changes applied
@@ -224,7 +227,8 @@ foreign import ccall "ffi_execute_transaction"
         IO Word.Word8
 
 -- | Execute a chain update modifying `block_state` accordingly.
--- Returns the events produced if successful, otherwise a failure kind.
+-- Returns the events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
+-- to the Rust PLT Scheduler library.
 --
 -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
 executeChainUpdate ::
@@ -340,6 +344,8 @@ executeChainUpdate
 -- - `0`: Chain update execution succeeded and update was applied to block state.
 -- - `1`: Chain update failed. Block state changes applied
 --   via callbacks must be rolled back.
+--
+-- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_execute_chain_update"
     ffiExecuteChainUpdate ::
         -- | Called to read data from blob store.
@@ -369,7 +375,7 @@ foreign import ccall "ffi_execute_chain_update"
         -- If the return value is `0`, the data is a list of events. If the return value is `1`, it is a failure kind.
         FFI.Ptr (FFI.Ptr Word.Word8) ->
         -- | Output location for writing the length of the return data.
-        FFI.Ptr Word.Word64 ->
+        FFI.Ptr FFI.CSize ->
         -- | Status code:
         -- * `0` if chain update was executed and applied successfully.
         -- * `1` if chain update failed. Block state changes applied

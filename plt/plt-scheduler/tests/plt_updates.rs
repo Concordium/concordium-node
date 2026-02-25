@@ -1,8 +1,8 @@
-//! Test of protocol-level token updates. Detailed tests should generally be implemented in
+//! Test of protocol-level token updates. Detailed, functionally complete tests should generally be implemented in
 //! the tests of the token module in the `plt-token-module` crate. In the present file,
-//! higher level tests are implemented.
+//! higher level tests are implemented, and they may not in themselves be functionally complete.
 
-use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
+use crate::block_state_stub::{BlockStateWithExternalStateStubbed, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -10,7 +10,7 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
     TokenListUpdateDetails, TokenListUpdateEventDetails, TokenModuleEventType,
     TokenModuleRejectReason, TokenModuleState, TokenOperation, TokenOperationsPayload,
-    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
+    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
@@ -27,7 +27,7 @@ mod utils;
 /// a second transfer from the destination of the first transfer.
 #[test]
 fn test_plt_transfer() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -53,7 +53,7 @@ fn test_plt_transfer() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -61,15 +61,18 @@ fn test_plt_transfer() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply unchanged
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
+    assert_eq!(
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(5000)
+    );
 
     // Assert balance of sender and receiver
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.account_token_balance(&account2, &token),
+        stub.state().account_token_balance(&account2, &token),
         RawTokenAmount(3000)
     );
 
@@ -100,7 +103,7 @@ fn test_plt_transfer() {
     let result = scheduler::execute_transaction(
         account2,
         stub.account_canonical_address(&account2),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -108,15 +111,18 @@ fn test_plt_transfer() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply unchanged
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
+    assert_eq!(
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(5000)
+    );
 
     // Assert balance of sender and receiver
     assert_eq!(
-        stub.account_token_balance(&account2, &token),
+        stub.state().account_token_balance(&account2, &token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.account_token_balance(&account3, &token),
+        stub.state().account_token_balance(&account3, &token),
         RawTokenAmount(1000)
     );
 
@@ -135,7 +141,7 @@ fn test_plt_transfer() {
 /// Test protocol-level token transfer using address aliases for sender and receiver.
 #[test]
 fn test_plt_transfer_using_aliases() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -169,7 +175,7 @@ fn test_plt_transfer_using_aliases() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_account_address_alias,
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -178,11 +184,11 @@ fn test_plt_transfer_using_aliases() {
 
     // Assert balance of sender and receiver
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.account_token_balance(&account2, &token),
+        stub.state().account_token_balance(&account2, &token),
         RawTokenAmount(3000)
     );
 
@@ -201,7 +207,7 @@ fn test_plt_transfer_using_aliases() {
 /// Test protocol-level token transfer that is rejected.
 #[test]
 fn test_plt_transfer_reject() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -224,7 +230,7 @@ fn test_plt_transfer_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -232,13 +238,16 @@ fn test_plt_transfer_reject() {
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balances unchanged
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.account_token_balance(&account2, &token),
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&account2, &token),
         RawTokenAmount(0)
     );
 
@@ -249,10 +258,13 @@ fn test_plt_transfer_reject() {
     );
 }
 
-/// Test allow list enforcement with transfer retry.
+/// Test
+/// * transfer without sender being in allow list (rejected)
+/// * add sender to allow list
+/// * transfer (successful)
 #[test]
 fn test_plt_transfer_allow_list_flow() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -273,7 +285,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -301,20 +313,23 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
     .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
         RawTokenAmount(0)
     );
 
@@ -342,7 +357,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -370,20 +385,23 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
     .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(&receiver, &token),
         RawTokenAmount(1000)
     );
 
@@ -398,10 +416,49 @@ fn test_plt_transfer_allow_list_flow() {
     });
 }
 
+/// Test add account to allow list for a token where allow lists are not enabled.
+#[test]
+fn test_plt_allow_list_disabled() {
+    let mut stub = BlockStateWithExternalStateStubbed::new();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (_token, gov_account) =
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::UnsupportedOperation(UnsupportedOperationRejectReason {
+            operation_type,
+            reason: Some(reason),
+            ..
+        }) => {
+            assert_eq!(operation_type, "addAllowList");
+            assert_eq!(reason, "feature not enabled");
+        }
+    );
+}
+
 /// Test protocol-level token mint.
 #[test]
 fn test_plt_mint() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -421,7 +478,7 @@ fn test_plt_mint() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -429,11 +486,14 @@ fn test_plt_mint() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply increased
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(1000));
+    assert_eq!(
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(1000)
+    );
 
     // Assert account balance increased
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(1000)
     );
 
@@ -450,7 +510,7 @@ fn test_plt_mint() {
 /// Test protocol-level token mint using account address alias.
 #[test]
 fn test_plt_mint_using_alias() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -475,7 +535,7 @@ fn test_plt_mint_using_alias() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_account_address_alias,
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -483,11 +543,14 @@ fn test_plt_mint_using_alias() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply increased
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(1000));
+    assert_eq!(
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(1000)
+    );
 
     // Assert account balance increased
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(1000)
     );
 
@@ -504,7 +567,7 @@ fn test_plt_mint_using_alias() {
 /// Test protocol-level token mint that is rejected.
 #[test]
 fn test_plt_mint_reject() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -524,7 +587,7 @@ fn test_plt_mint_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -532,9 +595,12 @@ fn test_plt_mint_reject() {
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)
     );
 
@@ -545,7 +611,7 @@ fn test_plt_mint_reject() {
 /// Test protocol-level token mint from unauthorized sender.
 #[test]
 fn test_plt_mint_unauthorized() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -562,7 +628,7 @@ fn test_plt_mint_unauthorized() {
     let result = scheduler::execute_transaction(
         non_governance_account,
         stub.account_canonical_address(&non_governance_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -570,9 +636,13 @@ fn test_plt_mint_unauthorized() {
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(0));
     assert_eq!(
-        stub.account_token_balance(&non_governance_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(0)
+    );
+    assert_eq!(
+        stub.state()
+            .account_token_balance(&non_governance_account, &token),
         RawTokenAmount(0)
     );
 
@@ -599,7 +669,7 @@ fn test_plt_mint_unauthorized() {
 /// Test protocol-level token burn.
 #[test]
 fn test_plt_burn() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -619,7 +689,7 @@ fn test_plt_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -627,11 +697,14 @@ fn test_plt_burn() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply decreased
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(4000));
+    assert_eq!(
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(4000)
+    );
 
     // Assert account balance decreased
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(4000)
     );
 
@@ -648,7 +721,7 @@ fn test_plt_burn() {
 /// Test protocol-level token burn using address alias for governance account
 #[test]
 fn test_plt_burn_using_alias() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -673,7 +746,7 @@ fn test_plt_burn_using_alias() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_account_address_alias,
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -681,11 +754,14 @@ fn test_plt_burn_using_alias() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply decreased
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(4000));
+    assert_eq!(
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(4000)
+    );
 
     // Assert account balance decreased
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(4000)
     );
 
@@ -702,7 +778,7 @@ fn test_plt_burn_using_alias() {
 /// Test protocol-level token burn rejection.
 #[test]
 fn test_plt_burn_reject() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -722,7 +798,7 @@ fn test_plt_burn_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -730,9 +806,12 @@ fn test_plt_burn_reject() {
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)
     );
 
@@ -746,7 +825,7 @@ fn test_plt_burn_reject() {
 /// Test multiple protocol-level token update operations in one transaction.
 #[test]
 fn test_plt_multiple_operations() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -776,7 +855,7 @@ fn test_plt_multiple_operations() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -784,13 +863,16 @@ fn test_plt_multiple_operations() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply and accout balances
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(3000));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(3000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.account_token_balance(&account2, &token),
+        stub.state().account_token_balance(&account2, &token),
         RawTokenAmount(1000)
     );
 
@@ -815,7 +897,7 @@ fn test_plt_multiple_operations() {
 /// Test protocol-level token "pause" operation.
 #[test]
 fn test_plt_pause() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -830,7 +912,7 @@ fn test_plt_pause() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -846,7 +928,7 @@ fn test_plt_pause() {
     });
 
     // Assert paused it set in state
-    let token_info = queries::query_token_info(&stub, &token_id).unwrap();
+    let token_info = queries::query_token_info(stub.state(), &token_id).unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(token_module_state.paused, Some(true));
@@ -866,7 +948,7 @@ fn test_plt_pause() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -885,7 +967,7 @@ fn test_plt_pause() {
 /// Test protocol-level token "unpause" operation.
 #[test]
 fn test_plt_unpause() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -900,7 +982,7 @@ fn test_plt_unpause() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -919,7 +1001,7 @@ fn test_plt_unpause() {
 /// Test protocol-level token transfer that is rejected because token does not exist.
 #[test]
 fn test_non_existing_token_id() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let account1 = stub.create_account();
     let account2 = stub.create_account();
 
@@ -937,7 +1019,7 @@ fn test_non_existing_token_id() {
     let result = scheduler::execute_transaction(
         account1,
         stub.account_canonical_address(&account1),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -955,7 +1037,7 @@ fn test_non_existing_token_id() {
 /// Test that energy is charged during execution and the correct amount of used energy returned.
 #[test]
 fn test_energy_charge() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -979,7 +1061,7 @@ fn test_energy_charge() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -994,7 +1076,7 @@ fn test_energy_charge() {
 /// also if the transaction is rejected.
 #[test]
 fn test_energy_charge_at_reject() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -1020,7 +1102,7 @@ fn test_energy_charge_at_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
     )
@@ -1037,7 +1119,7 @@ fn test_energy_charge_at_reject() {
 /// Test that an out of energy reject reason is returned if we run out of energy.
 #[test]
 fn test_out_of_energy_error() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -1061,7 +1143,7 @@ fn test_out_of_energy_error() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
-        &mut stub,
+        stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(150), // needs 300 + 100 to succeed
     )

@@ -2,7 +2,7 @@
 //! the tests of the token module in the `plt-token-module` crate. In the present file,
 //! higher level tests are implemented.
 
-use crate::block_state_stub::BlockStateStub;
+use crate::block_state_stub::BlockStateWithExternalStateStubbed;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -22,7 +22,7 @@ mod block_state_stub;
 /// Test create protocol-level token.
 #[test]
 fn test_plt_create() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     assert_eq!(stub.plt_update_instruction_sequence_number(), 0);
 
     let token_id: TokenId = "testtokenid".parse().unwrap();
@@ -49,26 +49,29 @@ fn test_plt_create() {
         decimals: 4,
         initialization_parameters,
     });
-    let outcome =
-        scheduler::execute_chain_update(&mut stub, payload).expect("create and initialize token");
+    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload)
+        .expect("create and initialize token");
     let events = assert_matches!(outcome, ChainUpdateOutcome::Success(events) => events);
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
 
     // Assert token module state
-    let token = stub.token_by_id(&token_id).expect("created token");
-    assert_eq!(stub.token_configuration(&token).token_id, token_id);
-    assert_eq!(stub.token_configuration(&token).decimals, 4);
+    let token = stub.state().token_by_id(&token_id).expect("created token");
+    assert_eq!(stub.state().token_configuration(&token).token_id, token_id);
+    assert_eq!(stub.state().token_configuration(&token).decimals, 4);
     assert_eq!(
-        stub.token_configuration(&token).module_ref,
+        stub.state().token_configuration(&token).module_ref,
         TOKEN_MODULE_REF
     );
 
     // Assert circulating supply and governance account balance
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(0));
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(0)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(0)
     );
 
@@ -82,7 +85,7 @@ fn test_plt_create() {
 /// Test create protocol-level token.
 #[test]
 fn test_plt_create_with_minting() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
     assert_eq!(stub.plt_update_instruction_sequence_number(), 0);
 
     let token_id: TokenId = "testtokenid".parse().unwrap();
@@ -109,18 +112,21 @@ fn test_plt_create_with_minting() {
         decimals: 4,
         initialization_parameters,
     });
-    let outcome =
-        scheduler::execute_chain_update(&mut stub, payload).expect("create and initialize token");
+    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload)
+        .expect("create and initialize token");
     let events = assert_matches!(outcome, ChainUpdateOutcome::Success(events) => events);
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
 
     // Assert circulating supply and governance account balance
-    let token = stub.token_by_id(&token_id).expect("created token");
-    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
+    let token = stub.state().token_by_id(&token_id).expect("created token");
     assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
+        stub.state().token_circulating_supply(&token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)
     );
 
@@ -141,7 +147,7 @@ fn test_plt_create_with_minting() {
 /// ids which only differ in casing are considered equal.
 #[test]
 fn test_plt_create_duplicate_id() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
 
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
@@ -168,7 +174,8 @@ fn test_plt_create_duplicate_id() {
     });
 
     // Create first token
-    scheduler::execute_chain_update(&mut stub, payload1).expect("create and initialize token");
+    scheduler::execute_chain_update(stub.state_mut(), payload1)
+        .expect("create and initialize token");
 
     // Try to use same token id just with different casing
     let token_id2: TokenId = "testtokenid".parse().unwrap();
@@ -180,7 +187,7 @@ fn test_plt_create_duplicate_id() {
     });
 
     // Create second token
-    let outcome = scheduler::execute_chain_update(&mut stub, payload2).unwrap();
+    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload2).unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
@@ -195,7 +202,7 @@ fn test_plt_create_duplicate_id() {
 /// Test create protocol-level token where the token module reference is to an unknown token module.
 #[test]
 fn test_plt_create_unknown_token_module_reference() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
 
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
@@ -222,7 +229,7 @@ fn test_plt_create_unknown_token_module_reference() {
         initialization_parameters: initialization_parameters.clone(),
     });
 
-    let outcome = scheduler::execute_chain_update(&mut stub, payload).unwrap();
+    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload).unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
@@ -237,7 +244,7 @@ fn test_plt_create_unknown_token_module_reference() {
 /// Test create protocol-level token where the token module returns an error.
 #[test]
 fn test_plt_create_token_module_initialization_error() {
-    let mut stub = BlockStateStub::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new();
 
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
@@ -264,7 +271,7 @@ fn test_plt_create_token_module_initialization_error() {
         initialization_parameters: initialization_parameters.clone(),
     });
 
-    let outcome = scheduler::execute_chain_update(&mut stub, payload).unwrap();
+    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload).unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 

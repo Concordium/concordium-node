@@ -108,6 +108,7 @@ deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.PersistentBloc
 deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.HashedPersistentBlockState pv) StateV1.MutableState (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.ForeignLowLevelBlockStateQuery (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => Types.MonadProtocolVersion (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateStorage (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.ModuleQuery (PersistentBSM pv)
@@ -123,6 +124,7 @@ deriving instance
 
 instance MonadLogger (PersistentBSM pv) where
     logEvent src lvl msg = PersistentBSM (logEvent src lvl msg)
+    logEventIO = PersistentBSM logEventIO
 
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
