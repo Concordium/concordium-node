@@ -15,6 +15,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified SchedulerTests.Helpers as Helpers
+import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.DummyData as DummyData
@@ -22,7 +23,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types as ID
 import qualified Concordium.Types.DummyData as DummyData
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
-import Concordium.Types.Tokens
+import Concordium.Types.Queries.Tokens
 import Concordium.Types.Updates
 
 import qualified Concordium.GlobalState.BlockState as BS
@@ -34,7 +35,6 @@ import Concordium.Scheduler.ProtocolLevelTokens.Queries
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
-import Test.HUnit
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef
@@ -109,12 +109,17 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Right expectedTokenInfo1)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -557,6 +562,30 @@ testCreatePLT _ pvString = describe pvString $ do
               _cpltInitializationParameters = toTokenParam params2,
               _cpltDecimals = 0
             }
+    expectedTokenInfo1 =
+        TokenInfo
+            { tiTokenId = plt1,
+              tiTokenState =
+                TokenState
+                    { tsTokenModuleRef = _cpltTokenModule createPLT1,
+                      tsDecimals = _cpltDecimals createPLT1,
+                      tsModuleState = expectModuleState1,
+                      tsTotalSupply = TokenAmount 0 0
+                    }
+            }
+    expectModuleState1 =
+        CBOR.tokenModuleStateToBytes $
+            CBOR.TokenModuleState
+                { tmsName = CBOR.tipName params1,
+                  tmsMetadata = CBOR.tipMetadata params1,
+                  tmsGovernanceAccount = CBOR.tipGovernanceAccount params1,
+                  tmsPaused = Just False,
+                  tmsAllowList = CBOR.tipAllowList params1,
+                  tmsDenyList = CBOR.tipDenyList params1,
+                  tmsMintable = CBOR.tipMintable params1,
+                  tmsBurnable = CBOR.tipBurnable params1,
+                  tmsAdditional = mempty
+                }
 
 tests :: Spec
 tests =

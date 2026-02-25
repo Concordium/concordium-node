@@ -5,11 +5,12 @@ use concordium_base::{
     common::{Deserial, Serial},
     protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef},
 };
+use concordium_base::common::Serialize;
 
 /// Token state at the block level
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenState`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenState {
     /// The reference of the module implementing this token.
     pub token_module_ref: TokenModuleRef,
@@ -25,7 +26,7 @@ pub struct TokenState {
 /// The token state at the block level.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenInfo`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenInfo {
     /// The canonical identifier/symbol for the protocol level token.
     pub token_id: TokenId,
@@ -36,7 +37,7 @@ pub struct TokenInfo {
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenAccountState`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenAccountState {
     /// The token balance of the account.
     pub balance: TokenAmount,
@@ -47,7 +48,7 @@ pub struct TokenAccountState {
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.Token`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenAccountInfo {
     /// The canonical identifier/symbol for the protocol level token.
     pub token_id: TokenId,
