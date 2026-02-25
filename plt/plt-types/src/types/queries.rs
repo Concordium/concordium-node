@@ -1,11 +1,11 @@
 //! Types returned by queries.
 
 use crate::types::tokens::TokenAmount;
+use concordium_base::common::Serialize;
 use concordium_base::{
     common::{Deserial, Serial},
     protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef},
 };
-use concordium_base::common::Serialize;
 
 /// Token state at the block level
 ///
