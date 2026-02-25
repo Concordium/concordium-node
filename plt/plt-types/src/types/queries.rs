@@ -106,6 +106,11 @@ mod test {
         let token_state = token_state_fixture();
 
         let bytes = common::to_bytes(&token_state);
+        assert_eq!(
+            hex::encode(&bytes),
+            "01010101010101010101010101010101010101010101010101010101010101010a640a00000003010203"
+        );
+
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_state, deserialized);
     }
@@ -118,6 +123,11 @@ mod test {
         };
 
         let bytes = common::to_bytes(&token_info);
+        assert_eq!(
+            hex::encode(&bytes),
+            "05746f6b656e01010101010101010101010101010101010101010101010101010101010101010a640a00000003010203"
+        );
+
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_info, deserialized);
     }
@@ -127,6 +137,8 @@ mod test {
         let token_account_state = token_account_state_fixture();
 
         let bytes = common::to_bytes(&token_account_state);
+        assert_eq!(hex::encode(&bytes), "640a00000003010203");
+
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_account_state, deserialized);
     }
@@ -139,6 +151,8 @@ mod test {
         };
 
         let bytes = common::to_bytes(&token_account_info);
+        assert_eq!(hex::encode(&bytes), "05746f6b656e640a00000003010203");
+
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_account_info, deserialized);
     }
