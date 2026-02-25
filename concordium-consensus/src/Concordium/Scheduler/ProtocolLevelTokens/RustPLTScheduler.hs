@@ -273,7 +273,6 @@ foreign import ccall "ffi_execute_transaction"
 -- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
 -- is executed via the Rust PLT Scheduler library. Only 'CratePLT' chain updates are currently supported.
 executeChainUpdate ::
-    forall m.
     (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     -- | Chain update header.
     Types.UpdateHeader ->
@@ -289,141 +288,147 @@ executeChainUpdate updateHeader createPLT =
         lift $ EI.withBlockStateRollback $ do
             -- Get current block state.
             blockState0 <- EI.getBlockState
-            (blockState2Maybe, ret) <- EI.liftBlockStateOperations $ do
-                pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
-                -- Put block state in an MVar to allow callbacks to update it.
-                blockStateMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar blockState0
-                queryCallbacks <- unliftBlockStateQueryCallbacks blockStateMVar
-                operationCallbacks <- unliftBlockStateOperationCallbacks blockStateMVar
 
-                -- Execute chain update via FFI
-                outcome <-
-                    BS.liftBlobStore $
-                        executeChainUpdateInBlobStoreMonad
-                            (Types.protocolVersion @(Types.MPV m))
-                            pltBlockState0
-                            queryCallbacks
-                            operationCallbacks
-                            createPLT
+            -- Execute chain update in the block state monad.
+            outcome <- EI.liftBlockStateOperations $ executeChainUpdateInBSOMonad blockState0
 
-                case outcome of
-                    ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess pltBlockState1 events) -> do
-                        -- Get block state from MVar and set the updated PLT state.
-                        blockState1 <- BS.liftBlobStore $ liftIO $ takeMVarNow blockStateMVar
-                        blockState2 <- BS.bsoSetRustPLTBlockState blockState1 pltBlockState1
-                        return (Just blockState2, Right $ Types.TxSuccess events)
-                    ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
-                        return (Nothing, Left failureKind)
+            -- Set updated block state if operation was successful and map outcome to return value.
+            case outcome of
+                ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess blockState1 events) -> do
+                    EI.setBlockState blockState1
+                    return (Right $ Types.TxSuccess events, False)
+                ChainUpdateExecutionOutcomeFailed (ChainUpdateExecutionFailed failureKind) ->
+                    return (Left failureKind, True)
+  where
+    -- \| Execute a chain update with the given block state as input.
+    -- Returns the updated block state and events produced if successful, otherwise a failure kind.
+    --
+    -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
+    executeChainUpdateInBSOMonad ::
+        forall m'.
+        (BS.BlockStateOperations m', Types.PVSupportsRustManagedPLT (Types.MPV m')) =>
+        BS.UpdatableBlockState m' -> m' (ChainUpdateExecutionOutcome (BS.UpdatableBlockState m'))
+    executeChainUpdateInBSOMonad blockState0 = do
+        -- Get current PLT block state
+        pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
 
-            -- Set updated block state if operation was successful.
-            case blockState2Maybe of
-                Just blockState2 -> do
-                    EI.setBlockState blockState2
-                    return (ret, False)
-                Nothing ->
-                    return (ret, True)
+        -- Put block state in an MVar to allow callbacks to update it.
+        blockStateMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar blockState0
+        queryCallbacks <- unliftBlockStateQueryCallbacks blockStateMVar
+        operationCallbacks <- unliftBlockStateOperationCallbacks blockStateMVar
 
--- | Execute a chain update modifying `block_state` accordingly.
--- Returns the events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
--- to the Rust PLT Scheduler library.
---
--- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
-executeChainUpdateInBlobStoreMonad ::
-    (BlobStore.MonadBlobStore m) =>
-    -- | Block protocol version
-    Types.SProtocolVersion pv ->
-    -- | Block state to mutate.
-    PLTBlockState.ForeignPLTBlockStatePtr ->
-    -- | Callbacks need for block state queries on the state maintained by Haskell.
-    BlockStateQueryCallbacks ->
-    -- | Callbacks need for block state operations on the state maintained by Haskell.
-    BlockStateOperationCallbacks ->
-    -- | Create PLT chain update.
-    Types.CreatePLT ->
-    -- | Outcome of the execution
-    m ChainUpdateExecutionOutcome
-executeChainUpdateInBlobStoreMonad
-    spv
-    blockState
-    queryCallbacks
-    operationCallbacks
-    chainUpdatePayload =
-        do
-            let chainUpdatePayloadByteString = S.runPut $ Types.putUpdatePayload $ Types.CreatePLTUpdatePayload chainUpdatePayload
-            loadCallbackPtr <- fst <$> BlobStore.getCallbacks
-            liftIO $ FFI.alloca $ \resultingBlockStateOutPtr ->
-                FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
-                    do
-                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
-                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
-                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
-                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
-                        updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
-                        incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
-                        -- Invoke the ffi call
-                        statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
-                            BS.unsafeUseAsCStringLen chainUpdatePayloadByteString $ \(chainUpdatePayloadPtr, chainUpdatePayloadLen) ->
-                                ffiExecuteChainUpdate
-                                    loadCallbackPtr
-                                    readTokenAccountBalanceCallbackPtr
-                                    updateTokenAccountBalanceCallbackPtr
-                                    incrementPltUpdateSequenceCallbackPtr
-                                    getAccountIndexByAddressCallbackPtr
-                                    getAccountAddressByIndexCallbackPtr
-                                    getTokenAccountStatesCallbackPtr
-                                    blockStatePtr
-                                    (FFI.castPtr chainUpdatePayloadPtr)
-                                    (fromIntegral chainUpdatePayloadLen)
-                                    resultingBlockStateOutPtr
-                                    returnDataPtrOutPtr
-                                    returnDataLenOutPtr
-                        -- Free the function pointers we have just created
-                        -- (loadCallbackPtr is created in another context,
-                        -- so we should not free it)
-                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
-                        FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
-                        FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
-                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
-                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
-                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                        -- Process the returned status and values returned via out pointers
-                        returnDataLen <- FFI.peek returnDataLenOutPtr
-                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
-                        returnData <-
-                            BS.unsafePackCStringFinalizer
-                                returnDataPtr
-                                (fromIntegral returnDataLen)
-                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
-                                updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
-                                let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
-                                let events =
-                                        either
-                                            (\message -> error $ "Chain update events from Rust PLT Scheduler could not be deserialized: " ++ message)
-                                            id
-                                            $ S.runGet getEvents returnData
-                                return $
-                                    ChainUpdateExecutionOutcomeSuccess $
-                                        ChainUpdateExecutionSuccess
-                                            { cuesUpdatedPLTBlockState = updatedBlockState,
-                                              cuesEvents = events
-                                            }
-                            1 -> do
-                                let getFailureKind = S.isolate (BS.length returnData) S.get
-                                let failureKind =
-                                        either
-                                            (\message -> error $ "Chain update failure kind from Rust PLT Scheduler could not be deserialized: " ++ message)
-                                            id
-                                            $ S.runGet getFailureKind returnData
-                                return $
-                                    ChainUpdateExecutionOutcomeFailed $
-                                        ChainUpdateExecutionFailed
-                                            { cuefFailureKind = failureKind
-                                            }
-                            _ -> error ("Unexpected status code from calling 'ffiExecuteChainUpdate': " ++ show statusCode)
+        -- Execute chain update via FFI.
+        outcome <-
+            BS.liftBlobStore $
+                executeChainUpdateInBlobStoreMonad
+                    (Types.protocolVersion @(Types.MPV m'))
+                    pltBlockState0
+                    queryCallbacks
+                    operationCallbacks
 
--- | C-binding for calling the Rust function `plt_scheduler::scheduler::execute_chain_update`.
+        -- Get block state from MVar and set the updated PLT block state if operation was successful.
+        forM outcome $ \pltBlockState1 -> do
+            blockState1 <- BS.liftBlobStore $ liftIO $ takeMVarNow blockStateMVar
+            BS.bsoSetRustPLTBlockState blockState1 pltBlockState1
+
+    -- \| Execute a chain update with the given PLT block state as input.
+    -- Returns the updated PLT block state and events produced if successful, otherwise a failure kind. The function is a wrapper around an FFI call
+    -- to the Rust PLT Scheduler library.
+    --
+    -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
+    executeChainUpdateInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m) =>
+        -- \| Block protocol version
+        Types.SProtocolVersion pv ->
+        -- \| Block state to mutate.
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        -- \| Callbacks need for block state queries on the state maintained by Haskell.
+        BlockStateQueryCallbacks ->
+        -- \| Callbacks need for block state operations on the state maintained by Haskell.
+        BlockStateOperationCallbacks ->
+        -- \| Outcome of the execution
+        m (ChainUpdateExecutionOutcome PLTBlockState.ForeignPLTBlockStatePtr)
+    executeChainUpdateInBlobStoreMonad
+        spv
+        blockState
+        queryCallbacks
+        operationCallbacks =
+            do
+                let chainUpdatePayloadByteString = S.runPut $ Types.putUpdatePayload $ Types.CreatePLTUpdatePayload createPLT
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \resultingBlockStateOutPtr ->
+                    FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                        do
+                            readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                            getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                            getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                            getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                            updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
+                            incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
+                            -- Invoke the ffi call
+                            statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
+                                BS.unsafeUseAsCStringLen chainUpdatePayloadByteString $ \(chainUpdatePayloadPtr, chainUpdatePayloadLen) ->
+                                    ffiExecuteChainUpdate
+                                        loadCallbackPtr
+                                        readTokenAccountBalanceCallbackPtr
+                                        updateTokenAccountBalanceCallbackPtr
+                                        incrementPltUpdateSequenceCallbackPtr
+                                        getAccountIndexByAddressCallbackPtr
+                                        getAccountAddressByIndexCallbackPtr
+                                        getTokenAccountStatesCallbackPtr
+                                        blockStatePtr
+                                        (FFI.castPtr chainUpdatePayloadPtr)
+                                        (fromIntegral chainUpdatePayloadLen)
+                                        resultingBlockStateOutPtr
+                                        returnDataPtrOutPtr
+                                        returnDataLenOutPtr
+                            -- Free the function pointers we have just created
+                            -- (loadCallbackPtr is created in another context,
+                            -- so we should not free it)
+                            FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                            FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
+                            FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
+                            FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                            FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                            FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                            -- Process the returned status and values returned via out pointers
+                            returnDataLen <- FFI.peek returnDataLenOutPtr
+                            returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                            returnData <-
+                                BS.unsafePackCStringFinalizer
+                                    returnDataPtr
+                                    (fromIntegral returnDataLen)
+                                    (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                            case statusCode of
+                                0 -> do
+                                    updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
+                                    let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
+                                    let events =
+                                            either
+                                                (\message -> error $ "Chain update events from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                                id
+                                                $ S.runGet getEvents returnData
+                                    return $
+                                        ChainUpdateExecutionOutcomeSuccess $
+                                            ChainUpdateExecutionSuccess
+                                                { cuesUpdatedBlockState = updatedBlockState,
+                                                  cuesEvents = events
+                                                }
+                                1 -> do
+                                    let getFailureKind = S.isolate (BS.length returnData) S.get
+                                    let failureKind =
+                                            either
+                                                (\message -> error $ "Chain update failure kind from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                                id
+                                                $ S.runGet getFailureKind returnData
+                                    return $
+                                        ChainUpdateExecutionOutcomeFailed $
+                                            ChainUpdateExecutionFailed
+                                                { cuefFailureKind = failureKind
+                                                }
+                                _ -> error ("Unexpected status code from calling 'ffiExecuteChainUpdate': " ++ show statusCode)
+
+-- \| C-binding for calling the Rust function `plt_scheduler::scheduler::execute_chain_update`.
 --
 -- Returns a byte representing the result:
 --
@@ -497,7 +502,25 @@ data TransactionExecutionSuccess = TransactionExecutionSuccess
 
 -- | Outcome of the chain update: successful or failed.
 -- If the chain update failed, the changes to the block state must be rolled back.
-data ChainUpdateExecutionOutcome = ChainUpdateExecutionOutcomeSuccess ChainUpdateExecutionSuccess | ChainUpdateExecutionOutcomeFailed ChainUpdateExecutionFailed
+data ChainUpdateExecutionOutcome a
+    = ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a)
+    | ChainUpdateExecutionOutcomeFailed ChainUpdateExecutionFailed
+
+instance Functor ChainUpdateExecutionOutcome where
+    fmap f (ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a events)) =
+        ChainUpdateExecutionOutcomeSuccess $ ChainUpdateExecutionSuccess (f a) events
+    fmap _ (ChainUpdateExecutionOutcomeFailed failure) =
+        ChainUpdateExecutionOutcomeFailed failure
+
+instance Foldable ChainUpdateExecutionOutcome where
+    foldMap f (ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a _)) = f a
+    foldMap _ (ChainUpdateExecutionOutcomeFailed _) = mempty
+
+instance Traversable ChainUpdateExecutionOutcome where
+    traverse f (ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a events)) =
+        fmap (\a' -> ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a' events)) (f a)
+    traverse _ (ChainUpdateExecutionOutcomeFailed failure) =
+        pure (ChainUpdateExecutionOutcomeFailed failure)
 
 -- | Representation of failed chain update outcome
 data ChainUpdateExecutionFailed = ChainUpdateExecutionFailed
@@ -506,9 +529,9 @@ data ChainUpdateExecutionFailed = ChainUpdateExecutionFailed
     }
 
 -- | Representation of successful chain update outcome
-data ChainUpdateExecutionSuccess = ChainUpdateExecutionSuccess
-    { -- | The updated PLT block state after the execution
-      cuesUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
+data ChainUpdateExecutionSuccess a = ChainUpdateExecutionSuccess
+    { -- | The updated block state after the execution
+      cuesUpdatedBlockState :: a,
       -- | Events produced during the execution
       cuesEvents :: [Types.Event]
     }
