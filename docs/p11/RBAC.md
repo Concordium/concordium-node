@@ -19,7 +19,7 @@ struct TokenAuthorizations {
 ```
 
 ```cddl
-; The different The different admin roles defined for the current token module implementation.
+; The different admin roles defined for the current token module implementation.
 ; Each role gives access to specific administrative operations.
 token-admin-role =
     ; Gives authority to perform `token-assign-admin-role` and `token-revoke-admin-role` operations.
@@ -63,7 +63,7 @@ sequenceDiagram
     end
 ```
 
-## [Operation] `UpdateAdminRole`
+## [PLT Operation] `UpdateAdminRole`
 
 In practice, this is two separate operations,  `AssignAdminRole` and `RevokeAdminRole`. This follows the usual token operation flow.
 
@@ -118,7 +118,7 @@ Additional validation in performed when the `token-revoke-admin-role` operation 
 the `"updateAdminRole"` role. In the case where the list would be empty as an effect of the operation, the transaction is
 rejected.
 
-## [Operation] `UpdateMetadata`
+## [PLT Operation] `UpdateMetadata`
 
 An additional operation is added to allow updating the metadata reference stored for a token. This follows the usual token operation flow.
 
