@@ -2,7 +2,7 @@
 
 use concordium_base::common::Serialize;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Index of the protocol-level token in the block state map of tokens.
 ///

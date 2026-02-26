@@ -9,8 +9,8 @@ use concordium_base::{
     },
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
-use plt_types::types::tokens::RawTokenAmount;
 
 mod kernel_stub;
 mod utils;

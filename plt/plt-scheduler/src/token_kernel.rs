@@ -14,10 +14,10 @@ use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenStateInvariantError,
     TokenStateKey, TokenStateValue, TokenTransferError,
 };
-use plt_types::types::events::{
+use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
-use plt_types::types::tokens::{RawTokenAmount, TokenAmount};
+use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount};
 
 /// Implementation of token kernel queries with a specific token in context.
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {

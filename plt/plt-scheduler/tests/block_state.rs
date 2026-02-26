@@ -4,7 +4,7 @@ use crate::block_state_stub::BlockStateWithExternalStateStubbed;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler::block_state::types::TokenConfiguration;
 use plt_scheduler::block_state_interface::{BlockStateOperations, BlockStateQuery};
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
 

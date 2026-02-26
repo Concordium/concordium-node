@@ -11,7 +11,7 @@ default = ["ffi"]
 ffi = ["dep:libc"]
 
 [dependencies]
-plt-types.workspace = true
+plt-scheduler-types.workspace = true
 plt-scheduler-interface.workspace = true
 plt-token-module.workspace = true
 

@@ -29,9 +29,9 @@ use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFo
 use plt_scheduler_interface::token_kernel_interface::{
     AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
 /// Block store load stub for tests.

@@ -5,7 +5,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Callbacks for block state queries.
 pub struct ExternalBlockStateQueryCallbacks {

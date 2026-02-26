@@ -15,10 +15,10 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::{queries, scheduler};
-use plt_types::types::events::BlockItemEvent;
-use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::reject_reasons::TransactionRejectReason;
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::events::BlockItemEvent;
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
 mod utils;

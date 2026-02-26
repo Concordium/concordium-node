@@ -12,9 +12,9 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::{queries, scheduler};
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
 

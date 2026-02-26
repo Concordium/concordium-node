@@ -18,7 +18,7 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
+use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///

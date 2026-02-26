@@ -18,7 +18,7 @@ use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFo
 use plt_scheduler_interface::token_kernel_interface::{
     AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
 use std::collections::BTreeMap;
 

@@ -8,7 +8,7 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_scheduler_interface::error::OutOfEnergyError;
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
-use plt_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
+use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 
 mod plt_scheduler;
 

@@ -12,11 +12,13 @@ use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_scheduler_interface::error::OutOfEnergyError;
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
+use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
+use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
+use plt_scheduler_types::types::reject_reasons::{
+    EncodedTokenModuleRejectReason, TransactionRejectReason,
+};
 use plt_token_module::token_module::{TokenInitializationError, TokenUpdateError};
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
-use plt_types::types::events::{BlockItemEvent, TokenCreateEvent};
-use plt_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
-use plt_types::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.

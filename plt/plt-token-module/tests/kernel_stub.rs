@@ -22,9 +22,9 @@ use plt_scheduler_interface::token_kernel_interface::{
     TokenStateKey, TokenStateValue, TokenTransferError,
 };
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
+use plt_scheduler_types::types::events::EncodedTokenModuleEvent;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
-use plt_types::types::events::EncodedTokenModuleEvent;
-use plt_types::types::tokens::RawTokenAmount;
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
 /// configuring the state of the kernel.
