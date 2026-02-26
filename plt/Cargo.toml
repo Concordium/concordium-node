@@ -2,15 +2,17 @@
 resolver = "3"
 
 members = [
-    "plt-types",
+    "plt-block-state",
+    "plt-scheduler-types",
     "plt-scheduler-interface",
     "plt-scheduler",
     "plt-token-module"
 ]
 
 [workspace.dependencies]
+plt-block-state = {path = "plt-block-state"}
 plt-token-module = {path = "plt-token-module"}
-plt-types = {path = "plt-types"}
+plt-scheduler-types = {path = "plt-scheduler-types"}
 plt-scheduler-interface = {path = "plt-scheduler-interface"}
 
 concordium_base = {path = "../concordium-base/rust-src/concordium_base"}

@@ -2,27 +2,15 @@
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
-use crate::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_types::types::tokens::RawTokenAmount;
-
-pub type TokenStateKey = Vec<u8>;
-pub type TokenStateValue = Vec<u8>;
-
-/// Account representing (read-only) account state.
-///
-/// The account is guaranteed to exist on chain, when holding an instance of this type.
-#[derive(Debug)]
-pub struct AccountWithCanonicalAddress<Account> {
-    /// Opaque type that represents an account on chain.
-    pub account: Account,
-    /// The canonical account address of the account, i.e. the address used as part of the
-    /// credential deployment and not an alias.
-    pub canonical_account_address: AccountAddress,
-}
+use plt_block_state::block_state::types::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
+};
+use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]

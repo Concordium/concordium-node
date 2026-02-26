@@ -2,15 +2,6 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
-use crate::ffi::blob_store_callbacks::LoadCallback;
-use crate::ffi::block_state_callbacks::{
-    ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
-    GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
-    GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
-    ReadTokenAccountBalanceCallback, UpdateTokenAccountBalanceCallback,
-};
-use crate::ffi::memory;
 use crate::scheduler;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
@@ -18,7 +9,16 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
+use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
+use plt_block_state::ffi::block_state_callbacks::{
+    ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
+    GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
+    GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
+    ReadTokenAccountBalanceCallback, UpdateTokenAccountBalanceCallback,
+};
+use plt_block_state::ffi::memory;
+use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///

@@ -13,18 +13,20 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::error::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OutOfEnergyError,
+use plt_block_state::block_state::types::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
+use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithCanonicalAddress, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenStateInvariantError,
-    TokenStateKey, TokenStateValue, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
-use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
+use plt_scheduler_interface::transaction_execution_interface::{
+    OutOfEnergyError, TransactionExecution,
+};
+use plt_scheduler_types::types::events::EncodedTokenModuleEvent;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
-use plt_types::types::events::EncodedTokenModuleEvent;
-use plt_types::types::tokens::RawTokenAmount;
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
 /// configuring the state of the kernel.
