@@ -1,17 +1,17 @@
 //! Tests of the block state [`PltBlockState`](plt_scheduler::block_state::PltBlockState).
 
-use crate::block_state_stub::BlockStateWithExternalStateStubbed;
+use crate::block_state_no_external::BlockStateWithNoExternalState;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
-use plt_scheduler::block_state::types::TokenConfiguration;
-use plt_scheduler::block_state_interface::{BlockStateOperations, BlockStateQuery};
+use plt_block_state::block_state::types::TokenConfiguration;
+use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-mod block_state_stub;
+mod block_state_no_external;
 
 /// Test create a token in the block state.
 #[test]
 fn test_create_plt() {
-    let mut block_state = BlockStateWithExternalStateStubbed::new();
+    let mut block_state = BlockStateWithNoExternalState::new();
 
     // Create token
     let configuration = TokenConfiguration {
@@ -29,7 +29,7 @@ fn test_create_plt() {
 /// Test getting list of tokens.
 #[test]
 fn test_plt_list() {
-    let mut block_state = BlockStateWithExternalStateStubbed::new();
+    let mut block_state = BlockStateWithNoExternalState::new();
 
     // Create token 1
     let token_id1: TokenId = "token1".parse().unwrap();
@@ -57,7 +57,7 @@ fn test_plt_list() {
 /// Test getting token by id.
 #[test]
 fn test_token_by_id() {
-    let mut block_state = BlockStateWithExternalStateStubbed::new();
+    let mut block_state = BlockStateWithNoExternalState::new();
 
     // Create token
     let token_id1: TokenId = "token1".parse().unwrap();
@@ -95,7 +95,7 @@ fn test_token_by_id() {
 /// Test set and read circulating supply
 #[test]
 fn test_circulating_supply() {
-    let mut block_state = BlockStateWithExternalStateStubbed::new();
+    let mut block_state = BlockStateWithNoExternalState::new();
 
     // Create token
     let configuration = TokenConfiguration {
@@ -122,7 +122,7 @@ fn test_circulating_supply() {
 /// Test set and read circulating supply
 #[test]
 fn test_key_value_state() {
-    let mut block_state = BlockStateWithExternalStateStubbed::new();
+    let mut block_state = BlockStateWithNoExternalState::new();
 
     // Create token
     let configuration = TokenConfiguration {

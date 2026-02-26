@@ -2,6 +2,7 @@
 resolver = "3"
 
 members = [
+    "plt-block-state",
     "plt-scheduler-types",
     "plt-scheduler-interface",
     "plt-scheduler",
@@ -9,6 +10,7 @@ members = [
 ]
 
 [workspace.dependencies]
+plt-block-state = {path = "plt-block-state"}
 plt-token-module = {path = "plt-token-module"}
 plt-scheduler-types = {path = "plt-scheduler-types"}
 plt-scheduler-interface = {path = "plt-scheduler-interface"}

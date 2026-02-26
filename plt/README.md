@@ -14,4 +14,5 @@ The crates in the project are:
 * `plt-scheduler-types`: Externally facing scheduler and query types. These types correspond to identical types on the Haskell side.
 * `plt-scheduler-interface`: The internally facing scheduler interface seen by the token module, e.g. the token kernel.
 * `plt-token-module`: The Token Module implementation.
-* `plt-scheduler`: The actual PLT Scheduler implementation.
+* `plt-block-state`: The PLT block state implementation. 
+* `plt-scheduler`: The PLT Scheduler implementation.

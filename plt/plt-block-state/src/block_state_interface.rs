@@ -1,11 +1,11 @@
-use crate::block_state::types::{TokenAccountState, TokenConfiguration};
+use crate::block_state::types::{
+    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenStateKey,
+    TokenStateValue,
+};
+use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
-};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Change in [`RawTokenAmount`].

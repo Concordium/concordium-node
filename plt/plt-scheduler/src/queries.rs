@@ -1,8 +1,8 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::token_kernel::TokenKernelQueriesImpl;
 use concordium_base::protocol_level_tokens::TokenId;
+use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenInfo, TokenState,
 };

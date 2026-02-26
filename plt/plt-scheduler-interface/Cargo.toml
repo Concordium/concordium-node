@@ -8,6 +8,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 plt-scheduler-types.workspace = true
+plt-block-state.workspace = true
 
 concordium_base.workspace = true
 

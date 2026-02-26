@@ -1,18 +1,19 @@
 //! Implementation of the protocol-level token kernel.
 
-use crate::block_state::types::TokenConfiguration;
-use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::block_state::types::{
+    AccountWithCanonicalAddress, TokenConfiguration, TokenStateKey, TokenStateValue,
+};
+use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+};
 use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithCanonicalAddress, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenStateInvariantError,
-    TokenStateKey, TokenStateValue, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
 use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,

@@ -1,8 +1,6 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::block_state::types::TokenConfiguration;
-use crate::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
 use concordium_base::base::Energy;
@@ -10,8 +8,11 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::error::OutOfEnergyError;
-use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
+use plt_block_state::block_state::types::TokenConfiguration;
+use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
+use plt_scheduler_interface::transaction_execution_interface::{
+    OutOfEnergyError, TransactionExecution,
+};
 use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::reject_reasons::{
