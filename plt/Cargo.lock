@@ -1105,6 +1105,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plt-block-state"
+version = "0.1.0"
+dependencies = [
+ "assert_matches",
+ "concordium_base",
+ "hex",
+ "libc",
+ "plt-scheduler-types",
+ "sha2",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "plt-scheduler"
 version = "0.1.0"
 dependencies = [
@@ -1112,10 +1125,10 @@ dependencies = [
  "concordium_base",
  "hex",
  "libc",
+ "plt-block-state",
  "plt-scheduler-interface",
+ "plt-scheduler-types",
  "plt-token-module",
- "plt-types",
- "sha2",
  "thiserror 2.0.17",
 ]
 
@@ -1124,8 +1137,18 @@ name = "plt-scheduler-interface"
 version = "0.1.0"
 dependencies = [
  "concordium_base",
- "plt-types",
+ "plt-block-state",
+ "plt-scheduler-types",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "plt-scheduler-types"
+version = "0.1.0"
+dependencies = [
+ "concordium_base",
+ "hex",
+ "proptest",
 ]
 
 [[package]]
@@ -1134,18 +1157,10 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "concordium_base",
+ "plt-block-state",
  "plt-scheduler-interface",
- "plt-types",
+ "plt-scheduler-types",
  "thiserror 2.0.17",
-]
-
-[[package]]
-name = "plt-types"
-version = "0.1.0"
-dependencies = [
- "concordium_base",
- "hex",
- "proptest",
 ]
 
 [[package]]

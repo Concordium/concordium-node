@@ -2,19 +2,18 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
-use crate::ffi::blob_store_callbacks::LoadCallback;
-use crate::ffi::block_state_callbacks::{
-    ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
-    GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
-    ReadTokenAccountBalanceCallback,
-};
-use crate::ffi::memory;
 use crate::queries;
 use crate::queries::QueryTokenInfoError;
 use concordium_base::common;
 use libc::size_t;
-use plt_types::types::queries::TokenInfo;
+use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
+use plt_block_state::ffi::block_state_callbacks::{
+    ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
+    GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
+    ReadTokenAccountBalanceCallback,
+};
+use plt_block_state::ffi::memory;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///
@@ -173,11 +172,7 @@ extern "C" fn ffi_query_token_info(
     let token_info = queries::query_token_info(&block_state, &token_id);
 
     let (return_status, return_data) = match token_info {
-        Ok(token_info) => {
-            let return_data = todo!(); // common::to_bytes(&token_info); todo ar
-            // (0, token_info) todo ar
-            (0, Vec::new())
-        }
+        Ok(token_info) => (0, common::to_bytes(&token_info)),
         Err(QueryTokenInfoError::TokenDoesNotExist(_)) => (1, Vec::new()),
         Err(_) => {
             todo!()
