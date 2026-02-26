@@ -171,8 +171,8 @@ queryAccountTokens acc bs = case sPltStateVersionFor (protocolVersion @(MPV m)) 
                                   moduleAccountState = accountState
                                 }
                         }
-    -- todo implement as part of https://linear.app/concordium/issue/PSR-15/dispatch-plt-queries-to-the-rust-plt-library
-    SPLTStateV1 -> undefined
+    SPLTStateV1 ->
+        RustQ.queryTokenAccountInfos bs (fst acc)
 
 -- | Get the list all tokens
 queryPLTList ::
