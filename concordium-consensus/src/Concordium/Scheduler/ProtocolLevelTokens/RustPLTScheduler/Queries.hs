@@ -44,64 +44,64 @@ queryPLTList bs = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
     BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks
-
--- | Query the list of PLTs in the block state. The function is a wrapper around an FFI call
--- to the Rust PLT Scheduler library.
-queryPLTListInBlobStoreMonad ::
-    (BlobStore.MonadBlobStore m) =>
-    -- | Block state to query.
-    PLTBlockState.ForeignPLTBlockStatePtr ->
-    -- | Callback need for queries.
-    BlockStateQueryCallbacks ->
-    -- | The list of token ids
-    m [Types.TokenId]
-queryPLTListInBlobStoreMonad
-    pltBlockState
-    queryCallbacks =
-        do
-            loadCallbackPtr <- fst <$> BlobStore.getCallbacks
-            liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
-                do
-                    readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
-                    getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
-                    getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
-                    getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
-                    -- Invoke the ffi call
-                    statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
-                        ffiQueryPLTList
-                            loadCallbackPtr
-                            readTokenAccountBalanceCallbackPtr
-                            getAccountIndexByAddressCallbackPtr
-                            getAccountAddressByIndexCallbackPtr
-                            getTokenAccountStatesCallbackPtr
-                            pltBlockStatePtr
-                            returnDataPtrOutPtr
-                            returnDataLenOutPtr
-                    -- Free the function pointers we have just created
-                    -- (loadCallbackPtr is created in another context,
-                    -- so we should not free it)
-                    FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
-                    FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
-                    FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
-                    FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                    -- Process the returned status and values returend via out pointers
-                    returnDataLen <- FFI.peek returnDataLenOutPtr
-                    returnDataPtr <- FFI.peek returnDataPtrOutPtr
-                    returnData <-
-                        BS.unsafePackCStringFinalizer
-                            returnDataPtr
-                            (fromIntegral returnDataLen)
-                            (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                    case statusCode of
-                        0 -> do
-                            let getTokenIdList = S.isolate (BS.length returnData) $ CS.getListOf S.get
-                            let tokenIdList =
-                                    either
-                                        (\message -> error $ "Token id list from Rust PLT Scheduler could not be deserialized: " ++ message)
-                                        id
-                                        $ S.runGet getTokenIdList returnData
-                            return tokenIdList
-                        _ -> error ("Unexpected status code from calling 'ffiQueryPLTList': " ++ show statusCode)
+  where
+    -- \| Query the list of PLTs in the blob store monad. The function is a wrapper around an FFI call
+    -- to the Rust PLT Scheduler library.
+    queryPLTListInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m') =>
+        -- \| Block state to query.
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        -- \| Callback need for queries.
+        BlockStateQueryCallbacks ->
+        -- \| The list of token ids
+        m' [Types.TokenId]
+    queryPLTListInBlobStoreMonad
+        pltBlockState
+        queryCallbacks =
+            do
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        -- Invoke the ffi call
+                        statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
+                            ffiQueryPLTList
+                                loadCallbackPtr
+                                readTokenAccountBalanceCallbackPtr
+                                getAccountIndexByAddressCallbackPtr
+                                getAccountAddressByIndexCallbackPtr
+                                getTokenAccountStatesCallbackPtr
+                                pltBlockStatePtr
+                                returnDataPtrOutPtr
+                                returnDataLenOutPtr
+                        -- Free the function pointers we have just created
+                        -- (loadCallbackPtr is created in another context,
+                        -- so we should not free it)
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        -- Process the returned status and values returend via out pointers
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        case statusCode of
+                            0 -> do
+                                let getTokenIdList = S.isolate (BS.length returnData) $ CS.getListOf S.get
+                                let tokenIdList =
+                                        either
+                                            (\message -> error $ "Token id list from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getTokenIdList returnData
+                                return tokenIdList
+                            _ -> error ("Unexpected status code from calling 'ffiQueryPLTList': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_plt_list`.
 --
@@ -146,73 +146,70 @@ queryTokenInfo ::
 queryTokenInfo bs tokenId = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
-    BS.liftBlobStore $ queryTokenInfoInBlobStoreMonad pltState queryCallbacks tokenId
-
--- | Get token info for the given token in the given block state. The function is a wrapper around an FFI call
--- to the Rust PLT Scheduler library.
-queryTokenInfoInBlobStoreMonad ::
-    (BlobStore.MonadBlobStore m) =>
-    -- | Block state to query.
-    PLTBlockState.ForeignPLTBlockStatePtr ->
-    -- | Callback need for queries.
-    BlockStateQueryCallbacks ->
-    -- | Token to find token info for.
-    Types.TokenId ->
-    -- | The token info.
-    m (Maybe QueriesTypes.TokenInfo)
-queryTokenInfoInBlobStoreMonad
-    pltBlockState
-    queryCallbacks
-    tokenId =
-        do
-            loadCallbackPtr <- fst <$> BlobStore.getCallbacks
-            liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
-                do
-                    readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
-                    getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
-                    getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
-                    getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
-                    -- Invoke the ffi call
-                    statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
-                        BSS.useAsCStringLen (Types.tokenId tokenId) $ \(tokenIdPtr, tokenIdLen) ->
-                            ffiQueryTokenInfo
-                                loadCallbackPtr
-                                readTokenAccountBalanceCallbackPtr
-                                getAccountIndexByAddressCallbackPtr
-                                getAccountAddressByIndexCallbackPtr
-                                getTokenAccountStatesCallbackPtr
-                                pltBlockStatePtr
-                                (FFI.castPtr tokenIdPtr)
-                                (fromIntegral tokenIdLen)
-                                returnDataPtrOutPtr
-                                returnDataLenOutPtr
-                    -- Free the function pointers we have just created
-                    -- (loadCallbackPtr is created in another context,
-                    -- so we should not free it)
-                    FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
-                    FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
-                    FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
-                    FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                    -- Process the returned status and values returend via out pointers
-                    returnDataLen <- FFI.peek returnDataLenOutPtr
-                    returnDataPtr <- FFI.peek returnDataPtrOutPtr
-                    returnData <-
-                        BS.unsafePackCStringFinalizer
-                            returnDataPtr
-                            (fromIntegral returnDataLen)
-                            (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                    case statusCode of
-                        0 -> do
-                            let getTokenInfo = S.isolate (BS.length returnData) S.get
-                            let tokenInfo =
-                                    either
-                                        (\message -> error $ "Token info from Rust PLT Scheduler could not be deserialized: " ++ message)
-                                        id
-                                        $ S.runGet getTokenInfo returnData
-                            return $ Just tokenInfo
-                        1 -> do
-                            return Nothing
-                        _ -> error ("Unexpected status code from calling 'ffiQueryTokenInfo': " ++ show statusCode)
+    BS.liftBlobStore $ queryTokenInfoInBlobStoreMonad pltState queryCallbacks
+  where
+    -- \| Get token info for the given token in the given block state. The function is a wrapper around an FFI call
+    -- to the Rust PLT Scheduler library.
+    queryTokenInfoInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m') =>
+        -- \| Block state to query.
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        -- \| Callback need for queries.
+        BlockStateQueryCallbacks ->
+        -- \| The token info.
+        m' (Maybe QueriesTypes.TokenInfo)
+    queryTokenInfoInBlobStoreMonad
+        pltBlockState
+        queryCallbacks =
+            do
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        -- Invoke the ffi call
+                        statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
+                            BSS.useAsCStringLen (Types.tokenId tokenId) $ \(tokenIdPtr, tokenIdLen) ->
+                                ffiQueryTokenInfo
+                                    loadCallbackPtr
+                                    readTokenAccountBalanceCallbackPtr
+                                    getAccountIndexByAddressCallbackPtr
+                                    getAccountAddressByIndexCallbackPtr
+                                    getTokenAccountStatesCallbackPtr
+                                    pltBlockStatePtr
+                                    (FFI.castPtr tokenIdPtr)
+                                    (fromIntegral tokenIdLen)
+                                    returnDataPtrOutPtr
+                                    returnDataLenOutPtr
+                        -- Free the function pointers we have just created
+                        -- (loadCallbackPtr is created in another context,
+                        -- so we should not free it)
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        -- Process the returned status and values returend via out pointers
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        case statusCode of
+                            0 -> do
+                                let getTokenInfo = S.isolate (BS.length returnData) S.get
+                                let tokenInfo =
+                                        either
+                                            (\message -> error $ "Token info from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getTokenInfo returnData
+                                return $ Just tokenInfo
+                            1 -> do
+                                return Nothing
+                            _ -> error ("Unexpected status code from calling 'ffiQueryTokenInfo': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_info`.
 --
