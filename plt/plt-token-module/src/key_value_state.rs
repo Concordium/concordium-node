@@ -5,9 +5,8 @@ use crate::util;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::MetadataUrl;
 use concordium_base::{base::AccountIndex, common::Serial};
-use plt_scheduler_interface::token_kernel_interface::{
-    TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
-};
+use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
+use plt_scheduler_interface::token_kernel_interface::{TokenKernelOperations, TokenKernelQueries};
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();

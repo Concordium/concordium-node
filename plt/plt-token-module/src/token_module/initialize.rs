@@ -8,7 +8,7 @@ use concordium_base::common;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleInitializationParameters};
-use plt_scheduler_interface::error::AccountNotFoundByAddressError;
+use plt_block_state::block_state::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::{
     MintWouldOverflowError, TokenKernelOperations, TokenMintError, TokenStateInvariantError,
 };

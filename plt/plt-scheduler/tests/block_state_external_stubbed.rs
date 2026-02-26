@@ -14,24 +14,23 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_scheduler::block_state::blob_store::{BackingStoreLoad, Reference};
-use plt_scheduler::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use plt_scheduler::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
-use plt_scheduler::block_state::{
-    ExecutionTimePltBlockState, PltBlockState, PltBlockStateSavepoint,
+use plt_block_state::block_state::blob_store::{BackingStoreLoad, Reference};
+use plt_block_state::block_state::external::{
+    ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_scheduler::block_state_interface::{
+use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
+use plt_block_state::block_state::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExecutionTimePltBlockState,
+    PltBlockState, PltBlockStateSavepoint,
+};
+use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
 use plt_scheduler::{queries, scheduler};
-use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
-};
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
 /// Block store load stub for tests.

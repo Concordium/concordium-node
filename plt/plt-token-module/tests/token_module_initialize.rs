@@ -9,12 +9,12 @@ use concordium_base::{
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
 };
 use kernel_stub::KernelStub;
-use plt_scheduler_interface::error::AccountNotFoundByAddressError;
+use plt_block_state::block_state::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module::{
     self, TokenAmountDecimalsMismatchError, TokenInitializationError,
 };
-use plt_types::types::tokens::RawTokenAmount;
 
 mod kernel_stub;
 
