@@ -1,23 +1,24 @@
 //! Implementation of the protocol-level token kernel.
 
-use crate::block_state::types::TokenConfiguration;
-use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithCanonicalAddress, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenStateInvariantError,
-    TokenStateKey, TokenStateValue, TokenTransferError,
+use plt_block_state::block_state::types::{
+    AccountWithCanonicalAddress, TokenConfiguration, TokenStateKey, TokenStateValue,
 };
-use plt_types::types::events::{
+use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+};
+use plt_scheduler_interface::token_kernel_interface::{
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
+};
+use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
-use plt_types::types::tokens::{RawTokenAmount, TokenAmount};
+use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount};
 
 /// Implementation of token kernel queries with a specific token in context.
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {

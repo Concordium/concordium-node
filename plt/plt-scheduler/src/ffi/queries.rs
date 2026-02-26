@@ -2,17 +2,17 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
-use crate::ffi::blob_store_callbacks::LoadCallback;
-use crate::ffi::block_state_callbacks::{
+use crate::queries;
+use concordium_base::common;
+use libc::size_t;
+use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
+use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
     GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
     ReadTokenAccountBalanceCallback,
 };
-use crate::ffi::memory;
-use crate::queries;
-use concordium_base::common;
-use libc::size_t;
+use plt_block_state::ffi::memory;
 
 /// C-binding for calling [`queries::plt_list`].
 ///
