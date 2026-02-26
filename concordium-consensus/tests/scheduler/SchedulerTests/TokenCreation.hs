@@ -26,7 +26,6 @@ import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 import Concordium.Types.Queries.Tokens
 import Concordium.Types.Updates
 
-import Concordium.Crypto.ByteStringHelpers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -36,7 +35,6 @@ import Concordium.Scheduler.ProtocolLevelTokens.Queries
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
-import Data.Either
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef
@@ -119,9 +117,13 @@ testCreatePLT _ pvString = describe pvString $ do
                                 [plt1]
                                 pltList
                             assertEqual
-                                ("Token info actual: " ++ show (ShortByteStringHex $ BSS.toShort (tsModuleState (tiTokenState (fromRight undefined tokenInfo))))
-                                   ++ " expected: " ++ show (ShortByteStringHex $ BSS.toShort (tsModuleState (tiTokenState (expectedTokenInfo1)))))
-                                (Right expectedTokenInfo1)
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt1
+                                        (expectModuleState params1)
+                                        (TokenAmount 0 0)
+                                )
                                 tokenInfo
                     }
                 ]
@@ -138,6 +140,7 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt2 st
                         return $ do
                             Helpers.assertSuccessWithEvents
                                 [ TokenCreated{etcPayload = createPLT2},
@@ -148,6 +151,15 @@ testCreatePLT _ pvString = describe pvString $ do
                                 "PLT list"
                                 [plt2]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt2
+                                        (expectModuleState params2)
+                                        (TokenAmount 10 0)
+                                )
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -179,12 +191,29 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1MinimalParameters}] result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt1
+                                        ( expectModuleState
+                                            params1
+                                                { CBOR.tipMintable = Just False,
+                                                  CBOR.tipBurnable = Just False,
+                                                  CBOR.tipDenyList = Just False,
+                                                  CBOR.tipAllowList = Just False
+                                                }
+                                        )
+                                        (TokenAmount 0 0)
+                                )
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -207,6 +236,7 @@ testCreatePLT _ pvString = describe pvString $ do
                     { biaaTransaction = txCreatePLT 1 createPLT1MissingNameParameter,
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
+                        tokenInfo <- queryTokenInfo plt1 st
                         pltList <- queryPLTList st
                         return $ do
                             Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Token name is missing") result
@@ -214,6 +244,10 @@ testCreatePLT _ pvString = describe pvString $ do
                                 "PLT list"
                                 []
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -244,12 +278,17 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Unknown additional parameters: [\"_param1\"]") result
                             assertEqual
                                 "PLT list"
                                 []
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -265,24 +304,39 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt1
+                                        (expectModuleState params1)
+                                        (TokenAmount 0 0)
+                                )
+                                tokenInfo
                     },
                   Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 2 createPLT1,
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt2 st
                         return $ do
                             Helpers.assertUpdateFailureWithReason (DuplicateTokenId plt1) result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -495,6 +549,7 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertUpdateFailureWithReason
                                 (InvalidTokenModuleRef invalidRef)
@@ -503,6 +558,10 @@ testCreatePLT _ pvString = describe pvString $ do
                                 "PLT list"
                                 []
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -565,28 +624,27 @@ testCreatePLT _ pvString = describe pvString $ do
               _cpltInitializationParameters = toTokenParam params2,
               _cpltDecimals = 0
             }
-    expectedTokenInfo1 =
+    expectedTokenInfo tiTokenId tsModuleState tsTotalSupply =
         TokenInfo
-            { tiTokenId = plt1,
-              tiTokenState =
+            { tiTokenState =
                 TokenState
-                    { tsTokenModuleRef = _cpltTokenModule createPLT1,
-                      tsDecimals = _cpltDecimals createPLT1,
-                      tsModuleState = expectModuleState1,
-                      tsTotalSupply = TokenAmount 0 0
-                    }
+                    { tsTokenModuleRef = _cpltTokenModule createPLT2,
+                      tsDecimals = _cpltDecimals createPLT2,
+                      ..
+                    },
+              ..
             }
-    expectModuleState1 =
+    expectModuleState params =
         CBOR.tokenModuleStateToBytes $
             CBOR.TokenModuleState
-                { tmsName = CBOR.tipName params1,
-                  tmsMetadata = CBOR.tipMetadata params1,
-                  tmsGovernanceAccount = CBOR.tipGovernanceAccount params1,
+                { tmsName = CBOR.tipName params,
+                  tmsMetadata = CBOR.tipMetadata params,
+                  tmsGovernanceAccount = CBOR.tipGovernanceAccount params,
                   tmsPaused = Just False,
-                  tmsAllowList = CBOR.tipAllowList params1,
-                  tmsDenyList = CBOR.tipDenyList params1,
-                  tmsMintable = CBOR.tipMintable params1,
-                  tmsBurnable = CBOR.tipBurnable params1,
+                  tmsAllowList = CBOR.tipAllowList params,
+                  tmsDenyList = CBOR.tipDenyList params,
+                  tmsMintable = CBOR.tipMintable params,
+                  tmsBurnable = CBOR.tipBurnable params,
                   tmsAdditional = mempty
                 }
 
