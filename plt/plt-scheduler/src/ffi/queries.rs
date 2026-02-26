@@ -3,6 +3,7 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::queries;
+use crate::queries::QueryTokenInfoError;
 use concordium_base::common;
 use libc::size_t;
 use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
@@ -13,7 +14,6 @@ use plt_block_state::ffi::block_state_callbacks::{
     ReadTokenAccountBalanceCallback,
 };
 use plt_block_state::ffi::memory;
-use crate::queries::QueryTokenInfoError;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///
