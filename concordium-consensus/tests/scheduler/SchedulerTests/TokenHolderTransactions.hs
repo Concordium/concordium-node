@@ -330,7 +330,7 @@ testTransfer _ = property (ioProperty . theTest)
                     CBOR.TokenModuleState
                         { tmsName = CBOR.tipName params,
                           tmsMetadata = CBOR.tipMetadata params,
-                          tmsGovernanceAccount = Just (CBOR.accountTokenHolderShort dummyAddress),
+                          tmsGovernanceAccount = Just (CBOR.accountTokenHolder dummyAddress),
                           tmsPaused = Just tcPaused,
                           tmsAllowList = Just tcAllowList,
                           tmsDenyList = Just tcDenyList,
@@ -477,7 +477,7 @@ testTransfer _ = property (ioProperty . theTest)
                                     assertTokenReject
                                         CBOR.AddressNotFound
                                             { trrOperationIndex = 0,
-                                              trrAddress = actualRecipient
+                                              trrAddress = CBOR.accountTokenHolder actualRecipientAddress
                                             }
                                         result
                                     postCheck False
@@ -494,7 +494,7 @@ testTransfer _ = property (ioProperty . theTest)
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
-                                              trrAddressNotPermitted = Just actualRecipient,
+                                              trrAddressNotPermitted = Just (CBOR.accountTokenHolder actualRecipientAddress),
                                               trrReason = Just "recipient not in allow list"
                                             }
                                         result
@@ -512,7 +512,7 @@ testTransfer _ = property (ioProperty . theTest)
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
-                                              trrAddressNotPermitted = Just actualRecipient,
+                                              trrAddressNotPermitted = Just (CBOR.accountTokenHolder actualRecipientAddress),
                                               trrReason = Just "recipient in deny list"
                                             }
                                         result
