@@ -71,21 +71,21 @@ fn test_allow_list_updates() {
     assert_eq!(state.deny_list, None);
 
     // Verify that the expected events have been logged
-    assert_eq!(stub.events.len(), 2);
+    assert_eq!(stub.events().len(), 2);
     assert_eq!(
-        stub.events[0].0,
+        stub.events()[0].0,
         TokenModuleEventType::AddAllowList.to_type_discriminator()
     );
-    let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events[0].1).unwrap();
+    let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events()[0].1).unwrap();
     assert_eq!(
         add_event.target,
         CborHolderAccount::from(stub.account_address(&target_account))
     );
     assert_eq!(
-        stub.events[1].0,
+        stub.events()[1].0,
         TokenModuleEventType::RemoveAllowList.to_type_discriminator()
     );
-    let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events[1].1).unwrap();
+    let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events()[1].1).unwrap();
     assert_eq!(
         remove_event.target,
         CborHolderAccount::from(stub.account_address(&target_account))
@@ -142,21 +142,21 @@ fn test_deny_list_updates() {
     assert_eq!(state.deny_list, Some(false));
 
     // Verify that the expected events have been logged
-    assert_eq!(stub.events.len(), 2);
+    assert_eq!(stub.events().len(), 2);
     assert_eq!(
-        stub.events[0].0,
+        stub.events()[0].0,
         TokenModuleEventType::AddDenyList.to_type_discriminator()
     );
-    let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events[0].1).unwrap();
+    let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events()[0].1).unwrap();
     assert_eq!(
         add_event.target,
         CborHolderAccount::from(stub.account_address(&target_account))
     );
     assert_eq!(
-        stub.events[1].0,
+        stub.events()[1].0,
         TokenModuleEventType::RemoveDenyList.to_type_discriminator()
     );
-    let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events[1].1).unwrap();
+    let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&stub.events()[1].1).unwrap();
     assert_eq!(
         remove_event.target,
         CborHolderAccount::from(stub.account_address(&target_account))
@@ -193,7 +193,7 @@ fn test_add_allow_list_reject_non_governance() {
         }
     );
 
-    assert!(stub.events.is_empty());
+    assert!(stub.events().is_empty());
     assert!(
         stub.lookup_token_state_value(account_state_key(
             stub.account_index(&target_account),
@@ -239,7 +239,7 @@ fn test_remove_allow_list_reject_non_governance() {
         }
     );
 
-    assert!(stub.events.is_empty());
+    assert!(stub.events().is_empty());
     assert!(
         stub.lookup_token_state_value(account_state_key(
             stub.account_index(&target_account),
@@ -285,7 +285,7 @@ fn test_add_deny_list_reject_non_governance() {
         }
     );
 
-    assert!(stub.events.is_empty());
+    assert!(stub.events().is_empty());
     assert!(
         stub.lookup_token_state_value(account_state_key(
             stub.account_index(&target_account),
@@ -331,7 +331,7 @@ fn test_remove_deny_list_reject_non_governance() {
         }
     );
 
-    assert!(stub.events.is_empty());
+    assert!(stub.events().is_empty());
     assert!(
         stub.lookup_token_state_value(account_state_key(
             stub.account_index(&target_account),

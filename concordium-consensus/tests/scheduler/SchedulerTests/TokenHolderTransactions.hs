@@ -29,12 +29,10 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
 
-import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
-import Data.Singletons
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Data.String

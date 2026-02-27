@@ -1,5 +1,6 @@
 use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
+use concordium_base::protocol_level_tokens::TokenPauseEventDetails;
 use concordium_base::{
     common::cbor,
     protocol_level_tokens::{
@@ -62,17 +63,17 @@ fn test_token_pause_state() {
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(false));
 
-    assert_eq!(stub.events.len(), 2);
+    assert_eq!(stub.events().len(), 2);
     assert_eq!(
-        stub.events[0].0,
+        stub.events()[0].0,
         TokenModuleEventType::Pause.to_type_discriminator()
     );
-    assert!(stub.events[0].1.as_ref().is_empty());
+    let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[0].1).unwrap();
     assert_eq!(
-        stub.events[1].0,
+        stub.events()[1].0,
         TokenModuleEventType::Unpause.to_type_discriminator()
     );
-    assert!(stub.events[1].1.as_ref().is_empty());
+    let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[1].1).unwrap();
 }
 
 /// Accept performing a "pause" operation on a token that is already paused is permitted. This
@@ -112,11 +113,14 @@ fn test_double_pause() {
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(true));
 
-    assert_eq!(stub.events.len(), 3);
-    assert!(stub.events.iter().all(|(event_type, details)| {
-        *event_type == TokenModuleEventType::Pause.to_type_discriminator()
-            && details.as_ref().is_empty()
-    }));
+    assert_eq!(stub.events().len(), 3);
+    for (event_type, details) in stub.events() {
+        assert_eq!(
+            *event_type,
+            TokenModuleEventType::Pause.to_type_discriminator()
+        );
+        let _details: TokenPauseEventDetails = cbor::cbor_decode(details).unwrap();
+    }
 }
 
 /// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
@@ -140,12 +144,12 @@ fn test_redundant_unpause() {
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(false));
 
-    assert_eq!(stub.events.len(), 1);
+    assert_eq!(stub.events().len(), 1);
     assert_eq!(
-        stub.events[0].0,
+        stub.events()[0].0,
         TokenModuleEventType::Unpause.to_type_discriminator()
     );
-    assert!(stub.events[0].1.as_ref().is_empty());
+    let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[0].1).unwrap();
 }
 
 /// Rejects pause operations from non-governance accounts.
@@ -190,7 +194,7 @@ fn test_unauthorized_pause() {
     assert_eq!(state.paused, Some(false));
 
     // and that no events have been logged
-    assert_eq!(stub.events.len(), 0);
+    assert_eq!(stub.events().len(), 0);
 }
 
 /// Rejects unpause operations from non-governance accounts.
@@ -247,7 +251,7 @@ fn test_unauthorized_unpause() {
 
     // and that no _additional_ events have been logged, aside from the one logged by the initial
     // "pause" operation
-    assert_eq!(stub.events.len(), 1);
+    assert_eq!(stub.events().len(), 1);
 }
 
 /// Rejects token update transactions with a "pause" operation and a subsequent operation not
@@ -286,12 +290,12 @@ fn test_pause_multiple_ops() {
     assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
     assert_eq!(stub.circulating_supply(), RawTokenAmount(0));
 
-    assert_eq!(stub.events.len(), 1);
+    assert_eq!(stub.events().len(), 1);
     assert_eq!(
-        stub.events[0].0,
+        stub.events()[0].0,
         TokenModuleEventType::Pause.to_type_discriminator()
     );
-    assert!(stub.events[0].1.as_ref().is_empty());
+    let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[0].1).unwrap();
 }
 
 /// Accepts token update transactions with an "unpause" operation and a subsequent operation not
@@ -336,15 +340,15 @@ fn test_unpause_multiple_ops() {
         RawTokenAmount(1000)
     );
 
-    assert_eq!(stub.events.len(), 2);
+    assert_eq!(stub.events().len(), 2);
     assert_eq!(
-        stub.events[0].0,
+        stub.events()[0].0,
         TokenModuleEventType::Pause.to_type_discriminator()
     );
-    assert!(stub.events[0].1.as_ref().is_empty());
+    let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[0].1).unwrap();
     assert_eq!(
-        stub.events[1].0,
+        stub.events()[1].0,
         TokenModuleEventType::Unpause.to_type_discriminator()
     );
-    assert!(stub.events[1].1.as_ref().is_empty());
+    let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[1].1).unwrap();
 }

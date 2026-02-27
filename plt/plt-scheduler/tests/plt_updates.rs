@@ -12,7 +12,8 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
     TokenListUpdateDetails, TokenListUpdateEventDetails, TokenModuleEventType,
     TokenModuleRejectReason, TokenModuleState, TokenOperation, TokenOperationsPayload,
-    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer, UnsupportedOperationRejectReason,
+    TokenPauseDetails, TokenPauseEventDetails, TokenSupplyUpdateDetails, TokenTransfer,
+    UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_block_state::block_state_interface::BlockStateQuery;
@@ -926,7 +927,7 @@ fn test_plt_pause() {
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
         assert_eq!(event.token_id, token_id);
         assert_eq!(event.event_type, TokenModuleEventType::Pause.to_type_discriminator());
-        assert_eq!(event.details, vec![].into());
+        let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
 
     // Assert paused it set in state
@@ -996,7 +997,7 @@ fn test_plt_unpause() {
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
         assert_eq!(event.token_id, token_id);
         assert_eq!(event.event_type, TokenModuleEventType::Unpause.to_type_discriminator());
-        assert_eq!(event.details, vec![].into());
+        let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
 }
 
