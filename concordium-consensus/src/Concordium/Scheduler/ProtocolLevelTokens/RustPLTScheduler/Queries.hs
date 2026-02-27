@@ -7,6 +7,7 @@
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryPLTList,
     queryTokenInfo,
+    queryTokenAccountInfos,
 ) where
 
 import Control.Monad
@@ -45,15 +46,15 @@ queryPLTList bs = do
     pltState <- BS.getRustPLTBlockState bs
     BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks
   where
-    -- \| Query the list of PLTs in the blob store monad. The function is a wrapper around an FFI call
+    -- Query the list of PLTs in the blob store monad. The function is a wrapper around an FFI call
     -- to the Rust PLT Scheduler library.
     queryPLTListInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
-        -- \| Block state to query.
+        -- Block state to query.
         PLTBlockState.ForeignPLTBlockStatePtr ->
-        -- \| Callback need for queries.
+        -- Callback need for queries.
         BlockStateQueryCallbacks ->
-        -- \| The list of token ids
+        -- The list of token ids
         m' [Types.TokenId]
     queryPLTListInBlobStoreMonad
         pltBlockState
@@ -148,15 +149,15 @@ queryTokenInfo bs tokenId = do
     pltState <- BS.getRustPLTBlockState bs
     BS.liftBlobStore $ queryTokenInfoInBlobStoreMonad pltState queryCallbacks
   where
-    -- \| Get token info for the given token in the given block state. The function is a wrapper around an FFI call
+    -- Get token info for the given token in the given block state. The function is a wrapper around an FFI call
     -- to the Rust PLT Scheduler library.
     queryTokenInfoInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
-        -- \| Block state to query.
+        -- Block state to query.
         PLTBlockState.ForeignPLTBlockStatePtr ->
-        -- \| Callback need for queries.
+        -- Callback need for queries.
         BlockStateQueryCallbacks ->
-        -- \| The token info.
+        -- The token info.
         m' (Maybe QueriesTypes.TokenInfo)
     queryTokenInfoInBlobStoreMonad
         pltBlockState
@@ -246,6 +247,112 @@ foreign import ccall "ffi_query_token_info"
         -- | Status code:
         -- * `0`: the query was successful.
         -- * `1`: token does not exist
+        IO Word.Word8
+
+-- | Get token account infos for a given account, for protocol version where the PLT state is managed in Rust.
+queryTokenAccountInfos ::
+    forall m.
+    (Types.PVSupportsRustManagedPLT (Types.MPV m), BS.BlockStateQuery m) =>
+    -- | Block state to query.
+    BS.BlockState m ->
+    -- | Index of the account to find token account infos for.
+    Types.AccountIndex ->
+    -- | The token account infos.
+    m [QueriesTypes.Token]
+queryTokenAccountInfos bs accountIndex = do
+    queryCallbacks <- unliftBlockStateQueryCallbacks bs
+    pltState <- BS.getRustPLTBlockState bs
+    BS.liftBlobStore $ queryTokenAccountInfosInBlobStoreMonad pltState queryCallbacks
+  where
+    -- Get token account infos for the given account in the given block state. The function is a wrapper around an FFI call
+    -- to the Rust PLT Scheduler library.
+    queryTokenAccountInfosInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m') =>
+        -- Block state to query.
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        -- Callback need for queries.
+        BlockStateQueryCallbacks ->
+        -- The token account infos.
+        m' [QueriesTypes.Token]
+    queryTokenAccountInfosInBlobStoreMonad
+        pltBlockState
+        queryCallbacks =
+            do
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        -- Invoke the ffi call
+                        statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
+                            ffiQueryTokenAccountInfos
+                                loadCallbackPtr
+                                readTokenAccountBalanceCallbackPtr
+                                getAccountIndexByAddressCallbackPtr
+                                getAccountAddressByIndexCallbackPtr
+                                getTokenAccountStatesCallbackPtr
+                                pltBlockStatePtr
+                                (fromIntegral accountIndex)
+                                returnDataPtrOutPtr
+                                returnDataLenOutPtr
+                        -- Free the function pointers we have just created
+                        -- (loadCallbackPtr is created in another context,
+                        -- so we should not free it)
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        -- Process the returned status and values returend via out pointers
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        case statusCode of
+                            0 -> do
+                                let getTokenAccountInfos = S.isolate (BS.length returnData) $ CS.getListOf S.get
+                                let tokenAccountInfos =
+                                        either
+                                            (\message -> error $ "Token account infos from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getTokenAccountInfos returnData
+                                return tokenAccountInfos
+                            _ -> error ("Unexpected status code from calling 'ffiQueryTokenAccountInfos': " ++ show statusCode)
+
+-- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_account_infos`.
+--
+-- Returns a byte representing the result:
+--
+-- - `0`: The query was successful
+--
+-- See the exported function in the Rust code for documentation of safety.
+foreign import ccall "ffi_query_token_account_infos"
+    ffiQueryTokenAccountInfos ::
+        -- | Called to read data from blob store.
+        FFI.LoadCallback ->
+        -- | Called to get the token account balance in the haskell-managed block state.
+        ReadTokenAccountBalanceCallbackPtr ->
+        -- | Called to get account index by account address.
+        GetAccountIndexByAddressCallbackPtr ->
+        -- | Called to get account address by account index.
+        GetAccountAddressByIndexCallbackPtr ->
+        -- | Called to get token account states for account.
+        GetTokenAccountStatesCallbackPtr ->
+        -- | Pointer to the input PLT block state.
+        FFI.Ptr PLTBlockState.RustPLTBlockState ->
+        -- | The account index to get token account infos for.
+        Word.Word64 ->
+        -- | Output location for array containing return data, which is a list of token account infos.
+        -- If the return value is `0`, the data is the serialized list of token account infos.
+        FFI.Ptr (FFI.Ptr Word.Word8) ->
+        -- | Output location for writing the length of the return data.
+        FFI.Ptr FFI.CSize ->
+        -- | Status code:
+        -- * `0`: the query was successful.
         IO Word.Word8
 
 -- | "Unlifts" the callback queries from the 'BlockStateQuery' monad into the IO monad, such that they can
