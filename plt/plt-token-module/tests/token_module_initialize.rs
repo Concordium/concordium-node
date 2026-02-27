@@ -58,6 +58,7 @@ fn test_initialize_token_parameters_missing() {
 fn test_initialize_token_additional_parameter() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
+
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
@@ -68,12 +69,20 @@ fn test_initialize_token_additional_parameter() {
         mintable: Some(true),
         burnable: Some(true),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).into();
+
+    let mut dynamic_parameters: cbor::value::Value =
+        cbor::cbor_decode(cbor::cbor_encode(&parameters)).unwrap();
+    assert_matches!(&mut dynamic_parameters, cbor::value::Value::Map(map) => {
+        map.push((cbor::value::Value::Text("additionalField".to_string()), cbor::value::Value::Text("testvalue1".to_string())));
+    });
+
+    let encoded_parameters = cbor::cbor_encode(&dynamic_parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,
-        Err(TokenInitializationError::InvalidInitializationParameters(err))
-            if err == "Unknown additional parameters: [\"_param1\"]"
+        Err(TokenInitializationError::CborSerialization(err)) => {
+            assert!(err.to_string().contains("unknown map key"), "err: {}", err);
+        }
     );
 }
 
