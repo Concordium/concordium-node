@@ -154,7 +154,6 @@ impl BlockStateWithExternalStateStubbed {
             initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.0, decimals)),
             mintable: params.mintable,
             burnable: params.burnable,
-            additional: Default::default(),
         };
         let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
