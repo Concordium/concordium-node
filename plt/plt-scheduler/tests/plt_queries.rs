@@ -145,7 +145,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     );
     assert_eq!(token_account_infos[0].account_state.balance.decimals, 4);
     let module_state: TokenModuleAccountState =
-        cbor::cbor_decode(&token_account_infos[0].account_state.module_state).unwrap();
+        cbor::cbor_decode(token_account_infos[0].account_state.module_state.as_ref().unwrap()).unwrap();
     assert_eq!(module_state.allow_list, Some(true));
     assert_eq!(module_state.deny_list, None);
 }

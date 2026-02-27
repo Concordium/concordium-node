@@ -39,7 +39,7 @@ pub struct TokenAccountState {
     /// The token balance of the account.
     pub balance: TokenAmount,
     /// The token-module defined state of the account.
-    pub module_state: RawCbor,
+    pub module_state: Option<RawCbor>,
 }
 
 /// State of a protocol level token associated with some account.
@@ -95,7 +95,7 @@ mod test {
     fn token_account_state_fixture() -> TokenAccountState {
         TokenAccountState {
             balance: token_amount_fixture(10),
-            module_state: module_state_fixture(),
+            module_state: Some(module_state_fixture()),
         }
     }
 
@@ -135,7 +135,7 @@ mod test {
         let token_account_state = token_account_state_fixture();
 
         let bytes = common::to_bytes(&token_account_state);
-        assert_eq!(hex::encode(&bytes), "640a00000003010203");
+        assert_eq!(hex::encode(&bytes), "640a0100000003010203");
 
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_account_state, deserialized);
@@ -149,7 +149,7 @@ mod test {
         };
 
         let bytes = common::to_bytes(&token_account_info);
-        assert_eq!(hex::encode(&bytes), "05746f6b656e640a00000003010203");
+        assert_eq!(hex::encode(&bytes), "05746f6b656e640a0100000003010203");
 
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_account_info, deserialized);
