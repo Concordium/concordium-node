@@ -29,13 +29,13 @@ token-admin-role =
     ; Gives authority to perform `token-burn` operations.
     "burn" /
     ; Gives authority to perform `token-add-allow-list` and `token-remove-allow-list` operations.
-    "allowList" /
+    "updateAllowList" /
     ; Gives authority to perform `token-add-deny-list` and `token-remove-deny-list` operations.
-    "denyList" /
+    "updateDenyList" /
     ; Gives authority to perform `token-pause` and `token-unpause` operations.
     "pause" /
     ; Gives authority to perform `token-update-metadata` operations.
-    "metadata"
+    "updateMetadata"
 
 ; Describes the authorizations structure for protocol level tokens.
 token-authorizations = {
