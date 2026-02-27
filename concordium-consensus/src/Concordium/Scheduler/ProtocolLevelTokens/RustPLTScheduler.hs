@@ -346,6 +346,11 @@ executeChainUpdate updateHeader createPLT =
         -- Get current PLT block state
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
 
+        -- Print the current thread for debugging purposes.
+        (_::()) <- BS.liftBlobStore $ liftIO $ do
+            tid <- Conc.myThreadId
+            putStrLn $ "Current thread (Haskell): " ++ show tid
+
         -- Put block state in an MVar to allow callbacks to update it.
         blockStateMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar blockState0
         queryCallbacks <- unliftBlockStateQueryCallbacks blockStateMVar
@@ -609,16 +614,32 @@ unliftBlockStateQueryCallbacks ::
 unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
     do
         let readTokenAccountBalance accountIndex tokenIndex = withMVarNow bsMVar $ \bs -> do
+                -- Print the current thread for debugging purposes.
+                tid <- Conc.myThreadId
+                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 unlift $ BS.getAccountTokenBalance account tokenIndex
             getAccountIndexByAddress accountAddress = withMVarNow bsMVar $ \bs -> do
+                -- Print the current thread for debugging purposes.
+                tid <- Conc.myThreadId
+                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+
                 maybeAccount <- unlift $ BS.bsoGetAccount bs accountAddress
                 return $ fst <$> maybeAccount
             getAccountAddressByIndex accountIndex = withMVarNow bsMVar $ \bs -> do
+                -- Print the current thread for debugging purposes.
+                tid <- Conc.myThreadId
+                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
             getTokenAccountStates accountIndex = withMVarNow bsMVar $ \bs -> do
+                -- Print the current thread for debugging purposes.
+                tid <- Conc.myThreadId
+                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 fmap Map.toList $ unlift $ BS.getAccountTokens account
@@ -636,12 +657,20 @@ unliftBlockStateOperationCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
     do
         let updateTokenAccountBalance accountIndex tokenIndex tokenAmountDelta =
                 modifyMVarNow bsMVar $ \bs -> do
+                    -- Print the current thread for debugging purposes.
+                    tid <- Conc.myThreadId
+                    putStrLn $ "Current thread (operation callback, Haskell): " ++ show tid
+
                     maybeBs1 <- unlift $ BS.bsoUpdateTokenAccountBalance bs tokenIndex accountIndex tokenAmountDelta
                     return $ case maybeBs1 of
                         Just bs1 -> (bs1, Just ())
                         Nothing -> (bs, Nothing)
             incrementPltUpdateSequenceNumber =
                 modifyMVarNow_ bsMVar $ \bs -> do
+                    -- Print the current thread for debugging purposes.
+                    tid <- Conc.myThreadId
+                    putStrLn $ "Current thread (operation callback, Haskell): " ++ show tid
+
                     unlift $ BS.bsoIncrementPLTUpdateSequenceNumber bs
 
         return BlockStateOperationCallbacks{..}
