@@ -252,7 +252,7 @@ extern "C" fn ffi_execute_chain_update(
         "return_data_out is a null pointer."
     );
 
-    println!("Current thread (Rust): {:?}", std::thread::current().id());
+    println!("Current thread (Rust, ffi_execute_chain_update): {:?}", std::thread::current().id());
 
     let external_callbacks = ExternalBlockStateOperationCallbacks {
         queries: ExternalBlockStateQueryCallbacks {

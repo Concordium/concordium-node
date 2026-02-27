@@ -13,6 +13,8 @@ use libc::size_t;
 /// - Argument `len` must be equal to the length AND capacity of the given `Vec`
 #[unsafe(no_mangle)]
 extern "C" fn free_array_len_2(ptr: *mut u8, len: u64) {
+    println!("Current thread (Rust, free_array_len_2): {:?}", std::thread::current().id());
+
     unsafe {
         Vec::from_raw_parts(ptr, len as usize, len as usize);
     }

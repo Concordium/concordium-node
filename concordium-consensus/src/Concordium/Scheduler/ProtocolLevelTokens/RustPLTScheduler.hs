@@ -1,6 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to execute the payload of block items (currently for protocol-level tokens only).
 -- Notice that block item headers are handled outside of the Rust PLT Scheduler.
@@ -40,6 +41,8 @@ import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+
+foreign import ccall unsafe "gettid" c_gettid :: IO FFI.CInt
 
 -- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The trainsaction
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
@@ -210,11 +213,20 @@ executeTransaction depositContext tokenUpdate =
                             usedEnergy <- fromIntegral <$> FFI.peek usedEnergyOutPtr
                             returnDataLen <- FFI.peek returnDataLenOutPtr
                             returnDataPtr <- FFI.peek returnDataPtrOutPtr
+
+                            -- Print the current thread for debugging purposes.
+                            tid <- Conc.myThreadId
+                            putStrLn $ "Current thread (rs_free_array_len_2, Haskell): " ++ show tid
+
                             returnData <-
-                                BS.unsafePackCStringFinalizer
-                                    returnDataPtr
-                                    (fromIntegral returnDataLen)
-                                    (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                                BS.unsafePackCStringLen
+                                    (FFI.castPtr returnDataPtr, fromIntegral returnDataLen)
+
+                            -- returnData <-
+                            --     BS.unsafePackCStringFinalizer
+                            --         returnDataPtr
+                            --         (fromIntegral returnDataLen)
+                            --         (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
                             oucome <- case statusCode of
                                 0 -> do
                                     updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
@@ -243,6 +255,13 @@ executeTransaction depositContext tokenUpdate =
                                                 { terRejectReason = rejectReason
                                                 }
                                 _ -> error ("Unexpected status code from calling 'ffiExecuteTransaction': " ++ show statusCode)
+                            
+                            -- Print the current thread for debugging purposes.
+                            tid2 <- Conc.myThreadId
+                            putStrLn $ "Current thread (rs_free_array_len_2, Haskell): " ++ show tid2
+
+                            Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen)
+
                             return
                                 TransactionExecutionSummary
                                     { tesUsedEnergy = usedEnergy,
@@ -347,9 +366,10 @@ executeChainUpdate updateHeader createPLT =
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
 
         -- Print the current thread for debugging purposes.
-        (_::()) <- BS.liftBlobStore $ liftIO $ do
+        (_ :: ()) <- BS.liftBlobStore $ liftIO $ do
+            osTid <- c_gettid
             tid <- Conc.myThreadId
-            putStrLn $ "Current thread (Haskell): " ++ show tid
+            putStrLn $ "Current thread (Haskell): " ++ show tid ++ " os: " ++ show osTid
 
         -- Put block state in an MVar to allow callbacks to update it.
         blockStateMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar blockState0
@@ -433,11 +453,20 @@ executeChainUpdate updateHeader createPLT =
                             -- Process the returned status and values returned via out pointers
                             returnDataLen <- FFI.peek returnDataLenOutPtr
                             returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                            -- Print the current thread for debugging purposes.
+                            osTid <- c_gettid
+                            tid <- Conc.myThreadId
+                            putStrLn $ "Current thread (Haskell, rs_free_array_len_2 pre): " ++ show tid ++ " os: " ++ show osTid
+
                             returnData <-
-                                BS.unsafePackCStringFinalizer
-                                    returnDataPtr
-                                    (fromIntegral returnDataLen)
-                                    (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                                BS.unsafePackCStringLen
+                                    (FFI.castPtr returnDataPtr, fromIntegral returnDataLen)
+
+                            -- returnData <-
+                            --     BS.unsafePackCStringFinalizer
+                            --         returnDataPtr
+                            --         (fromIntegral returnDataLen)
+                            --         (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
                             case statusCode of
                                 0 -> do
                                     updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
@@ -447,6 +476,14 @@ executeChainUpdate updateHeader createPLT =
                                                 (\message -> error $ "Chain update events from Rust PLT Scheduler could not be deserialized: " ++ message)
                                                 id
                                                 $ S.runGet getEvents returnData
+
+                                    -- Print the current thread for debugging purposes.
+                                    osTid2 <- c_gettid
+                                    tid2 <- Conc.myThreadId
+                                    putStrLn $ "Current thread (Haskell, rs_free_array_len_2): " ++ show tid2 ++ " os: " ++ show osTid2
+        
+                                    Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen)
+
                                     return $
                                         ChainUpdateExecutionOutcomeSuccess $
                                             ChainUpdateExecutionSuccess
@@ -460,6 +497,14 @@ executeChainUpdate updateHeader createPLT =
                                                 (\message -> error $ "Chain update failure kind from Rust PLT Scheduler could not be deserialized: " ++ message)
                                                 id
                                                 $ S.runGet getFailureKind returnData
+
+                                    -- Print the current thread for debugging purposes.
+                                    osTid2 <- c_gettid
+                                    tid2 <- Conc.myThreadId
+                                    putStrLn $ "Current thread (Haskell, rs_free_array_len_2): " ++ show tid2 ++ " os: " ++ show osTid2
+        
+                                    Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen)
+
                                     return $
                                         ChainUpdateExecutionOutcomeFailed $
                                             ChainUpdateExecutionFailed
@@ -615,30 +660,34 @@ unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
     do
         let readTokenAccountBalance accountIndex tokenIndex = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                tid <- Conc.myThreadId
-                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+                osTid2 <- c_gettid
+                tid2 <- Conc.myThreadId
+                putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 unlift $ BS.getAccountTokenBalance account tokenIndex
             getAccountIndexByAddress accountAddress = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                tid <- Conc.myThreadId
-                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+                osTid2 <- c_gettid
+                tid2 <- Conc.myThreadId
+                putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
                 maybeAccount <- unlift $ BS.bsoGetAccount bs accountAddress
                 return $ fst <$> maybeAccount
             getAccountAddressByIndex accountIndex = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                tid <- Conc.myThreadId
-                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+                osTid2 <- c_gettid
+                tid2 <- Conc.myThreadId
+                putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
             getTokenAccountStates accountIndex = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                tid <- Conc.myThreadId
-                putStrLn $ "Current thread (query callback, Haskell): " ++ show tid
+                osTid2 <- c_gettid
+                tid2 <- Conc.myThreadId
+                putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
@@ -658,8 +707,9 @@ unliftBlockStateOperationCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
         let updateTokenAccountBalance accountIndex tokenIndex tokenAmountDelta =
                 modifyMVarNow bsMVar $ \bs -> do
                     -- Print the current thread for debugging purposes.
-                    tid <- Conc.myThreadId
-                    putStrLn $ "Current thread (operation callback, Haskell): " ++ show tid
+                    osTid2 <- c_gettid
+                    tid2 <- Conc.myThreadId
+                    putStrLn $ "Current thread (operation callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
                     maybeBs1 <- unlift $ BS.bsoUpdateTokenAccountBalance bs tokenIndex accountIndex tokenAmountDelta
                     return $ case maybeBs1 of
@@ -668,8 +718,9 @@ unliftBlockStateOperationCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
             incrementPltUpdateSequenceNumber =
                 modifyMVarNow_ bsMVar $ \bs -> do
                     -- Print the current thread for debugging purposes.
-                    tid <- Conc.myThreadId
-                    putStrLn $ "Current thread (operation callback, Haskell): " ++ show tid
+                    osTid2 <- c_gettid
+                    tid2 <- Conc.myThreadId
+                    putStrLn $ "Current thread (operation callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
                     unlift $ BS.bsoIncrementPLTUpdateSequenceNumber bs
 
