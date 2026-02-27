@@ -114,7 +114,7 @@ sequenceDiagram
 
 ### Special case `token-revoke-admin-role {"revokeAdminRole": {"role": "updateAdminRole", ...}}`
 
-Additional validation in performed when the `token-revoke-admin-role` operation is executed with a body specifying revocation of
+Additional validation is performed when the `token-revoke-admin-role` operation is executed with a body specifying revocation of
 the `"updateAdminRole"` role. In the case where the list would be empty as an effect of the operation, the transaction is
 rejected.
 
