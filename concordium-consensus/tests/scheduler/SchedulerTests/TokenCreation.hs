@@ -47,11 +47,7 @@ dummyTokenHolder :: TokenHolder
 dummyTokenHolder = HolderAccount dummyAddress2
 
 dummyCborAccountAddress :: CBOR.CborAccountAddress
-dummyCborAccountAddress =
-    CBOR.CborAccountAddress
-        { chaAccount = dummyAddress2,
-          chaCoinInfo = Nothing
-        }
+dummyCborAccountAddress = CBOR.accountTokenHolder dummyAddress2
 
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
