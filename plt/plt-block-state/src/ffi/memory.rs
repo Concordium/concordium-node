@@ -13,6 +13,8 @@ use libc::size_t;
 /// - Argument `len` must be equal to the length AND capacity of the given `Vec`
 #[unsafe(no_mangle)]
 extern "C" fn free_array_len_2(ptr: *mut u8, len: u64) {
+    println!("Current thread (Rust, free_array_len_2): {:?}", get_macos_tid());
+
     unsafe {
         Vec::from_raw_parts(ptr, len as usize, len as usize);
     }
@@ -53,4 +55,13 @@ pub fn alloc_array_from_vec(mut bytes: Vec<u8>) -> ArrayWithLength {
     );
 
     ArrayWithLength { array, length }
+}
+
+pub fn get_macos_tid() -> u64 {
+    let mut tid: u64 = 0;
+    unsafe {
+        // macOS specific: pthread_threadid_np(NULL, &tid)
+        libc::pthread_threadid_np(0, &mut tid);
+    }
+    tid
 }
