@@ -252,7 +252,7 @@ extern "C" fn ffi_execute_chain_update(
         "return_data_out is a null pointer."
     );
 
-    println!("Current thread (Rust, ffi_execute_chain_update): {:?}", std::thread::current().id());
+    println!("Current thread (Rust, ffi_execute_chain_update): {:?}", memory::get_macos_tid());
 
     let external_callbacks = ExternalBlockStateOperationCallbacks {
         queries: ExternalBlockStateQueryCallbacks {
@@ -300,3 +300,5 @@ extern "C" fn ffi_execute_chain_update(
 
     return_status
 }
+
+

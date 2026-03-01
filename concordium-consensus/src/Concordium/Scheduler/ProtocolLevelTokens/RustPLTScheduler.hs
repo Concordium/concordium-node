@@ -42,7 +42,19 @@ import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
-foreign import ccall unsafe "gettid" c_gettid :: IO FFI.CInt
+-- Int pthread_threadid_np(pthread_t thread, uint64_t *thread_id);
+-- Passing NULL (nullPtr) as the first argument defaults to the current thread.
+foreign import ccall unsafe "pthread_threadid_np" 
+    c_pthread_threadid_np :: FFI.Ptr () -> FFI.Ptr FFI.CULong -> IO FFI.CInt
+
+getMacThreadId :: IO FFI.CULong
+getMacThreadId = FFI.alloca $ \ptr -> do
+    -- We pass nullPtr (0) for the current thread
+    ret <- c_pthread_threadid_np FFI.nullPtr ptr
+    print $ "c_pthread_threadid_np return: " ++ show ret
+    FFI.peek ptr
+
+-- foreign import ccall unsafe "gettid" c_gettid :: IO FFI.CInt
 
 -- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The trainsaction
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
@@ -367,7 +379,7 @@ executeChainUpdate updateHeader createPLT =
 
         -- Print the current thread for debugging purposes.
         (_ :: ()) <- BS.liftBlobStore $ liftIO $ do
-            osTid <- c_gettid
+            osTid <- getMacThreadId
             tid <- Conc.myThreadId
             putStrLn $ "Current thread (Haskell): " ++ show tid ++ " os: " ++ show osTid
 
@@ -454,7 +466,7 @@ executeChainUpdate updateHeader createPLT =
                             returnDataLen <- FFI.peek returnDataLenOutPtr
                             returnDataPtr <- FFI.peek returnDataPtrOutPtr
                             -- Print the current thread for debugging purposes.
-                            osTid <- c_gettid
+                            osTid <- getMacThreadId
                             tid <- Conc.myThreadId
                             putStrLn $ "Current thread (Haskell, rs_free_array_len_2 pre): " ++ show tid ++ " os: " ++ show osTid
 
@@ -478,7 +490,7 @@ executeChainUpdate updateHeader createPLT =
                                                 $ S.runGet getEvents returnData
 
                                     -- Print the current thread for debugging purposes.
-                                    osTid2 <- c_gettid
+                                    osTid2 <- getMacThreadId
                                     tid2 <- Conc.myThreadId
                                     putStrLn $ "Current thread (Haskell, rs_free_array_len_2): " ++ show tid2 ++ " os: " ++ show osTid2
         
@@ -499,7 +511,7 @@ executeChainUpdate updateHeader createPLT =
                                                 $ S.runGet getFailureKind returnData
 
                                     -- Print the current thread for debugging purposes.
-                                    osTid2 <- c_gettid
+                                    osTid2 <- getMacThreadId
                                     tid2 <- Conc.myThreadId
                                     putStrLn $ "Current thread (Haskell, rs_free_array_len_2): " ++ show tid2 ++ " os: " ++ show osTid2
         
@@ -660,7 +672,7 @@ unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
     do
         let readTokenAccountBalance accountIndex tokenIndex = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                osTid2 <- c_gettid
+                osTid2 <- getMacThreadId
                 tid2 <- Conc.myThreadId
                 putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
@@ -669,7 +681,7 @@ unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
                 unlift $ BS.getAccountTokenBalance account tokenIndex
             getAccountIndexByAddress accountAddress = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                osTid2 <- c_gettid
+                osTid2 <- getMacThreadId
                 tid2 <- Conc.myThreadId
                 putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
@@ -677,7 +689,7 @@ unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
                 return $ fst <$> maybeAccount
             getAccountAddressByIndex accountIndex = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                osTid2 <- c_gettid
+                osTid2 <- getMacThreadId
                 tid2 <- Conc.myThreadId
                 putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
@@ -685,7 +697,7 @@ unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
                 forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
             getTokenAccountStates accountIndex = withMVarNow bsMVar $ \bs -> do
                 -- Print the current thread for debugging purposes.
-                osTid2 <- c_gettid
+                osTid2 <- getMacThreadId
                 tid2 <- Conc.myThreadId
                 putStrLn $ "Current thread (query callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
@@ -707,7 +719,7 @@ unliftBlockStateOperationCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
         let updateTokenAccountBalance accountIndex tokenIndex tokenAmountDelta =
                 modifyMVarNow bsMVar $ \bs -> do
                     -- Print the current thread for debugging purposes.
-                    osTid2 <- c_gettid
+                    osTid2 <- getMacThreadId
                     tid2 <- Conc.myThreadId
                     putStrLn $ "Current thread (operation callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
@@ -718,7 +730,7 @@ unliftBlockStateOperationCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
             incrementPltUpdateSequenceNumber =
                 modifyMVarNow_ bsMVar $ \bs -> do
                     -- Print the current thread for debugging purposes.
-                    osTid2 <- c_gettid
+                    osTid2 <- getMacThreadId
                     tid2 <- Conc.myThreadId
                     putStrLn $ "Current thread (operation callbakc, Haskell): " ++ show tid2 ++ " os: " ++ show osTid2
 
