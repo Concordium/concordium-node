@@ -101,7 +101,12 @@ testBB1 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "dca0b796dbfac96e7043942548c9d7cd470226740e2bdc793107de026d423e8d"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "dca0b796dbfac96e7043942548c9d7cd470226740e2bdc793107de026d423e8d"
+                        SP8 -> read "9edf091441b19468d82a637c270472b0474592f3089e56415e4982351b095d35"
+                        SP9 -> read "ad588c91476f5865dabf2ffe9b6954c924479aa0a2ef4057a5b79dbc110b1219"
+                        SP10 -> read "5272b398aa5ade5ef14c6be41d586537f5212d96ea609b414bf2051e0c3780f7"
+                        SP11 -> read "5272b398aa5ade5ef14c6be41d586537f5212d96ea609b414bf2051e0c3780f7"
                     }
         }
   where
@@ -130,7 +135,12 @@ testBB2 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "3812ac3fa24c5676ea40c5879d9e88cd60e8af79d6ad7847c59df0880baacd01"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "3812ac3fa24c5676ea40c5879d9e88cd60e8af79d6ad7847c59df0880baacd01"
+                        SP8 -> read "7ead7edff60ac23771f15052278304e3e2c9186826439ec7d04e28e55676f41b"
+                        SP9 -> read "29d974384b047eaa8cb5b809dd37e9fe617e046ad22b7f9dbe605cdac9cf8e40"
+                        SP10 -> read "29d974384b047eaa8cb5b809dd37e9fe617e046ad22b7f9dbe605cdac9cf8e40"
+                        SP11 -> read "29d974384b047eaa8cb5b809dd37e9fe617e046ad22b7f9dbe605cdac9cf8e40"
                     }
         }
   where
@@ -159,7 +169,12 @@ testBB3 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "cad9520a6cfac6e3f08a75394d68dcfbb9fa1a857d79e0048be5c7752ca72907"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "cad9520a6cfac6e3f08a75394d68dcfbb9fa1a857d79e0048be5c7752ca72907"
+                        SP8 -> read "c8b3fc868c79703945638c709c9e2d03b67c3f70b023aac8ae5b980b41181726"
+                        SP9 -> read "0282c255df3cb95180050ae3ee8838c0ab303fa7fe4e5e754ecf5d4c8db5152a"
+                        SP10 -> read "0282c255df3cb95180050ae3ee8838c0ab303fa7fe4e5e754ecf5d4c8db5152a"
+                        SP11 -> read "0282c255df3cb95180050ae3ee8838c0ab303fa7fe4e5e754ecf5d4c8db5152a"
                     }
         }
   where
@@ -212,7 +227,12 @@ testBB2' =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "c97b0cc90e29c62eb0e094696ef38891799360c0a89ad69b418205ab3b15b17a"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "c97b0cc90e29c62eb0e094696ef38891799360c0a89ad69b418205ab3b15b17a"
+                        SP8 -> read "3abd796108d6fdcdf8c4361973d7152973cad3695b58b0c92a4e5021c0f80e33"
+                        SP9 -> read "e10fe99a06aec8675f442ef0232ff0af9106ad6f5845335513603bcb4f3ff707"
+                        SP10 -> read "0182d9155fb80b22fa43b8f7e1d9da389209bfa27340ec5a823a3f587e4455f9"
+                        SP11 -> read "0182d9155fb80b22fa43b8f7e1d9da389209bfa27340ec5a823a3f587e4455f9"
                     }
         }
   where
@@ -241,7 +261,12 @@ testBB3' =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "f14475f1014ff13d2acf98f56a8f01823c1ae52ae01d53a8004f0e728c538357"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "f14475f1014ff13d2acf98f56a8f01823c1ae52ae01d53a8004f0e728c538357"
+                        SP8 -> read "9e46988a9afd8470e25c33f2133d2c10cbb38050979957f200b4aca072e3c932"
+                        SP9 -> read "075e1732e475a84b89f1ba89c06d58df7d7e42936dc16e0cf3d8b02dacf27c52"
+                        SP10 -> read "2a9b336c419c9e64dc7db6735a297119649c4b579ac4d32ac58e1ab09302d17c"
+                        SP11 -> read "2a9b336c419c9e64dc7db6735a297119649c4b579ac4d32ac58e1ab09302d17c"
                     }
         }
   where
@@ -268,7 +293,12 @@ testBB4 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "9f757ba3e2fb79512a3c199fbd8b6c0a45eaef0fd3a5cc6a3ca78cf8f7ae18a6"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "9f757ba3e2fb79512a3c199fbd8b6c0a45eaef0fd3a5cc6a3ca78cf8f7ae18a6"
+                        SP8 -> read "5bdf447992d82321a921bca9eeb6211bf3a290029164976885cf6b2fd14d923c"
+                        SP9 -> read "ff90510a80285645170b5ff4614af366de2d8898e2bee111cae61e05ad640ada"
+                        SP10 -> read "ff90510a80285645170b5ff4614af366de2d8898e2bee111cae61e05ad640ada"
+                        SP11 -> read "ff90510a80285645170b5ff4614af366de2d8898e2bee111cae61e05ad640ada"
                     }
         }
   where
@@ -295,7 +325,12 @@ testBB5 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "aca6161199f608947b265a048fd6dc404d31424a2a2a86d42be42310f6fd22a0"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "aca6161199f608947b265a048fd6dc404d31424a2a2a86d42be42310f6fd22a0"
+                        SP8 -> read "e704583a45aec569aca9039e977d9a3a7c2db8bdfd650532182600b6a19cbb70"
+                        SP9 -> read "6ad235a2db0349340044197b9c23da565f6bf4dd1ad40b89eab5bae7bcab0997"
+                        SP10 -> read "6ad235a2db0349340044197b9c23da565f6bf4dd1ad40b89eab5bae7bcab0997"
+                        SP11 -> read "6ad235a2db0349340044197b9c23da565f6bf4dd1ad40b89eab5bae7bcab0997"
                     }
         }
   where

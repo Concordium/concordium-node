@@ -411,6 +411,24 @@ catchupWithTwoTimeoutsAtEndResponse _ =
                             }
         assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
+hashesRound4Block :: SProtocolVersion pv -> DerivableBlockHashes pv
+hashesRound4Block sProtocolVersion = case sBlockHashVersionFor sProtocolVersion of
+    SBlockHashVersion0 ->
+        DerivableBlockHashesV0
+            { dbhv0TransactionOutcomesHash = emptyBlockTOHV1 3,
+              dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+            }
+    SBlockHashVersion1 ->
+        DerivableBlockHashesV1
+            { dbhv1BlockResultHash = case sProtocolVersion of
+                SP7 -> read "1a40cf446d0ad26c9cebf35e008c37685a3823e33b930b7d5dbbefffae411232"
+                SP8 -> read "c94306ddccb29ec5fe49846257de5a52a4ee132f74ed2152863416456f6b7df8"
+                spv
+                    | TestBlocks.blockResultHashAsP9 spv ->
+                        read "93837fbd7183afca6f32723f44f13f68a980b30e832ff93b5ed1c7a5e19ecdaa"
+                spv -> TestBlocks.dummyBRH spv 0xc04
+            }
+
 catchupWithTwoBranchesResponse ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
@@ -443,16 +461,7 @@ catchupWithTwoBranchesResponse sProtocolVersion =
                               bbEpochFinalizationEntry = Absent,
                               bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 4 (TestBlocks.bakerVRFKey sProtocolVersion (3 :: Int)),
                               bbTransactions = Vec.empty,
-                              bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
-                                SBlockHashVersion0 ->
-                                    DerivableBlockHashesV0
-                                        { dbhv0TransactionOutcomesHash = emptyBlockTOHV1 3,
-                                          dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
-                                        }
-                                SBlockHashVersion1 ->
-                                    DerivableBlockHashesV1
-                                        { dbhv1BlockResultHash = read "1a40cf446d0ad26c9cebf35e008c37685a3823e33b930b7d5dbbefffae411232"
-                                        }
+                              bbDerivableHashes = hashesRound4Block sProtocolVersion
                             }
         TestBlocks.succeedReceiveBlock b4
         -- There is one current timeout message and one current quorum message
@@ -578,16 +587,7 @@ testMakeCatchupStatus sProtocolVersion =
                                     4
                                     (TestBlocks.bakerVRFKey sProtocolVersion (3 :: Int)),
                               bbTransactions = Vec.empty,
-                              bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
-                                SBlockHashVersion0 ->
-                                    DerivableBlockHashesV0
-                                        { dbhv0TransactionOutcomesHash = emptyBlockTOHV1 3,
-                                          dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
-                                        }
-                                SBlockHashVersion1 ->
-                                    DerivableBlockHashesV1
-                                        { dbhv1BlockResultHash = read "1a40cf446d0ad26c9cebf35e008c37685a3823e33b930b7d5dbbefffae411232"
-                                        }
+                              bbDerivableHashes = hashesRound4Block sProtocolVersion
                             }
         TestBlocks.succeedReceiveBlock b4
         -- There is one current timeout message and one current quorum message

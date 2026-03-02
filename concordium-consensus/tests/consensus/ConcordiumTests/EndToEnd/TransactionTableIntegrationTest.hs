@@ -70,7 +70,12 @@ testBB1 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "796f0c4a934152c4f5a233d5120dbf1dd13370f3499af37c88b4ebf0601983b6"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "796f0c4a934152c4f5a233d5120dbf1dd13370f3499af37c88b4ebf0601983b6"
+                        SP8 -> read "6f02a3e339abab1af9d23bc74369b6e142ad3b09f4d7042d16e076e225e3753f"
+                        SP9 -> read "27ad830abd9d1f456f2a1666365ffff1fb216911d8dab2fbae5d3ad701816733"
+                        SP10 -> read "5634a54bfdfb954205b78129c93236fba97b3190ad3fa412b4e2ffbaad6e7324"
+                        SP11 -> read "5634a54bfdfb954205b78129c93236fba97b3190ad3fa412b4e2ffbaad6e7324"
                     }
         }
   where
@@ -99,7 +104,12 @@ testBB2 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "c3585a5c1f76d7a8fa587b52c077fce936bd2c6f865afadd50068a61ea52d42e"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "c3585a5c1f76d7a8fa587b52c077fce936bd2c6f865afadd50068a61ea52d42e"
+                        SP8 -> read "b0c8b7a3872b7bb35a9df1f620e47f2b7dad09889b29772d7bc03d713cff862d"
+                        SP9 -> read "3017ca78e30e5bfc25a15849c07b1266c46185340b909e26aee439ddc694af7b"
+                        SP10 -> read "3017ca78e30e5bfc25a15849c07b1266c46185340b909e26aee439ddc694af7b"
+                        SP11 -> read "3017ca78e30e5bfc25a15849c07b1266c46185340b909e26aee439ddc694af7b"
                     }
         }
   where
@@ -128,7 +138,12 @@ testBB3 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "a29f1403de7350e5791d985de61183c093c3e138ff81695908529ff876dbe49d"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "a29f1403de7350e5791d985de61183c093c3e138ff81695908529ff876dbe49d"
+                        SP8 -> read "8adf29ed11f4784b4b32dbf84887ff9f5dd38ef2f78dbefe579822b48acd9e51"
+                        SP9 -> read "8935d7fb4c2906ecf1e10b225e319fb39933ca7b0970b93084e4b7b6b01a8dca"
+                        SP10 -> read "8935d7fb4c2906ecf1e10b225e319fb39933ca7b0970b93084e4b7b6b01a8dca"
+                        SP11 -> read "8935d7fb4c2906ecf1e10b225e319fb39933ca7b0970b93084e4b7b6b01a8dca"
                     }
         }
   where
@@ -156,7 +171,12 @@ testBB4 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "9c2f41bb1e9ef0636bf67fe35755e2cc56be0c8e9a6e8b41defbdc7d1cdb945b"
+                    { dbhv1BlockResultHash = case sProtocolVersion of
+                        SP7 -> read "9c2f41bb1e9ef0636bf67fe35755e2cc56be0c8e9a6e8b41defbdc7d1cdb945b"
+                        SP8 -> read "487c4bdf8af054727f0688bd8a7176f6c2a9c85dffc5d8acc1de23e0c3b6ef49"
+                        SP9 -> read "fe5c4a3c4943440c34a72884ccf178af8f7b2043f0179b6bbf554574bb4ba581"
+                        SP10 -> read "7ccdea365c8283b97af6b5d00fedc17853e84021dcbf1417c34fefbfe7736091"
+                        SP11 -> read "7ccdea365c8283b97af6b5d00fedc17853e84021dcbf1417c34fefbfe7736091"
                     }
         }
   where
