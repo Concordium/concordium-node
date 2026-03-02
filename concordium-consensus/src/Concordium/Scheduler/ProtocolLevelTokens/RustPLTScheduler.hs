@@ -16,13 +16,13 @@ import Control.Monad.Except
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import Data.Functor
 import qualified Data.IORef as IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
 import qualified Foreign.C.Types as FFI
-import Data.Functor
 import Lens.Micro
 
 import qualified Concordium.Types as Types
@@ -39,7 +39,6 @@ import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
-
 
 -- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The trainsaction
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.

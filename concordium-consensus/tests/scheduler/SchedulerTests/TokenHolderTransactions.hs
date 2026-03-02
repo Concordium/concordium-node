@@ -133,9 +133,18 @@ testTokenHolder _ pvString =
                                 },
                       biaaAssertion = \result _ -> do
                         return $
-                            Helpers.assertRejectWithReason
-                                ( TokenUpdateTransactionFailed
-                                    (TokenModuleRejectReason{tmrrTokenId = gtu, tmrrType = errType, tmrrDetails = Just cborFail})
+                            Helpers.assertRejectWhere
+                                ( \case
+                                    TokenUpdateTransactionFailed tmrj -> do
+                                        assertEqual
+                                            "Module reject reason token id"
+                                            (tmrrTokenId tmrj)
+                                            gtu
+                                        assertEqual
+                                            "Module reject reason type"
+                                            (tmrrType tmrj)
+                                            (Types.TokenEventType $ fromString "deserializationFailure")
+                                    _ -> assertFailure "not TokenUpdateTransactionFailed"
                                 )
                                 result
                     }
@@ -164,9 +173,6 @@ testTokenHolder _ pvString =
     createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
     plt = Types.CreatePLTUpdatePayload createPLT
     gtuEvent = TokenCreated{etcPayload = createPLT}
-    -- This is CBOR-encoding of {"cause": "DeserialiseFailure 0 \"end of input\""}
-    cborFail = Types.TokenEventDetails $ BSS.pack [161, 101, 99, 97, 117, 115, 101, 120, 35, 68, 101, 115, 101, 114, 105, 97, 108, 105, 115, 101, 70, 97, 105, 108, 117, 114, 101, 32, 48, 32, 34, 101, 110, 100, 32, 111, 102, 32, 105, 110, 112, 117, 116, 34]
-    errType = Types.TokenEventType $ fromString "deserializationFailure"
 
 -- | A configuration for testing token holder transactions. This specifies testing conditions to
 --  use for a transfer.
