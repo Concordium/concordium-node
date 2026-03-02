@@ -46,6 +46,9 @@ use std::{
     },
 };
 
+const LOW_CAPACITY_OUT_BOUND_QUEUE_SIZE: usize = 1500;
+const HIGH_CAPACITY_OUT_BOUND_QUEUE_SIZE: usize = 500;
+
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back.
@@ -321,14 +324,38 @@ pub enum ConnChange {
     RemoveAllByTokens(Vec<Token>),
 }
 
+pub struct FixedSizeDeque<T> {
+    inner: VecDeque<T>,
+}
+
+impl<T> FixedSizeDeque<T> {
+    pub fn new(size: usize) -> Self {
+        Self {
+            inner: VecDeque::with_capacity(size),
+        }
+    }
+    pub fn pop_front(&mut self) -> Option<T> {
+        self.inner.pop_front()
+    }
+
+    pub fn push_back(&mut self, value: T) -> Result<(), anyhow::Error> {
+        if self.inner.len() == self.inner.capacity() {
+            Err(anyhow::anyhow!("FixedSizeDeque has reached its size limit"))
+        } else {
+            self.inner.push_back(value);
+            Ok(())
+        }
+    }
+}
+
 /// Message queues, indexed by priority.
 pub struct MessageQueues {
-    pub low: VecDeque<Arc<[u8]>>,
-    pub high: VecDeque<Arc<[u8]>>,
+    pub low: FixedSizeDeque<Arc<[u8]>>,
+    pub high: FixedSizeDeque<Arc<[u8]>>,
 }
 
 impl Index<MessageSendingPriority> for MessageQueues {
-    type Output = VecDeque<Arc<[u8]>>;
+    type Output = FixedSizeDeque<Arc<[u8]>>;
 
     fn index(&self, priority: MessageSendingPriority) -> &Self::Output {
         match priority {
@@ -347,18 +374,28 @@ impl IndexMut<MessageSendingPriority> for MessageQueues {
     }
 }
 
+impl Default for MessageQueues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessageQueues {
     /// Create queues with the specified initial capacities.
-    pub fn new(low_capacity: usize, high_capacity: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            low: VecDeque::with_capacity(low_capacity),
-            high: VecDeque::with_capacity(high_capacity),
+            low: FixedSizeDeque::new(LOW_CAPACITY_OUT_BOUND_QUEUE_SIZE),
+            high: FixedSizeDeque::new(HIGH_CAPACITY_OUT_BOUND_QUEUE_SIZE),
         }
     }
 
     /// Add a message to the queue with the appropriate priority.
-    pub fn enqueue(&mut self, priority: MessageSendingPriority, message: Arc<[u8]>) {
-        self[priority].push_back(message);
+    pub fn enqueue(
+        &mut self,
+        priority: MessageSendingPriority,
+        message: Arc<[u8]>,
+    ) -> Result<(), anyhow::Error> {
+        self[priority].push_back(message)
     }
 
     /// Dequeue a message, taking from the high priority queue first.
@@ -453,7 +490,7 @@ impl Connection {
             low_level,
             remote_end_networks: Default::default(),
             stats,
-            pending_messages: MessageQueues::new(1024, 128),
+            pending_messages: MessageQueues::new(),
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
@@ -652,8 +689,12 @@ impl Connection {
 
     /// Queues a message to be sent to the connection.
     #[inline]
-    pub fn async_send(&mut self, message: Arc<[u8]>, priority: MessageSendingPriority) {
-        self.pending_messages.enqueue(priority, message);
+    pub fn async_send(
+        &mut self,
+        message: Arc<[u8]>,
+        priority: MessageSendingPriority,
+    ) -> Result<(), anyhow::Error> {
+        self.pending_messages.enqueue(priority, message)
     }
 
     /// Update the timestamp of when the connection was seen last.
@@ -726,7 +767,13 @@ impl Connection {
         ping.serialize(&mut serialized)?;
         self.stats.notify_ping();
 
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
+        if self
+            .async_send(Arc::from(serialized), MessageSendingPriority::High)
+            .is_err()
+        {
+            self.handler
+                .register_conn_change(ConnChange::RemovalByToken(self.token()));
+        };
 
         Ok(())
     }
@@ -738,7 +785,14 @@ impl Connection {
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
         let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
+
+        if self
+            .async_send(Arc::from(serialized), MessageSendingPriority::High)
+            .is_err()
+        {
+            self.handler
+                .register_conn_change(ConnChange::RemovalByToken(self.token()));
+        };
 
         Ok(())
     }
@@ -802,7 +856,14 @@ impl Connection {
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
-            self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
+
+            if self
+                .async_send(Arc::from(serialized), MessageSendingPriority::Normal)
+                .is_err()
+            {
+                self.handler
+                    .register_conn_change(ConnChange::RemovalByToken(self.token()));
+            };
 
             Ok(())
         } else {

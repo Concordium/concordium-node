@@ -1,6 +1,6 @@
 //! Peer handling.
 
-use crate::connection::MessageSendingPriority;
+use crate::connection::{ConnChange, MessageSendingPriority};
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, PeerStats, PeerType},
     netmsg,
@@ -104,7 +104,13 @@ impl P2PNode {
         let data: Arc<[u8]> = Arc::from(buf);
         for conn in write_or_die!(self.connections()).values_mut() {
             conn.get_peers_list_semaphore.add_permits(1);
-            conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
+
+            if conn
+                .async_send(Arc::clone(&data), MessageSendingPriority::Normal)
+                .is_err()
+            {
+                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+            };
         }
     }
 

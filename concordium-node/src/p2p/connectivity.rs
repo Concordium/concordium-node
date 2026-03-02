@@ -72,8 +72,14 @@ impl P2PNode {
             .values_mut()
             .filter(|conn| conn_filter(conn))
         {
-            conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
-            sent_messages += 1;
+            if conn
+                .async_send(Arc::clone(&data), MessageSendingPriority::Normal)
+                .is_err()
+            {
+                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+            } else {
+                sent_messages += 1;
+            }
         }
         sent_messages
     }
