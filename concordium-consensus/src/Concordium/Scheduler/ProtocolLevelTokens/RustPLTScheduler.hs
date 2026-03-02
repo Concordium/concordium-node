@@ -111,7 +111,7 @@ executeTransaction depositContext tokenUpdate =
         -- Get current PLT block state
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
 
-        -- Put block state in an MVar to allow callbacks to update it.
+        -- Put block state in an IORef to allow callbacks to update it.
         blockStateIORef <- BS.liftBlobStore $ liftIO $ IORef.newIORef blockState0
         queryCallbacks <- unliftBlockStateQueryCallbacks blockStateIORef
         operationCallbacks <- unliftBlockStateOperationCallbacks blockStateIORef
@@ -128,7 +128,7 @@ executeTransaction depositContext tokenUpdate =
                     (depositContext ^. EI.wtcSenderAddress)
                     remainingEnergy
 
-        -- Get block state from MVar and set the updated PLT block state if operation was successful.
+        -- Get block state from IORef and set the updated PLT block state if operation was successful.
         forM outcome $ \pltBlockState1 -> do
             blockState1 <- BS.liftBlobStore $ liftIO $ IORef.readIORef blockStateIORef
             BS.bsoSetRustPLTBlockState blockState1 pltBlockState1
