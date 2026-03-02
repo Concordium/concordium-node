@@ -14,7 +14,7 @@ use std::{
     cmp,
     collections::VecDeque,
     convert::TryInto,
-    io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{Cursor, ErrorKind, IoSlice, Read, Seek, SeekFrom, Write},
     mem,
     sync::{Arc, Weak},
 };
@@ -119,13 +119,13 @@ pub struct ConnectionLowLevel {
     pub socket: TcpStream,
     noise_session: NoiseSession,
     noise_buffer: Box<[u8]>,
-    /// Buffer used for writing data to the socket.
-    socket_write_buffer: Box<[u8]>,
     /// Buffer used for reading data from the socket.
     socket_read_buffer: SocketBuffer,
     incoming_msg: IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
+    /// The desired size of a single write to the socket.
+    write_size: usize,
     /// Whether the socket is writable.
     is_writable: bool,
     /// Whether the socket has been initialized
@@ -191,10 +191,10 @@ impl ConnectionLowLevel {
             socket,
             noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
-            socket_write_buffer: vec![0u8; write_size].into_boxed_slice(),
             socket_read_buffer: SocketBuffer::new(read_size),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
+            write_size,
             is_writable: false,
             is_initialized: false,
             so_linger,
@@ -543,8 +543,8 @@ impl ConnectionLowLevel {
 
     /// Enqueue a message to be written to the socket.
     #[inline]
-    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> anyhow::Result<()> {
-        self.encrypt_and_enqueue(&input)
+    pub fn write_to_socket(&mut self, input: &[u8]) -> anyhow::Result<()> {
+        self.encrypt_and_enqueue(input)
     }
 
     /// Writes enequeued bytes to the socket until the queue is exhausted
@@ -567,21 +567,10 @@ impl ConnectionLowLevel {
     /// Writes a single batch of enqueued bytes to the socket.
     #[inline]
     fn flush_socket_once(&mut self) -> anyhow::Result<usize> {
-        let write_buffer = &mut self.socket_write_buffer;
-
-        let write_size = cmp::min(write_buffer.len(), self.output_queue.len());
-
         let (front, back) = self.output_queue.as_slices();
 
-        let front_len = cmp::min(front.len(), write_size);
-        write_buffer[..front_len].copy_from_slice(&front[..front_len]);
-
-        let back_len = write_size - front_len;
-        if back_len > 0 {
-            write_buffer[front_len..][..back_len].copy_from_slice(&back[..back_len]);
-        }
-
-        let written = match self.socket.write(&write_buffer[..write_size]) {
+        let bufs = [IoSlice::new(front), IoSlice::new(back)];
+        let written = match self.socket.write_vectored(&bufs) {
             Ok(num_bytes) => num_bytes,
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 self.is_writable = false;
@@ -663,6 +652,6 @@ impl ConnectionLowLevel {
     /// Get the desired socket write size.
     #[inline]
     fn write_size(&self) -> usize {
-        self.socket_write_buffer.len()
+        self.write_size
     }
 }

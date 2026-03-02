@@ -704,7 +704,7 @@ pub struct ConnectionConfig {
     pub dedup_size_short: usize,
     #[structopt(
         long = "socket-write-size",
-        help = "The desired size of single socket writes; must be no bigger than socket_read_size",
+        help = "The desired size of single socket writes",
         default_value = "16384",
         env = "CONCORDIUM_NODE_CONNECTION_SOCKET_WRITE_SIZE"
     )]
@@ -1038,11 +1038,6 @@ pub fn parse_config() -> anyhow::Result<Config> {
     ensure!(
         conf.connection.socket_read_size >= 65535,
         "Socket read size must be set to at least 65535"
-    );
-
-    ensure!(
-        conf.connection.socket_read_size >= conf.connection.socket_write_size,
-        "Socket read size must be greater or equal to the write size"
     );
 
     ensure!(

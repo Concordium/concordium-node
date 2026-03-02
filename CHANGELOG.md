@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug where incorrect data could be read from a peer when backpressure is applied, resulting in a ban.
+
 # 10.0.6
 
 - Prohibit peers from sending unsolicited PeerList messages
