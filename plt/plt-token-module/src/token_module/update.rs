@@ -7,8 +7,8 @@ use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
     TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
-    TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleEventType,
-    TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
+    TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleRejectReason, TokenOperation,
+    TokenPauseEventDetails, TokenSupplyUpdateDetails, TokenTransfer,
     UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
@@ -475,8 +475,8 @@ fn execute_token_pause<
 
     key_value_state::set_paused(kernel, true);
 
-    let event_type = TokenModuleEventType::Pause.to_type_discriminator();
-    kernel.log_token_event(event_type, vec![].into());
+    let (event_type, details) = TokenModuleEvent::Pause(TokenPauseEventDetails {}).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }
 
@@ -491,8 +491,8 @@ fn execute_token_unpause<
 
     key_value_state::set_paused(kernel, false);
 
-    let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
-    kernel.log_token_event(event_type, vec![].into());
+    let (event_type, details) = TokenModuleEvent::Unpause(TokenPauseEventDetails {}).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }
 

@@ -47,7 +47,7 @@ pub struct KernelStub {
         RawTokenAmount,
         Option<Memo>,
     )>,
-    pub events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
+    events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
 }
 
 /// Internal representation of an Account in [`KernelStub`].
@@ -194,6 +194,7 @@ impl KernelStub {
         self.circulating_supply
     }
 
+    /// Pop (from front) transfer registered in stub.
     pub fn pop_transfer(
         &mut self,
     ) -> Option<(
@@ -203,6 +204,11 @@ impl KernelStub {
         Option<Memo>,
     )> {
         self.transfers.pop_front()
+    }
+
+    /// Get events registered in stub.
+    pub fn events(&self) -> &[(TokenModuleCborTypeDiscriminator, RawCbor)] {
+        &self.events
     }
 }
 

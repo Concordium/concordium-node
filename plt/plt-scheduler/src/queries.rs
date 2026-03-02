@@ -11,7 +11,7 @@ use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
-pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
+pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
     block_state.plt_list().collect()
 }
 
@@ -98,7 +98,7 @@ where
 
             let account_state = TokenAccountState {
                 balance,
-                module_state,
+                module_state: Some(module_state),
             };
 
             TokenAccountInfo {

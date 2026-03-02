@@ -34,7 +34,7 @@ fn test_query_plt_list() {
     let token_id1 = stub.state().token_configuration(&token1).token_id;
     let token_id2 = stub.state().token_configuration(&token2).token_id;
 
-    let plts = queries::plt_list(stub.state());
+    let plts = queries::query_plt_list(stub.state());
     assert_eq!(plts, vec![token_id1, token_id2]);
 }
 
@@ -144,8 +144,14 @@ fn test_query_token_account_info_allow_list_no_balance() {
         RawTokenAmount(0)
     );
     assert_eq!(token_account_infos[0].account_state.balance.decimals, 4);
-    let module_state: TokenModuleAccountState =
-        cbor::cbor_decode(&token_account_infos[0].account_state.module_state).unwrap();
+    let module_state: TokenModuleAccountState = cbor::cbor_decode(
+        token_account_infos[0]
+            .account_state
+            .module_state
+            .as_ref()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(module_state.allow_list, Some(true));
     assert_eq!(module_state.deny_list, None);
 }

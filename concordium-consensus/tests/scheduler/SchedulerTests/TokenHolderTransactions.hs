@@ -29,14 +29,12 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
 
-import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
-import Data.Singletons
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
@@ -332,7 +330,7 @@ testTransfer _ = property (ioProperty . theTest)
                     CBOR.TokenModuleState
                         { tmsName = CBOR.tipName params,
                           tmsMetadata = CBOR.tipMetadata params,
-                          tmsGovernanceAccount = Just (CBOR.accountTokenHolderShort dummyAddress),
+                          tmsGovernanceAccount = Just (CBOR.accountTokenHolder dummyAddress),
                           tmsPaused = Just tcPaused,
                           tmsAllowList = Just tcAllowList,
                           tmsDenyList = Just tcDenyList,
@@ -479,7 +477,7 @@ testTransfer _ = property (ioProperty . theTest)
                                     assertTokenReject
                                         CBOR.AddressNotFound
                                             { trrOperationIndex = 0,
-                                              trrAddress = actualRecipient
+                                              trrAddress = CBOR.accountTokenHolder actualRecipientAddress
                                             }
                                         result
                                     postCheck False
@@ -496,7 +494,7 @@ testTransfer _ = property (ioProperty . theTest)
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
-                                              trrAddressNotPermitted = Just actualRecipient,
+                                              trrAddressNotPermitted = Just (CBOR.accountTokenHolder actualRecipientAddress),
                                               trrReason = Just "recipient not in allow list"
                                             }
                                         result
@@ -514,7 +512,7 @@ testTransfer _ = property (ioProperty . theTest)
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
-                                              trrAddressNotPermitted = Just actualRecipient,
+                                              trrAddressNotPermitted = Just (CBOR.accountTokenHolder actualRecipientAddress),
                                               trrReason = Just "recipient in deny list"
                                             }
                                         result
@@ -1056,19 +1054,15 @@ tests =
                 Helpers.forEveryProtocolVersion testCases
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-    testCases spv pvString = do
+    testCases spv pvString =
         case sSupportsPLT (sAccountVersionFor spv) of
-            -- todo enable tests as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
-            STrue -> unless
-                (fromSing spv == P11)
-                $ describe pvString
-                $ do
-                    testTokenHolder spv pvString
-                    it "PLT transfers" $ withMaxSuccess 500 $ testTransfer spv
-                    it "Pause/unpause" $ testPauseUnpause spv
-                    describe "Mint/burn" $ do
-                        it "mint enabled, burn enabled" $ testMintBurn spv True True
-                        it "mint enabled, burn disabled" $ testMintBurn spv True False
-                        it "mint disabled, burn enabled" $ testMintBurn spv False True
-                        it "mint disabled, burn disabled" $ testMintBurn spv False False
+            STrue -> describe pvString $ do
+                testTokenHolder spv pvString
+                it "PLT transfers" $ withMaxSuccess 500 $ testTransfer spv
+                it "Pause/unpause" $ testPauseUnpause spv
+                describe "Mint/burn" $ do
+                    it "mint enabled, burn enabled" $ testMintBurn spv True True
+                    it "mint enabled, burn disabled" $ testMintBurn spv True False
+                    it "mint disabled, burn enabled" $ testMintBurn spv False True
+                    it "mint disabled, burn disabled" $ testMintBurn spv False False
             SFalse -> return ()

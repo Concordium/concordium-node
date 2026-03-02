@@ -2680,8 +2680,7 @@ handleTokenUpdate ::
     m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTokenUpdate depositContext tokenId tokenOperations = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateV0 -> handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations
-    -- todo implement as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
-    SPLTStateV1 -> undefined
+    SPLTStateV1 -> RustScheduler.executeTransaction depositContext (TokenUpdate tokenId tokenOperations)
 
 -- | Handler for a token update transaction, for protocol version where PLT state is managed in Haskell.
 handleTokenUpdateHaskellManaged ::
