@@ -36,6 +36,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Data.String
+import SchedulerTests.Helpers (assertSuccess)
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
@@ -49,13 +50,6 @@ dummyAddress = Helpers.accountAddressFromSeed 1
 
 dummyAddress2 :: AccountAddress
 dummyAddress2 = Helpers.accountAddressFromSeed 2
-
-dummyCborAccountAddress :: CBOR.CborAccountAddress
-dummyCborAccountAddress =
-    CBOR.CborAccountAddress
-        { chaAccount = dummyAddress2,
-          chaCoinInfo = Nothing
-        }
 
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
@@ -77,19 +71,17 @@ initialBlockState =
           dummyAccount2
         ]
 
--- | Test the following sequence of operations:
---   - Attempt a token holder transaction for a non-existent token (TokenId: GTU). (Fails: non-existent token)
---   - Create a token with the TokenId GTU. (Succeeds)
---   - Attempt a token holder transaction for GTU. (Fails: CBOR deserialization)
-testTokenHolder ::
+-- | Test attempt a token holder transaction for a non-existent token (TokenId: GTU). (Fails: non-existent token)
+testNonExistingToken ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testTokenHolder _ pvString =
-    specify (pvString ++ ": Token holder operations") $ do
-        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+testNonExistingToken _ pvString =
+    specify (pvString ++ ": Non-existing token") $ do
+        let gtu = Types.TokenId $ fromString "Gtu"
+            transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
                     { biaaTransaction =
@@ -105,15 +97,53 @@ testTokenHolder _ pvString =
                                 },
                       biaaAssertion = \result _ -> do
                         return $ Helpers.assertRejectWithReason (NonExistentTokenId gtu) result
-                    },
-                  Helpers.BlockItemAndAssertion
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+
+-- | Test CBOR deserialization failure of token update operations.
+testDeserializationFailure ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testDeserializationFailure _ pvString =
+    specify (pvString ++ ": CBOR deserialization failure") $ do
+        let govAcct = CBOR.accountTokenHolder dummyAddress
+            gtu = Types.TokenId $ fromString "Gtu"
+            gtu2 = Types.TokenId $ fromString "gtU"
+            params =
+                CBOR.TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+                      tipGovernanceAccount = Just govAcct,
+                      tipAllowList = Just True,
+                      tipDenyList = Just False,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Just True,
+                      tipBurnable = Just True,
+                      tipAdditional = Map.empty
+                    }
+            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
+            createPLTPayload = Types.CreatePLTUpdatePayload createPLT
+            gtuEvent = TokenCreated{etcPayload = createPLT}
+
+            transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
                     { biaaTransaction =
                         Runner.ChainUpdateTx $
                             Runner.ChainUpdateTransaction
                                 { ctSeqNumber = 1,
                                   ctEffectiveTime = 0,
                                   ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
-                                  ctPayload = plt,
+                                  ctPayload = createPLTPayload,
                                   ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
                                 },
                       biaaAssertion = \result _ -> do
@@ -128,7 +158,7 @@ testTokenHolder _ pvString =
                                         { tuTokenId = gtu2,
                                           tuOperations = Types.TokenParameter BSS.empty
                                         },
-                                  metadata = makeDummyHeader dummyAddress 2 1_000,
+                                  metadata = makeDummyHeader dummyAddress 1 1_000,
                                   keys = [(0, [(0, dummyKP)])]
                                 },
                       biaaAssertion = \result _ -> do
@@ -154,25 +184,290 @@ testTokenHolder _ pvString =
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
-  where
-    gtu = Types.TokenId $ fromString "Gtu"
-    gtu2 = Types.TokenId $ fromString "gtU"
-    params =
-        CBOR.TokenInitializationParameters
-            { tipName = Just "Protocol-level token",
-              tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = Just dummyCborAccountAddress,
-              tipAllowList = Just True,
-              tipDenyList = Just False,
-              tipInitialSupply = Nothing,
-              tipMintable = Just True,
-              tipBurnable = Just True,
-              tipAdditional = Map.empty
-            }
-    tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
-    createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
-    plt = Types.CreatePLTUpdatePayload createPLT
-    gtuEvent = TokenCreated{etcPayload = createPLT}
+
+-- | Test two operations in a single transaction.
+testTwoOperations ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testTwoOperations _ pvString =
+    specify (pvString ++ ": Two operations in a transaction") $ do
+        let
+            govAcct = CBOR.accountTokenHolder dummyAddress
+            recptAcct = CBOR.accountTokenHolder dummyAddress2
+            gtu = Types.TokenId $ fromString "Gtu"
+            params =
+                CBOR.TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+                      tipGovernanceAccount = Just govAcct,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
+                      tipInitialSupply = Just $ TokenAmount 150 0,
+                      tipMintable = Just False,
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
+                    }
+            paramsEncoded = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 paramsEncoded
+            createPLTPayload = Types.CreatePLTUpdatePayload createPLT
+            testOps =
+                mkOps $
+                    CBOR.TokenUpdateTransaction $
+                        Seq.fromList
+                            [ CBOR.TokenTransfer $
+                                CBOR.TokenTransferBody
+                                    { ttAmount = TokenAmount 10 0,
+                                      ttRecipient = recptAcct,
+                                      ttMemo = Nothing
+                                    },
+                              CBOR.TokenTransfer $
+                                CBOR.TokenTransferBody
+                                    { ttAmount = TokenAmount 90 0,
+                                      ttRecipient = recptAcct,
+                                      ttMemo = Nothing
+                                    }
+                            ]
+            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+
+            transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.ChainUpdateTx $
+                            Runner.ChainUpdateTransaction
+                                { ctSeqNumber = 1,
+                                  ctEffectiveTime = 0,
+                                  ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
+                                  ctPayload = createPLTPayload,
+                                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
+                                },
+                      biaaAssertion = \result _ -> do
+                        return $
+                            Helpers.assertSuccessWithEvents
+                                [ TokenCreated{etcPayload = createPLT},
+                                  TokenMint
+                                    { etmTokenId = gtu,
+                                      etmTarget = HolderAccount dummyAddress,
+                                      etmAmount = TokenAmount 150 0
+                                    }
+                                ]
+                                result
+                    },
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TokenUpdate
+                                        { tuTokenId = gtu,
+                                          tuOperations = testOps
+                                        },
+                                  metadata = makeDummyHeader dummyAddress 1 1_000,
+                                  keys = [(0, [(0, dummyKP)])]
+                                },
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        senderIndex <- fromJust <$> BS.getAccount st dummyAddress
+                        destIndex <- fromJust <$> BS.getAccount st dummyAddress2
+                        senderTokens <- queryAccountTokens senderIndex st
+                        destTokens <- queryAccountTokens destIndex st
+                        return $ do
+                            assertEqual
+                                "Sender tokens after rollback"
+                                senderTokens
+                                [ Token
+                                    { tokenAccountState =
+                                        TokenAccountState
+                                            { moduleAccountState =
+                                                Just . CBOR.tokenModuleAccountStateToBytes $
+                                                    CBOR.TokenModuleAccountState
+                                                        { tmasDenyList = Nothing,
+                                                          tmasAllowList = Nothing,
+                                                          tmasAdditional = mempty
+                                                        },
+                                              balance = TokenAmount 50 0
+                                            },
+                                      tokenId = gtu
+                                    }
+                                ]
+                            assertEqual
+                                "Recipient tokens after rollback"
+                                destTokens
+                                [ Token
+                                    { tokenAccountState =
+                                        TokenAccountState
+                                            { moduleAccountState =
+                                                Just . CBOR.tokenModuleAccountStateToBytes $
+                                                    CBOR.TokenModuleAccountState
+                                                        { tmasDenyList = Nothing,
+                                                          tmasAllowList = Nothing,
+                                                          tmasAdditional = mempty
+                                                        },
+                                              balance = TokenAmount 100 0
+                                            },
+                                      tokenId = gtu
+                                    }
+                                ]
+                            Helpers.assertSuccessWithEvents
+                                [ TokenTransfer
+                                    { ettTokenId = gtu,
+                                      ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
+                                      ettTo =  HolderAccount $ CBOR.chaAccount recptAcct,
+                                      ettAmount = TokenAmount 10 0,
+                                      ettMemo = Nothing
+                                    },
+                                     TokenTransfer
+                                    { ettTokenId = gtu,
+                                      ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
+                                      ettTo =  HolderAccount $ CBOR.chaAccount recptAcct,
+                                      ettAmount = TokenAmount 90 0,
+                                      ettMemo = Nothing
+                                    }
+                                ]
+                                result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+
+-- | Test that if an operation in a transaction fails, then preceding operations are
+-- rolled back.
+testRollback ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testRollback _ pvString =
+    specify (pvString ++ ": State rollback") $ do
+        let mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+            govAcct = CBOR.accountTokenHolder dummyAddress
+            recptAcct = CBOR.accountTokenHolder dummyAddress2
+            gtu = Types.TokenId $ fromString "Gtu"
+            params =
+                CBOR.TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+                      tipGovernanceAccount = Just govAcct,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
+                      tipInitialSupply = Just $ TokenAmount 150 0,
+                      tipMintable = Just False,
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
+                    }
+            paramsEncoded = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 paramsEncoded
+            createPLTPayload = Types.CreatePLTUpdatePayload createPLT
+            testOps =
+                mkOps $
+                    CBOR.TokenUpdateTransaction $
+                        Seq.fromList
+                            [ CBOR.TokenTransfer $
+                                CBOR.TokenTransferBody
+                                    { ttAmount = TokenAmount 100 0,
+                                      ttRecipient = recptAcct,
+                                      ttMemo = Nothing
+                                    },
+                              CBOR.TokenTransfer $
+                                CBOR.TokenTransferBody
+                                    { ttAmount = TokenAmount 200 0,
+                                      ttRecipient = recptAcct,
+                                      ttMemo = Nothing
+                                    }
+                            ]
+            assertTokenReject trr =
+                Helpers.assertRejectWithReason
+                    . TokenUpdateTransactionFailed
+                    . makeTokenModuleRejectReason gtu
+                    . CBOR.encodeTokenRejectReason
+                    $ trr
+
+            transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.ChainUpdateTx $
+                            Runner.ChainUpdateTransaction
+                                { ctSeqNumber = 1,
+                                  ctEffectiveTime = 0,
+                                  ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
+                                  ctPayload = createPLTPayload,
+                                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
+                                },
+                      biaaAssertion = \result _ -> do
+                        return $
+                            Helpers.assertSuccessWithEvents
+                                [ TokenCreated{etcPayload = createPLT},
+                                  TokenMint
+                                    { etmTokenId = gtu,
+                                      etmTarget = HolderAccount dummyAddress,
+                                      etmAmount = TokenAmount 150 0
+                                    }
+                                ]
+                                result
+                    },
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TokenUpdate
+                                        { tuTokenId = gtu,
+                                          tuOperations = testOps
+                                        },
+                                  metadata = makeDummyHeader dummyAddress 1 1_000,
+                                  keys = [(0, [(0, dummyKP)])]
+                                },
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        senderIndex <- fromJust <$> BS.getAccount st dummyAddress
+                        destIndex <- fromJust <$> BS.getAccount st dummyAddress2
+                        senderTokens <- queryAccountTokens senderIndex st
+                        destTokens <- queryAccountTokens destIndex st
+                        return $ do
+                            assertEqual
+                                "Sender tokens after rollback"
+                                senderTokens
+                                [ Token
+                                    { tokenAccountState =
+                                        TokenAccountState
+                                            { moduleAccountState =
+                                                Just . CBOR.tokenModuleAccountStateToBytes $
+                                                    CBOR.TokenModuleAccountState
+                                                        { tmasDenyList = Nothing,
+                                                          tmasAllowList = Nothing,
+                                                          tmasAdditional = mempty
+                                                        },
+                                              balance = TokenAmount 150 0
+                                            },
+                                      tokenId = gtu
+                                    }
+                                ]
+                            assertEqual
+                                "Recipient tokens after rollback"
+                                destTokens
+                                []
+                            assertTokenReject
+                                CBOR.TokenBalanceInsufficient
+                                    { trrOperationIndex = 1,
+                                      trrRequiredBalance = TokenAmount 200 0,
+                                      trrAvailableBalance = TokenAmount 50 0
+                                    }
+                                result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
 
 -- | A configuration for testing token holder transactions. This specifies testing conditions to
 --  use for a transfer.
@@ -1063,7 +1358,10 @@ tests =
     testCases spv pvString =
         case sSupportsPLT (sAccountVersionFor spv) of
             STrue -> describe pvString $ do
-                testTokenHolder spv pvString
+                testNonExistingToken spv pvString
+                testDeserializationFailure spv pvString
+                testTwoOperations spv pvString
+                testRollback spv pvString
                 it "PLT transfers" $ withMaxSuccess 500 $ testTransfer spv
                 it "Pause/unpause" $ testPauseUnpause spv
                 describe "Mint/burn" $ do
