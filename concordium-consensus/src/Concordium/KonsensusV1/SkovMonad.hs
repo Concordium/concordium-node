@@ -278,11 +278,6 @@ deriving via
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => ForeignLowLevelBlockStateQuery (SkovV1T pv m)
-
-deriving via
-    (PersistentBlockStateMonadHelper pv m)
-    instance
         (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateOperations (SkovV1T pv m)
 
 deriving via
@@ -476,10 +471,6 @@ deriving via
     (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
     instance
         (IsProtocolVersion pv) => BlockStateQuery (InitMonad pv)
-deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
-    instance
-        (IsProtocolVersion pv) => ForeignLowLevelBlockStateQuery (InitMonad pv)
 deriving via
     (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
     instance

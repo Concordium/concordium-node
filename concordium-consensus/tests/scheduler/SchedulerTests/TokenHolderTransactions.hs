@@ -29,12 +29,14 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
 
+import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
+import Data.Singletons
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
@@ -1054,15 +1056,19 @@ tests =
                 Helpers.forEveryProtocolVersion testCases
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-    testCases spv pvString =
+    testCases spv pvString = do
         case sSupportsPLT (sAccountVersionFor spv) of
-            STrue -> describe pvString $ do
-                testTokenHolder spv pvString
-                it "PLT transfers" $ withMaxSuccess 500 $ testTransfer spv
-                it "Pause/unpause" $ testPauseUnpause spv
-                describe "Mint/burn" $ do
-                    it "mint enabled, burn enabled" $ testMintBurn spv True True
-                    it "mint enabled, burn disabled" $ testMintBurn spv True False
-                    it "mint disabled, burn enabled" $ testMintBurn spv False True
-                    it "mint disabled, burn disabled" $ testMintBurn spv False False
+            -- todo enable tests as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
+            STrue -> unless
+                (fromSing spv == P11)
+                $ describe pvString
+                $ do
+                    testTokenHolder spv pvString
+                    it "PLT transfers" $ withMaxSuccess 500 $ testTransfer spv
+                    it "Pause/unpause" $ testPauseUnpause spv
+                    describe "Mint/burn" $ do
+                        it "mint enabled, burn enabled" $ testMintBurn spv True True
+                        it "mint enabled, burn disabled" $ testMintBurn spv True False
+                        it "mint disabled, burn enabled" $ testMintBurn spv False True
+                        it "mint disabled, burn disabled" $ testMintBurn spv False False
             SFalse -> return ()

@@ -5,6 +5,7 @@
 -- Each foreign function definition must match the definitions of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks (
     BlockStateQueryCallbacks (..),
+    BlockStateOperationCallbacks (..),
     ReadTokenAccountBalance,
     ReadTokenAccountBalanceCallbackPtr,
     wrapReadTokenAccountBalance,
@@ -26,6 +27,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallb
 ) where
 
 import qualified Data.ByteString.Unsafe as BS
+import Data.Maybe
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
@@ -46,6 +48,13 @@ data BlockStateQueryCallbacks = BlockStateQueryCallbacks
       getAccountIndexByAddress :: GetAccountIndexByAddress,
       getAccountAddressByIndex :: GetAccountAddressByIndex,
       getTokenAccountStates :: GetTokenAccountStates
+    }
+
+-- | Block state operation callbacks. These are used by the Rust PLT Scheduler library to
+-- perform operations on the part of the block state that is maintained by Haskell.
+data BlockStateOperationCallbacks = BlockStateOperationCallbacks
+    { updateTokenAccountBalance :: UpdateTokenAccountBalance,
+      incrementPltUpdateSequenceNumber :: IncrementPltUpdateSequenceNumber
     }
 
 -- | Callback function for reading a token account balance.
@@ -97,8 +106,8 @@ type UpdateTokenAccountBalance =
     Tokens.TokenIndex ->
     -- | The change to account balance.
     AccountTokens.TokenAmountDelta ->
-    -- | Status code, where 'False' represents a balance overflow.
-    IO Bool
+    -- | Status code, where 'Nothing' represents a balance overflow.
+    IO (Maybe ())
 
 -- | Internal helper function for mapping the 'UpdateTokenAccountBalance' into the more
 -- low-level function pointer which can be passed in FFI.
@@ -113,8 +122,8 @@ wrapUpdateTokenAccountBalance func =
                     0 -> AccountTokens.TokenAmountDelta $ -fromIntegral amount
                     1 -> AccountTokens.TokenAmountDelta $ fromIntegral amount
                     _ -> error ("Boolean argument must be 0 or 1, was " ++ (show addAmount))
-        overflow <- func (fromIntegral accountIndex) (fromIntegral tokenIndex) amountDelta
-        return $ if overflow then 1 else 0
+        result <- func (fromIntegral accountIndex) (fromIntegral tokenIndex) amountDelta
+        return $ if isJust result then 0 else 1
 
 -- | Callback function for updating a token account balance.
 --

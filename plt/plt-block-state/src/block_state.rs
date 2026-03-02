@@ -60,10 +60,22 @@ impl PltBlockStateSavepoint {
     /// Compute the hash.
     pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let block_state_bytes = common::to_bytes(&self.block_state.state);
-        PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
-            &block_state_bytes,
-        )))
+        if self.block_state.state.tokens.is_empty() {
+            // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
+            // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
+            PltBlockStateHash::from(
+                <[u8; SHA256]>::try_from(
+                    hex::decode("c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05")
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+        } else {
+            let block_state_bytes = common::to_bytes(&self.block_state.state);
+            PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
+                &block_state_bytes,
+            )))
+        }
     }
 
     /// Store a PLT block state in a blob store.

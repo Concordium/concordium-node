@@ -24,8 +24,8 @@ smartContractEngineCrateRelative = "../concordium-base/smart-contracts/wasm-chai
 -- | Path to plt rust workspace relative to this file.
 pltWorkspaceRelative = "../plt"
 
-preConfHook :: Args -> ConfigFlags -> IO HookedBuildInfo
-preConfHook args flags = do
+postConfHook :: Args -> ConfigFlags -> PackageDescription -> LocalBuildInfo -> IO ()
+postConfHook args flags _ _ = do
     let verbosity = fromFlag $ configVerbosity flags
 
     -- Convert relative paths into absolute paths.
@@ -58,7 +58,7 @@ preConfHook args flags = do
         _ -> do
             runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
             runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.so " ++ libraryDestination
-    return emptyHookedBuildInfo
+    return ()
 
 -- | On Windows, copy the DLL files to the binary install directory. This is to ensure that they
 -- are accessible when running the binaries, tests and benchmarks.
@@ -81,6 +81,6 @@ postCopyHook _ flags pkgDescr lbi = case buildOS of
 main =
     defaultMainWithHooks $
         simpleUserHooks
-            { preConf = preConfHook,
+            { postConf = postConfHook,
               postCopy = postCopyHook
             }

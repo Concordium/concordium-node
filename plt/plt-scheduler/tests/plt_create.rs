@@ -14,7 +14,7 @@ use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
-use plt_scheduler_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 use plt_token_module::TOKEN_MODULE_REF;
 
 mod block_state_external_stubbed;
@@ -139,7 +139,7 @@ fn test_plt_create_with_minting() {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount.amount, RawTokenAmount(5000));
         assert_eq!(mint.amount.decimals, 4);
-        assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
+        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
     });
 }
 
