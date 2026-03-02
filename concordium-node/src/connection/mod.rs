@@ -46,8 +46,8 @@ use std::{
     },
 };
 
-const LOW_CAPACITY_OUT_BOUND_QUEUE_SIZE: usize = 1500;
-const HIGH_CAPACITY_OUT_BOUND_QUEUE_SIZE: usize = 500;
+const LOW_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 1500;
+const HIGH_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 1000;
 
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
@@ -324,11 +324,15 @@ pub enum ConnChange {
     RemoveAllByTokens(Vec<Token>),
 }
 
-pub struct FixedSizeDeque<T> {
+/// A fixed in capacity double-ended queue implemented with a ring buffer.
+/// The capacity is set at construction time and will never grow/shrink.
+/// Attempts to push elements beyond the configured capacity will return an error.
+pub struct FixedCapacityDeque<T> {
     inner: VecDeque<T>,
 }
 
-impl<T> FixedSizeDeque<T> {
+impl<T> FixedCapacityDeque<T> {
+    /// Creates the queue with the specified capacity.
     pub fn new(size: usize) -> Self {
         Self {
             inner: VecDeque::with_capacity(size),
@@ -338,9 +342,10 @@ impl<T> FixedSizeDeque<T> {
         self.inner.pop_front()
     }
 
+    /// Attempts to push elements beyond the configured capacity will return an error.
     pub fn push_back(&mut self, value: T) -> Result<(), anyhow::Error> {
         if self.inner.len() == self.inner.capacity() {
-            Err(anyhow::anyhow!("FixedSizeDeque has reached its size limit"))
+            Err(anyhow::anyhow!("FixedCapacityDeque has reached its capacity limit and cannot push another element to the back of the deque"))
         } else {
             self.inner.push_back(value);
             Ok(())
@@ -350,12 +355,14 @@ impl<T> FixedSizeDeque<T> {
 
 /// Message queues, indexed by priority.
 pub struct MessageQueues {
-    pub low: FixedSizeDeque<Arc<[u8]>>,
-    pub high: FixedSizeDeque<Arc<[u8]>>,
+    // A fixed in capacity double-ended queue for low priority messages.
+    pub low: FixedCapacityDeque<Arc<[u8]>>,
+    // A fixed in capacity double-ended queue for high priority messages.
+    pub high: FixedCapacityDeque<Arc<[u8]>>,
 }
 
 impl Index<MessageSendingPriority> for MessageQueues {
-    type Output = FixedSizeDeque<Arc<[u8]>>;
+    type Output = FixedCapacityDeque<Arc<[u8]>>;
 
     fn index(&self, priority: MessageSendingPriority) -> &Self::Output {
         match priority {
@@ -381,11 +388,11 @@ impl Default for MessageQueues {
 }
 
 impl MessageQueues {
-    /// Create queues with the specified initial capacities.
+    /// Create queues with fixed capacity.
     pub fn new() -> Self {
         Self {
-            low: FixedSizeDeque::new(LOW_CAPACITY_OUT_BOUND_QUEUE_SIZE),
-            high: FixedSizeDeque::new(HIGH_CAPACITY_OUT_BOUND_QUEUE_SIZE),
+            low: FixedCapacityDeque::new(LOW_PRIORITY_OUT_BOUND_QUEUE_SIZE),
+            high: FixedCapacityDeque::new(HIGH_PRIORITY_OUT_BOUND_QUEUE_SIZE),
         }
     }
 
