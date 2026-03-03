@@ -882,7 +882,7 @@ impl Connection {
                 self
             );
 
-            self.low_level.write_to_socket(msg.clone())?;
+            self.low_level.write_to_socket(&msg)?;
 
             self.handler
                 .connection_handler
