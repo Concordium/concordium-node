@@ -72,8 +72,18 @@ impl P2PNode {
             .values_mut()
             .filter(|conn| conn_filter(conn))
         {
-            conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
-            sent_messages += 1;
+            if conn
+                .pending_messages
+                .enqueue(MessageSendingPriority::Low, Arc::clone(&data))
+                .is_err()
+            {
+                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+                warn!(
+                    "Dropping connection to peer {conn}: low-priority outbound message queue full"
+                );
+            } else {
+                sent_messages += 1;
+            }
         }
         sent_messages
     }
@@ -84,7 +94,8 @@ impl P2PNode {
 
         for conn in write_or_die!(self.connections()).values_mut() {
             if let Err(e) = conn.send_ping() {
-                error!("Can't send a ping to {}: {}", conn, e);
+                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+                warn!("Dropping connection to peer {conn}: failed to send ping message: {e}");
             }
         }
     }
