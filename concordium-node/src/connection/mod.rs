@@ -46,7 +46,11 @@ use std::{
     },
 };
 
-const LOW_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 1500;
+/// Size of low priority outbound queue.
+/// Connected peers are dropped when the outbound queue to the peer has pilled up messages beyond that size.
+const LOW_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 2500;
+/// Size of high priority outbound queue.
+/// Connected peers are dropped when the outbound queue to the peer has pilled up messages beyond that size.
 const HIGH_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 1000;
 
 /// Designates the sending priority of outgoing messages.
@@ -55,8 +59,8 @@ const HIGH_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 1000;
 #[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum MessageSendingPriority {
     /// Queued FIFO-style.
-    Normal,
-    /// Sent before all `Normal` messages.
+    Low,
+    /// Sent before all `Low` messages.
     High,
 }
 
@@ -366,7 +370,7 @@ impl Index<MessageSendingPriority> for MessageQueues {
 
     fn index(&self, priority: MessageSendingPriority) -> &Self::Output {
         match priority {
-            MessageSendingPriority::Normal => &self.low,
+            MessageSendingPriority::Low => &self.low,
             MessageSendingPriority::High => &self.high,
         }
     }
@@ -375,7 +379,7 @@ impl Index<MessageSendingPriority> for MessageQueues {
 impl IndexMut<MessageSendingPriority> for MessageQueues {
     fn index_mut(&mut self, priority: MessageSendingPriority) -> &mut Self::Output {
         match priority {
-            MessageSendingPriority::Normal => &mut self.low,
+            MessageSendingPriority::Low => &mut self.low,
             MessageSendingPriority::High => &mut self.high,
         }
     }
@@ -776,15 +780,14 @@ impl Connection {
         let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
 
-        if let Err(e) = self
+        if self
             .pending_messages
             .enqueue(MessageSendingPriority::High, Arc::from(serialized))
+            .is_err()
         {
             self.handler
                 .register_conn_change(ConnChange::RemovalByToken(self.token()));
-            trace!(
-                "Dropping connection to peer {self}: failed to enqueue `Priority::High` message: {e}"
-            );
+            warn!("Dropping connection to peer {self}: high-priority outbound message queue full");
         }
 
         Ok(())
@@ -850,13 +853,16 @@ impl Connection {
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
 
-            if let Err(e) = self
+            if self
                 .pending_messages
-                .enqueue(MessageSendingPriority::Normal, Arc::from(serialized))
+                .enqueue(MessageSendingPriority::Low, Arc::from(serialized))
+                .is_err()
             {
                 self.handler
                     .register_conn_change(ConnChange::RemovalByToken(self.token()));
-                trace!("Dropping connection to peer {self}: failed to enqueue `Priority::Normal` message: {e}");
+                warn!(
+                    "Dropping connection to peer {self}: low-priority outbound message queue full"
+                );
             };
 
             Ok(())

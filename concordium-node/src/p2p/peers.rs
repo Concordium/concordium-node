@@ -105,12 +105,15 @@ impl P2PNode {
         for conn in write_or_die!(self.connections()).values_mut() {
             conn.get_peers_list_semaphore.add_permits(1);
 
-            if let Err(e) = conn
+            if conn
                 .pending_messages
-                .enqueue(MessageSendingPriority::Normal, Arc::clone(&data))
+                .enqueue(MessageSendingPriority::Low, Arc::clone(&data))
+                .is_err()
             {
                 self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
-                trace!("Dropping connection to peer {conn}: failed to enqueue `Priority::Normal` message: {e}");
+                warn!(
+                    "Dropping connection to peer {conn}: low-priority outbound message queue full"
+                );
             };
         }
     }
