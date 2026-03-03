@@ -1,8 +1,12 @@
 //! Interface/context for transaction execution.
 
-use crate::error::OutOfEnergyError;
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
+
+/// Transaction execution ran out of energy.
+#[derive(Debug, thiserror::Error)]
+#[error("Execution out of energy")]
+pub struct OutOfEnergyError;
 
 /// Operations and context related to transaction execution. This is the abstraction
 /// seen in the transaction execution logic in the scheduler and in the token module.

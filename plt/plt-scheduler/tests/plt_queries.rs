@@ -1,7 +1,9 @@
 //! Test of protocol-level token queries. Notice that detailed test of the token module queries are
 //! implemented in the `plt-token-module` crate.
 
-use crate::block_state_stub::{BlockStateWithExternalStateStubbed, TokenInitTestParams};
+use crate::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -10,13 +12,13 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleState, TokenOperation, TokenOperationsPayload,
 };
 use concordium_base::transactions::Payload;
-use plt_scheduler::block_state_interface::BlockStateQuery;
+use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler::{queries, scheduler};
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::tokens::RawTokenAmount;
 
-mod block_state_stub;
+mod block_state_external_stubbed;
 
 /// Test query token state
 #[test]
@@ -32,7 +34,7 @@ fn test_query_plt_list() {
     let token_id1 = stub.state().token_configuration(&token1).token_id;
     let token_id2 = stub.state().token_configuration(&token2).token_id;
 
-    let plts = queries::plt_list(stub.state());
+    let plts = queries::query_plt_list(stub.state());
     assert_eq!(plts, vec![token_id1, token_id2]);
 }
 

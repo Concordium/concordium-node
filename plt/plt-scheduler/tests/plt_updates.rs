@@ -2,7 +2,9 @@
 //! the tests of the token module in the `plt-token-module` crate. In the present file,
 //! higher level tests are implemented, and they may not in themselves be functionally complete.
 
-use crate::block_state_stub::{BlockStateWithExternalStateStubbed, TokenInitTestParams};
+use crate::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -13,14 +15,14 @@ use concordium_base::protocol_level_tokens::{
     TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::{Memo, Payload};
-use plt_scheduler::block_state_interface::BlockStateQuery;
+use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler::{queries, scheduler};
-use plt_types::types::events::BlockItemEvent;
-use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::reject_reasons::TransactionRejectReason;
-use plt_types::types::tokens::{RawTokenAmount, TokenHolder};
+use plt_scheduler_types::types::events::BlockItemEvent;
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
+use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 
-mod block_state_stub;
+mod block_state_external_stubbed;
 mod utils;
 
 /// Test protocol-level token transfer. First transfer from governance account. And then perform

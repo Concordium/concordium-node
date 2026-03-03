@@ -1,9 +1,11 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
-//!
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
+use crate::block_state::types::{
+    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
+    TokenStateValue,
+};
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
@@ -14,17 +16,23 @@ use concordium_base::common::Serialize;
 use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
-};
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
 use std::collections::BTreeMap;
 
 pub mod blob_store;
 pub mod external;
 pub mod types;
+
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Marker for PLT block state hash type.
 pub enum PltBlockStateHashMarker {}
@@ -52,10 +60,22 @@ impl PltBlockStateSavepoint {
     /// Compute the hash.
     pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let block_state_bytes = common::to_bytes(&self.block_state.state);
-        PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
-            &block_state_bytes,
-        )))
+        if self.block_state.state.tokens.is_empty() {
+            // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
+            // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
+            PltBlockStateHash::from(
+                <[u8; SHA256]>::try_from(
+                    hex::decode("c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05")
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+        } else {
+            let block_state_bytes = common::to_bytes(&self.block_state.state);
+            PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
+                &block_state_bytes,
+            )))
+        }
     }
 
     /// Store a PLT block state in a blob store.

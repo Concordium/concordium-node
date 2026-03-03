@@ -11,12 +11,12 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeChainUpdate,
 ) where
 
-import qualified Control.Concurrent as Conc
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
+import qualified Data.IORef as IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
 import qualified Data.Word as Word
@@ -37,7 +37,6 @@ import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
-import Control.Exception
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
 -- Returns the events produced if successful, otherwise a reject reason. Additionally, the
@@ -258,10 +257,10 @@ executeChainUpdate updateHeader createPLT =
         -- Get current PLT block state
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
 
-        -- Put block state in an MVar to allow callbacks to update it.
-        blockStateMVar <- BS.liftBlobStore $ liftIO $ Conc.newMVar blockState0
-        queryCallbacks <- unliftBlockStateQueryCallbacks blockStateMVar
-        operationCallbacks <- unliftBlockStateOperationCallbacks blockStateMVar
+        -- Put block state in an IORef to allow callbacks to update it.
+        blockStateIORef <- BS.liftBlobStore $ liftIO $ IORef.newIORef blockState0
+        queryCallbacks <- unliftBlockStateQueryCallbacks blockStateIORef
+        operationCallbacks <- unliftBlockStateOperationCallbacks blockStateIORef
 
         -- Execute chain update via FFI.
         outcome <-
@@ -272,9 +271,9 @@ executeChainUpdate updateHeader createPLT =
                     queryCallbacks
                     operationCallbacks
 
-        -- Get block state from MVar and set the updated PLT block state if operation was successful.
+        -- Get block state from IORef and set the updated PLT block state if operation was successful.
         forM outcome $ \pltBlockState1 -> do
-            blockState1 <- BS.liftBlobStore $ liftIO $ takeMVarNow blockStateMVar
+            blockState1 <- BS.liftBlobStore $ liftIO $ IORef.readIORef blockStateIORef
             BS.bsoSetRustPLTBlockState blockState1 pltBlockState1
 
     -- \| Execute a chain update with the given PLT block state as input.
@@ -487,21 +486,21 @@ data ChainUpdateExecutionSuccess a = ChainUpdateExecutionSuccess
 unliftBlockStateQueryCallbacks ::
     forall m.
     (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
-    Conc.MVar (BS.UpdatableBlockState m) ->
+    IORef.IORef (BS.UpdatableBlockState m) ->
     m BlockStateQueryCallbacks
-unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
+unliftBlockStateQueryCallbacks bsIORef = BS.withUnliftBSO $ \unlift ->
     do
-        let readTokenAccountBalance accountIndex tokenIndex = withMVarNow bsMVar $ \bs -> do
+        let readTokenAccountBalance accountIndex tokenIndex = withIORef bsIORef $ \bs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 unlift $ BS.getAccountTokenBalance account tokenIndex
-            getAccountIndexByAddress accountAddress = withMVarNow bsMVar $ \bs -> do
+            getAccountIndexByAddress accountAddress = withIORef bsIORef $ \bs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccount bs accountAddress
                 return $ fst <$> maybeAccount
-            getAccountAddressByIndex accountIndex = withMVarNow bsMVar $ \bs -> do
+            getAccountAddressByIndex accountIndex = withIORef bsIORef $ \bs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 forM maybeAccount $ \account -> unlift $ BS.getAccountCanonicalAddress account
-            getTokenAccountStates accountIndex = withMVarNow bsMVar $ \bs -> do
+            getTokenAccountStates accountIndex = withIORef bsIORef $ \bs -> do
                 maybeAccount <- unlift $ BS.bsoGetAccountByIndex bs accountIndex
                 let account = maybe (error $ "Account with index does not exist: " ++ show accountIndex) id maybeAccount
                 fmap Map.toList $ unlift $ BS.getAccountTokens account
@@ -513,54 +512,30 @@ unliftBlockStateQueryCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
 unliftBlockStateOperationCallbacks ::
     forall m.
     (Types.PVSupportsPLT (Types.MPV m), BS.BlockStateOperations m) =>
-    Conc.MVar (BS.UpdatableBlockState m) ->
+    IORef.IORef (BS.UpdatableBlockState m) ->
     m BlockStateOperationCallbacks
-unliftBlockStateOperationCallbacks bsMVar = BS.withUnliftBSO $ \unlift ->
+unliftBlockStateOperationCallbacks bsIORef = BS.withUnliftBSO $ \unlift ->
     do
         let updateTokenAccountBalance accountIndex tokenIndex tokenAmountDelta =
-                modifyMVarNow bsMVar $ \bs -> do
+                modifyIORef bsIORef $ \bs -> do
                     maybeBs1 <- unlift $ BS.bsoUpdateTokenAccountBalance bs tokenIndex accountIndex tokenAmountDelta
                     return $ case maybeBs1 of
                         Just bs1 -> (bs1, Just ())
                         Nothing -> (bs, Nothing)
             incrementPltUpdateSequenceNumber =
-                modifyMVarNow_ bsMVar $ \bs -> do
+                modifyIORef_ bsIORef $ \bs -> do
                     unlift $ BS.bsoIncrementPLTUpdateSequenceNumber bs
 
         return BlockStateOperationCallbacks{..}
 
--- | Like 'withMVar', but throws error if the 'MVar' is empty.
-withMVarNow :: Conc.MVar a -> (a -> IO b) -> IO b
-withMVarNow m io =
-    bracket
-        (takeMVarNow m)
-        (putMVarNow m)
-        io
+withIORef :: IORef.IORef a -> (a -> IO b) -> IO b
+withIORef ref f = IORef.readIORef ref >>= f
 
--- | Like 'modifyMVar', but throws error if the 'MVar' is empty.
-modifyMVarNow :: Conc.MVar a -> (a -> IO (a, b)) -> IO b
-modifyMVarNow m io =
-    mask $ \restore -> do
-        a <- takeMVarNow m
-        (a', b) <- restore (io a) `onException` putMVarNow m a
-        putMVarNow m a'
-        return b
+modifyIORef :: IORef.IORef a -> (a -> IO (a, b)) -> IO b
+modifyIORef ref f = do
+    (val, ret) <- IORef.readIORef ref >>= f
+    IORef.writeIORef ref val
+    return ret
 
--- | Like 'modifyMVar_', but throws error if the 'MVar' is empty.
-modifyMVarNow_ :: Conc.MVar a -> (a -> IO a) -> IO ()
-modifyMVarNow_ m io = modifyMVarNow m (\a -> (,()) <$> io a)
-
--- | Like 'takeMVar', but throws error if the 'MVar' is empty.
-takeMVarNow :: Conc.MVar a -> IO a
-takeMVarNow m = do
-    aMaybe <- Conc.tryTakeMVar m
-    return $ maybe (error "Block state MVar empty") id aMaybe
-
--- | Like 'putMVar', but throws error if the 'MVar' is not empty.
-putMVarNow :: Conc.MVar a -> a -> IO ()
-putMVarNow m a = do
-    putSuccessful <- Conc.tryPutMVar m a
-    unless
-        putSuccessful
-        (error "Block state MVar full")
-    return ()
+modifyIORef_ :: IORef.IORef a -> (a -> IO a) -> IO ()
+modifyIORef_ ref f = modifyIORef ref (fmap (,()) . f)
