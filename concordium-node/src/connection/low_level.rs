@@ -14,7 +14,7 @@ use std::{
     cmp,
     collections::VecDeque,
     convert::TryInto,
-    io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{Cursor, ErrorKind, IoSlice, Read, Seek, SeekFrom, Write},
     mem,
     sync::{Arc, Weak},
 };
@@ -46,6 +46,7 @@ struct IncomingMessage {
 }
 
 /// A buffer used to handle reads/writes to the socket.
+#[derive(Debug)]
 struct SocketBuffer {
     /// The socket read/write buffer.
     buf: Box<[u8]>,
@@ -118,7 +119,8 @@ pub struct ConnectionLowLevel {
     pub socket: TcpStream,
     noise_session: NoiseSession,
     noise_buffer: Box<[u8]>,
-    socket_buffer: SocketBuffer,
+    /// Buffer used for reading data from the socket.
+    socket_read_buffer: SocketBuffer,
     incoming_msg: IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
@@ -134,7 +136,7 @@ pub struct ConnectionLowLevel {
 
 macro_rules! recv_xx_msg {
     ($self:ident, $len:expr, $idx:expr) => {
-        let msg = $self.socket_buffer.slice_mut($len);
+        let msg = $self.socket_read_buffer.slice_mut($len);
         $self.noise_session.recv_message(msg)?;
         trace!("I got message {}", $idx);
     };
@@ -189,7 +191,7 @@ impl ConnectionLowLevel {
             socket,
             noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
-            socket_buffer: SocketBuffer::new(read_size),
+            socket_read_buffer: SocketBuffer::new(read_size),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
             write_size,
@@ -284,7 +286,7 @@ impl ConnectionLowLevel {
     fn process_msg_a(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
-        let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].to_vec();
+        let payload_in = self.socket_read_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].to_vec();
         let payload_out = self
             .handler
             .upgrade()
@@ -297,7 +299,7 @@ impl ConnectionLowLevel {
 
     fn process_msg_b(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "B");
-        let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
+        let payload_in = self.socket_read_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .to_vec();
         let payload_out = self
@@ -312,7 +314,7 @@ impl ConnectionLowLevel {
 
     fn process_msg_c(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "C");
-        let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
+        let payload = self.socket_read_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .to_vec();
         self.socket.set_nodelay(false)?;
@@ -334,21 +336,21 @@ impl ConnectionLowLevel {
     /// Attempts to read a complete message from the socket.
     #[inline]
     pub fn read_from_socket(&mut self) -> anyhow::Result<ReadResult> {
-        if self.socket_buffer.is_exhausted() {
-            self.socket_buffer.reset();
+        if self.socket_read_buffer.is_exhausted() {
+            self.socket_read_buffer.reset();
         }
         // if there's any carryover bytes to be read from the socket buffer,
         // process them before reading from the socket again
-        if self.socket_buffer.remaining == 0 {
-            let len = self.read_size() - self.socket_buffer.offset;
-            match self.socket.read(self.socket_buffer.slice_mut(len)) {
+        if self.socket_read_buffer.remaining == 0 {
+            let len = self.read_size() - self.socket_read_buffer.offset;
+            match self.socket.read(self.socket_read_buffer.slice_mut(len)) {
                 Ok(0) => return Ok(ReadResult::Closed),
                 Ok(num_bytes) => {
                     // trace!(
                     //     "Read {} from the socket",
                     //     ByteSize(num_bytes as u64).to_string_as(true)
                     // );
-                    self.socket_buffer.remaining = num_bytes;
+                    self.socket_read_buffer.remaining = num_bytes;
                 }
                 Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(ReadResult::WouldBlock),
                 Err(e) => return Err(e.into()),
@@ -373,13 +375,13 @@ impl ConnectionLowLevel {
     #[inline]
     fn attempt_to_read_length(&mut self) -> anyhow::Result<()> {
         let read_size = cmp::min(
-            self.socket_buffer.remaining,
+            self.socket_read_buffer.remaining,
             PAYLOAD_SIZE - self.incoming_msg.size_bytes.len(),
         );
         self.incoming_msg
             .size_bytes
-            .write_all(self.socket_buffer.slice(read_size))?;
-        self.socket_buffer.shift(read_size);
+            .write_all(self.socket_read_buffer.slice(read_size))?;
+        self.socket_read_buffer.shift(read_size);
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
             let expected_size =
@@ -391,6 +393,7 @@ impl ConnectionLowLevel {
             }
 
             if !self.is_post_handshake() && expected_size >= HANDSHAKE_SIZE_LIMIT as u32 {
+                debug!("Socket read buffer: {:?}", self.socket_read_buffer);
                 bail!(
                     "expected message size ({}) exceeds the handshake size limit ({})",
                     ByteSize(expected_size as u64).to_string_as(true),
@@ -400,6 +403,7 @@ impl ConnectionLowLevel {
 
             // check if the expected size doesn't exceed the protocol limit
             if expected_size > PROTOCOL_MAX_MESSAGE_SIZE {
+                debug!("Socket read buffer: {:?}", self.socket_read_buffer);
                 bail!(
                     "expected message size ({}) exceeds the maximum protocol size ({})",
                     ByteSize(expected_size as u64).to_string_as(true),
@@ -425,12 +429,12 @@ impl ConnectionLowLevel {
     fn process_incoming_msg(&mut self) -> anyhow::Result<ReadResult> {
         let to_read = cmp::min(
             self.incoming_msg.pending_bytes,
-            self.socket_buffer.remaining,
+            self.socket_read_buffer.remaining,
         );
 
         self.incoming_msg
             .message
-            .write_all(self.socket_buffer.slice(to_read))?;
+            .write_all(self.socket_read_buffer.slice(to_read))?;
         self.incoming_msg.pending_bytes -= to_read;
 
         // When we are post-handshake, i.e., the noise session has been established
@@ -440,7 +444,7 @@ impl ConnectionLowLevel {
         // so we cannot modify it here. Instead we consume the input after successfully
         // reading the noise messages below.
         if self.is_post_handshake() {
-            self.socket_buffer.shift(to_read);
+            self.socket_read_buffer.shift(to_read);
         }
 
         if self.incoming_msg.pending_bytes == 0 {
@@ -460,13 +464,13 @@ impl ConnectionLowLevel {
                         bail!("Invalid NETWORK_IDENTIFIER");
                     } else if self.noise_session.get_message_count() == 2 {
                         // message C doesn't carry a payload; break the reading loop
-                        self.socket_buffer.reset();
+                        self.socket_read_buffer.reset();
                         return Ok(ReadResult::Incomplete);
                     }
                 }
 
                 // We have processed an entire noise message, consume it from the socket buffer.
-                self.socket_buffer.shift(to_read);
+                self.socket_read_buffer.shift(to_read);
                 Ok(ReadResult::Complete(payload))
             } else {
                 Ok(ReadResult::Complete(self.decrypt()?))
@@ -539,8 +543,8 @@ impl ConnectionLowLevel {
 
     /// Enqueue a message to be written to the socket.
     #[inline]
-    pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> anyhow::Result<()> {
-        self.encrypt_and_enqueue(&input)
+    pub fn write_to_socket(&mut self, input: &[u8]) -> anyhow::Result<()> {
+        self.encrypt_and_enqueue(input)
     }
 
     /// Writes enequeued bytes to the socket until the queue is exhausted
@@ -563,26 +567,10 @@ impl ConnectionLowLevel {
     /// Writes a single batch of enqueued bytes to the socket.
     #[inline]
     fn flush_socket_once(&mut self) -> anyhow::Result<usize> {
-        // Always ignore max write buffer when we're handshaking, as we need to ensure
-        // we won't chunk the handshake messages, which can cause issues for the
-        // noise protocol
-        let write_size = if !self.is_post_handshake() {
-            cmp::min(4_096, self.output_queue.len())
-        } else {
-            cmp::min(self.write_size(), self.output_queue.len())
-        };
-
         let (front, back) = self.output_queue.as_slices();
 
-        let front_len = cmp::min(front.len(), write_size);
-        self.socket_buffer.buf[..front_len].copy_from_slice(&front[..front_len]);
-
-        let back_len = write_size - front_len;
-        if back_len > 0 {
-            self.socket_buffer.buf[front_len..][..back_len].copy_from_slice(&back[..back_len]);
-        }
-
-        let written = match self.socket.write(&self.socket_buffer.buf[..write_size]) {
+        let bufs = [IoSlice::new(front), IoSlice::new(back)];
+        let written = match self.socket.write_vectored(&bufs) {
             Ok(num_bytes) => num_bytes,
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 self.is_writable = false;
@@ -658,7 +646,7 @@ impl ConnectionLowLevel {
     /// Get the desired socket read size.
     #[inline]
     fn read_size(&self) -> usize {
-        self.socket_buffer.buf.len()
+        self.socket_read_buffer.buf.len()
     }
 
     /// Get the desired socket write size.
