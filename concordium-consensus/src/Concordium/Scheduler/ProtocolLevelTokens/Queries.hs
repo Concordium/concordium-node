@@ -14,6 +14,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.Queries (
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Reader
+import Data.Functor
 import qualified Data.Map.Strict as Map
 import Data.Void
 
@@ -137,11 +138,16 @@ queryTokenInfo tokenId bs = case sPltStateVersionFor (protocolVersion @(MPV m)) 
                                       tsModuleState = tms
                                     }
                         return $ Right TokenInfo{tiTokenId = _pltTokenId, tiTokenState = ts}
-    -- todo implement as part of https://linear.app/concordium/issue/PSR-15/dispatch-plt-queries-to-the-rust-plt-library
-    SPLTStateV1 -> undefined
+    SPLTStateV1 ->
+        RustQ.queryTokenInfo bs tokenId <&> \case
+            Just tokenInfo -> Right tokenInfo
+            Nothing -> Left QTIEUnknownToken
 
 -- | Get the list of 'Token's on an account.
-queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) => IndexedAccount m -> BlockState m -> m [Token]
+queryAccountTokens ::
+    forall m.
+    (PVSupportsPLT (MPV m), BS.BlockStateQuery m) =>
+    IndexedAccount m -> BlockState m -> m [Token]
 queryAccountTokens acc bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateV0 ->
         do

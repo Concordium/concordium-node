@@ -34,7 +34,7 @@ fn test_query_plt_list() {
     let token_id1 = stub.state().token_configuration(&token1).token_id;
     let token_id2 = stub.state().token_configuration(&token2).token_id;
 
-    let plts = queries::plt_list(stub.state());
+    let plts = queries::query_plt_list(stub.state());
     assert_eq!(plts, vec![token_id1, token_id2]);
 }
 
