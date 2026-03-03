@@ -982,22 +982,6 @@ setBlockState :: (Monad m) => UpdatableBlockState m -> SchedulerT m ()
 {-# INLINE setBlockState #-}
 setBlockState = (ssBlockState .=)
 
--- | Lifts 'BlockStateOperations' action into the 'SchedulerMonad'.
---
--- This is a Low-level interface needed for foreign function interface access.
-liftBlockStateOperations ::
-    (BS.BlockStateOperations m) =>
-    ( forall m'.
-      ( BS.BlockStateOperations m',
-        UpdatableBlockState m ~ UpdatableBlockState m',
-        MPV m ~ MPV m'
-      ) =>
-      m' a
-    ) ->
-    SchedulerT m a
-{-# INLINE liftBlockStateOperations #-}
-liftBlockStateOperations = lift
-
 -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
 --
 --  PRECONDITION: There MUST NOT already be a token with the specified token ID.
