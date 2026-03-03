@@ -284,6 +284,32 @@ executables:
     - optparse-applicative >= 0.15
     - filepath >= 1.4
 
+  blobstore-dump:
+    main:         Main.hs
+    source-dirs:  tools/blobstore-dump
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - optparse-applicative >= 0.15
+    - filepath >= 1.4    
+
 tests:
   consensus:
     main:                Spec.hs
