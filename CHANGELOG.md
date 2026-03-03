@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-- Enhance node performance by limiting outbound queue saturation to peers that are slow in processing nessages.
+- Enhance node performance by limiting outbound queue saturation to peers that are slow in processing messages.
 - Fix a bug where incorrect data could be read from a peer when backpressure is applied, resulting in a ban.
 
 # 10.0.6
