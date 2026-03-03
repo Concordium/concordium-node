@@ -93,6 +93,7 @@ fn test_initialize_token_default_values() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
+
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
