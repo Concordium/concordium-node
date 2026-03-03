@@ -36,7 +36,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Data.String
-import SchedulerTests.Helpers (assertSuccess)
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
