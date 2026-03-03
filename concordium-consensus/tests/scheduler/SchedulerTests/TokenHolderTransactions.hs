@@ -315,14 +315,14 @@ testTwoOperations _ pvString =
                                 [ TokenTransfer
                                     { ettTokenId = gtu,
                                       ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
-                                      ettTo =  HolderAccount $ CBOR.chaAccount recptAcct,
+                                      ettTo = HolderAccount $ CBOR.chaAccount recptAcct,
                                       ettAmount = TokenAmount 10 0,
                                       ettMemo = Nothing
                                     },
-                                     TokenTransfer
+                                  TokenTransfer
                                     { ettTokenId = gtu,
                                       ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
-                                      ettTo =  HolderAccount $ CBOR.chaAccount recptAcct,
+                                      ettTo = HolderAccount $ CBOR.chaAccount recptAcct,
                                       ettAmount = TokenAmount 90 0,
                                       ettMemo = Nothing
                                     }
