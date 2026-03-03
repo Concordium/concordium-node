@@ -776,8 +776,18 @@ impl Connection {
         let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
 
-        self.pending_messages
+        if let Err(e) = self
+            .pending_messages
             .enqueue(MessageSendingPriority::High, Arc::from(serialized))
+        {
+            self.handler
+                .register_conn_change(ConnChange::RemovalByToken(self.token()));
+            trace!(
+                "Dropping connection to peer {self}: failed to enqueue `Priority::High` message: {e}"
+            );
+        }
+
+        Ok(())
     }
 
     /// Send a response to a request for peers to the connection.
@@ -840,14 +850,13 @@ impl Connection {
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
 
-            if self
+            if let Err(e) = self
                 .pending_messages
                 .enqueue(MessageSendingPriority::Normal, Arc::from(serialized))
-                .is_err()
             {
                 self.handler
                     .register_conn_change(ConnChange::RemovalByToken(self.token()));
-                trace!("Dropping connection to peer {self}: failed to enqueue `Priority::Normal` message.");
+                trace!("Dropping connection to peer {self}: failed to enqueue `Priority::Normal` message: {e}");
             };
 
             Ok(())

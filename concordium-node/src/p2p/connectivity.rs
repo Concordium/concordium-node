@@ -72,13 +72,12 @@ impl P2PNode {
             .values_mut()
             .filter(|conn| conn_filter(conn))
         {
-            if conn
+            if let Err(e) = conn
                 .pending_messages
                 .enqueue(MessageSendingPriority::Normal, Arc::clone(&data))
-                .is_err()
             {
                 self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
-                trace!("Dropping connection to peer {conn}: failed to enqueue `Priority::Normal` message.");
+                trace!("Dropping connection to peer {conn}: failed to enqueue `Priority::Normal` message: {e}");
             } else {
                 sent_messages += 1;
             }
