@@ -73,10 +73,12 @@ impl P2PNode {
             .filter(|conn| conn_filter(conn))
         {
             if conn
-                .async_send(Arc::clone(&data), MessageSendingPriority::Normal)
+                .pending_messages
+                .enqueue(MessageSendingPriority::Normal, Arc::clone(&data))
                 .is_err()
             {
                 self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+                trace!("Dropping connection to peer {conn}: failed to enqueue `Priority::Normal` message.");
             } else {
                 sent_messages += 1;
             }
@@ -90,7 +92,8 @@ impl P2PNode {
 
         for conn in write_or_die!(self.connections()).values_mut() {
             if let Err(e) = conn.send_ping() {
-                error!("Can't send a ping to {}: {}", conn, e);
+                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+                trace!("Dropping connection to peer {conn}: failed to send ping message: {e}");
             }
         }
     }

@@ -694,16 +694,6 @@ impl Connection {
         );
     }
 
-    /// Queues a message to be sent to the connection.
-    #[inline]
-    pub fn async_send(
-        &mut self,
-        message: Arc<[u8]>,
-        priority: MessageSendingPriority,
-    ) -> Result<(), anyhow::Error> {
-        self.pending_messages.enqueue(priority, message)
-    }
-
     /// Update the timestamp of when the connection was seen last.
     #[inline]
     pub fn update_last_seen(&self) {
@@ -774,15 +764,8 @@ impl Connection {
         ping.serialize(&mut serialized)?;
         self.stats.notify_ping();
 
-        if self
-            .async_send(Arc::from(serialized), MessageSendingPriority::High)
-            .is_err()
-        {
-            self.handler
-                .register_conn_change(ConnChange::RemovalByToken(self.token()));
-        };
-
-        Ok(())
+        self.pending_messages
+            .enqueue(MessageSendingPriority::High, Arc::from(serialized))
     }
 
     /// Send a pong to the connection.
@@ -793,15 +776,8 @@ impl Connection {
         let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
 
-        if self
-            .async_send(Arc::from(serialized), MessageSendingPriority::High)
-            .is_err()
-        {
-            self.handler
-                .register_conn_change(ConnChange::RemovalByToken(self.token()));
-        };
-
-        Ok(())
+        self.pending_messages
+            .enqueue(MessageSendingPriority::High, Arc::from(serialized))
     }
 
     /// Send a response to a request for peers to the connection.
@@ -865,11 +841,13 @@ impl Connection {
             resp.serialize(&mut serialized)?;
 
             if self
-                .async_send(Arc::from(serialized), MessageSendingPriority::Normal)
+                .pending_messages
+                .enqueue(MessageSendingPriority::Normal, Arc::from(serialized))
                 .is_err()
             {
                 self.handler
                     .register_conn_change(ConnChange::RemovalByToken(self.token()));
+                trace!("Dropping connection to peer {self}: failed to enqueue `Priority::Normal` message.");
             };
 
             Ok(())
