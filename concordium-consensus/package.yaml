@@ -284,9 +284,9 @@ executables:
     - optparse-applicative >= 0.15
     - filepath >= 1.4
 
-  blobstore-dump:
+  block-state-dump:
     main:         Main.hs
-    source-dirs:  tools/blobstore-dump
+    source-dirs:  tools/block-state-dump
     ghc-options:
     - -threaded
     - -rtsopts
