@@ -217,13 +217,14 @@ foreign import ccall "ffi_execute_transaction"
 -- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
 -- is executed via the Rust PLT Scheduler library. Only 'CratePLT' chain updates are currently supported.
 executeChainUpdate ::
-    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
+    forall m.
+    (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     -- | Chain update header.
     Types.UpdateHeader ->
     -- | Chain update payload.
     Types.CreatePLT ->
     -- | Failure or events.
-    m (Either Types.FailureKind Types.ValidResult)
+    EI.SchedulerT m (Either Types.FailureKind Types.ValidResult)
 executeChainUpdate updateHeader createPLT =
     fmap join $ runExceptT $ do
         unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
@@ -234,7 +235,7 @@ executeChainUpdate updateHeader createPLT =
             blockState0 <- EI.getBlockState
 
             -- Execute chain update in the block state monad.
-            outcome <- EI.liftBlockStateOperations $ executeChainUpdateInBSOMonad blockState0
+            outcome <- lift $ executeChainUpdateInBSOMonad blockState0
 
             -- Set updated block state if operation was successful and map outcome to return value.
             case outcome of
@@ -249,9 +250,7 @@ executeChainUpdate updateHeader createPLT =
     --
     -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
     executeChainUpdateInBSOMonad ::
-        forall m'.
-        (BS.BlockStateOperations m', Types.PVSupportsRustManagedPLT (Types.MPV m')) =>
-        BS.UpdatableBlockState m' -> m' (ChainUpdateExecutionOutcome (BS.UpdatableBlockState m'))
+        BS.UpdatableBlockState m -> m (ChainUpdateExecutionOutcome (BS.UpdatableBlockState m))
     executeChainUpdateInBSOMonad blockState0 = do
         -- Get current PLT block state
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
@@ -265,7 +264,7 @@ executeChainUpdate updateHeader createPLT =
         outcome <-
             BS.liftBlobStore $
                 executeChainUpdateInBlobStoreMonad
-                    (Types.protocolVersion @(Types.MPV m'))
+                    (Types.protocolVersion @(Types.MPV m))
                     pltBlockState0
                     queryCallbacks
                     operationCallbacks
@@ -281,7 +280,7 @@ executeChainUpdate updateHeader createPLT =
     --
     -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
     executeChainUpdateInBlobStoreMonad ::
-        (BlobStore.MonadBlobStore m) =>
+        (BlobStore.MonadBlobStore m') =>
         -- \| Block protocol version
         Types.SProtocolVersion pv ->
         -- \| Block state to mutate.
@@ -291,7 +290,7 @@ executeChainUpdate updateHeader createPLT =
         -- \| Callbacks need for block state operations on the state maintained by Haskell.
         BlockStateOperationCallbacks ->
         -- \| Outcome of the execution
-        m (ChainUpdateExecutionOutcome PLTBlockState.ForeignPLTBlockStatePtr)
+        m' (ChainUpdateExecutionOutcome PLTBlockState.ForeignPLTBlockStatePtr)
     executeChainUpdateInBlobStoreMonad
         spv
         blockState
