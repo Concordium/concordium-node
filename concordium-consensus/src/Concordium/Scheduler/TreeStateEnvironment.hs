@@ -37,7 +37,7 @@ import Concordium.GlobalState.TreeState
 import Concordium.Kontrol.Bakers
 import Concordium.Logger
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as EnvImpl
+import qualified Concordium.Scheduler.Environment as Env
 import Concordium.Scheduler.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -1281,14 +1281,14 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                     PrologueResult{..} <- executeBlockPrologue slotTime newSeedState oldChainParameters bshandle0
                     maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
                     let context =
-                            EnvImpl.ContextState
+                            Env.ContextState
                                 { _chainMetadata = cm,
                                   _maxBlockEnergy = maxBlockEnergy,
                                   _accountCreationLimit = accountCreationLim
                                 }
-                    (res, finState) <- EnvImpl.runSchedulerT (Sch.runTransactions txs) context (EnvImpl.makeInitialSchedulerState prologueBlockState)
-                    let usedEnergy = finState ^. EnvImpl.ssEnergyUsed
-                    let bshandle2 = finState ^. EnvImpl.ssBlockState
+                    (res, finState) <- Env.runSchedulerT (Sch.runTransactions txs) context (Env.makeInitialSchedulerState prologueBlockState)
+                    let usedEnergy = finState ^. Env.ssEnergyUsed
+                    let bshandle2 = finState ^. Env.ssBlockState
                     case res of
                         Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
                         Right outcomes -> do
@@ -1307,7 +1307,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                     (newSeedState ^. epoch)
                                     prologueMintRewardParams
                                     mfinInfo
-                                    (finState ^. EnvImpl.ssExecutionCosts)
+                                    (finState ^. Env.ssExecutionCosts)
                                     counts
                                     prologueUpdates
                             finalbsHandle <- freezeBlockState bshandle4
@@ -1361,18 +1361,18 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
             genData <- getGenesisData
             let maxBlockEnergy = gdMaxBlockEnergy genData
             let context =
-                    EnvImpl.ContextState
+                    Env.ContextState
                         { _chainMetadata = cm,
                           _maxBlockEnergy = maxBlockEnergy,
                           _accountCreationLimit = accountCreationLim
                         }
             (ft@Sch.FilteredTransactions{..}, finState) <-
-                EnvImpl.runSchedulerT (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (EnvImpl.makeInitialSchedulerState prologueBlockState)
+                Env.runSchedulerT (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (Env.makeInitialSchedulerState prologueBlockState)
 
             -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-            let usedEnergy = finState ^. EnvImpl.ssEnergyUsed
-            let bshandle2 = finState ^. EnvImpl.ssBlockState
+            let usedEnergy = finState ^. Env.ssEnergyUsed
+            let bshandle2 = finState ^. Env.ssBlockState
 
             bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
             let counts = countFreeTransactions (map (fst . fst) ftAdded) (isJust mfinInfo)
@@ -1385,7 +1385,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
                     (newSeedState ^. epoch)
                     prologueMintRewardParams
                     mfinInfo
-                    (finState ^. EnvImpl.ssExecutionCosts)
+                    (finState ^. Env.ssExecutionCosts)
                     counts
                     prologueUpdates
 

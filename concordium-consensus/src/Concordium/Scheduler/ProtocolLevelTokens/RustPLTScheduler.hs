@@ -44,16 +44,16 @@ import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memor
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
 executeTransaction ::
     forall m.
-    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
+    (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     EI.WithDepositContext m ->
     -- | Transaction payload.
     Types.Payload ->
     -- | Transaction summary
-    m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
+    EI.SchedulerT m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
 executeTransaction depositContext tokenUpdate =
     EI.withDeposit depositContext executeTransactionInLocalT EI.defaultSuccess
   where
-    executeTransactionInLocalT :: EI.LocalT [Types.Event] m [Types.Event]
+    executeTransactionInLocalT :: EI.LocalT [Types.Event] (EI.SchedulerT m) [Types.Event]
     executeTransactionInLocalT = do
         (remainingEnergy, _energyLimitReason) <- EI.getEnergy
 
@@ -69,7 +69,7 @@ executeTransaction depositContext tokenUpdate =
             TransactionExecutionOutcomeReject (TransactionExecutionReject rejectReason) ->
                 EI.rejectTransaction rejectReason
 
-    executeTransactionInLocalTLiftedSchedulerMonad :: Types.Energy -> m (TransactionExecutionSummary ())
+    executeTransactionInLocalTLiftedSchedulerMonad :: Types.Energy -> EI.SchedulerT m (TransactionExecutionSummary ())
     executeTransactionInLocalTLiftedSchedulerMonad remainingEnergy =
         -- We need to run with block state rollback, since callbacks may modify the block state, and
         -- it is modified in a non-functional way via interior mutability (PersistentBlockState is an IORef).
@@ -79,7 +79,7 @@ executeTransaction depositContext tokenUpdate =
                 blockState0 <- EI.getBlockState
 
                 -- Execute transaction in the block state monad.
-                summary <- EI.liftBlockStateOperations $ executeTransactionInBSOMonad remainingEnergy blockState0
+                summary <- lift $ executeTransactionInBSOMonad remainingEnergy blockState0
 
                 -- Set updated block state if operation was successful and set rollback.
                 rollback <- case tesOutcome summary of
@@ -99,13 +99,9 @@ executeTransaction depositContext tokenUpdate =
     --
     -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
     executeTransactionInBSOMonad ::
-        forall m'.
-        ( BS.BlockStateOperations m',
-          Types.PVSupportsRustManagedPLT (Types.MPV m')
-        ) =>
         Types.Energy ->
-        BS.UpdatableBlockState m' ->
-        m' (TransactionExecutionSummary (BS.UpdatableBlockState m'))
+        BS.UpdatableBlockState m ->
+        m (TransactionExecutionSummary (BS.UpdatableBlockState m))
     executeTransactionInBSOMonad remainingEnergy blockState0 = do
         -- Get current PLT block state
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
@@ -119,7 +115,7 @@ executeTransaction depositContext tokenUpdate =
         outcome <-
             BS.liftBlobStore $
                 executeTransactionInBlobStoreMonad
-                    (Types.protocolVersion @(Types.MPV m'))
+                    (Types.protocolVersion @(Types.MPV m))
                     pltBlockState0
                     queryCallbacks
                     operationCallbacks
@@ -306,13 +302,14 @@ foreign import ccall "ffi_execute_transaction"
 -- | Execute a chain update in the 'SchedulerMonad' modifying the block state accordingly. The chain update
 -- is executed via the Rust PLT Scheduler library. Only 'CratePLT' chain updates are currently supported.
 executeChainUpdate ::
-    (EI.SchedulerMonad m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
+    forall m.
+    (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     -- | Chain update header.
     Types.UpdateHeader ->
     -- | Chain update payload.
     Types.CreatePLT ->
     -- | Failure or events.
-    m (Either Types.FailureKind Types.ValidResult)
+    EI.SchedulerT m (Either Types.FailureKind Types.ValidResult)
 executeChainUpdate updateHeader createPLT =
     fmap join $ runExceptT $ do
         unless (Types.updateEffectiveTime updateHeader == 0) $ throwError Types.InvalidUpdateTime
@@ -323,7 +320,7 @@ executeChainUpdate updateHeader createPLT =
             blockState0 <- EI.getBlockState
 
             -- Execute chain update in the block state monad.
-            outcome <- EI.liftBlockStateOperations $ executeChainUpdateInBSOMonad blockState0
+            outcome <- lift $ executeChainUpdateInBSOMonad blockState0
 
             -- Set updated block state if operation was successful and map outcome to return value.
             case outcome of
@@ -338,9 +335,7 @@ executeChainUpdate updateHeader createPLT =
     --
     -- NOTICE: The caller must ensure to rollback state changes applied via callbacks in case a failure kind is returned.
     executeChainUpdateInBSOMonad ::
-        forall m'.
-        (BS.BlockStateOperations m', Types.PVSupportsRustManagedPLT (Types.MPV m')) =>
-        BS.UpdatableBlockState m' -> m' (ChainUpdateExecutionOutcome (BS.UpdatableBlockState m'))
+        BS.UpdatableBlockState m -> m (ChainUpdateExecutionOutcome (BS.UpdatableBlockState m))
     executeChainUpdateInBSOMonad blockState0 = do
         -- Get current PLT block state
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
@@ -354,7 +349,7 @@ executeChainUpdate updateHeader createPLT =
         outcome <-
             BS.liftBlobStore $
                 executeChainUpdateInBlobStoreMonad
-                    (Types.protocolVersion @(Types.MPV m'))
+                    (Types.protocolVersion @(Types.MPV m))
                     pltBlockState0
                     queryCallbacks
                     operationCallbacks

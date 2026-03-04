@@ -11,15 +11,21 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.Scheduler.Environment where
 
+import Data.Either
 import Data.Foldable
 import qualified Data.HashMap.Strict as HMap
 import qualified Data.HashSet as HSet
+import qualified Data.Kind as DK
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
+import Control.Monad
 import Control.Monad.Cont hiding (cont)
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
@@ -28,9 +34,9 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
-import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
+import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), auAmount, auEncrypted, auNonce, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState (AccountOperations (..), BlockStateOperations, ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
+import Concordium.GlobalState.BlockState (AccountOperations (..), ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), NewInstanceData, UpdatableContractState, iiBalance)
 import Concordium.GlobalState.Classes (MGSTrans (..))
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -43,14 +49,92 @@ import qualified Concordium.TransactionVerification as TVer
 
 import Control.Exception (assert)
 
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelChargeEnergy, PLTKernelFail, PLTKernelPrivilegedUpdate)
+import Concordium.Scheduler.ProtocolLevelTokens.KernelImplementation
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
+import Concordium.TimeMonad
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
+
+-- | Context for executing a scheduler computation.
+data ContextState = ContextState
+    { -- | Chain metadata
+      _chainMetadata :: !ChainMetadata,
+      -- | Maximum allowed block energy.
+      _maxBlockEnergy :: !Energy,
+      -- | Maximum number of accounts to be created in the same block.
+      _accountCreationLimit :: !CredentialsPerBlockLimit
+    }
+
+makeLenses ''ContextState
+
+-- | State accumulated during execution of a scheduler computation.
+data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
+    { -- | Current block state.
+      _ssBlockState :: !(UpdatableBlockState m),
+      -- | Energy used so far.
+      _ssEnergyUsed :: !Energy,
+      -- | The total execution costs so far.
+      _ssExecutionCosts :: !Amount,
+      -- | The next available transaction index.
+      _ssNextIndex :: !TransactionIndex
+    }
+
+makeLenses ''SchedulerState
+
+-- | Create an initial state for running a scheduler computation.
+makeInitialSchedulerState :: UpdatableBlockState m -> SchedulerState m
+makeInitialSchedulerState _ssBlockState =
+    SchedulerState
+        { _ssEnergyUsed = 0,
+          _ssExecutionCosts = 0,
+          _ssNextIndex = 0,
+          ..
+        }
+
+-- | Alias for the internal type used in @SchedulerT@.
+type InternalSchedulerT m = RWST ContextState () (SchedulerState m)
+
+-- | Scheduler monad transformer. Extends a monad with the ability to execute scheduler computations.
+--  Use @runSchedulerT@ to run the computation.
+newtype SchedulerT (m :: DK.Type -> DK.Type) (a :: DK.Type) = SchedulerT
+    { _runSchedulerT :: InternalSchedulerT m m a
+    }
+    deriving
+        ( Functor,
+          Applicative,
+          Monad,
+          MonadState (SchedulerState m),
+          MonadReader ContextState,
+          MonadLogger,
+          TimeMonad
+        )
+
+-- | Execute the computation using the provided context and scheduler state.
+-- The return value is the value produced by the computation and the updated state of the scheduler.
+runSchedulerT ::
+    (Monad m) =>
+    SchedulerT m a ->
+    ContextState ->
+    SchedulerState m ->
+    m (a, SchedulerState m)
+runSchedulerT computation contextState initialState = do
+    (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
+    return (value, resultingState)
+
+instance MonadTrans SchedulerT where
+    {-# INLINE lift #-}
+    lift = SchedulerT . lift
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        BlockStateTypes (SchedulerT m)
 
 -- | An account index together with the canonical address. Sometimes it is
 --  difficult to pass an IndexedAccount and we only need the addresses. That is
@@ -85,6 +169,94 @@ class (Monad m) => StaticInformation m where
     -- | Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the energy rate.
     getExchangeRates :: m ExchangeRates
 
+instance (BS.BlockStateOperations m) => StaticInformation (SchedulerT m) where
+    {-# INLINE getMaxBlockEnergy #-}
+    getMaxBlockEnergy = view maxBlockEnergy
+
+    {-# INLINE getChainMetadata #-}
+    getChainMetadata = view chainMetadata
+
+    {-# INLINE getModuleInterfaces #-}
+    getModuleInterfaces mref = do
+        s <- use ssBlockState
+        lift (BS.bsoGetModule s mref)
+
+    {-# INLINE getAccountCreationLimit #-}
+    getAccountCreationLimit = view accountCreationLimit
+
+    {-# INLINE getContractInstance #-}
+    getContractInstance addr = lift . flip BS.bsoGetInstance addr =<< use ssBlockState
+
+    {-# INLINE getStateAccount #-}
+    getStateAccount !addr = lift . flip BS.bsoGetAccount addr =<< use ssBlockState
+
+    {-# INLINE getExchangeRates #-}
+    getExchangeRates = lift . BS.bsoGetExchangeRates =<< use ssBlockState
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (MonadProtocolVersion m) => MonadProtocolVersion (SchedulerT m)
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (BS.AccountOperations m) => BS.AccountOperations (SchedulerT m)
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (BS.ContractStateOperations m) => BS.ContractStateOperations (SchedulerT m)
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (BS.ModuleQuery m) => BS.ModuleQuery (SchedulerT m)
+
+instance
+    (BS.BlockStateOperations m, MonadProtocolVersion m) =>
+    TVer.TransactionVerifier (SchedulerT m)
+    where
+    {-# INLINE registrationIdExists #-}
+    registrationIdExists !regid =
+        lift . flip BS.bsoRegIdExists regid =<< use ssBlockState
+    {-# INLINE getIdentityProvider #-}
+    getIdentityProvider !ipId = do
+        s <- use ssBlockState
+        lift (BS.bsoGetIdentityProvider s ipId)
+    {-# INLINE getAnonymityRevokers #-}
+    getAnonymityRevokers !arIds = do
+        s <- use ssBlockState
+        lift (BS.bsoGetAnonymityRevokers s arIds)
+    {-# INLINE getCryptographicParameters #-}
+    getCryptographicParameters = lift . BS.bsoGetCryptoParams =<< use ssBlockState
+    {-# INLINE getAccount #-}
+    getAccount !aaddr = do
+        s <- use ssBlockState
+        lift (fmap snd <$> BS.bsoGetAccount s aaddr)
+    {-# INLINE getNextUpdateSequenceNumber #-}
+    getNextUpdateSequenceNumber uType = lift . flip BS.bsoGetNextUpdateSequenceNumber uType =<< use ssBlockState
+    {-# INLINE getUpdateKeysCollection #-}
+    getUpdateKeysCollection = lift . BS.bsoGetUpdateKeyCollection =<< use ssBlockState
+    {-# INLINE getAccountAvailableAmount #-}
+    getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
+    {-# INLINE getNextAccountNonce #-}
+    getNextAccountNonce = lift . BS.getAccountNonce
+    {-# INLINE getAccountVerificationKeys #-}
+    getAccountVerificationKeys = lift . BS.getAccountVerificationKeys
+    {-# INLINE energyToCcd #-}
+    energyToCcd v = do
+        s <- use ssBlockState
+        rate <- lift $ _erEnergyRate <$> BS.bsoGetExchangeRates s
+        return (computeCost rate v)
+    {-# INLINE getMaxBlockEnergy #-}
+    getMaxBlockEnergy = do
+        ctx <- ask
+        let maxEnergy = ctx ^. maxBlockEnergy
+        return maxEnergy
+    {-# INLINE checkExactNonce #-}
+    checkExactNonce = pure True
+
 -- | When adding a validator or delegator to an account, this indicates whether the account has
 --  an existing delegator or validator that must be removed.
 data RemoveExistingStake
@@ -94,381 +266,735 @@ data RemoveExistingStake
       NoExistingStake
     deriving (Eq, Show)
 
--- | PLT module execution error.
-data PLTExecutionError fail
-    = -- | The PLT module run out of energy during execution.
-      PLTEOutOfEnergy
-    | -- | The PLT module encountered a runtime error during execution.
-      PLTEFail fail
+-- | Index that keeps track of modifications of smart contracts inside a single
+--  transaction. This is used to cheaply detect whether a contract state has
+--  changed or not when a contract calls another.
+type ModificationIndex = Word
 
--- | Information needed to execute transactions in the form that is easy to use.
-class
-    ( Monad m,
-      StaticInformation m,
-      AccountOperations m,
-      ContractStateOperations m,
-      ModuleQuery m,
-      MonadLogger m,
-      MonadProtocolVersion m,
-      TVer.TransactionVerifier m
+-- | A modified state of a V1 instance. This is the state that is maintained
+--  during the execution of a transaction.
+--
+--  The type parameter `mr` is a technical necessity since we have to maintain a
+--  new module interface. Since modules are parametrized by the monad (i.e.,
+--  either persistent or basic) we need to parametrize this state update as well,
+--  seeing that the scheduler works with any state. On top of this, we often have
+--  "newtype wrappers" @t m@ around a monad @m@ but with the property that
+--  @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@. In order for this to
+--  work we actually need to parametrize the @InstanceV1Update'@ by a type
+--  function @mr@ so that the typechecker can see the property that if
+--
+--  @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@
+--
+--  then also
+--
+--  @InstanceV1Update (t m) ~ InstanceV1Update m@.
+--
+--  That is why we have the auxiliary type definition @InstanceV1Update'@
+--  parametrized by the type function @mr@ and then a simplified type alias
+--  @InstanceV1Update@ on top.
+data InstanceV1Update' mr = InstanceV1Update
+    { -- | The modification index.
+      index :: !ModificationIndex,
+      -- | Amount changed
+      amountChange :: !AmountDelta,
+      -- | Present if a state change has ocurred.
+      newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
+      -- | Present if the contract has been upgraded.
+      --  Contract upgrades are only supported from PV 5 and onwards.
+      newInterface :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
+    }
+
+type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
+
+type ChangeSet m = ChangeSet' (InstrumentedModuleRef m)
+
+-- | The set of changes to be committed on a successful transaction.
+--
+--  The reason for parametrizing by a type function @mr@ is the same as for
+--  @InstanceV1Update@.
+data ChangeSet' mr = ChangeSet
+    { -- | Accounts whose states changed.
+      --  |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
+      --  We thus know where to look.
+      _accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate),
+      _instanceV0Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState GSWasm.V0))),
+      -- | V1 contracts whose state changed (and/or) has been upgraded. Any time we are updating a contract we know which version it is.
+      --  We thus know where to look.
+      _instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' mr)),
+      -- | Contracts that were initialized.
+      _instanceInits :: !(HSet.HashSet ContractAddress),
+      -- | Change in the encrypted balance of the system as a result of this contract's execution.
+      _encryptedChange :: !AmountDelta,
+      -- | The release schedules added to accounts on this block, to be added on the per block map.
+      _addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp)
+    }
+
+makeLenses ''ChangeSet'
+
+-- * Scheduler operations
+
+-- | Get the 'AccountIndex' for an account, if it exists.
+getAccountIndex ::
+    (BS.BlockStateOperations m) =>
+    AccountAddress -> SchedulerT m (Maybe AccountIndex)
+{-# INLINE getAccountIndex #-}
+getAccountIndex addr = lift . flip BS.bsoGetAccountIndex addr =<< use ssBlockState
+
+-- | Check whether the given account address would clash with any existing
+--  account's address. The behaviour of this will generally depend on the
+--  protocol version.
+addressWouldClash ::
+    (BS.BlockStateOperations m) =>
+    AccountAddress -> SchedulerT m Bool
+{-# INLINE addressWouldClash #-}
+addressWouldClash !addr =
+    lift . flip BS.bsoAddressWouldClash addr =<< use ssBlockState
+
+-- | Commit to global state all the updates to local state that have
+--  accumulated through the execution. This method is also in charge of
+--  recording which accounts were affected by the transaction for reward and
+--  other purposes.
+--  Precondition: Each account affected in the change set must exist in the
+--  block state.
+commitChanges :: (BS.BlockStateOperations m) => ChangeSet m -> SchedulerT m ()
+{-# INLINE commitChanges #-}
+commitChanges !cs = do
+    s <- use ssBlockState
+    -- ASSUMPTION: the property which should hold at this point is that any
+    -- changed instance must exist in the global state and moreover all instances
+    -- are distinct by the virtue of a HashMap being a function
+    s1 <-
+        lift
+            ( foldM
+                ( \s' (addr, (modIdx, amnt, val)) ->
+                    -- If the modification index is 0, this means that we have only recorded the
+                    -- state in the changeset because we needed to due to calls to other contracts,
+                    -- but the state of the instance did not change. So we don't have to modify the
+                    -- instance.
+                    if modIdx /= 0 then BS.bsoModifyInstance s' addr amnt val Nothing else return s'
+                )
+                s
+                (HMap.toList (cs ^. instanceV0Updates))
+            )
+    -- since V0 and V1 instances are disjoint, the order in which we do updates does not matter.
+    s2 <-
+        lift
+            ( foldM
+                ( \s' (addr, InstanceV1Update{..}) ->
+                    BS.bsoModifyInstance s' addr amountChange newState newInterface
+                )
+                s1
+                (HMap.toList (cs ^. instanceV1Updates))
+            )
+    -- Notify account transfers.
+    -- This also updates the release schedule.
+    s3 <-
+        lift
+            ( foldM
+                BS.bsoModifyAccount
+                s2
+                (cs ^. accountUpdates)
+            )
+    ssBlockState .= s3
+
+-- | Commit a module interface and module value to global state. Returns @True@
+--  if this was successful, and @False@ if a module with the given Hash already
+--  existed. Also store the code of the module for archival purposes.
+commitModule :: (IsWasmVersion v, BS.BlockStateOperations m) => (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> SchedulerT m Bool
+{-# INLINE commitModule #-}
+commitModule !iface = do
+    (res, s') <- lift . (\s -> BS.bsoPutNewModule s iface) =<< use ssBlockState
+    ssBlockState .= s'
+    return res
+
+-- | Create new instance in the global state.
+--  The instance is parametrised by the address, and the return value is the
+--  address assigned to the new instance.
+putNewInstance ::
+    (IsWasmVersion v, BS.BlockStateOperations m) =>
+    NewInstanceData (InstrumentedModuleRef m v) v -> SchedulerT m ContractAddress
+{-# INLINE putNewInstance #-}
+putNewInstance !mkInstance = do
+    (caddr, s') <- lift . flip BS.bsoPutNewInstance mkInstance =<< use ssBlockState
+    ssBlockState .= s'
+    return caddr
+
+-- | Bump the next available transaction nonce of the account.
+--  Precondition: the account exists in the block state.
+increaseAccountNonce :: (BS.BlockStateOperations m) => IndexedAccount m -> SchedulerT m ()
+{-# INLINE increaseAccountNonce #-}
+increaseAccountNonce (ai, acc) = do
+    s <- use ssBlockState
+    nonce <- BS.getAccountNonce acc
+    s' <- lift (BS.bsoModifyAccount s (emptyAccountUpdate ai & auNonce ?~ (nonce + 1)))
+    ssBlockState .= s'
+
+-- | Update account credentials.
+--  Preconditions:
+--  - The account exists in the block state.
+--  - The account threshold is reasonable.
+updateAccountCredentials ::
+    (BS.BlockStateOperations m) =>
+    AccountIndex ->
+    -- | The indices of credentials to remove from the account.
+    [ID.CredentialIndex] ->
+    -- | The new credentials to add.
+    Map.Map ID.CredentialIndex ID.AccountCredential ->
+    -- | The new account threshold
+    ID.AccountThreshold ->
+    SchedulerT m ()
+{-# INLINE updateAccountCredentials #-}
+updateAccountCredentials !ai !idcs !creds !threshold = do
+    s <- use ssBlockState
+    s' <- lift (BS.bsoUpdateAccountCredentials s ai idcs creds threshold)
+    ssBlockState .= s'
+
+-- | Create and add an empty account with the given public key, address and credential.
+--  If an account with the given address already exists, @Nothing@ is returned.
+--  Otherwise, the new account is returned, and the credential is added to the known credentials.
+--
+--  It is not checked if the account's credential is a duplicate.
+createAccount ::
+    (BS.BlockStateOperations m) =>
+    CryptographicParameters -> AccountAddress -> ID.AccountCredential -> SchedulerT m (Maybe (Account m))
+{-# INLINE createAccount #-}
+createAccount cparams addr credential = do
+    s <- use ssBlockState
+    (res, s') <- lift (BS.bsoCreateAccount s cparams addr credential)
+    ssBlockState .= s'
+    return res
+
+-- | Notify energy used by the current execution.
+--  Add to the current running total of energy used.
+markEnergyUsed :: (Monad m) => Energy -> SchedulerT m ()
+{-# INLINE markEnergyUsed #-}
+markEnergyUsed energy = ssEnergyUsed += energy
+
+-- | Get the currently used amount of block energy.
+getUsedEnergy :: (Monad m) => SchedulerT m Energy
+{-# INLINE getUsedEnergy #-}
+getUsedEnergy = use ssEnergyUsed
+
+getRemainingEnergy :: (BS.BlockStateOperations m) => SchedulerT m Energy
+getRemainingEnergy = do
+    maxEnergy <- getMaxBlockEnergy
+    usedEnergy <- getUsedEnergy
+    return $! if usedEnergy <= maxEnergy then maxEnergy - usedEnergy else 0
+
+-- | Get the next transaction index in the block, and increase the internal counter
+bumpTransactionIndex :: (Monad m) => SchedulerT m TransactionIndex
+{-# INLINE bumpTransactionIndex #-}
+bumpTransactionIndex = ssNextIndex <<%= (+ 1)
+
+-- | Record that the amount was charged for execution. Amount is distributed
+--  at the end of block execution in accordance with the tokenomics principles.
+notifyExecutionCost :: (Monad m) => Amount -> SchedulerT m ()
+{-# INLINE notifyExecutionCost #-}
+notifyExecutionCost !amnt = ssExecutionCosts += amnt
+
+-- | Notify the state that an amount has been transferred from public to
+--  encrypted or vice-versa.
+notifyEncryptedBalanceChange :: (BS.BlockStateOperations m) => AmountDelta -> SchedulerT m ()
+{-# INLINE notifyEncryptedBalanceChange #-}
+notifyEncryptedBalanceChange !amntDiff = do
+    s <- use ssBlockState
+    s' <- lift (BS.bsoNotifyEncryptedBalanceChange s amntDiff)
+    ssBlockState .= s'
+
+-- | Convert the given energy amount into an amount of GTU. The exchange
+--  rate can vary depending on the current state of the blockchain.
+energyToGtu :: (BS.BlockStateOperations m) => Energy -> SchedulerT m Amount
+{-# INLINE energyToGtu #-}
+energyToGtu v = do
+    s <- use ssBlockState
+    rate <- lift $ _erEnergyRate <$> BS.bsoGetExchangeRates s
+    return $! computeCost rate v
+
+-- * Operations related to bakers.
+
+-- | Register this account as a baker.
+--  The following results are possible:
+--
+--  * @BASuccess id@: the baker was created with the specified 'BakerId'.
+--    @id@ is always chosen to be the account index.
+--
+--  * @BAInvalidAccount@: the address does not resolve to a valid account.
+--
+--  * @BAAlreadyBaker@: the account is already registered as a baker.
+--
+--  * @BAInsufficientBalance@: the balance on the account is insufficient to
+--    stake the specified amount.
+--
+--  * @BADuplicateAggregationKey@: the aggregation key is already in use.
+--
+--  Note that if two results could apply, the first in this list takes precedence.
+addBaker ::
+    ( AccountVersionFor (MPV m) ~ 'AccountV0,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
+      BS.BlockStateOperations m
     ) =>
-    SchedulerMonad m
-    where
-    -- | Get the 'AccountIndex' for an account, if it exists.
-    getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
+    AccountIndex ->
+    BakerAdd ->
+    SchedulerT m BakerAddResult
+{-# INLINE addBaker #-}
+addBaker ai badd = do
+    s <- use ssBlockState
+    (ret, s') <- lift (BS.bsoAddBaker s ai badd)
+    ssBlockState .= s'
+    return ret
 
-    -- | Check whether the given account address would clash with any existing
-    --  account's address. The behaviour of this will generally depend on the
-    --  protocol version.
-    addressWouldClash :: AccountAddress -> m Bool
+-- | From chain parameters version 1, this operation adds a validator on an account.
+--  For details of the behaviour and return values, see
+--  'Concordium.GlobalState.BlockState.bsoAddValidator'.
+--
+--  PRECONDITION:
+--   * The account must exist;
+--   * The account must not already be a validator;
+--   * The flag must indicate if the account is currently a delegator, which will be removed;
+--   * The account must have sufficient balance to cover the stake.
+addValidator ::
+    (PVSupportsDelegation (MPV m), BS.BlockStateOperations m) =>
+    AccountIndex ->
+    -- | Whether the account already has a delegator, which will be removed in the process.
+    RemoveExistingStake ->
+    ValidatorAdd ->
+    SchedulerT m (Either ValidatorConfigureFailure ())
+{-# INLINE addValidator #-}
+addValidator ai removeDelegator vadd = do
+    s <- use ssBlockState
+    (s', res) <- lift (doAdd s)
+    ssBlockState .= s'
+    return res
+  where
+    doAdd s0 | RemoveExistingStake ts <- removeDelegator = do
+        -- We need to remove the delegator first.
+        -- We take a snapshot of the state so we can rollback if the add fails.
+        snapshot <- BS.bsoSnapshotState s0
+        rdRes <- BS.bsoUpdateDelegator s0 ts ai delegatorRemove
+        case rdRes of
+            Left e ->
+                -- Removing the delegator cannot fail, since the account must have a delegator.
+                error $ "addValidator: Failed to remove delegator: " ++ show e
+            Right (_, s1) -> do
+                res <- BS.bsoAddValidator s1 ai vadd
+                case res of
+                    Left e -> do
+                        -- Rollback the state to the snapshot.
+                        s' <- BS.bsoRollback s1 snapshot
+                        return (s', Left e)
+                    Right s' -> return (s', Right ())
+    doAdd s = do
+        res <- BS.bsoAddValidator s ai vadd
+        return $! case res of
+            Left e -> (s, Left e)
+            Right s' -> (s', Right ())
 
-    -- | Commit to global state all the updates to local state that have
-    --  accumulated through the execution. This method is also in charge of
-    --  recording which accounts were affected by the transaction for reward and
-    --  other purposes.
-    --  Precondition: Each account affected in the change set must exist in the
-    --  block state.
-    commitChanges :: ChangeSet m -> m ()
+-- | From chain parameters version 1, this operation updates or removes a validator on an
+--  account. For details of the behaviour and return values, see
+--  'Concordium.GlobalState.BlockState.bsoUpdateValidator'.
+--
+-- PRECONDITION:
+--  * The account must exist;
+--  * The account must be a validator;
+--  * The account must have sufficient balance to cover the new stake.
+updateValidator ::
+    (PVSupportsDelegation (MPV m), BS.BlockStateOperations m) =>
+    Timestamp ->
+    AccountIndex ->
+    ValidatorUpdate ->
+    SchedulerT m (Either ValidatorConfigureFailure [BakerConfigureUpdateChange])
+{-# INLINE updateValidator #-}
+updateValidator ts ai vadd = do
+    s <- use ssBlockState
+    lift (BS.bsoUpdateValidator s ts ai vadd) >>= \case
+        Left e -> return (Left e)
+        Right (events, s') -> do
+            ssBlockState .= s'
+            return (Right events)
 
-    -- | Commit a module interface and module value to global state. Returns @True@
-    --  if this was successful, and @False@ if a module with the given Hash already
-    --  existed. Also store the code of the module for archival purposes.
-    commitModule :: (IsWasmVersion v) => (GSWasm.ModuleInterfaceV v, Wasm.WasmModuleV v) -> m Bool
+-- | From chain parameters version 1, this operation adds a delegator on an account.
+--  For details of the behaviour and return values, see
+--  'Concordium.GlobalState.BlockState.bsoAddDelegator'.
+--
+--  PRECONDITION:
+--   * The account must exist;
+--   * The account must not already be a delegator;
+--   * The flag must indicate if the account is currently a validator, which will be removed;
+--   * The account must have sufficient balance to cover the stake.
+addDelegator ::
+    (PVSupportsDelegation (MPV m), BS.BlockStateOperations m) =>
+    AccountIndex ->
+    -- | Whether the account already has a validator, which will be removed in the process.
+    RemoveExistingStake ->
+    DelegatorAdd ->
+    SchedulerT m (Either DelegatorConfigureFailure ())
+{-# INLINE addDelegator #-}
+addDelegator ai removeValidator dadd = do
+    s <- use ssBlockState
+    (s', res) <- lift (doAdd s)
+    ssBlockState .= s'
+    return res
+  where
+    doAdd s0 | RemoveExistingStake ts <- removeValidator = do
+        -- We need to remove the validator first.
+        -- We take a snapshot of the state so we can rollback if the add fails.
+        snapshot <- BS.bsoSnapshotState s0
+        rvRes <- BS.bsoUpdateValidator s0 ts ai validatorRemove
+        case rvRes of
+            Left e ->
+                -- Removing the validator cannot fail, since the account must have a validator.
+                error $ "addDelegator: Failed to remove validator: " ++ show e
+            Right (_, s1) -> do
+                res <- BS.bsoAddDelegator s1 ai dadd
+                case res of
+                    Left e -> do
+                        -- Rollback the state to the snapshot.
+                        s' <- BS.bsoRollback s1 snapshot
+                        return (s', Left e)
+                    Right s' -> return (s', Right ())
+    doAdd s = do
+        res <- BS.bsoAddDelegator s ai dadd
+        return $! case res of
+            Left e -> (s, Left e)
+            Right s' -> (s', Right ())
 
-    -- | Create new instance in the global state.
-    --  The instance is parametrised by the address, and the return value is the
-    --  address assigned to the new instance.
-    putNewInstance :: (IsWasmVersion v) => NewInstanceData (InstrumentedModuleRef m v) v -> m ContractAddress
+-- | From chain parameters version 1, this operation updates or removes a delegator on an
+--  account. For details of the behaviour and return values, see
+-- 'Concordium.GlobalState.BlockState.bsoUpdateDelegator'.
+--
+-- PRECONDITION:
+--  * The account must exist;
+--  * The account must be a delegator;
+--  * The account must have sufficient balance to cover the new stake.
+updateDelegator ::
+    (PVSupportsDelegation (MPV m), BS.BlockStateOperations m) =>
+    Timestamp ->
+    AccountIndex ->
+    DelegatorUpdate ->
+    SchedulerT m (Either DelegatorConfigureFailure [DelegationConfigureUpdateChange])
+{-# INLINE updateDelegator #-}
+updateDelegator ts ai dadd = do
+    s <- use ssBlockState
+    lift (BS.bsoUpdateDelegator s ts ai dadd) >>= \case
+        Left e -> return (Left e)
+        Right (events, s') -> do
+            ssBlockState .= s'
+            return (Right events)
 
-    -- | Bump the next available transaction nonce of the account.
-    --  Precondition: the account exists in the block state.
-    increaseAccountNonce :: IndexedAccount m -> m ()
+-- | Remove the baker associated with an account.
+--  The removal takes effect after a cooling-off period.
+--  Removal may fail if the baker is already cooling-off from another change (e.g. stake reduction).
+--
+--  The following results are possible:
+--
+--  * @BRRemoved e@: the baker was removed, and will be in cooling-off until epoch @e@.
+--    The change will take effect in epoch @e+1@.
+--
+--  * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
+--
+--  * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
+removeBaker ::
+    ( AccountVersionFor (MPV m) ~ 'AccountV0,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
+      BS.BlockStateOperations m
+    ) =>
+    AccountIndex ->
+    SchedulerT m BakerRemoveResult
+{-# INLINE removeBaker #-}
+removeBaker ai = do
+    s <- use ssBlockState
+    (ret, s') <- lift (BS.bsoRemoveBaker s ai)
+    ssBlockState .= s'
+    return ret
 
-    -- FIXME: This method should not be here, but rather in the transaction monad.
+-- | Update the keys associated with an account.
+--  It is assumed that the keys have already been checked for validity/ownership as
+--  far as is necessary.
+--  The only check on the keys is that the aggregation key is not a duplicate.
+--
+--  The following results are possible:
+--
+--  * @BKUSuccess@: the keys were updated
+--
+--  * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
+--
+--  * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
+updateBakerKeys ::
+    ( AccountVersionFor (MPV m) ~ 'AccountV0,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
+      BS.BlockStateOperations m
+    ) =>
+    AccountIndex ->
+    BakerKeyUpdate ->
+    SchedulerT m BakerKeyUpdateResult
+{-# INLINE updateBakerKeys #-}
+updateBakerKeys ai keyUpd = do
+    s <- use ssBlockState
+    (r, s') <- lift (BS.bsoUpdateBakerKeys s ai keyUpd)
+    ssBlockState .= s'
+    return r
 
-    -- | Update account credentials.
-    --  Preconditions:
-    --  - The account exists in the block state.
-    --  - The account threshold is reasonable.
-    updateAccountCredentials ::
-        AccountIndex ->
-        -- | The indices of credentials to remove from the account.
-        [ID.CredentialIndex] ->
-        -- | The new credentials to add.
-        Map.Map ID.CredentialIndex ID.AccountCredential ->
-        -- | The new account threshold
-        ID.AccountThreshold ->
-        m ()
+-- | Update the stake associated with an account.
+--  A reduction in stake will be delayed by the current cool-off period.
+--  A change will not be made if there is already a cooling-off change
+--  pending for the baker.
+--
+--  The following results are possible:
+--
+--  * @BSUStakeIncreased@: the baker's stake was increased.
+--    This will take effect in the epoch after next.
+--
+--  * @BSUStakeReduced e@: the baker's stake was reduced.
+--    This will cool-off until epoch @e@ and take effect in epoch @e+1@.
+--
+--  * @BSUStakeUnchanged@: there is no change to the baker's stake, but this update was successful.
+--
+--  * @BSUInvalidBaker@: the account does not exist, or is not currently a baker.
+--
+--  * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
+--
+--  * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
+updateBakerStake ::
+    ( AccountVersionFor (MPV m) ~ 'AccountV0,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
+      BS.BlockStateOperations m
+    ) =>
+    AccountIndex ->
+    Amount ->
+    SchedulerT m BakerStakeUpdateResult
+{-# INLINE updateBakerStake #-}
+updateBakerStake bi bsu = do
+    s <- use ssBlockState
+    (r, s') <- lift (BS.bsoUpdateBakerStake s bi bsu)
+    ssBlockState .= s'
+    return r
 
-    -- | Create and add an empty account with the given public key, address and credential.
-    --  If an account with the given address already exists, @Nothing@ is returned.
-    --  Otherwise, the new account is returned, and the credential is added to the known credentials.
-    --
-    --  It is not checked if the account's credential is a duplicate.
-    createAccount :: CryptographicParameters -> AccountAddress -> ID.AccountCredential -> m (Maybe (Account m))
+-- | Update whether the baker automatically restakes the rewards it earns.
+--
+--  The following results are possible:
+--
+--  * @BREUUpdated id@: the flag was updated.
+--
+--  * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
+updateBakerRestakeEarnings ::
+    (AccountVersionFor (MPV m) ~ 'AccountV0, BS.BlockStateOperations m) =>
+    AccountIndex -> Bool -> SchedulerT m BakerRestakeEarningsUpdateResult
+{-# INLINE updateBakerRestakeEarnings #-}
+updateBakerRestakeEarnings bi bre = do
+    s <- use ssBlockState
+    (r, s') <- lift (BS.bsoUpdateBakerRestakeEarnings s bi bre)
+    ssBlockState .= s'
+    return r
 
-    -- | Notify energy used by the current execution.
-    --  Add to the current running total of energy used.
-    markEnergyUsed :: Energy -> m ()
+-- * Operations on account keys
 
-    -- | Get the currently used amount of block energy.
-    getUsedEnergy :: m Energy
+-- | Updates the credential verification keys
+-- Preconditions:
+-- * The account exists
+-- * The account has keys defined at the specified indices
+updateCredentialKeys ::
+    (BS.BlockStateOperations m) =>
+    AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> SchedulerT m ()
+{-# INLINE updateCredentialKeys #-}
+updateCredentialKeys accIndex credIndex newKeys = do
+    s <- use ssBlockState
+    s' <- lift (BS.bsoSetAccountCredentialKeys s accIndex credIndex newKeys)
+    ssBlockState .= s'
 
-    getRemainingEnergy :: m Energy
-    getRemainingEnergy = do
-        maxEnergy <- getMaxBlockEnergy
-        usedEnergy <- getUsedEnergy
-        return $! if usedEnergy <= maxEnergy then maxEnergy - usedEnergy else 0
+-- * Chain updates
 
-    -- | Get the next transaction index in the block, and increase the internal counter
-    bumpTransactionIndex :: m TransactionIndex
+-- | Get the current authorized keys for updates.
+getUpdateKeyCollection ::
+    (BS.BlockStateOperations m) =>
+    SchedulerT m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
+{-# INLINE getUpdateKeyCollection #-}
+getUpdateKeyCollection = lift . BS.bsoGetUpdateKeyCollection =<< use ssBlockState
 
-    -- | Record that the amount was charged for execution. Amount is distributed
-    --  at the end of block execution in accordance with the tokenomics principles.
-    notifyExecutionCost :: Amount -> m ()
+-- | Get the next sequence number of updates of a given type.
+getNextUpdateSequenceNumber ::
+    (BS.BlockStateOperations m) =>
+    UpdateType -> SchedulerT m UpdateSequenceNumber
+{-# INLINE getNextUpdateSequenceNumber #-}
+getNextUpdateSequenceNumber uty = do
+    s <- use ssBlockState
+    lift (BS.bsoGetNextUpdateSequenceNumber s uty)
 
-    -- | Notify the state that an amount has been transferred from public to
-    --  encrypted or vice-versa.
-    notifyEncryptedBalanceChange :: AmountDelta -> m ()
+-- | Add an update to the relevant update queue. The update is
+--  assumed to have the next sequence number for its update type.
+--  The next sequence number will be correspondingly incremented,
+--  and any queued updates of the given type with a later effective
+--  time are cancelled.
+enqueueUpdate ::
+    (BS.BlockStateOperations m) =>
+    TransactionTime ->
+    UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) ->
+    SchedulerT m ()
+{-# INLINE enqueueUpdate #-}
+enqueueUpdate tt p = do
+    s <- use ssBlockState
+    s' <- lift (BS.bsoEnqueueUpdate s tt p)
+    ssBlockState .= s'
 
-    -- | Convert the given energy amount into an amount of GTU. The exchange
-    --  rate can vary depending on the current state of the blockchain.
-    energyToGtu :: Energy -> m Amount
+-- | Increment the update sequence number for Protocol Level Tokens (PLT).
+-- Unlike the other chain updates this is a separate function,
+-- since there is no queue associated with PLTs.
+incrementPLTUpdateSequenceNumber ::
+    (PVSupportsPLT (MPV m), BS.BlockStateOperations m) =>
+    SchedulerT m ()
+{-# INLINE incrementPLTUpdateSequenceNumber #-}
+incrementPLTUpdateSequenceNumber = do
+    s <- use ssBlockState
+    s' <- lift (BS.bsoIncrementPLTUpdateSequenceNumber s)
+    ssBlockState .= s'
 
-    -- * Operations related to bakers.
+-- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
+getTokenIndex :: (PVSupportsHaskellManagedPLT (MPV m), BS.BlockStateOperations m) => TokenId -> SchedulerT m (Maybe Token.TokenIndex)
+{-# INLINE getTokenIndex #-}
+getTokenIndex tokenId = do
+    blockState <- use ssBlockState
+    lift (BS.getTokenIndex blockState tokenId)
 
-    -- | Register this account as a baker.
-    --  The following results are possible:
-    --
-    --  * @BASuccess id@: the baker was created with the specified 'BakerId'.
-    --    @id@ is always chosen to be the account index.
-    --
-    --  * @BAInvalidAccount@: the address does not resolve to a valid account.
-    --
-    --  * @BAAlreadyBaker@: the account is already registered as a baker.
-    --
-    --  * @BAInsufficientBalance@: the balance on the account is insufficient to
-    --    stake the specified amount.
-    --
-    --  * @BADuplicateAggregationKey@: the aggregation key is already in use.
-    --
-    --  Note that if two results could apply, the first in this list takes precedence.
-    addBaker ::
-        (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0) =>
-        AccountIndex ->
-        BakerAdd ->
-        m BakerAddResult
+-- | Get the configuration of a protocol-level token.
+--
+--  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+getTokenConfiguration ::
+    (PVSupportsHaskellManagedPLT (MPV m), BS.BlockStateOperations m) =>
+    Token.TokenIndex -> SchedulerT m Token.PLTConfiguration
+{-# INLINE getTokenConfiguration #-}
+getTokenConfiguration tokenIndex = do
+    blockState <- use ssBlockState
+    lift (BS.getTokenConfiguration blockState tokenIndex)
 
-    -- | From chain parameters version 1, this operation adds a validator on an account.
-    --  For details of the behaviour and return values, see
-    --  'Concordium.GlobalState.BlockState.bsoAddValidator'.
-    --
-    --  PRECONDITION:
-    --   * The account must exist;
-    --   * The account must not already be a validator;
-    --   * The flag must indicate if the account is currently a delegator, which will be removed;
-    --   * The account must have sufficient balance to cover the stake.
-    addValidator ::
-        (PVSupportsDelegation (MPV m)) =>
-        AccountIndex ->
-        -- | Whether the account already has a delegator, which will be removed in the process.
-        RemoveExistingStake ->
-        ValidatorAdd ->
-        m (Either ValidatorConfigureFailure ())
+-- | Take a snapshot of the current block state, and run the given
+--  computation. If the result is @(_, True)@, then the block state is
+--  reverted to the snapshot. Otherwise, any changes to the block state are
+--  retained. The return value is the result of the computation.
+withBlockStateRollback :: (BS.BlockStateOperations m) => SchedulerT m (a, Bool) -> SchedulerT m a
+withBlockStateRollback op = do
+    s0 <- use ssBlockState
+    snapshot <- lift $ BS.bsoSnapshotState s0
+    (res, doRollback) <- op
+    when doRollback $ do
+        s1 <- use ssBlockState
+        s2 <- lift $ BS.bsoRollback s1 snapshot
+        ssBlockState .= s2
+    return res
 
-    -- | From chain parameters version 1, this operation updates or removes a validator on an
-    --  account. For details of the behaviour and return values, see
-    --  'Concordium.GlobalState.BlockState.bsoUpdateValidator'.
-    --
-    -- PRECONDITION:
-    --  * The account must exist;
-    --  * The account must be a validator;
-    --  * The account must have sufficient balance to cover the new stake.
-    updateValidator ::
-        (PVSupportsDelegation (MPV m)) =>
-        Timestamp ->
-        AccountIndex ->
-        ValidatorUpdate ->
-        m (Either ValidatorConfigureFailure [BakerConfigureUpdateChange])
+-- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel.
+--  This call does not charge energy.
+--  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+runPLT ::
+    forall m e a.
+    (PVSupportsHaskellManagedPLT (MPV m), BS.BlockStateOperations m) =>
+    Token.TokenIndex ->
+    ( forall m1.
+      ( Monad m1,
+        PLTKernelPrivilegedUpdate m1,
+        PLTKernelFail e m1,
+        PLTAccount m1 ~ (AccountIndex, AccountAddress)
+      ) =>
+      m1 a
+    ) ->
+    SchedulerT m (Either e a, [Event])
+runPLT tokenIx op = do
+    s <- use ssBlockState
+    let initialExecutionState =
+            PLTExecutionState
+                { _plteBlockState = s,
+                  _plteEvents = [],
+                  _plteEnergyUsed = 0,
+                  _plteStateIsDirty = False
+                }
+    mutState <- lift $ BS.getMutableTokenState s tokenIx
+    (res, finalExecutionState) <- lift $ do
+        config <- BS.getTokenConfiguration s tokenIx
+        let context =
+                PLTExecutionContext
+                    { _pltecTokenIndex = tokenIx,
+                      _pltecConfiguration = config,
+                      _pltecEnergy = Nothing,
+                      _pltecMutableState = mutState
+                    }
+        runKernelT op context initialExecutionState
+    when (isRight res && finalExecutionState ^. plteStateIsDirty) $ do
+        let outBlockState = finalExecutionState ^. plteBlockState
+        newBlockState <- lift $ BS.bsoSetTokenState outBlockState tokenIx mutState
+        ssBlockState .= newBlockState
+    return (res, reverse $ finalExecutionState ^. plteEvents)
 
-    -- | From chain parameters version 1, this operation adds a delegator on an account.
-    --  For details of the behaviour and return values, see
-    --  'Concordium.GlobalState.BlockState.bsoAddDelegator'.
-    --
-    --  PRECONDITION:
-    --   * The account must exist;
-    --   * The account must not already be a delegator;
-    --   * The flag must indicate if the account is currently a validator, which will be removed;
-    --   * The account must have sufficient balance to cover the stake.
-    addDelegator ::
-        (PVSupportsDelegation (MPV m)) =>
-        AccountIndex ->
-        -- | Whether the account already has a validator, which will be removed in the process.
-        RemoveExistingStake ->
-        DelegatorAdd ->
-        m (Either DelegatorConfigureFailure ())
+-- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel
+--  and uses at the maximum the specified amount of energy. Returns the result of
+--  the computation together with the used energy.
+--
+--  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+runPLTWithEnergy ::
+    forall m e a.
+    (PVSupportsHaskellManagedPLT (MPV m), BS.BlockStateOperations m) =>
+    Token.TokenIndex ->
+    Energy ->
+    ( forall m1.
+      ( Monad m1,
+        PLTKernelPrivilegedUpdate m1,
+        PLTKernelFail e m1,
+        PLTKernelChargeEnergy m1,
+        PLTAccount m1 ~ (AccountIndex, AccountAddress)
+      ) =>
+      m1 a
+    ) ->
+    SchedulerT m (Either (PLTExecutionError e) a, [Event], Energy)
+runPLTWithEnergy tokenIx energy op = do
+    s <- use ssBlockState
+    let initialExecutionState =
+            PLTExecutionState
+                { _plteBlockState = s,
+                  _plteEvents = [],
+                  _plteEnergyUsed = 0,
+                  _plteStateIsDirty = False
+                }
+    mutState <- lift $ BS.getMutableTokenState s tokenIx
+    (res, finalExecutionState) <- lift $ do
+        config <- BS.getTokenConfiguration s tokenIx
+        let context =
+                PLTExecutionContext
+                    { _pltecTokenIndex = tokenIx,
+                      _pltecConfiguration = config,
+                      _pltecEnergy = Just energy,
+                      _pltecMutableState = mutState
+                    }
+        runKernelT op context initialExecutionState
+    when (isRight res && finalExecutionState ^. plteStateIsDirty) $ do
+        let outBlockState = finalExecutionState ^. plteBlockState
+        newBlockState <- lift $ BS.bsoSetTokenState outBlockState tokenIx mutState
+        ssBlockState .= newBlockState
+    return (res, reverse $ finalExecutionState ^. plteEvents, finalExecutionState ^. plteEnergyUsed)
 
-    -- | From chain parameters version 1, this operation updates or removes a delegator on an
-    --  account. For details of the behaviour and return values, see
-    -- 'Concordium.GlobalState.BlockState.bsoUpdateDelegator'.
-    --
-    -- PRECONDITION:
-    --  * The account must exist;
-    --  * The account must be a delegator;
-    --  * The account must have sufficient balance to cover the new stake.
-    updateDelegator ::
-        (PVSupportsDelegation (MPV m)) =>
-        Timestamp ->
-        AccountIndex ->
-        DelegatorUpdate ->
-        m (Either DelegatorConfigureFailure [DelegationConfigureUpdateChange])
+-- | Get the block state in the scheduler monad.
+--
+-- This is a Low-level interface needed for foreign function interface access.
+getBlockState :: (Monad m) => SchedulerT m (UpdatableBlockState m)
+{-# INLINE getBlockState #-}
+getBlockState = use ssBlockState
 
-    -- | Remove the baker associated with an account.
-    --  The removal takes effect after a cooling-off period.
-    --  Removal may fail if the baker is already cooling-off from another change (e.g. stake reduction).
-    --
-    --  The following results are possible:
-    --
-    --  * @BRRemoved e@: the baker was removed, and will be in cooling-off until epoch @e@.
-    --    The change will take effect in epoch @e+1@.
-    --
-    --  * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
-    --
-    --  * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
-    removeBaker ::
-        (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0) =>
-        AccountIndex ->
-        m BakerRemoveResult
+-- | Set the block state in the scheduler monad.
+--
+-- This is a Low-level interface needed for foreign function interface access.
+setBlockState :: (Monad m) => UpdatableBlockState m -> SchedulerT m ()
+{-# INLINE setBlockState #-}
+setBlockState = (ssBlockState .=)
 
-    -- | Update the keys associated with an account.
-    --  It is assumed that the keys have already been checked for validity/ownership as
-    --  far as is necessary.
-    --  The only check on the keys is that the aggregation key is not a duplicate.
-    --
-    --  The following results are possible:
-    --
-    --  * @BKUSuccess@: the keys were updated
-    --
-    --  * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
-    --
-    --  * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
-    updateBakerKeys ::
-        (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0) =>
-        AccountIndex ->
-        BakerKeyUpdate ->
-        m BakerKeyUpdateResult
-
-    -- | Update the stake associated with an account.
-    --  A reduction in stake will be delayed by the current cool-off period.
-    --  A change will not be made if there is already a cooling-off change
-    --  pending for the baker.
-    --
-    --  The following results are possible:
-    --
-    --  * @BSUStakeIncreased@: the baker's stake was increased.
-    --    This will take effect in the epoch after next.
-    --
-    --  * @BSUStakeReduced e@: the baker's stake was reduced.
-    --    This will cool-off until epoch @e@ and take effect in epoch @e+1@.
-    --
-    --  * @BSUStakeUnchanged@: there is no change to the baker's stake, but this update was successful.
-    --
-    --  * @BSUInvalidBaker@: the account does not exist, or is not currently a baker.
-    --
-    --  * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
-    --
-    --  * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
-    updateBakerStake ::
-        (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0) =>
-        AccountIndex ->
-        Amount ->
-        m BakerStakeUpdateResult
-
-    -- | Update whether the baker automatically restakes the rewards it earns.
-    --
-    --  The following results are possible:
-    --
-    --  * @BREUUpdated id@: the flag was updated.
-    --
-    --  * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
-    updateBakerRestakeEarnings :: (AccountVersionFor (MPV m) ~ 'AccountV0) => AccountIndex -> Bool -> m BakerRestakeEarningsUpdateResult
-
-    -- * Operations on account keys
-
-    -- | Updates the credential verification keys
-    -- Preconditions:
-    -- * The account exists
-    -- * The account has keys defined at the specified indices
-    updateCredentialKeys :: AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
-
-    -- * Chain updates
-
-    -- | Get the current authorized keys for updates.
-    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
-
-    -- | Get the next sequence number of updates of a given type.
-    getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
-
-    -- | Add an update to the relevant update queue. The update is
-    --  assumed to have the next sequence number for its update type.
-    --  The next sequence number will be correspondingly incremented,
-    --  and any queued updates of the given type with a later effective
-    --  time are cancelled.
-    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m ()
-
-    -- | Increment the update sequence number for Protocol Level Tokens (PLT).
-    -- Unlike the other chain updates this is a separate function,
-    -- since there is no queue associated with PLTs.
-    incrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => m ()
-
-    -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
-    getTokenIndex :: (PVSupportsHaskellManagedPLT (MPV m)) => TokenId -> m (Maybe Token.TokenIndex)
-
-    -- | Get the configuration of a protocol-level token.
-    --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenConfiguration :: (PVSupportsHaskellManagedPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
-
-    -- | Take a snapshot of the current block state, and run the given
-    --  computation. If the result is @(_, True)@, then the block state is
-    --  reverted to the snapshot. Otherwise, any changes to the block state are
-    --  retained. The return value is the result of the computation.
-    withBlockStateRollback :: m (a, Bool) -> m a
-
-    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel.
-    --  This call does not charge energy.
-    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
-    runPLT ::
-        (PVSupportsHaskellManagedPLT (MPV m)) =>
-        Token.TokenIndex ->
-        ( forall m1.
-          ( Monad m1,
-            PLTKernelPrivilegedUpdate m1,
-            PLTKernelFail e m1,
-            PLTAccount m1 ~ (AccountIndex, AccountAddress)
-          ) =>
-          m1 a
-        ) ->
-        m (Either e a, [Event])
-
-    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel
-    --  and uses at the maximum the specified amount of energy. Returns the result of
-    --  the computation together with the used energy.
-    --
-    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
-    runPLTWithEnergy ::
-        (PVSupportsHaskellManagedPLT (MPV m)) =>
-        Token.TokenIndex ->
-        Energy ->
-        ( forall m1.
-          ( Monad m1,
-            PLTKernelPrivilegedUpdate m1,
-            PLTKernelFail e m1,
-            PLTKernelChargeEnergy m1,
-            PLTAccount m1 ~ (AccountIndex, AccountAddress)
-          ) =>
-          m1 a
-        ) ->
-        m (Either (PLTExecutionError e) a, [Event], Energy)
-
-    -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
-    --
-    --  PRECONDITION: There MUST NOT already be a token with the specified token ID.
-    --  The governance account index MUST reference a valid account.
-    createToken ::
-        (PVSupportsHaskellManagedPLT (MPV m)) =>
-        Token.PLTConfiguration ->
-        m Token.TokenIndex
-
-    -- | The type of the block state in the scheduler monad.
-    --
-    -- This is a Low-level interface needed for foreign function interface access.
-    type SchedulerBlockState m
-
-    -- | Get the block state in the scheduler monad.
-    --
-    -- This is a Low-level interface needed for foreign function interface access.
-    getBlockState ::
-        m (SchedulerBlockState m)
-
-    -- | Set the block state in the scheduler monad.
-    --
-    -- This is a Low-level interface needed for foreign function interface access.
-    setBlockState ::
-        SchedulerBlockState m -> m ()
-
-    -- | Lifts 'BlockStateOperations' action into the 'SchedulerMonad'.
-    --
-    -- This is a Low-level interface needed for foreign function interface access.
-    liftBlockStateOperations ::
-        ( forall m'.
-          ( BlockStateOperations m',
-            SchedulerBlockState m ~ UpdatableBlockState m',
-            MPV m ~ MPV m'
-          ) =>
-          m' a
-        ) ->
-        m a
+-- | Create a new protocol-layer token with the given 'PLTConfiguration'.
+--
+--  PRECONDITION: There MUST NOT already be a token with the specified token ID.
+--  The governance account index MUST reference a valid account.
+createToken ::
+    (PVSupportsHaskellManagedPLT (MPV m), BS.BlockStateOperations m) =>
+    Token.PLTConfiguration ->
+    SchedulerT m Token.TokenIndex
+createToken pltConfig = do
+    s <- use ssBlockState
+    (tokenIx, s') <- lift $ BS.bsoCreateToken s pltConfig
+    ssBlockState .= s'
+    return tokenIx
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
@@ -698,71 +1224,6 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
         -- | The new module to use for execution.
         Set.Set GSWasm.ReceiveName ->
         m ()
-
--- | Index that keeps track of modifications of smart contracts inside a single
---  transaction. This is used to cheaply detect whether a contract state has
---  changed or not when a contract calls another.
-type ModificationIndex = Word
-
--- | A modified state of a V1 instance. This is the state that is maintained
---  during the execution of a transaction.
---
---  The type parameter `mr` is a technical necessity since we have to maintain a
---  new module interface. Since modules are parametrized by the monad (i.e.,
---  either persistent or basic) we need to parametrize this state update as well,
---  seeing that the scheduler works with any state. On top of this, we often have
---  "newtype wrappers" @t m@ around a monad @m@ but with the property that
---  @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@. In order for this to
---  work we actually need to parametrize the @InstanceV1Update'@ by a type
---  function @mr@ so that the typechecker can see the property that if
---
---  @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@
---
---  then also
---
---  @InstanceV1Update (t m) ~ InstanceV1Update m@.
---
---  That is why we have the auxiliary type definition @InstanceV1Update'@
---  parametrized by the type function @mr@ and then a simplified type alias
---  @InstanceV1Update@ on top.
-data InstanceV1Update' mr = InstanceV1Update
-    { -- | The modification index.
-      index :: !ModificationIndex,
-      -- | Amount changed
-      amountChange :: !AmountDelta,
-      -- | Present if a state change has ocurred.
-      newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
-      -- | Present if the contract has been upgraded.
-      --  Contract upgrades are only supported from PV 5 and onwards.
-      newInterface :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
-    }
-
-type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
-
-type ChangeSet m = ChangeSet' (InstrumentedModuleRef m)
-
--- | The set of changes to be committed on a successful transaction.
---
---  The reason for parametrizing by a type function @mr@ is the same as for
---  @InstanceV1Update@.
-data ChangeSet' mr = ChangeSet
-    { -- | Accounts whose states changed.
-      --  |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
-      --  We thus know where to look.
-      _accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate),
-      _instanceV0Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState GSWasm.V0))),
-      -- | V1 contracts whose state changed (and/or) has been upgraded. Any time we are updating a contract we know which version it is.
-      --  We thus know where to look.
-      _instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' mr)),
-      -- | Contracts that were initialized.
-      _instanceInits :: !(HSet.HashSet ContractAddress),
-      -- | Change in the encrypted balance of the system as a result of this contract's execution.
-      _encryptedChange :: !AmountDelta,
-      -- | The release schedules added to accounts on this block, to be added on the per block map.
-      _addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp)
-    }
-
-makeLenses ''ChangeSet'
 
 emptyCS :: Proxy m -> ChangeSet m
 emptyCS Proxy = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
@@ -1003,12 +1464,12 @@ data ExecutionCharge = ExecutionCharge
 --  for execution.
 --  This function assumes that the deposited energy is not less than the used energy.
 computeExecutionCharge ::
-    (SchedulerMonad m) =>
+    (BS.BlockStateOperations m) =>
     -- | Energy allocated.
     Energy ->
     -- | Energy remaining unused.
     Energy ->
-    m ExecutionCharge
+    SchedulerT m ExecutionCharge
 computeExecutionCharge allocated unused = do
     let ecUsedEnergy = allocated - unused
     ecEnergyCost <- energyToGtu ecUsedEnergy
@@ -1025,12 +1486,12 @@ computeExecutionCharge allocated unused = do
 --    - by 'dispatchTransactionBody' to charge for a payload that could not be deserialized.
 chargeExecutionCost ::
     forall m.
-    (SchedulerMonad m) =>
+    (BS.BlockStateOperations m) =>
     -- | Payer account.`
     IndexedAccount m ->
     -- | Execution cost.
     Amount ->
-    m ()
+    SchedulerT m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
     let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
@@ -1041,12 +1502,12 @@ chargeExecutionCost (ai, acc) amnt = do
 -- | Compute the amount to charge the transaction payer for executing the transaction,
 --  and charge the account. Returns the energy and cost charged.
 computeChargeExecution ::
-    (SchedulerMonad m) =>
+    (BS.BlockStateOperations m) =>
     -- | The context for the transaction execution.
     WithDepositContext m ->
     -- | The remaining unused energy.
     Energy ->
-    m ExecutionCharge
+    SchedulerT m ExecutionCharge
 computeChargeExecution wtc unused = do
     executionCharge <- computeExecutionCharge (_wtcEnergyAmount wtc) unused
     chargeExecutionCost (_wtcPayerAccount wtc) (ecEnergyCost executionCharge)
@@ -1090,16 +1551,16 @@ makeLenses ''WithDepositContext
 --    * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
     forall tov m res a.
-    (SchedulerMonad m, TransactionResult res, tov ~ TransactionOutcomesVersionFor (MPV m)) =>
+    (BS.BlockStateOperations m, TransactionResult res, tov ~ TransactionOutcomesVersionFor (MPV m)) =>
     WithDepositContext m ->
     -- | The computation to run in the modified environment with reduced amount on the initial account.
-    LocalT a m a ->
+    LocalT a (SchedulerT m) a ->
     -- | Continuation for the successful branch of the computation.
     --  The execution cost is charged before this is called.
     --  It gets the result of the previous computation as input, in particular the
     --  remaining energy and the ChangeSet. It should return the result.
-    (LocalState m -> a -> m res) ->
-    m (Maybe (TransactionSummary' tov res))
+    (LocalState (SchedulerT m) -> a -> SchedulerT m res) ->
+    SchedulerT m (Maybe (TransactionSummary' tov res))
 withDeposit wtc comp k = do
     let tsHash = wtc ^. wtcTransactionHash
     let totalEnergyToUse = wtc ^. wtcEnergyAmount
@@ -1172,10 +1633,10 @@ withDeposit wtc comp k = do
 --  used energy and the used energy.
 {-# INLINE defaultSuccess #-}
 defaultSuccess ::
-    (SchedulerMonad m, TransactionResult res) =>
-    LocalState m ->
+    (BS.BlockStateOperations m, TransactionResult res) =>
+    LocalState (SchedulerT m) ->
     [Event] ->
-    m res
+    SchedulerT m res
 defaultSuccess = \ls res -> do
     commitChanges (ls ^. changeSet)
     return (transactionSuccess res)
@@ -1551,7 +2012,7 @@ withExternalPure_ f = withExternal (return . fmap ((),) . f)
 
 -- | Helper function to log when a transaction was invalid.
 {-# INLINE logInvalidBlockItem #-}
-logInvalidBlockItem :: (SchedulerMonad m) => BlockItem -> FailureKind -> m ()
+logInvalidBlockItem :: (MonadLogger m) => BlockItem -> FailureKind -> SchedulerT m ()
 logInvalidBlockItem WithMetadata{wmdData = NormalTransaction{}, ..} fk =
     logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData = CredentialDeployment cred} fk =
@@ -1562,14 +2023,14 @@ logInvalidBlockItem WithMetadata{wmdData = ExtendedTransaction{}, ..} fk =
     logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
-logInvalidTransaction :: (SchedulerMonad m) => TVer.TransactionWithStatus -> FailureKind -> m ()
+logInvalidTransaction :: (MonadLogger m) => TVer.TransactionWithStatus -> FailureKind -> SchedulerT m ()
 logInvalidTransaction (WithMetadata{..}, _) fk =
     logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
-logInvalidCredential :: (SchedulerMonad m) => TVer.CredentialDeploymentWithStatus -> FailureKind -> m ()
+logInvalidCredential :: (MonadLogger m) => TVer.CredentialDeploymentWithStatus -> FailureKind -> SchedulerT m ()
 logInvalidCredential (WithMetadata{..}, _) fk =
     logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ wmdData) ++ " was invalid with reason " ++ show fk
 
-logInvalidChainUpdate :: (SchedulerMonad m) => TVer.ChainUpdateWithStatus -> FailureKind -> m ()
+logInvalidChainUpdate :: (MonadLogger m) => TVer.ChainUpdateWithStatus -> FailureKind -> SchedulerT m ()
 logInvalidChainUpdate (WithMetadata{..}, _) fk =
     logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
