@@ -173,6 +173,7 @@ executeTransaction depositContext tokenUpdate =
                             getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
                             getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
                             updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
+                            touchTokenAccountCallbackPtr <- wrapTouchTokenAccount $ touchTokenAccount operationCallbacks
                             incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                             -- Invoke the ffi call
                             statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
@@ -182,6 +183,7 @@ executeTransaction depositContext tokenUpdate =
                                             loadCallbackPtr
                                             readTokenAccountBalanceCallbackPtr
                                             updateTokenAccountBalanceCallbackPtr
+                                            touchTokenAccountCallbackPtr
                                             incrementPltUpdateSequenceCallbackPtr
                                             getAccountIndexByAddressCallbackPtr
                                             getAccountAddressByIndexCallbackPtr
@@ -201,6 +203,7 @@ executeTransaction depositContext tokenUpdate =
                             -- so we should not free it)
                             FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
                             FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
+                            FFI.freeHaskellFunPtr touchTokenAccountCallbackPtr
                             FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
                             FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                             FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
@@ -265,6 +268,8 @@ foreign import ccall "ffi_execute_transaction"
         ReadTokenAccountBalanceCallbackPtr ->
         -- | Called to update the token account balance in the haskell-managed block state.
         UpdateTokenAccountBalanceCallbackPtr ->
+        -- | Called to touch token account state in the haskell-managed block state.
+        TouchTokenAccountCallbackPtr ->
         -- | Called to increment the PLT update sequence number.
         IncrementPltUpdateSequenceNumberCallbackPtr ->
         -- | Called to get account index by account address.
@@ -397,6 +402,7 @@ executeChainUpdate updateHeader createPLT =
                             getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
                             getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
                             updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance $ updateTokenAccountBalance operationCallbacks
+                            touchTokenAccountCallbackPtr <- wrapTouchTokenAccount $ touchTokenAccount operationCallbacks
                             incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                             -- Invoke the ffi call
                             statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
@@ -405,6 +411,7 @@ executeChainUpdate updateHeader createPLT =
                                         loadCallbackPtr
                                         readTokenAccountBalanceCallbackPtr
                                         updateTokenAccountBalanceCallbackPtr
+                                        touchTokenAccountCallbackPtr
                                         incrementPltUpdateSequenceCallbackPtr
                                         getAccountIndexByAddressCallbackPtr
                                         getAccountAddressByIndexCallbackPtr
@@ -420,6 +427,7 @@ executeChainUpdate updateHeader createPLT =
                             -- so we should not free it)
                             FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
                             FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
+                            FFI.freeHaskellFunPtr touchTokenAccountCallbackPtr
                             FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
                             FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                             FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
@@ -478,6 +486,8 @@ foreign import ccall "ffi_execute_chain_update"
         ReadTokenAccountBalanceCallbackPtr ->
         -- | Called to update the token account balance in the haskell-managed block state.
         UpdateTokenAccountBalanceCallbackPtr ->
+        -- | Called to touch token account state in the haskell-managed block state.
+        TouchTokenAccountCallbackPtr ->
         -- | Called to increment the PLT update sequence number.
         IncrementPltUpdateSequenceNumberCallbackPtr ->
         -- | Called to get account index by account address.
@@ -639,6 +649,12 @@ unliftBlockStateOperationCallbacks bsIORef = BS.withUnliftBSO $ \unlift ->
                     return $ case maybeBs1 of
                         Just bs1 -> (bs1, Just ())
                         Nothing -> (bs, Nothing)
+            touchTokenAccount accountIndex tokenIndex =
+                modifyIORef_ bsIORef $ \bs -> do
+                    maybeBs1 <- unlift $ BS.bsoTouchTokenAccount bs tokenIndex accountIndex
+                    return $ case maybeBs1 of
+                        Just bs1 -> bs1
+                        Nothing -> bs
             incrementPltUpdateSequenceNumber =
                 modifyIORef_ bsIORef $ \bs -> do
                     unlift $ BS.bsoIncrementPLTUpdateSequenceNumber bs
