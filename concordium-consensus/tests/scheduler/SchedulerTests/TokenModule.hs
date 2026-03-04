@@ -837,7 +837,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted = Just receiver1,
+                                  trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount receiver1,
                                   trrReason = Just "recipient not in allow list"
                                 }
                          )
@@ -903,7 +903,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted = Just receiver1,
+                                  trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount receiver1,
                                   trrReason = Just "recipient in deny list"
                                 }
                          )
@@ -1333,11 +1333,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
 
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
-            governanceAccount =
-                CborAccountAddress
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
+            governanceAccount = accountTokenHolder $ dummyAccountAddress 1
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (getModuleStateCall "name") :-> Just "My protocol-level token")
@@ -1367,11 +1363,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
         assertTrace queryTokenModuleState trace
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
-            governanceAccount =
-                CborAccountAddress
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
+            governanceAccount = accountTokenHolder $ dummyAccountAddress 1
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (getModuleStateCall "name") :-> Just "Another PLT")
