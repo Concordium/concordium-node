@@ -76,6 +76,15 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError>;
 
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// If the account already has a balance for the token in context, the operation has no effect
+    ///
+    /// # Arguments
+    ///
+    /// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
+    /// - `token_index` The index of the token. Must be a valid token index of an existing token.
+    fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex);
+
     /// Increment the PLT chain update sequence number.
     fn increment_plt_update_sequence_number(&mut self);
 }

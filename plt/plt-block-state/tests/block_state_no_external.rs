@@ -123,6 +123,10 @@ impl ExternalBlockStateOperations for NoExternalBlockStateStub {
         unreachable!()
     }
 
+    fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex) {
+        unreachable!()
+    }
+
     fn increment_plt_update_sequence_number(&mut self) {
         unreachable!()
     }

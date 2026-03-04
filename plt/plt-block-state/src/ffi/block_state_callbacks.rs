@@ -25,6 +25,8 @@ pub struct ExternalBlockStateOperationCallbacks {
     pub queries: ExternalBlockStateQueryCallbacks,
     /// External function for updating the token balance for an account.
     pub update_token_account_balance_ptr: UpdateTokenAccountBalanceCallback,
+    /// External function for touching the token state for an account.
+    pub touch_token_account_ptr: TouchTokenAccountCallback,
     /// External function for incrementing the PLT update sequence number.
     pub increment_plt_update_sequence_number_ptr: IncrementPltUpdateSequenceNumberCallback,
 }
@@ -123,6 +125,10 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
         }
     }
 
+    fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex) {
+        (self.touch_token_account_ptr)(account.index, token.0);
+    }
+
     fn increment_plt_update_sequence_number(&mut self) {
         (self.increment_plt_update_sequence_number_ptr)();
     }
@@ -175,6 +181,16 @@ impl ExternalBlockStateQuery for ExternalBlockStateOperationCallbacks {
 /// - `add_amount` If `1`, the amount will be added to the balance. If `0`, it will be subtracted.
 pub type UpdateTokenAccountBalanceCallback =
     extern "C" fn(account_index: u64, token_index: u64, amount: u64, add_amount: u8) -> u8;
+
+/// External function for touching the token state for an account.
+///
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to update a token balance for. Must be a valid
+///   account index of an existing account.
+/// - `token_index` The index of the token. Must be a valid token index of an existing token.
+pub type TouchTokenAccountCallback = extern "C" fn(account_index: u64, token_index: u64);
 
 /// External function for reading the token balance for an account.
 ///
