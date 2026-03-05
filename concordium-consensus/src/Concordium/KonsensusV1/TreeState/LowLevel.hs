@@ -30,7 +30,8 @@ data StoredBlock (pv :: ProtocolVersion) = StoredBlock
       -- | Pointer to the state in the block state storage.
       stbStatePointer :: !(BlockStateRef pv)
     }
-
+    deriving (Show)
+    
 type instance BlockProtocolVersion (StoredBlock pv) = pv
 
 -- | Get the block state hash for a stored block.
