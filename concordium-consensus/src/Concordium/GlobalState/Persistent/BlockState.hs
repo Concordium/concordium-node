@@ -835,7 +835,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       -- | The global state of protocol-level tokens.
       bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv))
     }
-    
+
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
 birkParameters :: Lens' (BlockStatePointers pv) (PersistentBirkParameters pv)
 birkParameters = lens bspBirkParameters (\bsp bp -> bsp{bspBirkParameters = bp})

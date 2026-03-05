@@ -44,7 +44,7 @@ config =
                                         ( long "out-dir"
                                             <> metavar "OUTDIR"
                                             <> help "Path to directory to output dump to"
-                                        )                                        
+                                        )
                                     <*> option
                                         auto
                                         ( long "protocol-version"

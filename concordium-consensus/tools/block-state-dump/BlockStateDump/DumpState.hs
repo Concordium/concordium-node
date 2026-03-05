@@ -23,6 +23,7 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
 
 import BlockStateDump.Util
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 import qualified Concordium.Types.HashableTo as Hash
 import qualified Data.IORef as IO
 import qualified Data.Text.Lazy as Text
@@ -31,7 +32,6 @@ import qualified System.Directory as Dir
 import qualified System.FilePath as FP
 import qualified System.IO as IO
 import qualified Text.Pretty.Simple as Pretty
-import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -120,7 +120,8 @@ data OutputFiles = OutputFiles
     }
 
 dumpBlockState ::
-    (BS.BlockStateOperations m) =>
+    -- (BS.BlockStateOperations m) =>
+    (BS.SupportsPersistentState pv m) =>
     OutputFiles ->
     BlockEntry (MPV m) ->
     BS.HashedPersistentBlockState (MPV m) ->
@@ -132,7 +133,7 @@ dumpBlockState output BlockEntry{..} bs = do
     BS.BlockStatePointers{..} <- BS.loadPBS (BS.hpbsPointers bs)
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
-    blockNode <- liftBSOIO $ buildNode output ("block[" ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock) ++ "]") blockHash
+    blockNode <- liftBSOIO $ buildNode output ("block " ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock)) blockHash
     stateNode <- liftBSOIO $ buildNode output "state" (v0StateHash $ BS.hpbsHash bs)
     liftBSOIO $ buildEdge output blockNode stateNode (TreeState.stbStatePointer beBlock)
 
@@ -156,7 +157,7 @@ buildNode output label hash = do
             ++ label
             ++ "/"
             ++ show hash
-            ++ "\" shape=point];"
+            ++ "\" ];"
     return nodeId
 
 buildEdge :: OutputFiles -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
@@ -182,7 +183,9 @@ buildStateData output blobRef hash stateData = do
     return ()
 
 newtype NodeId = NodeId Word64
-    deriving (Show)
+
+instance Show NodeId where
+    show (NodeId w) = show w
 
 -- data GraphDumpBuilder = GraphDumpBuilder {
 --     gdbNextNodeId:: Word64,
@@ -203,12 +206,19 @@ newtype NodeId = NodeId Word64
 --     seBlobRef:: Blob.BlobRef a
 -- }
 
+-- liftBSOIO ::
+--     (BS.BlockStateOperations m) =>
+--     IO a ->
+--     m a
+-- liftBSOIO m = do
+--     BS.liftBlobStore $ liftIO m
+
 liftBSOIO ::
-    (BS.BlockStateOperations m) =>
+    (BS.SupportsPersistentState pv m) =>
     IO a ->
     m a
 liftBSOIO m = do
-    BS.liftBlobStore $ liftIO m
+    liftIO m
 
 data BlockEntry pv = BlockEntry
     { beBlock :: TreeState.StoredBlock pv
