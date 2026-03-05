@@ -133,7 +133,7 @@ dumpBlockState output BlockEntry{..} bs = do
     BS.BlockStatePointers{..} <- BS.loadPBS (BS.hpbsPointers bs)
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
-    blockNode <- liftBSOIO $ buildNode output ("block " ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock)) blockHash
+    blockNode <- liftBSOIO $ buildNode output ("block[" ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock) ++ "]") blockHash
     stateNode <- liftBSOIO $ buildNode output "state" (v0StateHash $ BS.hpbsHash bs)
     liftBSOIO $ buildEdge output "state" blockNode stateNode (TreeState.stbStatePointer beBlock)
 
@@ -146,29 +146,35 @@ dumpBlockState output BlockEntry{..} bs = do
 --     buildEdge:: NodeId -> NodeId -> Blob.BlobRef a -> IO ()
 --     buildStateData::(Show a) => Blob.BlobRef a -> Hash.Hash -> a -> IO ()
 
+hashDisplayLength :: Int
+hashDisplayLength = 6
+
 buildNode :: OutputFiles -> String -> Hash.Hash -> IO NodeId
 buildNode output label hash = do
+    let nodeLabel =
+            label
+                ++ "/"
+                ++ take hashDisplayLength (show hash)
     nodeId@(NodeId nodeIdWord) <- NodeId <$> IO.readIORef (ofNextNodeId output)
     IO.writeIORef (ofNextNodeId output) (nodeIdWord + 1)
     IO.hPutStrLn (ofStateGraph output) $
         "    "
             ++ show nodeId
             ++ " [label=\""
-            ++ label
-            ++ "/"
-            ++ show hash
+            ++ nodeLabel
             ++ "\" ];"
     return nodeId
 
 buildEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
-buildEdge output source _label target blobRef = do
+buildEdge output _label source target blobRef = do
+    let edgeLabel = show blobRef
     IO.hPutStrLn (ofStateGraph output) $
         "    "
             ++ show source
             ++ " -> "
             ++ show target
             ++ " [label=\""
-            ++ show blobRef
+            ++ edgeLabel
             ++ "\"];"
     return ()
 
