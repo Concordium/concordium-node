@@ -135,7 +135,7 @@ dumpBlockState output BlockEntry{..} bs = do
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
     blockNode <- liftBSOIO $ buildNode output ("block " ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock)) blockHash
     stateNode <- liftBSOIO $ buildNode output "state" (v0StateHash $ BS.hpbsHash bs)
-    liftBSOIO $ buildEdge output blockNode stateNode (TreeState.stbStatePointer beBlock)
+    liftBSOIO $ buildEdge output "state" blockNode stateNode (TreeState.stbStatePointer beBlock)
 
     return ()
 
@@ -160,8 +160,8 @@ buildNode output label hash = do
             ++ "\" ];"
     return nodeId
 
-buildEdge :: OutputFiles -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
-buildEdge output source target blobRef = do
+buildEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
+buildEdge output source _label target blobRef = do
     IO.hPutStrLn (ofStateGraph output) $
         "    "
             ++ show source
