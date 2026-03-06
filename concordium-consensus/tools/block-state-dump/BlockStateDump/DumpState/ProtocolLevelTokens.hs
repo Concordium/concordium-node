@@ -17,6 +17,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelToken
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLT
 
 import BlockStateDump.Shared
+import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 
 dumpProtocolLevelTokens ::
     forall pv m.
@@ -31,12 +32,35 @@ dumpProtocolLevelTokens output parentNode plt = do
         PLT.ProtocolLevelTokensV0 pltStateRef -> do
             (PLT.ProtocolLevelTokensHash _pltStateHash) <- Hash.getHashM pltStateRef -- todo ar why need to call this, why not present?
             (pltStateBlobRef, PLT.ProtocolLevelTokensHash pltStateHash) <- liftIO $ getHBRRefAndHash pltStateRef
-            pltStateNodeMaybe <- liftBSOIO $ buildNodeWithParent output "plts" parentNode pltStateBlobRef pltStateHash
+            pltStateNodeMaybe <- liftBSOIO $ buildBlobRefNodeWithParentEdge output "plts" parentNode pltStateBlobRef pltStateHash
 
             forM_ pltStateNodeMaybe $ \pltStateNode -> do
                 pltState <- Blob.refLoad pltStateRef
+                let pltTable = PLT._pltTable pltState
+
                 return ()
 
             return ()
         PLT.ProtocolLevelTokensV1 pltState -> do
             return () -- todo ar
+
+dumpLFMBTree ::
+    forall pv m k v.
+    (BS.SupportsPersistentState pv m) =>
+    OutputFiles ->
+    NodeId ->
+    LFMB.LFMBTree k Blob.HashedBufferedRef v ->
+    m ()
+dumpLFMBTree output rootParentNode = do
+    \case
+        LFMB.Empty -> do
+            undefined
+        LFMB.NonEmpty size t -> do
+            dumpLFMBTree rootParentNode t
+  where
+    dumpLFMBTree :: NodeId -> LFMB.T Blob.HashedBufferedRef (Blob.HashedBufferedRef v) -> m ()
+    dumpLFMBTree parentNode = \case
+        LFMB.Leaf ref -> do
+            undefined
+        LFMB.Node height left right -> do
+            undefined

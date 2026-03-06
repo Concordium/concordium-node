@@ -99,7 +99,6 @@ dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockStart 
 
     return ()
 
-
 -- class DumpBuilder where
 --     buildNode:: String -> Hash.Hash -> IO NodeId
 --     buildEdge:: NodeId -> NodeId -> Blob.BlobRef a -> IO ()
@@ -148,9 +147,8 @@ dumpBlockState output BlockEntry{..} bs = do
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
     let blockHeight = TreeState.bmHeight $ TreeState.stbInfo beBlock
-    let fakeBlockBlobRef = Blob.BlobRef $ maxBound - coerce blockHeight
-    (blockNode, _) <- liftBSOIO $ buildNode output ("block[" ++ show blockHeight ++ "]") fakeBlockBlobRef blockHash
-    stateNodeMaybe <- liftBSOIO $ buildNodeWithParent output "state" blockNode (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs) 
+    blockNode <- liftBSOIO $ buildCompNode output ("block[" ++ show blockHeight ++ "]") blockHash
+    stateNodeMaybe <- liftBSOIO $ buildBlobRefNodeWithParentEdge output "state" blockNode (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs)
     let stateNode = maybe (error "state node should always be created") id stateNodeMaybe
 
     bsp <- BS.loadPBS (BS.hpbsPointers bs)

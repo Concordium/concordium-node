@@ -21,8 +21,9 @@ module Concordium.GlobalState.Persistent.LFMBTree (
 
     -- * Tree type
     LFMBTree,
-    LFMBTree',
+    LFMBTree' (..),
     size,
+    T (..),
 
     -- * Construction
     empty,

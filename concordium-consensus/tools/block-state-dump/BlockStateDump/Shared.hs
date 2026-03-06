@@ -22,10 +22,9 @@ import Data.Coerce
 import qualified Data.Map.Lazy as Map
 import qualified Data.Text.Lazy as Text
 import qualified GHC.IORef as IORef
-import qualified Text.Pretty.Simple as Pretty
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
-
+import qualified Text.Pretty.Simple as Pretty
 
 throwUserError :: (MonadIO m) => String -> m a
 throwUserError = liftIO . ioError . userError
@@ -67,17 +66,18 @@ data OutputFilesMutable = OutputFilesMutable
       ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Hash.Hash)
     }
 
-
 openOutputFiles :: FilePath -> IO OutputFiles
 openOutputFiles outDir = do
     Dir.createDirectoryIfMissing True outDir
     ofStateGraph <- IO.openFile (outDir FP.</> "graph.dot") IO.WriteMode
     ofBlocks <- IO.openFile (outDir FP.</> "blocks.txt") IO.WriteMode
     ofState <- IO.openFile (outDir FP.</> "state.txt") IO.WriteMode
-    ofMutable <- IORef.newIORef OutputFilesMutable {
-        ofNextNodeId = NodeId 0,
-        ofBlobRefToNodeId = Map.empty
-    }
+    ofMutable <-
+        IORef.newIORef
+            OutputFilesMutable
+                { ofNextNodeId = NodeId 0,
+                  ofBlobRefToNodeId = Map.empty
+                }
 
     return OutputFiles{..}
 
@@ -88,15 +88,14 @@ closeOutputFiles OutputFiles{..} = do
     IO.hClose ofState
     return ()
 
-
 hashDisplayLength :: Int
 hashDisplayLength = 6
 
--- Build node if a node with the given blob ref does not already exist. 
--- Returns the (possibly existing) node id, regardless of whether a new node was build, 
+-- Build node if a node with the given blob ref does not already exist.
+-- Returns the (possibly existing) node id, regardless of whether a new node was build,
 -- and a boolean indicating if a new node was build.
-buildNode :: OutputFiles -> String -> Blob.BlobRef a -> Hash.Hash -> IO (NodeId, Bool)
-buildNode output label blobRef hash = do
+buildBlobRefNode :: OutputFiles -> String -> Blob.BlobRef a -> Hash.Hash -> IO (NodeId, Bool)
+buildBlobRefNode output label blobRef hash = do
     let nodeLabel =
             label
                 ++ "/"
@@ -127,9 +126,34 @@ buildNode output label blobRef hash = do
             unless (hash == existingHash) $ error $ "hash does not match for blob ref " ++ show blobRef ++ ", existing: " ++ show existingHash ++ ", new hash: " ++ show hash
             return (existingNodeId, False)
 
+buildCompNode :: OutputFiles -> String -> Hash.Hash -> IO NodeId
+buildCompNode output label hash = do
+    let nodeLabel =
+            label
+                ++ "/"
+                ++ take hashDisplayLength (show hash)
+
+    outputFilesMutable@OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
+    let updatedNextNodeId = (NodeId $ coerce ofNextNodeId + 1)
+
+    IO.writeIORef
+        (ofMutable output)
+        outputFilesMutable
+            { ofNextNodeId = updatedNextNodeId
+            }
+
+    IO.hPutStrLn (ofStateGraph output) $
+        "    "
+            ++ show ofNextNodeId
+            ++ " [label=\""
+            ++ nodeLabel
+            ++ "\" ];"
+
+    return ofNextNodeId
+
 -- Build edge between two nodes.
-buildEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
-buildEdge output _label source target blobRef = do
+buildBlobRefEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
+buildBlobRefEdge output _label source target blobRef = do
     let edgeLabel = show blobRef
     IO.hPutStrLn (ofStateGraph output) $
         "    "
@@ -141,12 +165,25 @@ buildEdge output _label source target blobRef = do
             ++ "\"];"
     return ()
 
+buildCompEdge :: OutputFiles -> String -> NodeId -> NodeId -> IO ()
+buildCompEdge output _label source target = do
+    IO.hPutStrLn (ofStateGraph output) $
+        "    "
+            ++ show source
+            ++ " -> "
+            ++ show target
+            ++ " [arrowhead=\"none\"];"
+    -- ++ " [label=\""
+    -- ++ edgeLabel
+    -- ++ "\"];"
+    return ()
+
 -- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given
 -- blob reference. The edge is build in any case. Returns the node id if a node if a new node was build.
-buildNodeWithParent :: OutputFiles -> String -> NodeId -> Blob.BlobRef a -> Hash.Hash -> IO (Maybe NodeId)
-buildNodeWithParent output label parent blobRef hash = do
-    (nodeId, nodeCreated) <- buildNode output label blobRef hash
-    buildEdge output label parent nodeId blobRef
+buildBlobRefNodeWithParentEdge :: OutputFiles -> String -> NodeId -> Blob.BlobRef a -> Hash.Hash -> IO (Maybe NodeId)
+buildBlobRefNodeWithParentEdge output label parent blobRef hash = do
+    (nodeId, nodeCreated) <- buildBlobRefNode output label blobRef hash
+    buildBlobRefEdge output label parent nodeId blobRef
     return $ if nodeCreated then Just nodeId else Nothing
 
 buildStateData :: (Show a) => OutputFiles -> Blob.BlobRef a -> Hash.Hash -> a -> IO ()

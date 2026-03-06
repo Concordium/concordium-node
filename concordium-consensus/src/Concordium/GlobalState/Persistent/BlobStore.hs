@@ -75,7 +75,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     migrateReference,
 
     -- ** 'BufferedRef'
-    BufferedRef(..),
+    BufferedRef (..),
     makeBufferedRef,
     blobRefToBufferedRef,
     loadBufferedRef,
@@ -93,7 +93,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     LazyBufferedRef,
 
     -- ** 'HashedBufferedRef'
-    HashedBufferedRef'(..),
+    HashedBufferedRef' (..),
     HashedBufferedRef,
     bufferHashed,
     makeHashedBufferedRef,
