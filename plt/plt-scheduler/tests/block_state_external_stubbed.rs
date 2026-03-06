@@ -349,6 +349,13 @@ impl ExternalBlockStateOperations for ExternalBlockStateStub {
         Ok(())
     }
 
+    fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex) {
+        self.accounts[account.index as usize]
+            .tokens
+            .entry(token)
+            .or_default();
+    }
+
     fn increment_plt_update_sequence_number(&mut self) {
         self.plt_update_instruction_sequence_number += 1;
     }
