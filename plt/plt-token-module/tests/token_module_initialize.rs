@@ -92,10 +92,8 @@ fn test_initialize_token_additional_parameter() {
 fn test_initialize_token_default_values() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount {
-        coin_info: None,
-        address: stub.account_address(&gov_account),
-    };
+    let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
+
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
@@ -152,10 +150,7 @@ fn test_initialize_token_default_values() {
 fn test_initialize_token_no_minting() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount {
-        coin_info: None,
-        address: stub.account_address(&gov_account),
-    };
+    let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
@@ -221,10 +216,7 @@ fn test_initialize_token_no_minting() {
 fn test_initialize_token_with_minting() {
     let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount {
-        coin_info: None,
-        address: stub.account_address(&gov_account),
-    };
+    let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
