@@ -8,6 +8,7 @@ module BlockStateDump.DumpState.ProtocolLevelTokens where
 import Control.Monad.IO.Class
 
 import Concordium.Types
+import qualified Concordium.Types.HashableTo as Hash
 
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
@@ -27,10 +28,10 @@ dumpProtocolLevelTokens output parentNode plt = do
     case plt of
         PLT.ProtocolLevelTokensNone -> return ()
         PLT.ProtocolLevelTokensV0 pltStateRef -> do
-            -- (PLT.ProtocolLevelTokensHash pltStateHash) <- Hash.getHashM pltStateRef
+            (PLT.ProtocolLevelTokensHash _pltStateHash) <- Hash.getHashM pltStateRef -- todo ar why need to call this, why not present?
             -- (pltStateBlobRef, _) <- Blob.storeUpdateDirect pltStateRef
             (pltStateBlobRef, PLT.ProtocolLevelTokensHash pltStateHash) <- liftIO $ getHBRRefAndHash pltStateRef
-            pltStateNode <- liftBSOIO $ buildNodeWithParent output "plts" parentNode pltStateHash pltStateBlobRef
+            pltStateNode <- liftBSOIO $ buildNodeWithParent output "plts" parentNode pltStateBlobRef pltStateHash 
 
             pltStat1e <- Blob.refLoad pltStateRef
             return ()

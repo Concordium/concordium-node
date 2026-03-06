@@ -1,4 +1,6 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module BlockStateDump.Shared where
@@ -15,9 +17,15 @@ import Concordium.Logger
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
+import Control.Monad
+import Data.Coerce
+import qualified Data.Map.Lazy as Map
 import qualified Data.Text.Lazy as Text
 import qualified GHC.IORef as IORef
 import qualified Text.Pretty.Simple as Pretty
+import qualified System.Directory as Dir
+import qualified System.FilePath as FP
+
 
 throwUserError :: (MonadIO m) => String -> m a
 throwUserError = liftIO . ioError . userError
@@ -51,28 +59,75 @@ data OutputFiles = OutputFiles
     { ofStateGraph :: IO.Handle,
       ofBlocks :: IO.Handle,
       ofState :: IO.Handle,
-      ofNextNodeId :: IO.IORef Word64
+      ofMutable :: IO.IORef OutputFilesMutable
     }
+
+data OutputFilesMutable = OutputFilesMutable
+    { ofNextNodeId :: NodeId,
+      ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Hash.Hash)
+    }
+
+
+openOutputFiles :: FilePath -> IO OutputFiles
+openOutputFiles outDir = do
+    Dir.createDirectoryIfMissing True outDir
+    ofStateGraph <- IO.openFile (outDir FP.</> "graph.dot") IO.WriteMode
+    ofBlocks <- IO.openFile (outDir FP.</> "blocks.txt") IO.WriteMode
+    ofState <- IO.openFile (outDir FP.</> "state.txt") IO.WriteMode
+    ofMutable <- IORef.newIORef OutputFilesMutable {
+        ofNextNodeId = NodeId 0,
+        ofBlobRefToNodeId = Map.empty
+    }
+
+    return OutputFiles{..}
+
+closeOutputFiles :: OutputFiles -> IO ()
+closeOutputFiles OutputFiles{..} = do
+    IO.hClose ofStateGraph
+    IO.hClose ofBlocks
+    IO.hClose ofState
+    return ()
+
 
 hashDisplayLength :: Int
 hashDisplayLength = 6
 
-buildNode :: OutputFiles -> String -> Hash.Hash -> IO NodeId
-buildNode output label hash = do
+-- Build node if a node with the given blob ref does not already exist. 
+-- Returns the (possibly existing) node id, regardless of whether a new node was build, 
+-- and a boolean indicating if a new node was build.
+buildNode :: OutputFiles -> String -> Blob.BlobRef a -> Hash.Hash -> IO (NodeId, Bool)
+buildNode output label blobRef hash = do
     let nodeLabel =
             label
                 ++ "/"
                 ++ take hashDisplayLength (show hash)
-    nodeId@(NodeId nodeIdWord) <- NodeId <$> IO.readIORef (ofNextNodeId output)
-    IO.writeIORef (ofNextNodeId output) (nodeIdWord + 1)
-    IO.hPutStrLn (ofStateGraph output) $
-        "    "
-            ++ show nodeId
-            ++ " [label=\""
-            ++ nodeLabel
-            ++ "\" ];"
-    return nodeId
 
+    OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
+
+    case Map.lookup (coerce blobRef) ofBlobRefToNodeId of
+        Nothing -> do
+            IO.hPutStrLn (ofStateGraph output) $
+                "    "
+                    ++ show ofNextNodeId
+                    ++ " [label=\""
+                    ++ nodeLabel
+                    ++ "\" ];"
+
+            let updatedNextNodeId = (NodeId $ coerce ofNextNodeId + 1)
+            let updatedBlobRefToNodeId = Map.insert (coerce blobRef) (ofNextNodeId, hash) ofBlobRefToNodeId
+            IO.writeIORef
+                (ofMutable output)
+                OutputFilesMutable
+                    { ofNextNodeId = updatedNextNodeId,
+                      ofBlobRefToNodeId = updatedBlobRefToNodeId
+                    }
+
+            return (ofNextNodeId, True)
+        Just (existingNodeId, existingHash) -> do
+            unless (hash == existingHash) $ error $ "hash does not match for blob ref " ++ show blobRef ++ ", existing: " ++ show existingHash ++ ", new hash: " ++ show hash
+            return (existingNodeId, False)
+
+-- Build edge between two nodes.
 buildEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
 buildEdge output _label source target blobRef = do
     let edgeLabel = show blobRef
@@ -86,11 +141,13 @@ buildEdge output _label source target blobRef = do
             ++ "\"];"
     return ()
 
-buildNodeWithParent :: OutputFiles -> String -> NodeId -> Hash.Hash -> Blob.BlobRef a -> IO NodeId
-buildNodeWithParent output label parent hash blobRef = do
-    nodeId <- buildNode output label hash
+-- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given
+-- blob reference. The edge is build in any case. Returns the node id if a node if a new node was build.
+buildNodeWithParent :: OutputFiles -> String -> NodeId -> Blob.BlobRef a -> Hash.Hash -> IO (Maybe NodeId)
+buildNodeWithParent output label parent blobRef hash = do
+    (nodeId, nodeCreated) <- buildNode output label blobRef hash
     buildEdge output label parent nodeId blobRef
-    return nodeId
+    return $ if nodeCreated then Just nodeId else Nothing
 
 buildStateData :: (Show a) => OutputFiles -> Blob.BlobRef a -> Hash.Hash -> a -> IO ()
 buildStateData output blobRef hash stateData = do

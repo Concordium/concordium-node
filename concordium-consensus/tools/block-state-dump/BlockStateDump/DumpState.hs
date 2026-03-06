@@ -35,6 +35,7 @@ import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 
 import qualified BlockStateDump.DumpState.ProtocolLevelTokens as PLT
 import BlockStateDump.Shared
+import Data.Coerce
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -70,9 +71,9 @@ dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockStart 
                     (throwUserError "block not found")
                     return
                     blockMaybe
-            let statePointer = TreeState.stbStatePointer block
 
-            liftIO $ print $ "Block height: " ++ show blockHeight ++ ", pointer: " ++ show statePointer
+            -- let statePointer = TreeState.stbStatePointer block
+            -- liftIO $ print $ "Block height: " ++ show blockHeight ++ ", pointer: " ++ show statePointer
 
             return
                 BlockEntry
@@ -98,22 +99,6 @@ dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockStart 
 
     return ()
 
-openOutputFiles :: FilePath -> IO OutputFiles
-openOutputFiles outDir = do
-    Dir.createDirectoryIfMissing True outDir
-    ofStateGraph <- IO.openFile (outDir FP.</> "graph.dot") IO.WriteMode
-    ofBlocks <- IO.openFile (outDir FP.</> "blocks.txt") IO.WriteMode
-    ofState <- IO.openFile (outDir FP.</> "state.txt") IO.WriteMode
-    ofNextNodeId <- IO.newIORef 0
-
-    return OutputFiles{..}
-
-closeOutputFiles :: OutputFiles -> IO ()
-closeOutputFiles OutputFiles{..} = do
-    IO.hClose ofStateGraph
-    IO.hClose ofBlocks
-    IO.hClose ofState
-    return ()
 
 -- class DumpBuilder where
 --     buildNode:: String -> Hash.Hash -> IO NodeId
@@ -162,8 +147,11 @@ dumpBlockState output BlockEntry{..} bs = do
     liftBSOIO $ IO.hPutStrLn (ofBlocks output) ""
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
-    blockNode <- liftBSOIO $ buildNode output ("block[" ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock) ++ "]") blockHash
-    stateNode <- liftBSOIO $ buildNodeWithParent output "state" blockNode (v0StateHash $ BS.hpbsHash bs) (TreeState.stbStatePointer beBlock)
+    let blockHeight = TreeState.bmHeight $ TreeState.stbInfo beBlock
+    let fakeBlockBlobRef = Blob.BlobRef $ maxBound - coerce blockHeight
+    (blockNode, _) <- liftBSOIO $ buildNode output ("block[" ++ show blockHeight ++ "]") fakeBlockBlobRef blockHash
+    stateNodeMaybe <- liftBSOIO $ buildNodeWithParent output "state" blockNode (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs) 
+    let stateNode = maybe (error "state node should always be created") id stateNodeMaybe
 
     bsp <- BS.loadPBS (BS.hpbsPointers bs)
     dumpBlockStatePointers stateNode bsp
