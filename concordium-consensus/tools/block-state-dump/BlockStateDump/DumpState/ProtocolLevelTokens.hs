@@ -51,8 +51,8 @@ dumpLFMBTree ::
     NodeId ->
     LFMB.LFMBTree k Blob.HashedBufferedRef v ->
     m ()
-dumpLFMBTree output rootParentNode = do
-    \case
+dumpLFMBTree output rootParentNode tree = do
+    case tree of
         LFMB.Empty -> do
             undefined
         LFMB.NonEmpty size t -> do
