@@ -39,7 +39,6 @@ fn test_plt_create() {
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
@@ -102,7 +101,6 @@ fn test_plt_create_with_minting() {
         initial_supply: Some(TokenAmount::from_raw(5000, 4)),
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
@@ -161,7 +159,6 @@ fn test_plt_create_duplicate_id() {
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
 
@@ -216,7 +213,6 @@ fn test_plt_create_unknown_token_module_reference() {
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
 
@@ -259,7 +255,6 @@ fn test_plt_create_token_module_initialization_error() {
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
 

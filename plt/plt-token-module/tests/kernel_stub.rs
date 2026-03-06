@@ -182,7 +182,6 @@ impl KernelStub {
             initial_supply: None,
             mintable: params.mintable,
             burnable: params.burnable,
-            additional: Default::default(),
         };
         let encoded_parameters = cbor::cbor_encode(&parameters).into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");

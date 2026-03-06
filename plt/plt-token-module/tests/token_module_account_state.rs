@@ -18,7 +18,6 @@ fn test_query_token_module_account_state_default() {
 
     assert_eq!(state.allow_list, None);
     assert_eq!(state.deny_list, None);
-    assert!(state.additional.is_empty());
 }
 
 /// Test token module account state with lists.
@@ -33,5 +32,4 @@ fn test_query_token_module_account_state_lists() {
 
     assert_eq!(state.allow_list, Some(false));
     assert_eq!(state.deny_list, Some(false));
-    assert!(state.additional.is_empty());
 }
