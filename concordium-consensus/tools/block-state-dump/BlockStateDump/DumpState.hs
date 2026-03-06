@@ -1,37 +1,40 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | Implementation of dumping block state
 module BlockStateDump.DumpState (
     dumpState,
 ) where
 
-import Concordium.Logger
-import Concordium.Types
 import Control.Monad
 import Control.Monad.Reader
+import qualified Data.IORef as IO
+import qualified Data.Text.Lazy as Text
+import qualified System.Directory as Dir
+import qualified System.FilePath as FP
+import qualified System.IO as IO
+import qualified Text.Pretty.Simple as Pretty
 
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Logger
+import Concordium.Types
+import qualified Concordium.Types.HashableTo as Hash
+
 import qualified Concordium.GlobalState.AccountMap.LMDB as AccountMap
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as TreeState
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
-
-import BlockStateDump.Util
-import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
-import qualified Concordium.Types.HashableTo as Hash
-import qualified Data.IORef as IO
-import qualified Data.Text.Lazy as Text
-import Data.Word
-import qualified System.Directory as Dir
-import qualified System.FilePath as FP
-import qualified System.IO as IO
-import qualified Text.Pretty.Simple as Pretty
+
+import qualified BlockStateDump.DumpState.ProtocolLevelTokens as PLT
+import BlockStateDump.Shared
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -112,86 +115,10 @@ closeOutputFiles OutputFiles{..} = do
     IO.hClose ofState
     return ()
 
-data OutputFiles = OutputFiles
-    { ofStateGraph :: IO.Handle,
-      ofBlocks :: IO.Handle,
-      ofState :: IO.Handle,
-      ofNextNodeId :: IO.IORef Word64
-    }
-
-dumpBlockState ::
-    -- (BS.BlockStateOperations m) =>
-    (BS.SupportsPersistentState pv m) =>
-    OutputFiles ->
-    BlockEntry (MPV m) ->
-    BS.HashedPersistentBlockState (MPV m) ->
-    m ()
-dumpBlockState output BlockEntry{..} bs = do
-    liftBSOIO $ Pretty.pHPrint (ofBlocks output) beBlock
-    liftBSOIO $ IO.hPutStrLn (ofBlocks output) ""
-
-    BS.BlockStatePointers{..} <- BS.loadPBS (BS.hpbsPointers bs)
-
-    let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
-    blockNode <- liftBSOIO $ buildNode output ("block[" ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock) ++ "]") blockHash
-    stateNode <- liftBSOIO $ buildNode output "state" (v0StateHash $ BS.hpbsHash bs)
-    liftBSOIO $ buildEdge output "state" blockNode stateNode (TreeState.stbStatePointer beBlock)
-
-    return ()
-
--- todo ar write to be monadic (inner and outer)?
-
 -- class DumpBuilder where
 --     buildNode:: String -> Hash.Hash -> IO NodeId
 --     buildEdge:: NodeId -> NodeId -> Blob.BlobRef a -> IO ()
 --     buildStateData::(Show a) => Blob.BlobRef a -> Hash.Hash -> a -> IO ()
-
-hashDisplayLength :: Int
-hashDisplayLength = 6
-
-buildNode :: OutputFiles -> String -> Hash.Hash -> IO NodeId
-buildNode output label hash = do
-    let nodeLabel =
-            label
-                ++ "/"
-                ++ take hashDisplayLength (show hash)
-    nodeId@(NodeId nodeIdWord) <- NodeId <$> IO.readIORef (ofNextNodeId output)
-    IO.writeIORef (ofNextNodeId output) (nodeIdWord + 1)
-    IO.hPutStrLn (ofStateGraph output) $
-        "    "
-            ++ show nodeId
-            ++ " [label=\""
-            ++ nodeLabel
-            ++ "\" ];"
-    return nodeId
-
-buildEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
-buildEdge output _label source target blobRef = do
-    let edgeLabel = show blobRef
-    IO.hPutStrLn (ofStateGraph output) $
-        "    "
-            ++ show source
-            ++ " -> "
-            ++ show target
-            ++ " [label=\""
-            ++ edgeLabel
-            ++ "\"];"
-    return ()
-
-buildStateData :: (Show a) => OutputFiles -> Blob.BlobRef a -> Hash.Hash -> a -> IO ()
-buildStateData output blobRef hash stateData = do
-    IO.hPutStrLn (ofStateGraph output) $
-        show blobRef
-            ++ "/"
-            ++ show hash
-            ++ ":\n"
-            ++ Text.unpack (Pretty.pShow stateData)
-    return ()
-
-newtype NodeId = NodeId Word64
-
-instance Show NodeId where
-    show (NodeId w) = show w
 
 -- data GraphDumpBuilder = GraphDumpBuilder {
 --     gdbNextNodeId:: Word64,
@@ -219,26 +146,29 @@ instance Show NodeId where
 -- liftBSOIO m = do
 --     BS.liftBlobStore $ liftIO m
 
-liftBSOIO ::
-    (BS.SupportsPersistentState pv m) =>
-    IO a ->
-    m a
-liftBSOIO m = do
-    liftIO m
-
 data BlockEntry pv = BlockEntry
     { beBlock :: TreeState.StoredBlock pv
     }
 
-runTreeState ::
-    (MonadIO m) =>
-    TreeState.DatabaseHandlers pv ->
-    TreeState.DiskLLDBM pv (ReaderT (TreeState.DatabaseHandlers pv) m) a ->
-    m a
-runTreeState treeStateDb = flip runReaderT treeStateDb . TreeState.runDiskLLDBM
+dumpBlockState ::
+    forall pv m.
+    (BS.SupportsPersistentState pv m) =>
+    OutputFiles ->
+    BlockEntry (MPV m) ->
+    BS.HashedPersistentBlockState (MPV m) ->
+    m ()
+dumpBlockState output BlockEntry{..} bs = do
+    liftBSOIO $ Pretty.pHPrint (ofBlocks output) beBlock
+    liftBSOIO $ IO.hPutStrLn (ofBlocks output) ""
 
-runBSO ::
-    BS.PersistentBlockStateContext pv ->
-    BS.PersistentBlockStateMonad pv (BS.PersistentBlockStateContext pv) (ReaderT (BS.PersistentBlockStateContext pv) LogIO) a ->
-    LogIO a
-runBSO pbsc = flip runReaderT pbsc . BS.runPersistentBlockStateMonad
+    let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
+    blockNode <- liftBSOIO $ buildNode output ("block[" ++ show (TreeState.bmHeight $ TreeState.stbInfo beBlock) ++ "]") blockHash
+    stateNode <- liftBSOIO $ buildNodeWithParent output "state" blockNode (v0StateHash $ BS.hpbsHash bs) (TreeState.stbStatePointer beBlock)
+
+    bsp <- BS.loadPBS (BS.hpbsPointers bs)
+    dumpBlockStatePointers stateNode bsp
+  where
+    dumpBlockStatePointers :: NodeId -> BS.BlockStatePointers pv -> m ()
+    dumpBlockStatePointers parentNode BS.BlockStatePointers{..} = do
+        PLT.dumpProtocolLevelTokens output parentNode bspProtocolLevelTokens
+        return ()

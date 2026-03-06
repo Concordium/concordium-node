@@ -1,0 +1,38 @@
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
+module BlockStateDump.DumpState.ProtocolLevelTokens where
+
+import Control.Monad.IO.Class
+
+import Concordium.Types
+
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLT
+
+import BlockStateDump.Shared
+
+dumpProtocolLevelTokens ::
+    forall pv m.
+    (BS.SupportsPersistentState pv m) =>
+    OutputFiles ->
+    NodeId ->
+    (PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv)) ->
+    m ()
+dumpProtocolLevelTokens output parentNode plt = do
+    case plt of
+        PLT.ProtocolLevelTokensNone -> return ()
+        PLT.ProtocolLevelTokensV0 pltStateRef -> do
+            -- (PLT.ProtocolLevelTokensHash pltStateHash) <- Hash.getHashM pltStateRef
+            -- (pltStateBlobRef, _) <- Blob.storeUpdateDirect pltStateRef
+            (pltStateBlobRef, PLT.ProtocolLevelTokensHash pltStateHash) <- liftIO $ getHBRRefAndHash pltStateRef
+            pltStateNode <- liftBSOIO $ buildNodeWithParent output "plts" parentNode pltStateHash pltStateBlobRef
+
+            pltStat1e <- Blob.refLoad pltStateRef
+            return ()
+        PLT.ProtocolLevelTokensV1 pltState -> do
+            return () -- todo ar
