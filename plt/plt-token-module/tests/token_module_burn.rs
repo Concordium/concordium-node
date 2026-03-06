@@ -1,4 +1,4 @@
-use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
+use crate::kernel_stub::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -6,8 +6,9 @@ use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
     TokenOperation, TokenSupplyUpdateDetails, UnsupportedOperationRejectReason,
 };
-use kernel_stub::KernelStub;
+use kernel_stub::{KernelStub, TransactionExecutionTestImpl};
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module::{self};
 
@@ -22,7 +23,7 @@ fn test_burn() {
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
     // First burn
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = TransactionExecution::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -39,7 +40,7 @@ fn test_burn() {
     );
 
     // Second burn
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = TransactionExecution::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(2000, 2),
     })];
@@ -66,7 +67,7 @@ fn test_unauthorized_burn() {
     stub.set_account_balance(non_governance_account, RawTokenAmount(5000));
 
     // Attempt to burn as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
+    let mut execution = TransactionExecution::with_sender(non_governance_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -112,7 +113,7 @@ fn test_burn_insufficient_balance() {
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = TransactionExecution::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(2000, 2),
     })];
@@ -140,7 +141,7 @@ fn test_burn_decimals_mismatch() {
     let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = TransactionExecution::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
     })];
@@ -167,7 +168,7 @@ fn test_burn_paused() {
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
     stub.set_paused(true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = TransactionExecution::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -194,7 +195,7 @@ fn test_not_burnable() {
     let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = TransactionExecution::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
     })];

@@ -2,17 +2,20 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::queries;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::common;
+use concordium_base::protocol_level_tokens::TokenId;
 use libc::size_t;
-use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use plt_block_state::block_state::{p10, p11, BlockStateSavepoint};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
     GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
     ReadTokenAccountBalanceCallback,
 };
-use plt_block_state::ffi::memory;
+use plt_block_state::ffi::{block_state::OpaqueBlockState, memory};
+
+use crate::queries::SchedulerQueries;
 
 /// C-binding for calling [`queries::plt_list`].
 ///
@@ -44,12 +47,13 @@ use plt_block_state::ffi::memory;
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_plt_list(
-    load_callback: LoadCallback,
+    _load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const OpaqueBlockState,
+    protocol_version: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
@@ -62,22 +66,40 @@ extern "C" fn ffi_query_plt_list(
         !return_data_out.is_null(),
         "return_data_out is a null pointer."
     );
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
 
-    let external_callbacks = ExternalBlockStateQueryCallbacks {
+    // TODO remove these as they are never used.
+    let _external_callbacks = ExternalBlockStateQueryCallbacks {
         read_token_account_balance_ptr: read_token_account_balance_callback,
         get_account_address_by_index_ptr: get_account_address_by_index_callback,
         get_account_index_by_address_ptr: get_account_index_by_address_callback,
         get_token_account_states_ptr: get_token_account_states_callback,
     };
 
-    let internal_block_state = unsafe { &*block_state };
-    let block_state = ExecutionTimePltBlockState {
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
+    let token_ids: Vec<TokenId> = match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => unimplemented!(),
+        ProtocolVersion::P10 => {
+            let block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>() }
+                    .state();
+            block_state.query_plt_list()
+        }
+        ProtocolVersion::P11 => {
+            let block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<p11::PltBlockStateP11>>() }
+                    .state();
+            block_state.query_plt_list()
+        }
     };
-
-    let token_ids = queries::plt_list(&block_state);
 
     let return_data = common::to_bytes(&token_ids);
 

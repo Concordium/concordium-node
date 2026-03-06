@@ -2,14 +2,16 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::scheduler;
-use concordium_base::base::{AccountIndex, Energy};
+use crate::scheduler::SchedulerOperations;
+use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use plt_block_state::block_state::{
+    p10::PltBlockStateP10, p11::PltBlockStateP11, BlockStateSavepoint,
+};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
@@ -17,7 +19,8 @@ use plt_block_state::ffi::block_state_callbacks::{
     GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
     ReadTokenAccountBalanceCallback, UpdateTokenAccountBalanceCallback,
 };
-use plt_block_state::ffi::memory;
+use plt_block_state::ffi::{block_state::OpaqueBlockState, memory};
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 
 /// C-binding for calling [`scheduler::execute_transaction`].
@@ -68,20 +71,21 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_execute_transaction(
-    load_callback: LoadCallback,
+    mut load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
     increment_plt_update_sequence_number_callback: IncrementPltUpdateSequenceNumberCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const OpaqueBlockState,
+    protocol_version: u64,
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
     sender_account_address: *const u8,
     remaining_energy: u64,
-    block_state_out: *mut *mut PltBlockStateSavepoint,
+    block_state_out: *mut *mut OpaqueBlockState,
     used_energy_out: *mut u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -108,8 +112,10 @@ extern "C" fn ffi_execute_transaction(
         !return_data_out.is_null(),
         "return_data_out is a null pointer."
     );
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
 
-    let external_callbacks = ExternalBlockStateOperationCallbacks {
+    let mut external_callbacks = ExternalBlockStateOperationCallbacks {
         queries: ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
@@ -118,13 +124,6 @@ extern "C" fn ffi_execute_transaction(
         },
         update_token_account_balance_ptr: update_token_account_balance_callback,
         increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
-    };
-
-    let internal_block_state = unsafe { (*block_state).mutable_state() };
-    let mut block_state = ExecutionTimePltBlockState {
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
     };
 
     let sender_account_index = AccountIndex::from(sender_account_index);
@@ -145,30 +144,62 @@ extern "C" fn ffi_execute_transaction(
     let payload: Payload = common::from_bytes_complete(payload_bytes).unwrap();
 
     let remaining_energy = Energy::from(remaining_energy);
-
-    let result = scheduler::execute_transaction(
+    let mut execution = TransactionExecution::new(
+        remaining_energy,
         sender_account_index,
         sender_account_address,
-        &mut block_state,
-        payload,
-        remaining_energy,
     );
+
+    let (result, new_block_state) = match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => unimplemented!(),
+        ProtocolVersion::P10 => {
+            let mut block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<PltBlockStateP10>>() }
+                    .mutable_state();
+            let result = block_state.execute_transaction(
+                &mut execution,
+                &mut load_callback,
+                &mut external_callbacks,
+                payload,
+            );
+            let new_block_state = Box::into_raw(Box::new(BlockStateSavepoint::save(block_state)))
+                .cast::<OpaqueBlockState>();
+            (result, new_block_state)
+        }
+        ProtocolVersion::P11 => {
+            let mut block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<PltBlockStateP11>>() }
+                    .mutable_state();
+            let result = block_state.execute_transaction(
+                &mut execution,
+                &mut load_callback,
+                &mut external_callbacks,
+                payload,
+            );
+            let new_block_state = Box::into_raw(Box::new(BlockStateSavepoint::save(block_state)))
+                .cast::<OpaqueBlockState>();
+            (result, new_block_state)
+        }
+    };
 
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let summary = result.unwrap();
 
     unsafe {
         *used_energy_out = summary.energy_used.energy;
+        *block_state_out = new_block_state;
     }
 
     let (return_status, return_data) = match summary.outcome {
-        TransactionOutcome::Success(events) => {
-            unsafe {
-                *block_state_out =
-                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
-            }
-            (0, common::to_bytes(&events))
-        }
+        TransactionOutcome::Success(events) => (0, common::to_bytes(&events)),
         TransactionOutcome::Rejected(reject_reason) => (1, common::to_bytes(&reject_reason)),
     };
 
@@ -223,17 +254,18 @@ extern "C" fn ffi_execute_transaction(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_execute_chain_update(
-    load_callback: LoadCallback,
+    _load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
     increment_plt_update_sequence_number_callback: IncrementPltUpdateSequenceNumberCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const OpaqueBlockState,
+    protocol_version: u64,
     payload: *const u8,
     payload_len: size_t,
-    block_state_out: *mut *mut PltBlockStateSavepoint,
+    block_state_out: *mut *mut OpaqueBlockState,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
@@ -251,8 +283,10 @@ extern "C" fn ffi_execute_chain_update(
         !return_data_out.is_null(),
         "return_data_out is a null pointer."
     );
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
 
-    let external_callbacks = ExternalBlockStateOperationCallbacks {
+    let mut external_callbacks = ExternalBlockStateOperationCallbacks {
         queries: ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
@@ -263,35 +297,50 @@ extern "C" fn ffi_execute_chain_update(
         increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
     };
 
-    let internal_block_state = unsafe { (*block_state).mutable_state() };
-    let mut block_state = ExecutionTimePltBlockState {
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
     let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let payload: UpdatePayload = common::from_bytes_complete(payload_bytes).unwrap();
 
-    let result = scheduler::execute_chain_update(&mut block_state, payload);
+    let (result, new_block_state) = match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => unimplemented!(),
+        ProtocolVersion::P10 => {
+            let mut block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<PltBlockStateP10>>() }
+                    .mutable_state();
+            let result = block_state.execute_chain_update(&mut external_callbacks, payload);
+            let new_block_state = Box::into_raw(Box::new(BlockStateSavepoint::save(block_state)))
+                .cast::<OpaqueBlockState>();
+            (result, new_block_state)
+        }
+        ProtocolVersion::P11 => {
+            let mut block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<PltBlockStateP11>>() }
+                    .mutable_state();
+            let result = block_state.execute_chain_update(&mut external_callbacks, payload);
+            let new_block_state = Box::into_raw(Box::new(BlockStateSavepoint::save(block_state)))
+                .cast::<OpaqueBlockState>();
+            (result, new_block_state)
+        }
+    };
 
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let outcome = result.unwrap();
-
     let (return_status, return_data) = match outcome {
-        ChainUpdateOutcome::Success(events) => {
-            unsafe {
-                *block_state_out =
-                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
-            }
-            (0, common::to_bytes(&events))
-        }
+        ChainUpdateOutcome::Success(events) => (0, common::to_bytes(&events)),
         ChainUpdateOutcome::Failed(failure_kind) => (1, common::to_bytes(&failure_kind)),
     };
 
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
+        *block_state_out = new_block_state;
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }

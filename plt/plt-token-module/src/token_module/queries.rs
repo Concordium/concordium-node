@@ -47,9 +47,7 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
     let state = TokenModuleState {
         name: Some(name),
         metadata: Some(metadata),
-        governance_account: Some(CborHolderAccount::from(
-            governance_account.canonical_account_address,
-        )),
+        governance_account: Some(CborHolderAccount::from(governance_account.0.address)),
         allow_list: Some(allow_list),
         deny_list: Some(deny_list),
         mintable: Some(mintable),

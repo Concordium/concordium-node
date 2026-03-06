@@ -2,7 +2,12 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{PltBlockStateSavepoint, blob_store};
+use concordium_base::base::ProtocolVersion;
+
+use crate::block_state::blob_store::Loadable;
+use crate::block_state::{
+    blob_store, p10, p11, BlockStateOperations, BlockStateSavepoint, PltBlockStateHash,
+};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
 /// Allocate a new empty PLT block state and returns it.
@@ -10,9 +15,30 @@ use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 /// The returned pointer is to a uniquely owned instance.
 /// It must be freed by calling [`ffi_free_plt_block_state`].
 #[unsafe(no_mangle)]
-extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
-    let block_state = PltBlockStateSavepoint::empty();
-    Box::into_raw(Box::new(block_state))
+extern "C" fn ffi_empty_plt_block_state(
+    protocol_version: u64,
+) -> *mut BlockStateSavepoint<OpaqueBlockState> {
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+    match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => std::ptr::null_mut(),
+        ProtocolVersion::P10 => Box::into_raw(Box::new(
+            BlockStateSavepoint::<p10::PltBlockStateP10>::empty(),
+        ))
+        .cast(),
+        ProtocolVersion::P11 => Box::into_raw(Box::new(
+            BlockStateSavepoint::<p11::PltBlockStateP11>::empty(),
+        ))
+        .cast(),
+    }
 }
 
 /// Deallocate the PLT block state.
@@ -27,10 +53,30 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
 ///   No other pointers to the block state must exist.
 /// - Freeing is only ever done once.
 #[unsafe(no_mangle)]
-extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint) {
+extern "C" fn ffi_free_plt_block_state(block_state: *mut OpaqueBlockState, protocol_version: u64) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let state = unsafe { Box::from_raw(block_state) };
-    drop(state);
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+
+    match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => {}
+        ProtocolVersion::P10 => {
+            let block_state = block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>();
+            drop(unsafe { Box::from_raw(block_state) })
+        }
+        ProtocolVersion::P11 => {
+            let block_state = block_state.cast::<BlockStateSavepoint<p11::PltBlockStateP11>>();
+            drop(unsafe { Box::from_raw(block_state) })
+        }
+    }
 }
 
 /// Compute the hash of the PLT block state.
@@ -50,13 +96,40 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint)
 #[unsafe(no_mangle)]
 extern "C" fn ffi_hash_plt_block_state(
     mut load_callback: LoadCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const OpaqueBlockState,
+    protocol_version: u64,
     destination: *mut u8,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!destination.is_null(), "destination is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    let hash = block_state.hash(&mut load_callback);
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+    let hash: PltBlockStateHash = match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => {
+            unimplemented!()
+        }
+        ProtocolVersion::P10 => {
+            let block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>() }
+                    .state();
+            block_state.hash(&mut load_callback)
+        }
+        ProtocolVersion::P11 => {
+            let block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<p11::PltBlockStateP11>>() }
+                    .state();
+            block_state.hash(&mut load_callback)
+        }
+    };
+
     unsafe {
         std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
     }
@@ -78,12 +151,40 @@ extern "C" fn ffi_hash_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
+    protocol_version: u64,
     blob_ref: blob_store::Reference,
-) -> *mut PltBlockStateSavepoint {
+) -> *mut OpaqueBlockState {
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+
     // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state =
-        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
-    Box::into_raw(Box::new(block_state))
+    match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => unimplemented!(),
+        ProtocolVersion::P10 => {
+            let block_state = BlockStateSavepoint::<p10::PltBlockStateP10>::load_from_location(
+                &mut load_callback,
+                blob_ref,
+            )
+            .unwrap();
+            Box::into_raw(Box::new(block_state)).cast()
+        }
+        ProtocolVersion::P11 => {
+            let block_state = BlockStateSavepoint::<p11::PltBlockStateP11>::load_from_location(
+                &mut load_callback,
+                blob_ref,
+            )
+            .unwrap();
+            Box::into_raw(Box::new(block_state)).cast()
+        }
+    }
 }
 
 /// Store a PLT block state in the blob store.
@@ -102,11 +203,29 @@ extern "C" fn ffi_load_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const OpaqueBlockState,
+    protocol_version: u64,
 ) -> blob_store::Reference {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    block_state.store_update(&mut store_callback)
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+    match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => unimplemented!(),
+        ProtocolVersion::P10 => {
+            let block_state =
+                unsafe { &*block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>() };
+            block_state.store_update(&mut store_callback)
+        }
+        ProtocolVersion::P11 => unimplemented!(),
+    }
 }
 
 /// Migrate the PLT block state from one blob store to another and return the migrated state.
@@ -131,12 +250,35 @@ extern "C" fn ffi_store_plt_block_state(
 extern "C" fn ffi_migrate_plt_block_state(
     mut load_callback: LoadCallback,
     mut store_callback: StoreCallback,
-    block_state: *const PltBlockStateSavepoint,
-) -> *mut PltBlockStateSavepoint {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    let new_block_state = block_state.migrate(&mut load_callback, &mut store_callback);
-    Box::into_raw(Box::new(new_block_state))
+    old_block_state: *const OpaqueBlockState,
+    protocol_version: u64,
+) -> *mut OpaqueBlockState {
+    assert!(!old_block_state.is_null(), "block_state is a null pointer.");
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+
+    match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9
+        | ProtocolVersion::P10 => unimplemented!(),
+        ProtocolVersion::P11 => {
+            let old =
+                unsafe { &*old_block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>() };
+            let new = p11::PltBlockStateP11::migrate_from_p10(
+                &mut load_callback,
+                &mut store_callback,
+                old.state(),
+            );
+            Box::into_raw(Box::new(BlockStateSavepoint::save(new))).cast()
+        }
+    }
 }
 
 /// Cache the PLT block state into memory.
@@ -154,9 +296,33 @@ extern "C" fn ffi_migrate_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_cache_plt_block_state(
     mut load_callback: LoadCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *mut OpaqueBlockState,
+    protocol_version: u64,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    block_state.cache(&mut load_callback)
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+    match protocol_version {
+        ProtocolVersion::P1
+        | ProtocolVersion::P2
+        | ProtocolVersion::P3
+        | ProtocolVersion::P4
+        | ProtocolVersion::P5
+        | ProtocolVersion::P6
+        | ProtocolVersion::P7
+        | ProtocolVersion::P8
+        | ProtocolVersion::P9 => unimplemented!(),
+        ProtocolVersion::P10 => {
+            let block_state =
+                unsafe { &mut *block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>() };
+            block_state.cache(&mut load_callback)
+        }
+        ProtocolVersion::P11 => {
+            let block_state =
+                unsafe { &mut *block_state.cast::<BlockStateSavepoint<p11::PltBlockStateP11>>() };
+            block_state.cache(&mut load_callback)
+        }
+    }
 }
+
+pub enum OpaqueBlockState {}

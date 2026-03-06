@@ -1,5 +1,6 @@
 //! Types used specifically in the block state.
 
+use concordium_base::base::AccountIndex;
 use concordium_base::common::Serialize;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
@@ -38,17 +39,17 @@ pub struct TokenAccountState {
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;
 
+#[derive(Debug, Copy, Clone)]
+pub struct AccountWithAddress {
+    pub index: AccountIndex,
+    pub address: AccountAddress,
+}
+
 /// Account representing (read-only) account state.
 ///
 /// The account is guaranteed to exist on chain, when holding an instance of this type.
-#[derive(Debug)]
-pub struct AccountWithCanonicalAddress<Account> {
-    /// Opaque type that represents an account on chain.
-    pub account: Account,
-    /// The canonical account address of the account, i.e. the address used as part of the
-    /// credential deployment and not an alias.
-    pub canonical_account_address: AccountAddress,
-}
+#[derive(Debug, Copy, Clone)]
+pub struct AccountWithCanonicalAddress(pub AccountWithAddress);
 
 #[cfg(test)]
 mod test {
