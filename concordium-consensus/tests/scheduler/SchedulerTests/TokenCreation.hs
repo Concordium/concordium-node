@@ -49,6 +49,9 @@ dummyTokenHolder = HolderAccount dummyAddress2
 dummyCborAccountAddress :: CBOR.CborAccountAddress
 dummyCborAccountAddress = CBOR.accountTokenHolder dummyAddress2
 
+dummyCborAccountAddressShort :: CBOR.CborAccountAddress
+dummyCborAccountAddressShort = CBOR.accountTokenHolderShort dummyAddress2
+
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
     m (BS.PersistentAccount av)
@@ -97,6 +100,7 @@ initialBlockStateWithCustomKeys numKeys authorizedKeys threshold = do
 
 testCreatePLT :: forall pv. (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> String -> Spec
 testCreatePLT _ pvString = describe pvString $ do
+    -- Test without initial supply
     it "Create PLT - no initial supply" $ do
         let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
@@ -128,7 +132,8 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
-    it "Create PLT - initial supply" $ do
+    -- Test with initial supply, and using governance account specififed wihtout coin info
+    it "Create PLT - initial supply - no coin info" $ do
         let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
@@ -163,6 +168,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
+    -- Tests initialization with as few parameters specified as possible
     it "Create PLT - minimal parameters" $ do
         let createPLT1MinimalParameters =
                 Types.CreatePLT
@@ -605,9 +611,11 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = Just "Protocol-level token",
               tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = Just dummyCborAccountAddress,
+              -- Uses cbor account address without coin info
+              tipGovernanceAccount = Just dummyCborAccountAddressShort,
               tipAllowList = Just False,
               tipDenyList = Just False,
+              -- Has initial supply
               tipInitialSupply = Just (TokenAmount 10 0),
               tipMintable = Just True,
               tipBurnable = Just True,
@@ -635,7 +643,7 @@ testCreatePLT _ pvString = describe pvString $ do
             CBOR.TokenModuleState
                 { tmsName = CBOR.tipName params,
                   tmsMetadata = CBOR.tipMetadata params,
-                  tmsGovernanceAccount = CBOR.tipGovernanceAccount params,
+                  tmsGovernanceAccount = CBOR.accountTokenHolder <$> CBOR.chaAccount <$> CBOR.tipGovernanceAccount params,
                   tmsPaused = Just False,
                   tmsAllowList = CBOR.tipAllowList params,
                   tmsDenyList = CBOR.tipDenyList params,

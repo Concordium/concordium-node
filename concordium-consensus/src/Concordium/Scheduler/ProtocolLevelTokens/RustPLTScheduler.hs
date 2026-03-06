@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -40,7 +43,7 @@ import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
--- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The trainsaction
+-- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The transaction
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
 executeTransaction ::
     forall m.
@@ -509,39 +512,14 @@ data TransactionExecutionSummary a = TransactionExecutionSummary
       -- If the transaction is rejected, the changes to the block state must be rolled back.
       tesOutcome :: TransactionExecutionOutcome a
     }
-
-instance Functor TransactionExecutionSummary where
-    fmap f (TransactionExecutionSummary usedEnergy outcome) =
-        TransactionExecutionSummary usedEnergy (fmap f outcome)
-
-instance Foldable TransactionExecutionSummary where
-    foldMap f (TransactionExecutionSummary _ outcome) = foldMap f outcome
-
-instance Traversable TransactionExecutionSummary where
-    traverse f (TransactionExecutionSummary usedEnergy outcome) =
-        TransactionExecutionSummary usedEnergy <$> traverse f outcome
+    deriving (Functor, Foldable, Traversable)
 
 -- | Outcome of the transaction: successful or rejected.
 -- If the transaction was rejected, the changes to the block state must be rolled back.
 data TransactionExecutionOutcome a
     = TransactionExecutionOutcomeSuccess (TransactionExecutionSuccess a)
     | TransactionExecutionOutcomeReject TransactionExecutionReject
-
-instance Functor TransactionExecutionOutcome where
-    fmap f (TransactionExecutionOutcomeSuccess (TransactionExecutionSuccess a events)) =
-        TransactionExecutionOutcomeSuccess $ TransactionExecutionSuccess (f a) events
-    fmap _ (TransactionExecutionOutcomeReject failure) =
-        TransactionExecutionOutcomeReject failure
-
-instance Foldable TransactionExecutionOutcome where
-    foldMap f (TransactionExecutionOutcomeSuccess (TransactionExecutionSuccess a _)) = f a
-    foldMap _ (TransactionExecutionOutcomeReject _) = mempty
-
-instance Traversable TransactionExecutionOutcome where
-    traverse f (TransactionExecutionOutcomeSuccess (TransactionExecutionSuccess a events)) =
-        fmap (\a' -> TransactionExecutionOutcomeSuccess (TransactionExecutionSuccess a' events)) (f a)
-    traverse _ (TransactionExecutionOutcomeReject failure) =
-        pure (TransactionExecutionOutcomeReject failure)
+    deriving (Functor, Foldable, Traversable)
 
 -- | Representation of rejected transaction execution outcome
 data TransactionExecutionReject = TransactionExecutionReject
@@ -556,28 +534,14 @@ data TransactionExecutionSuccess a = TransactionExecutionSuccess
       -- | Events produced during the execution
       tesEvents :: [Types.Event]
     }
+    deriving (Functor, Foldable, Traversable)
 
 -- | Outcome of the chain update: successful or failed.
 -- If the chain update failed, the changes to the block state must be rolled back.
 data ChainUpdateExecutionOutcome a
     = ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a)
     | ChainUpdateExecutionOutcomeFailed ChainUpdateExecutionFailed
-
-instance Functor ChainUpdateExecutionOutcome where
-    fmap f (ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a events)) =
-        ChainUpdateExecutionOutcomeSuccess $ ChainUpdateExecutionSuccess (f a) events
-    fmap _ (ChainUpdateExecutionOutcomeFailed failure) =
-        ChainUpdateExecutionOutcomeFailed failure
-
-instance Foldable ChainUpdateExecutionOutcome where
-    foldMap f (ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a _)) = f a
-    foldMap _ (ChainUpdateExecutionOutcomeFailed _) = mempty
-
-instance Traversable ChainUpdateExecutionOutcome where
-    traverse f (ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a events)) =
-        fmap (\a' -> ChainUpdateExecutionOutcomeSuccess (ChainUpdateExecutionSuccess a' events)) (f a)
-    traverse _ (ChainUpdateExecutionOutcomeFailed failure) =
-        pure (ChainUpdateExecutionOutcomeFailed failure)
+    deriving (Functor, Foldable, Traversable)
 
 -- | Representation of failed chain update outcome
 data ChainUpdateExecutionFailed = ChainUpdateExecutionFailed
@@ -592,6 +556,7 @@ data ChainUpdateExecutionSuccess a = ChainUpdateExecutionSuccess
       -- | Events produced during the execution
       cuesEvents :: [Types.Event]
     }
+    deriving (Functor, Foldable, Traversable)
 
 -- | "Unlifts" the callback queries from the 'BlockStateOperations' monad into the IO monad, such that they can
 -- be converted to FFI function pointers.
