@@ -808,17 +808,22 @@ assertFailureWithReason expectedReason result =
         [] -> assertFailure "No transaction failed"
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
 
--- | Assert the scheduler result has failed one chain update and check the reason.
-assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult tov -> Assertion
-assertUpdateFailureWithReason expectedReason result =
+-- | Assert the scheduler result has failed one chain update and check the failure kind.
+assertUpdateFailureWhere :: (Types.FailureKind -> Assertion) -> SchedulerResult tov -> Assertion
+assertUpdateFailureWhere assertFailureKind result =
     case ftFailedUpdates $ srTransactions result of
-        [(_, reason)] ->
-            assertEqual
-                "The correct reason for failure is produced"
-                expectedReason
-                reason
+        [(_, failureKind)] ->
+            assertFailureKind failureKind
         [] -> assertFailure "No transaction failed"
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
+
+-- | Assert the scheduler result has failed one chain update and check the reason.
+assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult tov -> Assertion
+assertUpdateFailureWithReason expectedReason =
+    assertUpdateFailureWhere $
+        assertEqual
+            "The correct reason for failure is produced"
+            expectedReason
 
 -- | Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
 --  contract module. Assuming the transaction was signed with a single signature.

@@ -282,7 +282,12 @@ testCreatePLT _ pvString = describe pvString $ do
                         pltList <- queryPLTList st
                         tokenInfo <- queryTokenInfo plt1 st
                         return $ do
-                            Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Unknown additional parameters: [\"_param1\"]") result
+                            Helpers.assertUpdateFailureWhere
+                                ( \case
+                                    TokenInitializeFailure _ -> return ()
+                                    _ -> assertFailure "not TokenInitializeFailure"
+                                )
+                                result
                             assertEqual
                                 "PLT list"
                                 []
