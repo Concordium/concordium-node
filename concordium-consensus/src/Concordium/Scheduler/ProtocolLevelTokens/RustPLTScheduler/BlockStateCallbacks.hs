@@ -12,6 +12,9 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallb
     UpdateTokenAccountBalance,
     UpdateTokenAccountBalanceCallbackPtr,
     wrapUpdateTokenAccountBalance,
+    TouchTokenAccount,
+    TouchTokenAccountCallbackPtr,
+    wrapTouchTokenAccount,
     IncrementPltUpdateSequenceNumber,
     IncrementPltUpdateSequenceNumberCallbackPtr,
     wrapIncrementPltUpdateSequenceNumber,
@@ -54,6 +57,7 @@ data BlockStateQueryCallbacks = BlockStateQueryCallbacks
 -- perform operations on the part of the block state that is maintained by Haskell.
 data BlockStateOperationCallbacks = BlockStateOperationCallbacks
     { updateTokenAccountBalance :: UpdateTokenAccountBalance,
+      touchTokenAccount :: TouchTokenAccount,
       incrementPltUpdateSequenceNumber :: IncrementPltUpdateSequenceNumber
     }
 
@@ -149,6 +153,44 @@ type UpdateTokenAccountBalanceCallbackPtr = FFI.FunPtr UpdateTokenAccountBalance
 foreign import ccall "wrapper"
     ffiWrapUpdateTokenAccountBalanceCallback ::
         UpdateTokenAccountBalanceCallbackFFI -> IO UpdateTokenAccountBalanceCallbackPtr
+
+-- | Callback function for touching token account state.
+type TouchTokenAccount =
+    -- | Index of the account to touch token state for.
+    Types.AccountIndex ->
+    -- | Index of the token to touch in account state.
+    Tokens.TokenIndex ->
+    IO ()
+
+-- | Internal helper function for mapping the 'TouchTokenAccount' into the more
+-- low-level function pointer which can be passed in FFI.
+wrapTouchTokenAccount :: TouchTokenAccount -> IO TouchTokenAccountCallbackPtr
+wrapTouchTokenAccount func =
+    ffiWrapTouchTokenAccountCallback callback
+  where
+    callback :: TouchTokenAccountCallbackFFI
+    callback accountIndex tokenIndex = do
+        func (fromIntegral accountIndex) (fromIntegral tokenIndex)
+
+-- | Callback function for updating a token account balance.
+--
+-- This is passed as a function pointer in FFI to call, see also 'TouchTokenAccount'
+-- for the more type-safe variant.
+type TouchTokenAccountCallbackFFI =
+    -- | Index of the account to touch token state for.
+    Word.Word64 ->
+    -- | Index of the token to touch in account state.
+    Word.Word64 ->
+    IO ()
+
+-- | The callback function pointer type for touching token account state.
+type TouchTokenAccountCallbackPtr = FFI.FunPtr TouchTokenAccountCallbackFFI
+
+-- | Function to wrap Haskell functions or closures into a function pointer which can be passed over
+-- FFI.
+foreign import ccall "wrapper"
+    ffiWrapTouchTokenAccountCallback ::
+        TouchTokenAccountCallbackFFI -> IO TouchTokenAccountCallbackPtr
 
 -- | Callback function for incrementing the PLT update sequence number.
 type IncrementPltUpdateSequenceNumber =

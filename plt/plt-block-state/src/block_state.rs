@@ -336,6 +336,11 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
             .update_token_account_balance(*account, *token, amount_delta)
     }
 
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
+        self.external_block_state
+            .touch_token_account(*account, *token);
+    }
+
     fn increment_plt_update_instruction_sequence_number(&mut self) {
         self.external_block_state
             .increment_plt_update_sequence_number();

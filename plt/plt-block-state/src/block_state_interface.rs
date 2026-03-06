@@ -183,6 +183,19 @@ pub trait BlockStateOperations: BlockStateQuery {
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError>;
 
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// It has the observable effect that the token is then returned when querying the tokens
+    /// for an account. Should be called if the token module account state is set,
+    /// in order to make sure the token is returned when querying token account info.
+    ///
+    /// If the account already has a balance for the token in context, the operation has no effect
+    ///
+    /// # Arguments
+    ///
+    /// - `token` The token to touch state for in the account.
+    /// - `account` The account to touch token state for.
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account);
+
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.

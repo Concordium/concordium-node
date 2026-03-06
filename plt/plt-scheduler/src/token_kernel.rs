@@ -95,13 +95,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
 
 impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
     fn touch_account(&mut self, account: &Self::AccountWithAddress) {
-        self.block_state
-            .update_token_account_balance(
-                self.token,
-                &account.0,
-                RawTokenAmountDelta::Add(RawTokenAmount(0)),
-            )
-            .ok();
+        self.block_state.touch_token_account(self.token, &account.0);
     }
 
     fn mint(
