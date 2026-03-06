@@ -89,7 +89,7 @@ import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryAccountTokens, queryTokenInfo)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryAccountTokens, queryPLTList, queryTokenInfo)
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
@@ -1181,7 +1181,7 @@ getAccountList = liftSkovQueryStateBHI BS.getAccountList
 
 -- | Get a list of protocol level tokens that exist in the block state.
 getTokenList :: BlockHashInput -> MVR finconf (BHIQueryResponse [TokenId])
-getTokenList = liftSkovQueryStateBHI BS.getPLTList
+getTokenList = liftSkovQueryStateBHI queryPLTList
 
 -- | Get a list of all smart contract instances in the block state.
 getInstanceList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ContractAddress])

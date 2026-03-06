@@ -45,7 +45,7 @@ import Concordium.GlobalState.Types
 import Concordium.Logger
 import Concordium.Scheduler
 import qualified Concordium.Scheduler.DummyData as DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 import qualified Data.Bifunctor as Bifunctor
@@ -98,6 +98,7 @@ deriving instance
 
 instance MonadLogger (PersistentBSM pv) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"

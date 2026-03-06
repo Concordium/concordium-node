@@ -34,6 +34,7 @@ on:
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
     - 'concordium-node/rustfmt.toml'
+    - '!plt/**' # disable for now, until the PLT scheduler is actually embedded in the node    
 
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -48,17 +49,19 @@ on:
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
     - 'concordium-node/rustfmt.toml'
+    - '!plt/**' # disable for now, until the PLT scheduler is actually embedded in the node    
   workflow_dispatch: # allow manual trigger
 
 env:
   dummy: 17                # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
+  RUST_VERSION: 1.86
+  GHC_VERSION: 9.10.2
 
 jobs:
 
   fourmolu:
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
     steps:
 
     - name: Download fourmolu
@@ -93,25 +96,17 @@ jobs:
 
   rustfmt:
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
-
-    strategy:
-      matrix:
-        plan:
-        - rust: "1.82"
-
     steps:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-        # token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: ${{ matrix.plan.rust }}
+        toolchain: ${{ env.RUST_VERSION }}
         override: true
         components: rustfmt
 
@@ -127,13 +122,6 @@ jobs:
     needs: [fourmolu, rustfmt]
     # Use fixed OS version because we install packages on the system.
     runs-on: ubuntu-22.04
-    if: ${{ !github.event.pull_request.draft }}
-
-    strategy:
-      matrix:
-        plan:
-        - rust: 1.82
-          ghc: 9.10.2
 
     steps:
     - name: Remove unnecessary files
@@ -164,7 +152,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: ${{ matrix.plan.rust }}
+        toolchain: ${{ env.RUST_VERSION }}
         override: true
         components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
@@ -185,10 +173,10 @@ jobs:
           concordium-base/smart-contracts/lib
           concordium-node/target
           collector/target
-        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}-${{ hashFiles('concordium-base/rust-src/**/*.rs','concordium-base/smart-contracts/wasm-chain-integration/**/*.rs')}}
+        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}-${{ hashFiles('concordium-base/rust-src/**/*.rs','concordium-base/smart-contracts/wasm-chain-integration/**/*.rs')}}
         restore-keys: |
-          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ env.RUST_VERSION }}
 
     # HASKELL #
 
@@ -209,9 +197,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.stack
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ env.GHC_VERSION }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}
+          ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ env.GHC_VERSION }}
     - name: Cache '.stack-work'
       uses: actions/cache@v4
       with:
@@ -221,11 +209,11 @@ jobs:
           concordium-consensus/.stack-work
           concordium-consensus/haskell-lmdb/.stack-work
 
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-${{ steps.cache-keys.outputs.base_hash }}
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ env.GHC_VERSION }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-${{ steps.cache-keys.outputs.base_hash }}
         restore-keys: |
-          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-
-          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-
-          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ env.GHC_VERSION }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ env.GHC_VERSION }}-${{ hashFiles('**.yaml') }}-
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ env.GHC_VERSION }}
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus and run tests (with code coverage)

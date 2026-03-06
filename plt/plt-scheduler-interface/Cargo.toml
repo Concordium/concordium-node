@@ -1,0 +1,15 @@
+[package]
+name = "plt-scheduler-interface"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+plt-scheduler-types.workspace = true
+plt-block-state.workspace = true
+
+concordium_base.workspace = true
+
+thiserror.workspace = true
