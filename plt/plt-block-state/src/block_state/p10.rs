@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 
 use concordium_base::common::Serialize;
+use concordium_base::constants::SHA256;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 use crate::block_state_interface::TokenNotFoundByIdError;
 
 use super::types::{TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue};
-use super::{blob_store, BlockStateOperations};
+use super::{blob_store, BlockStateOperations, PltBlockStateHash};
 
 /// Block state providing the various block state operations.
 #[derive(Debug, Clone)]
@@ -33,8 +34,9 @@ impl BlockStateOperations for PltBlockStateP10 {
         }
     }
 
-    fn hash(&self, _loader: &mut impl blob_store::BackingStoreLoad) -> super::PltBlockStateHash {
-        todo!()
+    fn hash(&self, _loader: &mut impl blob_store::BackingStoreLoad) -> PltBlockStateHash {
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        self.tokens.hash()
     }
 
     fn store_update(
@@ -69,6 +71,23 @@ pub struct SimplisticTokenKeyValueState {
 }
 
 impl Tokens {
+    pub fn hash(&self) -> PltBlockStateHash {
+        if self.tokens.is_empty() {
+            // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
+            // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
+            PltBlockStateHash::from(
+                <[u8; SHA256]>::try_from(
+                    hex::decode("c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05")
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+        } else {
+            // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+            todo!()
+        }
+    }
+
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     pub fn plt_list(&self) -> impl Iterator<Item = TokenId> {
         self.tokens

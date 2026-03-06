@@ -37,7 +37,8 @@ impl BlockStateOperations for PltBlockStateP11 {
     }
 
     fn hash(&self, _loader: &mut impl blob_store::BackingStoreLoad) -> super::PltBlockStateHash {
-        todo!()
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        self.tokens.hash()
     }
 
     fn store_update(

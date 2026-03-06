@@ -34,7 +34,7 @@ where
     let mut external = ExternalBlockStateStub::empty();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, _) = block_state.create_and_init_token(
+    let _ = block_state.create_and_init_token(
         &mut external,
         token_id.clone(),
         TokenInitTestParams::default(),
@@ -149,7 +149,7 @@ where
 
     let account = external.create_account();
     let token_id: TokenId = "TokenId3".parse().unwrap();
-    let (_token, gov_account) = block_state.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
         &mut external,
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),

@@ -31,6 +31,7 @@ use plt_scheduler::scheduler::SchedulerOperations;
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::queries::TokenAccountState as QueriesTokenAccountState;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
 use std::collections::BTreeMap;
@@ -105,9 +106,6 @@ struct AccountToken {
 pub trait BlockStateTestImpl:
     SchedulerOperations + SchedulerQueries + BlockStateOperations
 {
-    /// Map the Token ID to the internal token index.
-    fn token_by_id(&self, token_id: &TokenId) -> Result<TokenIndex, TokenNotFoundByIdError>;
-
     /// Create and initialize token in the stub and return stub representation of the token, together with
     /// the governance account.
     fn create_and_init_token(
@@ -117,7 +115,7 @@ pub trait BlockStateTestImpl:
         params: TokenInitTestParams,
         decimals: u8,
         initial_supply: Option<RawTokenAmount>,
-    ) -> (TokenIndex, AccountIndex) {
+    ) -> AccountIndex {
         let gov_account = external.create_account();
         let gov_holder_account =
             CborHolderAccount::from(external.account_canonical_address(&gov_account));
@@ -144,10 +142,7 @@ pub trait BlockStateTestImpl:
 
         self.execute_chain_update(external, payload)
             .expect("create and initialize token");
-
-        let token_index = self.token_by_id(&token_id).expect("created token");
-
-        (token_index, gov_account)
+        gov_account
     }
 
     /// Add amount to account balance in the stub. This is done by minting
@@ -200,12 +195,30 @@ pub trait BlockStateTestImpl:
             .expect("transaction internal error");
         assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
     }
+
+    /// Helper function for using `query_token_account_infos` get the account token state of an
+    /// account for a specific token.
+    fn token_account_state(
+        &self,
+        external: &ExternalBlockStateStub,
+        token_id: &TokenId,
+        account: AccountIndex,
+    ) -> Option<QueriesTokenAccountState> {
+        self.query_token_account_infos(external, account)
+            .into_iter()
+            .find_map(|token_account_info| {
+                if &token_account_info.token_id == token_id {
+                    Some(token_account_info.account_state)
+                } else {
+                    None
+                }
+            })
+    }
 }
 
-impl BlockStateTestImpl for p10::PltBlockStateP10 {
-    fn token_by_id(&self, token_id: &TokenId) -> Result<TokenIndex, TokenNotFoundByIdError> {
-        self.tokens.token_by_id(token_id)
-    }
+impl<A> BlockStateTestImpl for A where
+    A: SchedulerOperations + SchedulerQueries + BlockStateOperations
+{
 }
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]

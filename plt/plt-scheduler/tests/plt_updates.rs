@@ -15,7 +15,6 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_block_state::block_state::p10;
-use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
@@ -41,7 +40,7 @@ where
     let mut blob_store = BlobStoreLoadStub;
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = block_state.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
         &mut external,
         token_id.clone(),
         TokenInitTestParams::default(),
@@ -84,29 +83,19 @@ where
 
     // Assert balance of sender and receiver
     assert_eq!(
-        block_state.query_token_account_infos(&external, gov_account)[0]
-            .account_state
-            .balance
-            .amount,
-        RawTokenAmount(5000)
-    );
-    assert_eq!(
-        block_state.query_token_account_infos(&external, receiver)[0]
-            .account_state
-            .balance
-            .amount,
-        RawTokenAmount(0)
-    );
-
-    // Assert balance of sender and receiver
-    assert_eq!(
         block_state
-            .state()
-            .account_token_balance(&gov_account, &token),
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(2000)
     );
     assert_eq!(
-        block_state.state().account_token_balance(&account2, &token),
+        block_state
+            .token_account_state(&external, &token_id, account2)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(3000)
     );
 
@@ -134,7 +123,11 @@ where
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let mut execution = TransactionExecutionTestImpl::from_sender(account2);
+    let mut execution = TransactionExecution::new(
+        Energy::from(u64::MAX),
+        account2,
+        external.account_canonical_address(&account2),
+    );
     let result = block_state
         .execute_transaction(
             &mut execution,
@@ -146,18 +139,24 @@ where
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply unchanged
-    assert_eq!(
-        block_state.state().token_circulating_supply(&token),
-        RawTokenAmount(5000)
-    );
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(5000));
 
     // Assert balance of sender and receiver
     assert_eq!(
-        block_state.state().account_token_balance(&account2, &token),
+        block_state
+            .token_account_state(&external, &token_id, account2)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(2000)
     );
     assert_eq!(
-        block_state.state().account_token_balance(&account3, &token),
+        block_state
+            .token_account_state(&external, &token_id, account3)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(1000)
     );
 
@@ -188,7 +187,7 @@ where
     let mut blob_store = BlobStoreLoadStub;
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = block_state.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
         &mut external,
         token_id.clone(),
         TokenInitTestParams::default(),
@@ -235,11 +234,19 @@ where
 
     // Assert balance of sender and receiver
     assert_eq!(
-        external.account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(2000)
     );
     assert_eq!(
-        external.account_token_balance(&account2, &token),
+        block_state
+            .token_account_state(&external, &token_id, account2)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(3000)
     );
 
@@ -270,7 +277,7 @@ where
     let mut blob_store = BlobStoreLoadStub;
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = block_state.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
         &mut external,
         token_id.clone(),
         TokenInitTestParams::default(),
@@ -306,20 +313,18 @@ where
 
     // Assert circulating supply and account balances unchanged
     let token_info = block_state.query_token_info(&external, &token_id).unwrap();
-    assert_eq!(token_info.state.total_supply, RawTokenAmount(5000));
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(5000));
     assert_eq!(
-        block_state.query_token_account_infos(&mut external, gov_account)[0]
-            .account_state
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
             .balance
             .amount,
         RawTokenAmount(5000)
     );
     assert_eq!(
-        block_state.query_token_account_infos(&mut external, account2)[0]
-            .account_state
-            .balance
-            .amount,
-        RawTokenAmount(0)
+        block_state.token_account_state(&external, &token_id, account2),
+        None
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -347,7 +352,7 @@ where
     let mut blob_store = BlobStoreLoadStub;
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = block_state.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
         &mut external,
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
@@ -416,16 +421,15 @@ where
     assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(5000));
     assert_eq!(
         block_state
-            .state()
-            .account_token_balance(&gov_account, &token),
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(5000)
     );
     assert_eq!(
-        block_state.query_token_account_infos(&external, receiver)[0]
-            .account_state
-            .balance
-            .amount,
-        RawTokenAmount(0)
+        block_state.token_account_state(&external, &token_id, receiver),
+        None
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -482,27 +486,36 @@ where
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction_p10(
+    let mut execution = TransactionExecution::new(
+        Energy::from(u64::MAX),
         gov_account,
         external.account_canonical_address(&gov_account),
-        block_state.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     let token_info = block_state.query_token_info(&external, &token_id).unwrap();
     assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(5000));
+
     assert_eq!(
         block_state
-            .state()
-            .account_token_balance(&gov_account, &token),
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(4000)
     );
     assert_eq!(
-        block_state.query_token_account_infos(&external, receiver)[0]
-            .account_state
+        block_state
+            .token_account_state(&external, &token_id, receiver)
+            .unwrap()
             .balance
             .amount,
         RawTokenAmount(1000)
@@ -522,26 +535,46 @@ where
 /// Test add account to allow list for a token where allow lists are not enabled.
 #[test]
 fn test_plt_allow_list_disabled() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_allow_list_disabled_worker::<p10::PltBlockStateP10>();
+}
+fn test_plt_allow_list_disabled_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        4,
+        None,
+    );
 
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+        target: CborHolderAccount::from(external.account_canonical_address(&gov_account)),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -561,9 +594,20 @@ fn test_plt_allow_list_disabled() {
 /// Test protocol-level token mint.
 #[test]
 fn test_plt_mint() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_mint_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_plt_mint_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
@@ -578,25 +622,32 @@ fn test_plt_mint() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply increased
-    assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(1000)
-    );
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(1000));
 
     // Assert account balance increased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(1000)
     );
 
@@ -606,23 +657,33 @@ fn test_plt_mint() {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount.amount, RawTokenAmount(1000));
         assert_eq!(mint.amount.decimals, 4);
-        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(mint.target, TokenHolder::Account(external.account_canonical_address(&gov_account)));
     });
 }
 
 /// Test protocol-level token mint using account address alias.
 #[test]
 fn test_plt_mint_using_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_mint_using_alias_worker::<p10::PltBlockStateP10>();
+}
+fn test_plt_mint_using_alias_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
         None,
     );
 
-    let gov_account_address_alias = stub
+    let gov_account_address_alias = external
         .account_canonical_address(&gov_account)
         .get_alias(5)
         .unwrap();
@@ -635,25 +696,33 @@ fn test_plt_mint_using_alias() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
+    let mut execution = TransactionExecution::new(
+        Energy::from(u64::MAX),
         gov_account,
         gov_account_address_alias,
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    );
+
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply increased
-    assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(1000)
-    );
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(1000));
 
     // Assert account balance increased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(1000)
     );
 
@@ -670,9 +739,20 @@ fn test_plt_mint_using_alias() {
 /// Test protocol-level token mint that is rejected.
 #[test]
 fn test_plt_mint_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_mint_reject_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_plt_mint_reject_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
@@ -687,23 +767,32 @@ fn test_plt_mint_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(5000));
+
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(5000)
-    );
-    assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(5000)
     );
 
@@ -714,11 +803,25 @@ fn test_plt_mint_reject() {
 /// Test protocol-level token mint from unauthorized sender.
 #[test]
 fn test_plt_mint_unauthorized() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_mint_unauthorized_worker::<p10::PltBlockStateP10>();
+}
+fn test_plt_mint_unauthorized_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
-    let non_governance_account = stub.create_account();
+    let _gov_account = block_state.create_and_init_token(
+        &mut external,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        4,
+        None,
+    );
+    let non_governance_account = external.create_account();
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
@@ -728,25 +831,27 @@ fn test_plt_mint_unauthorized() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        non_governance_account,
+        external.account_canonical_address(&non_governance_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(0));
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(0)
-    );
-    assert_eq!(
-        stub.state()
-            .account_token_balance(&non_governance_account, &token),
-        RawTokenAmount(0)
+        block_state.token_account_state(&external, &token_id, non_governance_account),
+        None
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -761,7 +866,7 @@ fn test_plt_mint_unauthorized() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    external.account_canonical_address(&non_governance_account)
                 ))
             );
             assert_eq!(reason.as_deref(), Some("sender is not the token governance account"));
@@ -772,9 +877,18 @@ fn test_plt_mint_unauthorized() {
 /// Test protocol-level token burn.
 #[test]
 fn test_plt_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_burn_worker::<p10::PltBlockStateP10>();
+}
+fn test_plt_burn_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         4,
@@ -789,25 +903,33 @@ fn test_plt_burn() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply decreased
-    assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(4000)
-    );
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(4000));
 
     // Assert account balance decreased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(4000)
     );
 
@@ -817,23 +939,33 @@ fn test_plt_burn() {
         assert_eq!(burn.token_id, token_id);
         assert_eq!(burn.amount.amount, RawTokenAmount(1000));
         assert_eq!(burn.amount.decimals, 4);
-        assert_eq!(burn.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(burn.target, TokenHolder::Account(external.account_canonical_address(&gov_account)));
     });
 }
 
 /// Test protocol-level token burn using address alias for governance account
 #[test]
 fn test_plt_burn_using_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_burn_using_alias_worker::<p10::PltBlockStateP10>()
+}
+
+fn test_plt_burn_using_alias_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         4,
         Some(RawTokenAmount(5000)),
     );
 
-    let gov_account_address_alias = stub
+    let gov_account_address_alias = external
         .account_canonical_address(&gov_account)
         .get_alias(5)
         .unwrap();
@@ -846,25 +978,32 @@ fn test_plt_burn_using_alias() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
+    let mut execution = TransactionExecution::new(
+        Energy::from(u64::MAX),
         gov_account,
         gov_account_address_alias,
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply decreased
-    assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(4000)
-    );
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(4000));
 
     // Assert account balance decreased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(4000)
     );
 
@@ -881,9 +1020,19 @@ fn test_plt_burn_using_alias() {
 /// Test protocol-level token burn rejection.
 #[test]
 fn test_plt_burn_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_burn_reject_worker::<p10::PltBlockStateP10>()
+}
+
+fn test_plt_burn_reject_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         4,
@@ -898,23 +1047,30 @@ fn test_plt_burn_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(5000));
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(5000)
-    );
-    assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(5000)
     );
 
@@ -928,15 +1084,25 @@ fn test_plt_burn_reject() {
 /// Test multiple protocol-level token update operations in one transaction.
 #[test]
 fn test_plt_multiple_operations() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_multiple_operations_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_plt_multiple_operations_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
         None,
     );
-    let account2 = stub.create_account();
+    let account2 = external.create_account();
 
     // Compose two operations: Mint and then transfer
 
@@ -946,7 +1112,7 @@ fn test_plt_multiple_operations() {
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 4),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+            recipient: CborHolderAccount::from(external.account_canonical_address(&account2)),
             memo: None,
         }),
     ];
@@ -955,27 +1121,40 @@ fn test_plt_multiple_operations() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
-    // Assert circulating supply and accout balances
+    // Assert circulating supply and account balances
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
+    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(3000));
+
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
-        RawTokenAmount(3000)
-    );
-    assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        block_state
+            .token_account_state(&external, &token_id, gov_account)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        block_state
+            .token_account_state(&external, &token_id, account2)
+            .unwrap()
+            .balance
+            .amount,
         RawTokenAmount(1000)
     );
 
@@ -985,14 +1164,14 @@ fn test_plt_multiple_operations() {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount.amount, RawTokenAmount(3000));
         assert_eq!(mint.amount.decimals, 4);
-        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(mint.target, TokenHolder::Account(external.account_canonical_address(&gov_account)));
     });
     assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
         assert_eq!(transfer.amount.decimals, 4);
-        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
-        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(&account2)));
+        assert_eq!(transfer.from, TokenHolder::Account(external.account_canonical_address(&gov_account)));
+        assert_eq!(transfer.to, TokenHolder::Account(external.account_canonical_address(&account2)));
         assert_eq!(transfer.memo, None);
     });
 }
@@ -1000,10 +1179,24 @@ fn test_plt_multiple_operations() {
 /// Test protocol-level token "pause" operation.
 #[test]
 fn test_plt_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_pause_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_plt_pause_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        4,
+        None,
+    );
 
     // Add the "pause" operation
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
@@ -1012,14 +1205,19 @@ fn test_plt_pause() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert that the expected pause event is logged
@@ -1031,16 +1229,16 @@ fn test_plt_pause() {
     });
 
     // Assert paused it set in state
-    let token_info = block_state.query_token_info(&token_id).unwrap();
+    let token_info = block_state.query_token_info(&external, &token_id).unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(token_module_state.paused, Some(true));
 
     // Test transfer is now rejected
-    let account1 = stub.create_account();
+    let account1 = external.create_account();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account1)),
+        recipient: CborHolderAccount::from(external.account_canonical_address(&account1)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1048,14 +1246,19 @@ fn test_plt_pause() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
@@ -1070,10 +1273,24 @@ fn test_plt_pause() {
 /// Test protocol-level token "unpause" operation.
 #[test]
 fn test_plt_unpause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_plt_unpause_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_plt_unpause_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        4,
+        None,
+    );
 
     // Add the "unpause" operation
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
@@ -1082,14 +1299,19 @@ fn test_plt_unpause() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // Assert that the expected unpause event is logged
@@ -1104,13 +1326,23 @@ fn test_plt_unpause() {
 /// Test protocol-level token transfer that is rejected because token does not exist.
 #[test]
 fn test_non_existing_token_id() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
-    let account1 = stub.create_account();
-    let account2 = stub.create_account();
+    test_non_existing_token_id_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_non_existing_token_id_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
+    let account1 = external.create_account();
+    let account2 = external.create_account();
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(external.account_canonical_address(&account2)),
         memo: None,
     })];
     let token_id: TokenId = "tokenid1".parse().unwrap();
@@ -1119,14 +1351,19 @@ fn test_non_existing_token_id() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        account1,
-        stub.account_canonical_address(&account1),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        account1,
+        external.account_canonical_address(&account1),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     assert_matches!(
@@ -1140,20 +1377,35 @@ fn test_non_existing_token_id() {
 /// Test that energy is charged during execution and the correct amount of used energy returned.
 #[test]
 fn test_energy_charge() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_energy_charge_worker::<p10::PltBlockStateP10>();
+}
+fn test_energy_charge_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
         None,
     );
-    let account2 = stub.create_account();
-    stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
+    let account2 = external.create_account();
+    block_state.increment_account_balance(
+        &mut external,
+        &mut blob_store,
+        gov_account,
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(3000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(external.account_canonical_address(&account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1161,14 +1413,19 @@ fn test_energy_charge() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Assert energy used
@@ -1179,22 +1436,38 @@ fn test_energy_charge() {
 /// also if the transaction is rejected.
 #[test]
 fn test_energy_charge_at_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_energy_charge_at_reject_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_energy_charge_at_reject_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
         None,
     );
-    let account2 = stub.create_account();
-    stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
+    let account2 = external.create_account();
+    block_state.increment_account_balance(
+        &mut external,
+        &mut blob_store,
+        gov_account,
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
     // Transfer operation with a larger amount than the token balance of the sender `gov_account`,
     // which will be the cause of the rejection.
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(external.account_canonical_address(&account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1202,14 +1475,19 @@ fn test_energy_charge_at_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     assert_matches!(
         result.outcome,
         TransactionOutcome::Rejected(TransactionRejectReason::TokenUpdateTransactionFailed(_))
@@ -1222,20 +1500,37 @@ fn test_energy_charge_at_reject() {
 /// Test that an out of energy reject reason is returned if we run out of energy.
 #[test]
 fn test_out_of_energy_error() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    test_out_of_energy_error_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_out_of_energy_error_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+    let mut blob_store = BlobStoreLoadStub;
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = block_state.create_and_init_token(
+        &mut external,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
         None,
     );
-    let account2 = stub.create_account();
-    stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
+    let account2 = external.create_account();
+    block_state.increment_account_balance(
+        &mut external,
+        &mut blob_store,
+        gov_account,
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(3000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(external.account_canonical_address(&account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1243,14 +1538,19 @@ fn test_out_of_energy_error() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = scheduler::execute_transaction_p10(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
+    let mut execution = TransactionExecution::new(
         Energy::from(150), // needs 300 + 100 to succeed
-    )
-    .expect("transaction internal error");
+        gov_account,
+        external.account_canonical_address(&gov_account),
+    );
+    let result = block_state
+        .execute_transaction(
+            &mut execution,
+            &mut blob_store,
+            &mut external,
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
 
     // Assert out of energy error
     assert_matches!(

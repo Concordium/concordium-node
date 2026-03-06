@@ -10,7 +10,7 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleInitializationParameters, TokenModuleRef,
 };
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::{p10, BlockStateOperations};
+use plt_block_state::block_state::p10;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
@@ -76,14 +76,8 @@ where
     // Assert circulating supply and governance account balance
     assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(0));
     assert_eq!(
-        block_state
-            .query_token_account_infos(&external, gov_account)
-            .get(0)
-            .unwrap()
-            .account_state
-            .balance
-            .amount,
-        RawTokenAmount(0)
+        block_state.token_account_state(&external, &token_id, gov_account),
+        None
     );
 
     // Assert create token event
