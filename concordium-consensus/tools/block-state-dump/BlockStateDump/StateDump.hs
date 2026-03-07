@@ -5,20 +5,15 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- | Implementation of dumping block state
-module BlockStateDump.DumpState (
+module BlockStateDump.StateDump (
     dumpState,
 ) where
 
 import Control.Monad
 import Control.Monad.Reader
-import qualified Data.IORef as IO
-import qualified Data.Text.Lazy as Text
-import qualified System.Directory as Dir
-import qualified System.FilePath as FP
 import qualified System.IO as IO
 import qualified Text.Pretty.Simple as Pretty
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
 import Concordium.Types
 import qualified Concordium.Types.HashableTo as Hash
@@ -33,9 +28,8 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as TreeState
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
 import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 
-import qualified BlockStateDump.DumpState.ProtocolLevelTokens as PLT
 import BlockStateDump.Shared
-import Data.Coerce
+import qualified BlockStateDump.StateDump.ProtocolLevelTokens as PLTDump
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -142,19 +136,19 @@ dumpBlockState ::
     BS.HashedPersistentBlockState (MPV m) ->
     m ()
 dumpBlockState output BlockEntry{..} bs = do
-    liftBSOIO $ Pretty.pHPrint (ofBlocks output) beBlock
+    liftBSOIO $ Pretty.pHPrintNoColor (ofBlocks output) beBlock
     liftBSOIO $ IO.hPutStrLn (ofBlocks output) ""
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
     let blockHeight = TreeState.bmHeight $ TreeState.stbInfo beBlock
-    blockNode <- liftBSOIO $ buildCompNode output ("block[" ++ show blockHeight ++ "]") blockHash
-    stateNodeMaybe <- liftBSOIO $ buildBlobRefNodeWithParentEdge output "state" blockNode (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs)
-    let stateNode = maybe (error "state node should always be created") id stateNodeMaybe
+    blockNode <- liftBSOIO $ buildCompNodeNoEdge output ("block[" ++ show blockHeight ++ "]") (Just blockHash)
+    maybeStateNode <- liftBSOIO $ buildBlobRefNode output blockNode "state" "state" (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs)
+    let stateNode = maybe (error "state node should always be created") id maybeStateNode
 
     bsp <- BS.loadPBS (BS.hpbsPointers bs)
     dumpBlockStatePointers stateNode bsp
   where
     dumpBlockStatePointers :: NodeId -> BS.BlockStatePointers pv -> m ()
     dumpBlockStatePointers parentNode BS.BlockStatePointers{..} = do
-        PLT.dumpProtocolLevelTokens output parentNode bspProtocolLevelTokens
+        PLTDump.dumpProtocolLevelTokens output parentNode bspProtocolLevelTokens
         return ()

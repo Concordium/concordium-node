@@ -12,7 +12,7 @@ import Data.Functor.Identity
 import qualified Options.Applicative as Options
 
 import qualified BlockStateDump.Config as Config
-import qualified BlockStateDump.DumpState as DumpState
+import qualified BlockStateDump.StateDump as StateDump
 
 -- | Dump part of blobstore specified in command
 main :: IO ()
@@ -22,7 +22,7 @@ main = do
             Config.DumpState{..} ->
                 case promoteProtocolVersion cProtocolVersion of
                     SomeProtocolVersion spv ->
-                        DumpState.dumpState spv cTreeStateDbPath cAccountMapDbPath cBlockStatePath cOutDir cStartBlockHeight cEndBlockHeight
+                        StateDump.dumpState spv cTreeStateDbPath cAccountMapDbPath cBlockStatePath cOutDir cStartBlockHeight cEndBlockHeight
     runLoggerT commandAction logm
   where
     opts =

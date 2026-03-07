@@ -1,6 +1,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module BlockStateDump.Shared where
@@ -17,6 +18,8 @@ import Concordium.Logger
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
+import Concordium.Scheduler.Types (IsProtocolVersion)
+import qualified Concordium.Types.HashableTo as Hash
 import Control.Monad
 import Data.Coerce
 import qualified Data.Map.Lazy as Map
@@ -94,10 +97,10 @@ hashDisplayLength = 6
 -- Build node if a node with the given blob ref does not already exist.
 -- Returns the (possibly existing) node id, regardless of whether a new node was build,
 -- and a boolean indicating if a new node was build.
-buildBlobRefNode :: OutputFiles -> String -> Blob.BlobRef a -> Hash.Hash -> IO (NodeId, Bool)
-buildBlobRefNode output label blobRef hash = do
+buildBlobRefNodeNoEdge :: OutputFiles -> String -> Blob.BlobRef a -> Hash.Hash -> IO (NodeId, Bool)
+buildBlobRefNodeNoEdge output label blobRef hash = do
     let nodeLabel =
-            label
+            (escapeQuotes label)
                 ++ "/"
                 ++ take hashDisplayLength (show hash)
 
@@ -126,12 +129,14 @@ buildBlobRefNode output label blobRef hash = do
             unless (hash == existingHash) $ error $ "hash does not match for blob ref " ++ show blobRef ++ ", existing: " ++ show existingHash ++ ", new hash: " ++ show hash
             return (existingNodeId, False)
 
-buildCompNode :: OutputFiles -> String -> Hash.Hash -> IO NodeId
-buildCompNode output label hash = do
-    let nodeLabel =
-            label
-                ++ "/"
-                ++ take hashDisplayLength (show hash)
+buildCompNodeNoEdge :: OutputFiles -> String -> Maybe Hash.Hash -> IO NodeId
+buildCompNodeNoEdge output label maybeHash = do
+    let nodeLabel = case maybeHash of
+            Just hash ->
+                (escapeQuotes label)
+                    ++ "/"
+                    ++ take hashDisplayLength (show hash)
+            Nothing -> (escapeQuotes label)
 
     outputFilesMutable@OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
     let updatedNextNodeId = (NodeId $ coerce ofNextNodeId + 1)
@@ -151,10 +156,18 @@ buildCompNode output label hash = do
 
     return ofNextNodeId
 
+escapeQuotes :: String -> String
+escapeQuotes =
+    concatMap
+        ( \case
+            '"' -> "\\\""
+            c -> [c]
+        )
+
 -- Build edge between two nodes.
-buildBlobRefEdge :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
-buildBlobRefEdge output _label source target blobRef = do
-    let edgeLabel = show blobRef
+buildBlobRefEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
+buildBlobRefEdge_ output label source target blobRef = do
+    let edgeLabel = (escapeQuotes label) ++ show blobRef
     IO.hPutStrLn (ofStateGraph output) $
         "    "
             ++ show source
@@ -165,8 +178,8 @@ buildBlobRefEdge output _label source target blobRef = do
             ++ "\"];"
     return ()
 
-buildCompEdge :: OutputFiles -> String -> NodeId -> NodeId -> IO ()
-buildCompEdge output _label source target = do
+buildCompEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> IO ()
+buildCompEdge_ output _label source target = do
     IO.hPutStrLn (ofStateGraph output) $
         "    "
             ++ show source
@@ -180,25 +193,60 @@ buildCompEdge output _label source target = do
 
 -- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given
 -- blob reference. The edge is build in any case. Returns the node id if a node if a new node was build.
-buildBlobRefNodeWithParentEdge :: OutputFiles -> String -> NodeId -> Blob.BlobRef a -> Hash.Hash -> IO (Maybe NodeId)
-buildBlobRefNodeWithParentEdge output label parent blobRef hash = do
-    (nodeId, nodeCreated) <- buildBlobRefNode output label blobRef hash
-    buildBlobRefEdge output label parent nodeId blobRef
+buildBlobRefNode :: (Coercible h Hash.Hash) => OutputFiles -> NodeId -> String -> String -> Blob.BlobRef a -> h -> IO (Maybe NodeId)
+buildBlobRefNode output parent refLabel label  blobRef hash = do
+    (nodeId, nodeCreated) <- buildBlobRefNodeNoEdge output label blobRef (coerce hash)
+    buildBlobRefEdge_ output refLabel parent nodeId blobRef
     return $ if nodeCreated then Just nodeId else Nothing
 
-buildStateData :: (Show a) => OutputFiles -> Blob.BlobRef a -> Hash.Hash -> a -> IO ()
+buildCompNode :: OutputFiles -> String -> NodeId -> Maybe Hash.Hash -> IO NodeId
+buildCompNode output label parent hash = do
+    nodeId <- buildCompNodeNoEdge output label hash
+    buildCompEdge_ output label parent nodeId
+    return nodeId
+
+blobRefNodeBuilder :: OutputFiles -> NodeId -> String -> Blob.BlobRef a -> Hash.Hash -> BuildNode
+blobRefNodeBuilder output parent refLabel blobRef hash = \label ->
+    buildBlobRefNode output parent refLabel label  blobRef hash
+
+compNodeBuilder :: OutputFiles -> NodeId -> BuildNode
+compNodeBuilder output parent = \label ->
+    Just <$> buildCompNode output label parent Nothing
+
+visitHBRNode ::
+    forall pv m h a.
+    ( BS.SupportsPersistentState pv m,
+      Hash.MHashableTo m h (Blob.HashedBufferedRef' h a),
+      (Coercible h Hash.Hash)
+    ) =>
+    OutputFiles -> NodeId -> String -> String -> Blob.HashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
+visitHBRNode output parent refLabel label  hbr build = do
+    (blobRef, hash) <- getHBRRefAndHash hbr
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label  blobRef hash
+    forM_ maybeNode $ \node -> build node blobRef hash
+
+type BuildNode = String -> IO (Maybe NodeId)
+
+buildStateData :: (Show a, Coercible h Hash.Hash) => OutputFiles -> Blob.BlobRef a -> h -> a -> IO ()
 buildStateData output blobRef hash stateData = do
-    IO.hPutStrLn (ofStateGraph output) $
+    IO.hPutStrLn (ofState output) $
         show blobRef
             ++ "/"
-            ++ show hash
+            ++ show (coerce hash :: Hash.Hash)
             ++ ":\n"
-            ++ Text.unpack (Pretty.pShow stateData)
+            ++ Text.unpack (Pretty.pShowNoColor stateData)
+    IO.hPutStrLn (ofState output) ""
     return ()
 
-getHBRRefAndHash :: Blob.HashedBufferedRef' h a -> IO (Blob.BlobRef a, h)
-getHBRRefAndHash (Blob.HashedBufferedRef br hashIORef) = do
-    hash <- getHash
+getHBRRefAndHash ::
+    forall pv m a h.
+    ( BS.SupportsPersistentState pv m,
+      Hash.MHashableTo m h (Blob.HashedBufferedRef' h a)
+    ) =>
+    Blob.HashedBufferedRef' h a -> m (Blob.BlobRef a, h)
+getHBRRefAndHash hbr@(Blob.HashedBufferedRef br hashIORef) = do
+    (_hash :: h) <- Hash.getHashM hbr
+    hash <- liftIO getHash
     return (getBlobRef, hash)
   where
     getHash = do
@@ -209,3 +257,17 @@ getHBRRefAndHash (Blob.HashedBufferedRef br hashIORef) = do
         Blob.BRBlobbed ref -> ref
         Blob.BRMemory _ _ -> error "BRMemory not expected present"
         Blob.BRBoth ref _ -> ref
+
+-- getHBRRefAndHash :: Blob.HashedBufferedRef' h a -> IO (Blob.BlobRef a, h)
+-- getHBRRefAndHash (Blob.HashedBufferedRef br hashIORef) = do
+--     hash <- getHash
+--     return (getBlobRef, hash)
+--   where
+--     getHash = do
+--         IORef.readIORef hashIORef >>= \case
+--             Blob.Null -> error "bufferedHash not present"
+--             Blob.Some hash -> return hash
+--     getBlobRef = case br of
+--         Blob.BRBlobbed ref -> ref
+--         Blob.BRMemory _ _ -> error "BRMemory not expected present"
+--         Blob.BRBoth ref _ -> ref
