@@ -13,6 +13,7 @@ import Control.Monad
 import Control.Monad.Reader
 import qualified System.IO as IO
 import qualified Text.Pretty.Simple as Pretty
+import Data.List(intercalate)
 
 import Concordium.Logger
 import Concordium.Types
@@ -30,6 +31,9 @@ import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 
 import BlockStateDump.Shared
 import qualified BlockStateDump.StateDump.ProtocolLevelTokens as PLTDump
+import qualified BlockStateDump.StateDump.Accounts as AccountsDump
+
+
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -44,20 +48,17 @@ dumpState ::
     FilePath ->
     -- Out dir
     FilePath ->
-    -- Start block height
-    BlockHeight ->
-    -- End block height
-    BlockHeight ->
+    -- Block heights to dump state for
+    [BlockHeight] ->    
     LogIO ()
-dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockStart blockEnd = do
-    when (blockEnd < blockStart) $ throwUserError "Block end before block start"
+dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockHeights = do
     logEvent External LLInfo $ "Dumping block state from: " ++ blockStatePath ++ " on " ++ show (demoteProtocolVersion spv)
     logEvent External LLInfo $ "Using tree state: " ++ treeStateDbPath
 
     (treeStateDb :: TreeState.DatabaseHandlers pv) <- liftIO $ TreeState.openDatabase treeStateDbPath
     TreeState.checkDatabaseVersion treeStateDb
 
-    blocks <- forM [blockStart .. blockEnd] $ \blockHeight ->
+    blocks <- forM blockHeights $ \blockHeight ->
         runTreeState treeStateDb $ do
             blockMaybe <- TreeState.lookupBlockByHeight blockHeight
             block <-
@@ -82,13 +83,18 @@ dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockStart 
     let (pbsc :: BS.PersistentBlockStateContext pv) = BS.PersistentBlockStateContext{..}
 
     outputFiles <- liftIO $ openOutputFiles outDir
-    liftIO $ IO.hPutStrLn (ofStateGraph outputFiles) "digraph G {"
+    writeGraphStateRaw outputFiles "digraph G {"
+    writeGraphStateRaw outputFiles "    ordering=\"out\""
+    -- writeGraphStateRaw outputFiles "    root [style=invis]"
 
-    runBSO pbsc $ forM_ blocks $ \block@BlockEntry{..} -> do
+    blockNodes <- runBSO pbsc $ forM blocks $ \block@BlockEntry{..} -> do
         bs <- BS.loadBlockState Nothing (TreeState.stbStatePointer beBlock)
+        BS.cacheBlockState bs
         dumpBlockState outputFiles block bs
 
-    liftIO $ IO.hPutStrLn (ofStateGraph outputFiles) "}"
+    writeGraphStateRaw outputFiles $ "    { rank=source; " ++ intercalate "" (flip fmap blockNodes $ \nodeId -> show nodeId ++ ";") ++ " }"
+
+    writeGraphStateRaw outputFiles "}"
     liftIO $ closeOutputFiles outputFiles
 
     return ()
@@ -134,7 +140,7 @@ dumpBlockState ::
     OutputFiles ->
     BlockEntry (MPV m) ->
     BS.HashedPersistentBlockState (MPV m) ->
-    m ()
+    m NodeId
 dumpBlockState output BlockEntry{..} bs = do
     liftBSOIO $ Pretty.pHPrintNoColor (ofBlocks output) beBlock
     liftBSOIO $ IO.hPutStrLn (ofBlocks output) ""
@@ -145,10 +151,15 @@ dumpBlockState output BlockEntry{..} bs = do
     maybeStateNode <- liftBSOIO $ buildBlobRefNode output blockNode "state" "state" (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs)
     let stateNode = maybe (error "state node should always be created") id maybeStateNode
 
+    -- writeGraphStateRaw output $ "    root -> " ++ show blockNode ++ " [style=invis]"
+
     bsp <- BS.loadPBS (BS.hpbsPointers bs)
     dumpBlockStatePointers stateNode bsp
+
+    return blockNode
   where
     dumpBlockStatePointers :: NodeId -> BS.BlockStatePointers pv -> m ()
     dumpBlockStatePointers parentNode BS.BlockStatePointers{..} = do
         PLTDump.dumpProtocolLevelTokens output parentNode bspProtocolLevelTokens
+        AccountsDump.dumpAccounts output parentNode bspAccounts
         return ()

@@ -17,8 +17,9 @@ import Concordium.Logger
 
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import Concordium.GlobalState.Persistent.CachedRef
+import qualified Concordium.GlobalState.Persistent.CachedRef as Blob
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
-import Concordium.Scheduler.Types (IsProtocolVersion)
 import qualified Concordium.Types.HashableTo as Hash
 import Control.Monad
 import Data.Coerce
@@ -194,7 +195,7 @@ buildCompEdge_ output _label source target = do
 -- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given
 -- blob reference. The edge is build in any case. Returns the node id if a node if a new node was build.
 buildBlobRefNode :: (Coercible h Hash.Hash) => OutputFiles -> NodeId -> String -> String -> Blob.BlobRef a -> h -> IO (Maybe NodeId)
-buildBlobRefNode output parent refLabel label  blobRef hash = do
+buildBlobRefNode output parent refLabel label blobRef hash = do
     (nodeId, nodeCreated) <- buildBlobRefNodeNoEdge output label blobRef (coerce hash)
     buildBlobRefEdge_ output refLabel parent nodeId blobRef
     return $ if nodeCreated then Just nodeId else Nothing
@@ -207,7 +208,7 @@ buildCompNode output label parent hash = do
 
 blobRefNodeBuilder :: OutputFiles -> NodeId -> String -> Blob.BlobRef a -> Hash.Hash -> BuildNode
 blobRefNodeBuilder output parent refLabel blobRef hash = \label ->
-    buildBlobRefNode output parent refLabel label  blobRef hash
+    buildBlobRefNode output parent refLabel label blobRef hash
 
 compNodeBuilder :: OutputFiles -> NodeId -> BuildNode
 compNodeBuilder output parent = \label ->
@@ -220,23 +221,40 @@ visitHBRNode ::
       (Coercible h Hash.Hash)
     ) =>
     OutputFiles -> NodeId -> String -> String -> Blob.HashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
-visitHBRNode output parent refLabel label  hbr build = do
+visitHBRNode output parent refLabel label hbr build = do
     (blobRef, hash) <- getHBRRefAndHash hbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label  blobRef hash
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
     forM_ maybeNode $ \node -> build node blobRef hash
+
+visitHCRNode ::
+    forall pv m h a c.
+    ( BS.SupportsPersistentState pv m,
+      Hash.MHashableTo m h (Blob.HashedCachedRef' h c a),
+      (Coercible h Hash.Hash)
+    ) =>
+    OutputFiles -> NodeId -> String -> String -> Blob.HashedCachedRef' h c a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
+visitHCRNode output parent refLabel label hbr build = do
+    (blobRef, hash) <- getHCRRefAndHash hbr
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    forM_ maybeNode $ \node -> build node blobRef hash    
 
 type BuildNode = String -> IO (Maybe NodeId)
 
-buildStateData :: (Show a, Coercible h Hash.Hash) => OutputFiles -> Blob.BlobRef a -> h -> a -> IO ()
+buildStateData :: (Show a, Coercible h Hash.Hash, MonadIO m) => OutputFiles -> Blob.BlobRef a -> h -> a -> m ()
 buildStateData output blobRef hash stateData = do
-    IO.hPutStrLn (ofState output) $
-        show blobRef
-            ++ "/"
-            ++ show (coerce hash :: Hash.Hash)
-            ++ ":\n"
-            ++ Text.unpack (Pretty.pShowNoColor stateData)
-    IO.hPutStrLn (ofState output) ""
+    liftIO $
+        IO.hPutStrLn (ofState output) $
+            show blobRef
+                ++ "/"
+                ++ show (coerce hash :: Hash.Hash)
+                ++ ":\n"
+                ++ Text.unpack (Pretty.pShowNoColor stateData)
+    liftIO $ IO.hPutStrLn (ofState output) ""
     return ()
+
+writeGraphStateRaw :: (MonadIO m) => OutputFiles -> String -> m ()
+writeGraphStateRaw output raw =
+    liftIO $ IO.hPutStrLn (ofStateGraph output) raw
 
 getHBRRefAndHash ::
     forall pv m a h.
@@ -245,7 +263,7 @@ getHBRRefAndHash ::
     ) =>
     Blob.HashedBufferedRef' h a -> m (Blob.BlobRef a, h)
 getHBRRefAndHash hbr@(Blob.HashedBufferedRef br hashIORef) = do
-    (_hash :: h) <- Hash.getHashM hbr
+    -- (_hash :: h) <- Hash.getHashM hbr
     hash <- liftIO getHash
     return (getBlobRef, hash)
   where
@@ -255,8 +273,17 @@ getHBRRefAndHash hbr@(Blob.HashedBufferedRef br hashIORef) = do
             Blob.Some hash -> return hash
     getBlobRef = case br of
         Blob.BRBlobbed ref -> ref
-        Blob.BRMemory _ _ -> error "BRMemory not expected present"
+        Blob.BRMemory _ _ -> error "BRMemory not expected for HashedBufferedRef"
         Blob.BRBoth ref _ -> ref
+
+getHCRRefAndHash ::
+    forall pv m a h c.
+    ( BS.SupportsPersistentState pv m,
+      Hash.MHashableTo m h (Blob.HashedCachedRef' h c a)
+    ) =>
+    Blob.HashedCachedRef' h c a -> m (Blob.BlobRef a, h)
+getHCRRefAndHash (HCRFlushed blobRef hash) = return (blobRef, hash)
+getHCRRefAndHash _ = error "HashedCachedRef not HCRFlushed"
 
 -- getHBRRefAndHash :: Blob.HashedBufferedRef' h a -> IO (Blob.BlobRef a, h)
 -- getHBRRefAndHash (Blob.HashedBufferedRef br hashIORef) = do

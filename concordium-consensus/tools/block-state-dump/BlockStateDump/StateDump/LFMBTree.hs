@@ -7,17 +7,17 @@ module BlockStateDump.StateDump.LFMBTree where
 
 import Control.Monad
 import Control.Monad.IO.Class
+import qualified Data.Bits as Bits
+import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Types.HashableTo as Hash
 
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 
 import BlockStateDump.Shared
-import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
-import qualified Data.Bits as Bits
-import Data.Word
 
 dumpLFMBTree ::
     forall pv m k v.
@@ -44,12 +44,12 @@ dumpLFMBTree output name rootParentNode tree dumpLeaf = do
     dumpLFMBT :: BuildNode -> Word64 -> LFMB.T Blob.HashedBufferedRef v -> m ()
     dumpLFMBT nodeBuilder index = \case
         LFMB.Leaf val -> do
-            maybeNode <- liftIO $ nodeBuilder ("plt[" ++ show index ++ "]")
+            maybeNode <- liftIO $ nodeBuilder (name ++ "[" ++ show index ++ "]")
             forM_ maybeNode $ \node -> do
                 dumpLeaf node val
                 return ()
         LFMB.Node height leftRef rightRef -> do
-            maybeNode <- liftIO $ nodeBuilder ("pltnode{height=" ++ show height ++ "}")
+            maybeNode <- liftIO $ nodeBuilder (name ++ "{height=" ++ show height ++ "}")
             forM_ maybeNode $ \node -> do
                 (leftBlobRef, leftHash) <- getHBRRefAndHash leftRef
                 left <- Blob.refLoad leftRef

@@ -12,8 +12,7 @@ data Config
       cBlockStatePath :: FilePath,
       cOutDir :: FilePath,
       cProtocolVersion :: ProtocolVersion,
-      cStartBlockHeight :: BlockHeight,
-      cEndBlockHeight :: BlockHeight
+      cBlockHeights :: [BlockHeight]
     }
 
 config :: Parser (Identity Config)
@@ -53,16 +52,10 @@ config =
                                         )
                                     <*> option
                                         auto
-                                        ( long "start-block-height"
-                                            <> metavar "STARTBLOCKHEIGHT"
-                                            <> help "Relative block height to start block state dump at"
-                                        )
-                                    <*> option
-                                        auto
-                                        ( long "end-block-height"
-                                            <> metavar "ENDBLOCKHEIGHT"
-                                            <> help "Relative block height to end block state dump at"
-                                        )
+                                        ( long "block-heights"
+                                            <> metavar "BLOCKHEIGHTS"
+                                            <> help "Relative heights of block to dump state for"
+                                        )                                    
                                 )
                                 (progDesc "Dump block state")
                             )

@@ -22,7 +22,7 @@ main = do
             Config.DumpState{..} ->
                 case promoteProtocolVersion cProtocolVersion of
                     SomeProtocolVersion spv ->
-                        StateDump.dumpState spv cTreeStateDbPath cAccountMapDbPath cBlockStatePath cOutDir cStartBlockHeight cEndBlockHeight
+                        StateDump.dumpState spv cTreeStateDbPath cAccountMapDbPath cBlockStatePath cOutDir cBlockHeights
     runLoggerT commandAction logm
   where
     opts =

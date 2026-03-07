@@ -1686,7 +1686,7 @@ makeHashedBufferedRef val = do
     return $ HashedBufferedRef br hashRef
 
 instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
-    getHashM HashedBufferedRef{..} =
+    getHashM HashedBufferedRef{..} = do
         liftIO (readIORef bufferedHash) >>= \case
             Null -> do
                 !h <- getHashM bufferedReference
