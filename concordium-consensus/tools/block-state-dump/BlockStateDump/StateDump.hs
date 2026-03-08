@@ -146,7 +146,7 @@ dumpBlockState output BlockEntry{..} bs = do
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
     let blockHeight = TreeState.bmHeight $ TreeState.stbInfo beBlock
     blockNode <- liftBSOIO $ buildCompNodeNoEdge output ("block[" ++ show blockHeight ++ "]") (Just blockHash)
-    maybeStateNode <- liftBSOIO $ buildBlobRefNode output blockNode "state" "state" (TreeState.stbStatePointer beBlock) (v0StateHash $ BS.hpbsHash bs)
+    maybeStateNode <- liftBSOIO $ buildBlobRefNode output blockNode "state" "state" (TreeState.stbStatePointer beBlock) (Just (v0StateHash $ BS.hpbsHash bs))
     let stateNode = maybe (error "state node should always be created") id maybeStateNode
 
     -- writeGraphStateRaw output $ "    root -> " ++ show blockNode ++ " [style=invis]"

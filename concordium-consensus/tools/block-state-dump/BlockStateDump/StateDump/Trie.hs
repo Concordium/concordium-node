@@ -27,14 +27,13 @@ import Text.Printf
 dumpTrie ::
     forall pv m k v.
     ( BS.SupportsPersistentState pv m,
-      Blob.BlobStorable m v,
-      Hash.MHashableTo m Hash.Hash (Trie.TrieF k v (Blob.UnbufferedFix (Trie.TrieF k v)))
+      Blob.BlobStorable m v
     ) =>
     OutputFiles ->
     String ->
     NodeId ->
     Trie.TrieN Blob.UnbufferedFix k v ->
-    (NodeId -> v -> m ()) ->
+    (BuildNode -> v -> m ()) ->
     m ()
 dumpTrie output name rootParentNode tree dumpLeaf = do
     case tree of
@@ -45,8 +44,7 @@ dumpTrie output name rootParentNode tree dumpLeaf = do
             rootNode <- liftIO $ buildCompNode output (name ++ "{size=" ++ show size ++ "}") rootParentNode Nothing
             t <- Blob.refLoad tRef
             blobRef <- getURRef tRef
-            hash <- Hash.getHashM tRef
-            dumpTrieT (blobRefNodeBuilder output rootNode "root" blobRef hash) t
+            dumpTrieT (blobRefNodeBuilder output rootNode "root" blobRef Nothing) t
   where
     dumpTrieT :: BuildNode -> Trie.TrieF k v (Blob.UnbufferedFix (Trie.TrieF k v)) -> m ()
     dumpTrieT nodeBuilder = \case
@@ -56,18 +54,14 @@ dumpTrie output name rootParentNode tree dumpLeaf = do
                 forM_ branchesArray $ \(Trie.BranchEntry index (Blob.UnbufferedFix branchRef)) -> do
                     branch <- Blob.refLoad branchRef
                     blobRef <- getURRef branchRef
-                    hash <- Hash.getHashM branchRef
-                    dumpTrieT (blobRefNodeBuilder output node (printf "%02x" index) blobRef hash) branch
+                    dumpTrieT (blobRefNodeBuilder output node (printf "%02x" index) blobRef Nothing) branch
         Trie.Stem stem (Blob.UnbufferedFix tRef) -> do
             maybeNode <- liftIO $ nodeBuilder (name ++ "{stem}")
             forM_ maybeNode $ \node -> do
                 let hex = show $ BSH.ShortByteStringHex stem
+                let edgeLabel = (take 6 hex) ++ if (length hex > 6) then ".." else ""
                 t <- Blob.refLoad tRef
                 blobRef <- getURRef tRef
-                hash <- Hash.getHashM tRef
-                dumpTrieT (blobRefNodeBuilder output node hex blobRef hash) t
+                dumpTrieT (blobRefNodeBuilder output node edgeLabel blobRef Nothing) t
         Trie.Tip v -> do
-            maybeNode <- liftIO $ nodeBuilder (name ++ "{tip}")
-            forM_ maybeNode $ \node -> do
-                dumpLeaf node v
-                return ()
+            dumpLeaf nodeBuilder v            

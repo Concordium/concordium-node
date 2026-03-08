@@ -53,9 +53,9 @@ dumpLFMBTree output name rootParentNode tree dumpLeaf = do
             forM_ maybeNode $ \node -> do
                 (leftBlobRef, leftHash) <- getHBRRefAndHash leftRef
                 left <- Blob.refLoad leftRef
-                dumpLFMBT (blobRefNodeBuilder output node "left" leftBlobRef leftHash) index left
+                dumpLFMBT (blobRefNodeBuilder output node "left" leftBlobRef (Just leftHash)) index left
                 (rightBlobRef, rightHash) <- getHBRRefAndHash rightRef
                 right <- Blob.refLoad rightRef
                 let rightIndex = index `Bits.setBit` (fromIntegral height)
-                dumpLFMBT (blobRefNodeBuilder output node "right" rightBlobRef rightHash) rightIndex right
+                dumpLFMBT (blobRefNodeBuilder output node "right" rightBlobRef (Just rightHash)) rightIndex right
                 return ()

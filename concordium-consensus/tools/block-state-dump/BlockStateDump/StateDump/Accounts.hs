@@ -24,6 +24,8 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 
 import BlockStateDump.Shared
+import qualified BlockStateDump.StateDump.Trie as TrieDump
+import Control.Monad.IO.Class
 
 dumpAccounts ::
     forall pv m.
@@ -33,7 +35,7 @@ dumpAccounts ::
     Account.Accounts pv ->
     m ()
 dumpAccounts output parentNode accounts = do
-    LFMBDump.dumpLFMBTree output "accounttbl" parentNode (Account.accountTable accounts) $ \accountLeafNode accountRef -> do
+    LFMBDump.dumpLFMBTree output "acctbl" parentNode (Account.accountTable accounts) $ \accountLeafNode accountRef -> do
         accountForAV <- Blob.refLoad accountRef
         accountAddress <- Account.accountCanonicalAddress accountForAV
 
@@ -89,6 +91,9 @@ dumpAccounts output parentNode accounts = do
                                                 buildStateData output (coerce tokenAccountStateBlobRef) tokenAccountStateHash tokenAccountState
                             _ -> return ()
                         return ()
+    TrieDump.dumpTrie output "regidtrie" parentNode (Account.accountRegIdHistory accounts) $ \buildNode accountIndex -> do
+        _ <- liftIO $ buildNode $ show accountIndex
+        return ()
 
 data PersistentAccount' av = PersistentAccount'
     { accountNonce :: !Nonce,

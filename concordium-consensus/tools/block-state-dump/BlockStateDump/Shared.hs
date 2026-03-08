@@ -67,7 +67,7 @@ data OutputFiles = OutputFiles
 
 data OutputFilesMutable = OutputFilesMutable
     { ofNextNodeId :: NodeId,
-      ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Hash.Hash)
+      ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Maybe Hash.Hash)
     }
 
 openOutputFiles :: FilePath -> IO OutputFiles
@@ -98,12 +98,14 @@ hashDisplayLength = 6
 -- Build node if a node with the given blob ref does not already exist.
 -- Returns the (possibly existing) node id, regardless of whether a new node was build,
 -- and a boolean indicating if a new node was build.
-buildBlobRefNodeNoEdge :: OutputFiles -> String -> Blob.BlobRef a -> Hash.Hash -> IO (NodeId, Bool)
-buildBlobRefNodeNoEdge output label blobRef hash = do
-    let nodeLabel =
-            (escapeQuotes label)
-                ++ "/"
-                ++ take hashDisplayLength (show hash)
+buildBlobRefNodeNoEdge :: OutputFiles -> String -> Blob.BlobRef a -> Maybe Hash.Hash -> IO (NodeId, Bool)
+buildBlobRefNodeNoEdge output label blobRef maybeHash = do
+    let nodeLabel = case maybeHash of
+            Just hash ->
+                (escapeQuotes label)
+                    ++ "/"
+                    ++ take hashDisplayLength (show hash)
+            Nothing -> (escapeQuotes label)
 
     OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
 
@@ -117,7 +119,7 @@ buildBlobRefNodeNoEdge output label blobRef hash = do
                     ++ "\" ];"
 
             let updatedNextNodeId = (NodeId $ coerce ofNextNodeId + 1)
-            let updatedBlobRefToNodeId = Map.insert (coerce blobRef) (ofNextNodeId, hash) ofBlobRefToNodeId
+            let updatedBlobRefToNodeId = Map.insert (coerce blobRef) (ofNextNodeId, maybeHash) ofBlobRefToNodeId
             IO.writeIORef
                 (ofMutable output)
                 OutputFilesMutable
@@ -127,7 +129,7 @@ buildBlobRefNodeNoEdge output label blobRef hash = do
 
             return (ofNextNodeId, True)
         Just (existingNodeId, existingHash) -> do
-            unless (hash == existingHash) $ error $ "hash does not match for blob ref " ++ show blobRef ++ ", existing: " ++ show existingHash ++ ", new hash: " ++ show hash
+            unless (maybeHash == existingHash) $ error $ "hash does not match for blob ref " ++ show blobRef ++ ", existing: " ++ show existingHash ++ ", new hash: " ++ show maybeHash
             return (existingNodeId, False)
 
 buildCompNodeNoEdge :: OutputFiles -> String -> Maybe Hash.Hash -> IO NodeId
@@ -194,9 +196,9 @@ buildCompEdge_ output _label source target = do
 
 -- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given
 -- blob reference. The edge is build in any case. Returns the node id if a node if a new node was build.
-buildBlobRefNode :: (Coercible h Hash.Hash) => OutputFiles -> NodeId -> String -> String -> Blob.BlobRef a -> h -> IO (Maybe NodeId)
+buildBlobRefNode :: (Coercible h Hash.Hash) => OutputFiles -> NodeId -> String -> String -> Blob.BlobRef a -> Maybe h -> IO (Maybe NodeId)
 buildBlobRefNode output parent refLabel label blobRef hash = do
-    (nodeId, nodeCreated) <- buildBlobRefNodeNoEdge output label blobRef (coerce hash)
+    (nodeId, nodeCreated) <- buildBlobRefNodeNoEdge output label blobRef (coerce <$> hash)
     buildBlobRefEdge_ output refLabel parent nodeId blobRef
     return $ if nodeCreated then Just nodeId else Nothing
 
@@ -206,7 +208,7 @@ buildCompNode output label parent hash = do
     buildCompEdge_ output label parent nodeId
     return nodeId
 
-blobRefNodeBuilder :: OutputFiles -> NodeId -> String -> Blob.BlobRef a -> Hash.Hash -> BuildNode
+blobRefNodeBuilder :: OutputFiles -> NodeId -> String -> Blob.BlobRef a -> Maybe Hash.Hash -> BuildNode
 blobRefNodeBuilder output parent refLabel blobRef hash = \label ->
     buildBlobRefNode output parent refLabel label blobRef hash
 
@@ -223,7 +225,7 @@ visitHBRNode ::
     OutputFiles -> NodeId -> String -> String -> Blob.HashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
 visitHBRNode output parent refLabel label hbr build = do
     (blobRef, hash) <- getHBRRefAndHash hbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitHCRNode ::
@@ -235,7 +237,7 @@ visitHCRNode ::
     OutputFiles -> NodeId -> String -> String -> Blob.HashedCachedRef' h c a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
 visitHCRNode output parent refLabel label hbr build = do
     (blobRef, hash) <- getHCRRefAndHash hbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitEBRNode ::
@@ -249,7 +251,7 @@ visitEBRNode ::
 visitEBRNode output parent refLabel label ebr build = do
     blobRef <- getEBRRef ebr
     hash <- Hash.getHash <$> Blob.refLoad ebr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitEHBRNode ::
@@ -260,7 +262,7 @@ visitEHBRNode ::
     OutputFiles -> NodeId -> String -> String -> Blob.EagerlyHashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
 visitEHBRNode output parent refLabel label ehbr build = do
     (blobRef, hash) <- getHEBRRefAndHash ehbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 type BuildNode = String -> IO (Maybe NodeId)
@@ -322,12 +324,11 @@ getURRef ::
     (BS.SupportsPersistentState pv m) =>
     Blob.UnbufferedRef a -> m (Blob.BlobRef a)
 getURRef (Blob.URBlobbed ref) = return ref
-getURRef _ = error "UnbufferedRef not URBlobbed"    
+getURRef _ = error "UnbufferedRef not URBlobbed"
 
 getHEBRRefAndHash ::
     forall pv m a h.
-    ( BS.SupportsPersistentState pv m
-    ) =>
+    (BS.SupportsPersistentState pv m) =>
     Blob.EagerlyHashedBufferedRef' h a -> m (Blob.BlobRef a, h)
 getHEBRRefAndHash ehbr = do
     ref <- liftIO $ IORef.readIORef (Blob.ebrIORef (Blob.ehbrReference ehbr))
