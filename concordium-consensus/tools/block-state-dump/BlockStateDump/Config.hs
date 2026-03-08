@@ -55,7 +55,7 @@ config =
                                         ( long "block-heights"
                                             <> metavar "BLOCKHEIGHTS"
                                             <> help "Relative heights of block to dump state for"
-                                        )                                    
+                                        )
                                 )
                                 (progDesc "Dump block state")
                             )

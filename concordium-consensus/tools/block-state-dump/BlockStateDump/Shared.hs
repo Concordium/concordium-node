@@ -230,13 +230,27 @@ visitHCRNode ::
     forall pv m h a c.
     ( BS.SupportsPersistentState pv m,
       Hash.MHashableTo m h (Blob.HashedCachedRef' h c a),
-      (Coercible h Hash.Hash)
+      Coercible h Hash.Hash
     ) =>
     OutputFiles -> NodeId -> String -> String -> Blob.HashedCachedRef' h c a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
 visitHCRNode output parent refLabel label hbr build = do
     (blobRef, hash) <- getHCRRefAndHash hbr
     maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
-    forM_ maybeNode $ \node -> build node blobRef hash    
+    forM_ maybeNode $ \node -> build node blobRef hash
+
+visitEBRNode ::
+    forall h pv m a.
+    ( BS.SupportsPersistentState pv m,
+      Hash.HashableTo h a,
+      Blob.DirectBlobStorable m a,
+      Coercible h Hash.Hash
+    ) =>
+    OutputFiles -> NodeId -> String -> String -> Blob.EagerBufferedRef a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
+visitEBRNode output parent refLabel label ebr build = do
+    blobRef <- getEBRRef ebr
+    hash <- Hash.getHash <$> Blob.refLoad ebr
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    forM_ maybeNode $ \node -> build node blobRef hash
 
 type BuildNode = String -> IO (Maybe NodeId)
 
@@ -285,16 +299,9 @@ getHCRRefAndHash ::
 getHCRRefAndHash (HCRFlushed blobRef hash) = return (blobRef, hash)
 getHCRRefAndHash _ = error "HashedCachedRef not HCRFlushed"
 
--- getHBRRefAndHash :: Blob.HashedBufferedRef' h a -> IO (Blob.BlobRef a, h)
--- getHBRRefAndHash (Blob.HashedBufferedRef br hashIORef) = do
---     hash <- getHash
---     return (getBlobRef, hash)
---   where
---     getHash = do
---         IORef.readIORef hashIORef >>= \case
---             Blob.Null -> error "bufferedHash not present"
---             Blob.Some hash -> return hash
---     getBlobRef = case br of
---         Blob.BRBlobbed ref -> ref
---         Blob.BRMemory _ _ -> error "BRMemory not expected present"
---         Blob.BRBoth ref _ -> ref
+getEBRRef ::
+    forall pv m a.
+    (BS.SupportsPersistentState pv m) =>
+    Blob.EagerBufferedRef a -> m (Blob.BlobRef a)
+getEBRRef ebr =
+    liftIO $ IORef.readIORef (Blob.ebrIORef ebr)

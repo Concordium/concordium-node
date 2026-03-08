@@ -11,9 +11,9 @@ module BlockStateDump.StateDump (
 
 import Control.Monad
 import Control.Monad.Reader
+import Data.List (intercalate)
 import qualified System.IO as IO
 import qualified Text.Pretty.Simple as Pretty
-import Data.List(intercalate)
 
 import Concordium.Logger
 import Concordium.Types
@@ -30,10 +30,8 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
 import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 
 import BlockStateDump.Shared
-import qualified BlockStateDump.StateDump.ProtocolLevelTokens as PLTDump
 import qualified BlockStateDump.StateDump.Accounts as AccountsDump
-
-
+import qualified BlockStateDump.StateDump.ProtocolLevelTokens as PLTDump
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -49,7 +47,7 @@ dumpState ::
     -- Out dir
     FilePath ->
     -- Block heights to dump state for
-    [BlockHeight] ->    
+    [BlockHeight] ->
     LogIO ()
 dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockHeights = do
     logEvent External LLInfo $ "Dumping block state from: " ++ blockStatePath ++ " on " ++ show (demoteProtocolVersion spv)

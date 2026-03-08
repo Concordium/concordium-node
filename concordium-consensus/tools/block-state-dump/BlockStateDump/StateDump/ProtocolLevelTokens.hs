@@ -24,7 +24,7 @@ dumpProtocolLevelTokens ::
     (BS.SupportsPersistentState pv m) =>
     OutputFiles ->
     NodeId ->
-   PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv) ->
+    PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv) ->
     m ()
 dumpProtocolLevelTokens output parentNode pltsForSV = do
     case pltsForSV of
@@ -32,7 +32,7 @@ dumpProtocolLevelTokens output parentNode pltsForSV = do
         PLT.ProtocolLevelTokensV0 pltsStateRef -> do
             visitHBRNode output parentNode "plts" "plts" pltsStateRef $ \pltsStateNode _ _ -> do
                 pltsState <- Blob.refLoad pltsStateRef
-                LFMBDump.dumpLFMBTree output "plttable" pltsStateNode (PLT._pltTable pltsState) $ \pltLeafNode pltRef -> do
+                LFMBDump.dumpLFMBTree output "plttbl" pltsStateNode (PLT._pltTable pltsState) $ \pltLeafNode pltRef -> do
                     -- todo ar key value state
                     plt <- Blob.refLoad pltRef
                     let pltConfRef = PLT._pltConfiguration plt
@@ -50,7 +50,6 @@ dumpProtocolLevelTokens output parentNode pltsForSV = do
             return () -- todo ar
 
 data PLT' = PLT'
-    {
-      _pltCirculatingSupply :: !PLT.TokenRawAmount
+    { _pltCirculatingSupply :: !PLT.TokenRawAmount
     }
     deriving (Show)

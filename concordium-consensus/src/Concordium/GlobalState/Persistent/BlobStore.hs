@@ -84,7 +84,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     uncacheBufferedRef,
 
     -- ** 'EagerBufferedRef'
-    EagerBufferedRef,
+    EagerBufferedRef (..),
     eagerBufferedDeref,
     eagerBufferedRefFromBufferedRef,
     migrateEagerBufferedRef,
