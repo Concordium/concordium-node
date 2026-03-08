@@ -20,8 +20,8 @@ use plt_block_state::block_state::external::{
 };
 use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use plt_block_state::block_state::{
-    p10, AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateSavepoint,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateSavepoint, p10,
 };
 use plt_block_state::block_state_interface::{
     OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
@@ -129,7 +129,6 @@ pub trait BlockStateTestImpl:
             initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.0, decimals)),
             mintable: params.mintable,
             burnable: params.burnable,
-            additional: Default::default(),
         };
         let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
@@ -156,7 +155,7 @@ pub trait BlockStateTestImpl:
         balance: RawTokenAmount,
     ) {
         let token_info = self
-            .query_token_info(external, &token_id)
+            .query_token_info(external, token_id)
             .expect("Token assumed to exists");
         let operations = vec![
             TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -339,6 +338,13 @@ impl ExternalBlockStateOperations for ExternalBlockStateStub {
             }
         }
         Ok(())
+    }
+
+    fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex) {
+        self.accounts[account.index as usize]
+            .tokens
+            .entry(token)
+            .or_default();
     }
 
     fn increment_plt_update_sequence_number(&mut self) {

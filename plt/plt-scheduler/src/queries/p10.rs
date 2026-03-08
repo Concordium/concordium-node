@@ -106,7 +106,7 @@ pub fn query_token_account_infos(
 
             let account_state = TokenAccountState {
                 balance,
-                module_state,
+                module_state: Some(module_state),
             };
 
             TokenAccountInfo {

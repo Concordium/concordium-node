@@ -7,7 +7,7 @@ use plt_scheduler_interface::transaction_execution_interface::TransactionExecuti
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 
 use super::{
-    plt_scheduler, ChainUpdateExecutionError, SchedulerOperations, TransactionExecutionError,
+    ChainUpdateExecutionError, SchedulerOperations, TransactionExecutionError, plt_scheduler,
 };
 
 impl SchedulerOperations for PltBlockStateP10 {

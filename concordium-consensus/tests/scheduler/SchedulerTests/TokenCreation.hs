@@ -15,6 +15,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified SchedulerTests.Helpers as Helpers
+import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.DummyData as DummyData
@@ -22,7 +23,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types as ID
 import qualified Concordium.Types.DummyData as DummyData
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
-import Concordium.Types.Tokens
+import Concordium.Types.Queries.Tokens
 import Concordium.Types.Updates
 
 import qualified Concordium.GlobalState.BlockState as BS
@@ -34,7 +35,6 @@ import Concordium.Scheduler.ProtocolLevelTokens.Queries
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
-import Test.HUnit
 
 -- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
 testModuleRef :: TokenModuleRef
@@ -47,11 +47,10 @@ dummyTokenHolder :: TokenHolder
 dummyTokenHolder = HolderAccount dummyAddress2
 
 dummyCborAccountAddress :: CBOR.CborAccountAddress
-dummyCborAccountAddress =
-    CBOR.CborAccountAddress
-        { chaAccount = dummyAddress2,
-          chaCoinInfo = Nothing
-        }
+dummyCborAccountAddress = CBOR.accountTokenHolder dummyAddress2
+
+dummyCborAccountAddressShort :: CBOR.CborAccountAddress
+dummyCborAccountAddressShort = CBOR.accountTokenHolderShort dummyAddress2
 
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
@@ -101,6 +100,7 @@ initialBlockStateWithCustomKeys numKeys authorizedKeys threshold = do
 
 testCreatePLT :: forall pv. (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> String -> Spec
 testCreatePLT _ pvString = describe pvString $ do
+    -- Test without initial supply
     it "Create PLT - no initial supply" $ do
         let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
@@ -109,12 +109,22 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt1
+                                        (expectModuleState params1)
+                                        (TokenAmount 0 0)
+                                )
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -122,7 +132,8 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
-    it "Create PLT - initial supply" $ do
+    -- Test with initial supply, and using governance account specififed wihtout coin info
+    it "Create PLT - initial supply - no coin info" $ do
         let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
                 [ Helpers.BlockItemAndAssertion
@@ -130,6 +141,7 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt2 st
                         return $ do
                             Helpers.assertSuccessWithEvents
                                 [ TokenCreated{etcPayload = createPLT2},
@@ -140,6 +152,15 @@ testCreatePLT _ pvString = describe pvString $ do
                                 "PLT list"
                                 [plt2]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt2
+                                        (expectModuleState params2)
+                                        (TokenAmount 10 0)
+                                )
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -147,6 +168,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
+    -- Tests initialization with as few parameters specified as possible
     it "Create PLT - minimal parameters" $ do
         let createPLT1MinimalParameters =
                 Types.CreatePLT
@@ -171,12 +193,29 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1MinimalParameters}] result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt1
+                                        ( expectModuleState
+                                            params1
+                                                { CBOR.tipMintable = Just False,
+                                                  CBOR.tipBurnable = Just False,
+                                                  CBOR.tipDenyList = Just False,
+                                                  CBOR.tipAllowList = Just False
+                                                }
+                                        )
+                                        (TokenAmount 0 0)
+                                )
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -199,6 +238,7 @@ testCreatePLT _ pvString = describe pvString $ do
                     { biaaTransaction = txCreatePLT 1 createPLT1MissingNameParameter,
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
+                        tokenInfo <- queryTokenInfo plt1 st
                         pltList <- queryPLTList st
                         return $ do
                             Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Token name is missing") result
@@ -206,6 +246,10 @@ testCreatePLT _ pvString = describe pvString $ do
                                 "PLT list"
                                 []
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -236,12 +280,22 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
-                            Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Unknown additional parameters: [\"_param1\"]") result
+                            Helpers.assertUpdateFailureWhere
+                                ( \case
+                                    TokenInitializeFailure _ -> return ()
+                                    _ -> assertFailure "not TokenInitializeFailure"
+                                )
+                                result
                             assertEqual
                                 "PLT list"
                                 []
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -257,24 +311,39 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                ( Right $
+                                    expectedTokenInfo
+                                        plt1
+                                        (expectModuleState params1)
+                                        (TokenAmount 0 0)
+                                )
+                                tokenInfo
                     },
                   Helpers.BlockItemAndAssertion
                     { biaaTransaction = txCreatePLT 2 createPLT1,
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt2 st
                         return $ do
                             Helpers.assertUpdateFailureWithReason (DuplicateTokenId plt1) result
                             assertEqual
                                 "PLT list"
                                 [plt1]
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -487,6 +556,7 @@ testCreatePLT _ pvString = describe pvString $ do
                       biaaAssertion = \result ust -> do
                         st <- BS.freezeBlockState ust
                         pltList <- queryPLTList st
+                        tokenInfo <- queryTokenInfo plt1 st
                         return $ do
                             Helpers.assertUpdateFailureWithReason
                                 (InvalidTokenModuleRef invalidRef)
@@ -495,6 +565,10 @@ testCreatePLT _ pvString = describe pvString $ do
                                 "PLT list"
                                 []
                                 pltList
+                            assertEqual
+                                "Token info"
+                                (Left QTIEUnknownToken)
+                                tokenInfo
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -542,9 +616,11 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = Just "Protocol-level token",
               tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = Just dummyCborAccountAddress,
+              -- Uses cbor account address without coin info
+              tipGovernanceAccount = Just dummyCborAccountAddressShort,
               tipAllowList = Just False,
               tipDenyList = Just False,
+              -- Has initial supply
               tipInitialSupply = Just (TokenAmount 10 0),
               tipMintable = Just True,
               tipBurnable = Just True,
@@ -557,6 +633,29 @@ testCreatePLT _ pvString = describe pvString $ do
               _cpltInitializationParameters = toTokenParam params2,
               _cpltDecimals = 0
             }
+    expectedTokenInfo tiTokenId tsModuleState tsTotalSupply =
+        TokenInfo
+            { tiTokenState =
+                TokenState
+                    { tsTokenModuleRef = _cpltTokenModule createPLT2,
+                      tsDecimals = _cpltDecimals createPLT2,
+                      ..
+                    },
+              ..
+            }
+    expectModuleState params =
+        CBOR.tokenModuleStateToBytes $
+            CBOR.TokenModuleState
+                { tmsName = CBOR.tipName params,
+                  tmsMetadata = CBOR.tipMetadata params,
+                  tmsGovernanceAccount = CBOR.accountTokenHolder <$> CBOR.chaAccount <$> CBOR.tipGovernanceAccount params,
+                  tmsPaused = Just False,
+                  tmsAllowList = CBOR.tipAllowList params,
+                  tmsDenyList = CBOR.tipDenyList params,
+                  tmsMintable = CBOR.tipMintable params,
+                  tmsBurnable = CBOR.tipBurnable params,
+                  tmsAdditional = mempty
+                }
 
 tests :: Spec
 tests =

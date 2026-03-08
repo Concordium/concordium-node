@@ -39,15 +39,19 @@ pub struct TokenAccountState {
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;
 
+/// Object grouping the address and the internal index of the same account.
+///
+/// Note the address might be some alias.
 #[derive(Debug, Copy, Clone)]
 pub struct AccountWithAddress {
+    /// Internal account index
     pub index: AccountIndex,
+    /// Some account address referring to the account at the above index.
     pub address: AccountAddress,
 }
 
-/// Account representing (read-only) account state.
-///
-/// The account is guaranteed to exist on chain, when holding an instance of this type.
+/// Wrapper for [`AccountWithAddress`] providing the additional invariant of the address being the
+/// canonical address.
 #[derive(Debug, Copy, Clone)]
 pub struct AccountWithCanonicalAddress(pub AccountWithAddress);
 

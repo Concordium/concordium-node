@@ -53,7 +53,6 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
         mintable: Some(mintable),
         burnable: Some(burnable),
         paused: Some(paused),
-        additional: Default::default(),
     };
 
     Ok(state)
@@ -88,6 +87,5 @@ fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     TokenModuleAccountState {
         allow_list,
         deny_list,
-        additional: Default::default(),
     }
 }

@@ -20,6 +20,40 @@ use plt_token_module::TOKEN_MODULE_REF;
 
 mod block_state_external_stubbed;
 
+/// Test query token state
+#[test]
+fn test_query_plt_list() {
+    test_query_plt_list_worker::<p10::PltBlockStateP10>();
+}
+
+fn test_query_plt_list_worker<BlockState>()
+where
+    BlockState: BlockStateTestImpl,
+{
+    let mut block_state = BlockState::empty();
+    let mut external = ExternalBlockStateStub::empty();
+
+    let token_id1: TokenId = "TokenId1".parse().unwrap();
+    let _ = block_state.create_and_init_token(
+        &mut external,
+        token_id1.clone(),
+        TokenInitTestParams::default(),
+        4,
+        None,
+    );
+    let token_id2: TokenId = "TokenId2".parse().unwrap();
+    let _ = block_state.create_and_init_token(
+        &mut external,
+        token_id2.clone(),
+        TokenInitTestParams::default(),
+        4,
+        None,
+    );
+
+    let plts = block_state.query_plt_list();
+    assert_eq!(plts, vec![token_id1, token_id2]);
+}
+
 /// Test query token info
 #[test]
 fn test_query_token_info() {
@@ -45,7 +79,7 @@ where
     let non_canonical_token_id = "toKeniD1".parse().unwrap();
     // Lookup by token id that is not in canonical casing
     let token_info = block_state
-        .query_token_info(&mut external, &non_canonical_token_id)
+        .query_token_info(&external, &non_canonical_token_id)
         .unwrap();
     // Assert that the token id returned is in the canonical casing
     assert_eq!(token_info.token_id, token_id);
@@ -117,7 +151,7 @@ where
     );
 
     // Lookup account token infos
-    let token_account_infos = block_state.query_token_account_infos(&mut external, account);
+    let token_account_infos = block_state.query_token_account_infos(&external, account);
     assert_eq!(token_account_infos.len(), 2);
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(
@@ -180,7 +214,7 @@ where
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let token_account_infos = block_state.query_token_account_infos(&mut external, account);
+    let token_account_infos = block_state.query_token_account_infos(&external, account);
     assert_eq!(token_account_infos.len(), 1);
     assert_eq!(token_account_infos[0].token_id, token_id);
     assert_eq!(
@@ -188,8 +222,14 @@ where
         RawTokenAmount(0)
     );
     assert_eq!(token_account_infos[0].account_state.balance.decimals, 4);
-    let module_state: TokenModuleAccountState =
-        cbor::cbor_decode(&token_account_infos[0].account_state.module_state).unwrap();
+    let module_state: TokenModuleAccountState = cbor::cbor_decode(
+        token_account_infos[0]
+            .account_state
+            .module_state
+            .as_ref()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(module_state.allow_list, Some(true));
     assert_eq!(module_state.deny_list, None);
 }

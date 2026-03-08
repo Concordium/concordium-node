@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
-use concordium_base::common::{cbor, Serial};
+use concordium_base::common::{Serial, cbor};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenModuleCborTypeDiscriminator,
@@ -42,7 +42,7 @@ pub struct KernelStub {
     circulating_supply: RawTokenAmount,
     /// Transfers
     transfers: VecDeque<(AccountIndex, AccountIndex, RawTokenAmount, Option<Memo>)>,
-    pub events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
+    events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
 }
 
 /// Internal representation of an Account in [`KernelStub`].
@@ -182,7 +182,6 @@ impl KernelStub {
             initial_supply: None,
             mintable: params.mintable,
             burnable: params.burnable,
-            additional: Default::default(),
         };
         let encoded_parameters = cbor::cbor_encode(&parameters).into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");
@@ -194,10 +193,16 @@ impl KernelStub {
         self.circulating_supply
     }
 
+    /// Pop (from front) transfer registered in stub.
     pub fn pop_transfer(
         &mut self,
     ) -> Option<(AccountIndex, AccountIndex, RawTokenAmount, Option<Memo>)> {
         self.transfers.pop_front()
+    }
+
+    /// Get events registered in stub.
+    pub fn events(&self) -> &[(TokenModuleCborTypeDiscriminator, RawCbor)] {
+        &self.events
     }
 }
 

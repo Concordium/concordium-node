@@ -38,6 +38,47 @@ fn test_update_token_decode_failure() {
     });
 }
 
+/// Test additional fields specifeid in token update operation.
+#[test]
+fn test_update_token_additional_fields() {
+    let mut stub = KernelStub::with_decimals(0);
+    let sender = stub.create_account();
+    let receiver = stub.create_account();
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(1000, 2),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        memo: None,
+    })];
+
+    let mut dynamic_operations: cbor::value::Value =
+        cbor::cbor_decode(cbor::cbor_encode(&operations)).unwrap();
+    let operations_array =
+        assert_matches!(&mut dynamic_operations, cbor::value::Value::Array(array) => array);
+    let operation0_outer_map =
+        assert_matches!(&mut operations_array[0], cbor::value::Value::Map(map) => map);
+    let operation0_map =
+        assert_matches!(&mut operation0_outer_map[0].1, cbor::value::Value::Map(map) => map);
+    operation0_map.push((
+        cbor::value::Value::Text("additionalField".to_string()),
+        cbor::value::Value::Text("testvalue1".to_string()),
+    ));
+
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&dynamic_operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
+        DeserializationFailureRejectReason {
+            cause: Some(cause)
+        }) => {
+        assert!(cause.contains("unknown map key"), "cause: {}", cause);
+    });
+}
+
 /// Test transaction with multiple operations
 #[test]
 fn test_multiple_operations() {

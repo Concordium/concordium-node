@@ -209,6 +209,15 @@ extern "C" fn ffi_store_plt_block_state(
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let protocol_version =
         ProtocolVersion::try_from(protocol_version).expect("Failed parsing protocol version");
+
+    fn action<BlockState: BlockStateOperations>(
+        block_state: *const OpaqueBlockState,
+        store_callback: &mut StoreCallback,
+    ) -> blob_store::Reference {
+        let block_state = unsafe { &*block_state.cast::<BlockStateSavepoint<BlockState>>() };
+        block_state.store_update(store_callback)
+    }
+
     match protocol_version {
         ProtocolVersion::P1
         | ProtocolVersion::P2
@@ -219,12 +228,8 @@ extern "C" fn ffi_store_plt_block_state(
         | ProtocolVersion::P7
         | ProtocolVersion::P8
         | ProtocolVersion::P9 => unimplemented!(),
-        ProtocolVersion::P10 => {
-            let block_state =
-                unsafe { &*block_state.cast::<BlockStateSavepoint<p10::PltBlockStateP10>>() };
-            block_state.store_update(&mut store_callback)
-        }
-        ProtocolVersion::P11 => unimplemented!(),
+        ProtocolVersion::P10 => action::<p10::PltBlockStateP10>(block_state, &mut store_callback),
+        ProtocolVersion::P11 => action::<p11::PltBlockStateP11>(block_state, &mut store_callback),
     }
 }
 

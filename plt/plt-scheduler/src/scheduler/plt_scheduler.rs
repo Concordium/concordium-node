@@ -19,7 +19,7 @@ use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
 use plt_token_module::token_module::{TokenInitializationError, TokenUpdateError};
-use plt_token_module::{token_module, TOKEN_MODULE_REF};
+use plt_token_module::{TOKEN_MODULE_REF, token_module};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.

@@ -101,7 +101,7 @@ fn test_unauthorized_mint() {
     );
 
     // and that no events have been logged
-    assert_eq!(stub.events.len(), 0);
+    assert_eq!(stub.events().len(), 0);
 }
 
 /// Rejects mint operations from non-governance accounts. Test

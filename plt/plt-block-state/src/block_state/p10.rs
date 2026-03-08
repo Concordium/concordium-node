@@ -8,7 +8,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 use crate::block_state_interface::TokenNotFoundByIdError;
 
 use super::types::{TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue};
-use super::{blob_store, BlockStateOperations, PltBlockStateHash};
+use super::{BlockStateOperations, PltBlockStateHash, blob_store};
 
 /// Block state providing the various block state operations.
 #[derive(Debug, Clone)]

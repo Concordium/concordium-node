@@ -1,15 +1,13 @@
 //! Types returned by queries.
 
 use crate::types::tokens::TokenAmount;
-use concordium_base::{
-    common::{Deserial, Serial},
-    protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef},
-};
+use concordium_base::common::Serialize;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleRef};
 
 /// Token state at the block level
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenState`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenState {
     /// The reference of the module implementing this token.
     pub token_module_ref: TokenModuleRef,
@@ -25,7 +23,7 @@ pub struct TokenState {
 /// The token state at the block level.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenInfo`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenInfo {
     /// The canonical identifier/symbol for the protocol level token.
     pub token_id: TokenId,
@@ -36,18 +34,18 @@ pub struct TokenInfo {
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenAccountState`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenAccountState {
     /// The token balance of the account.
     pub balance: TokenAmount,
     /// The token-module defined state of the account.
-    pub module_state: RawCbor,
+    pub module_state: Option<RawCbor>,
 }
 
 /// State of a protocol level token associated with some account.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.Token`
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serial, Deserial)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenAccountInfo {
     /// The canonical identifier/symbol for the protocol level token.
     pub token_id: TokenId,
@@ -97,7 +95,7 @@ mod test {
     fn token_account_state_fixture() -> TokenAccountState {
         TokenAccountState {
             balance: token_amount_fixture(10),
-            module_state: module_state_fixture(),
+            module_state: Some(module_state_fixture()),
         }
     }
 
@@ -137,7 +135,7 @@ mod test {
         let token_account_state = token_account_state_fixture();
 
         let bytes = common::to_bytes(&token_account_state);
-        assert_eq!(hex::encode(&bytes), "640a00000003010203");
+        assert_eq!(hex::encode(&bytes), "640a0100000003010203");
 
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_account_state, deserialized);
@@ -151,7 +149,7 @@ mod test {
         };
 
         let bytes = common::to_bytes(&token_account_info);
-        assert_eq!(hex::encode(&bytes), "05746f6b656e640a00000003010203");
+        assert_eq!(hex::encode(&bytes), "05746f6b656e640a0100000003010203");
 
         let deserialized = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_account_info, deserialized);

@@ -10,14 +10,14 @@ use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
 use plt_block_state::block_state::{
-    p10::PltBlockStateP10, p11::PltBlockStateP11, BlockStateSavepoint,
+    BlockStateSavepoint, p10::PltBlockStateP10, p11::PltBlockStateP11,
 };
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
     GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
     GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
-    ReadTokenAccountBalanceCallback, UpdateTokenAccountBalanceCallback,
+    ReadTokenAccountBalanceCallback, TouchTokenAccountCallback, UpdateTokenAccountBalanceCallback,
 };
 use plt_block_state::ffi::{block_state::OpaqueBlockState, memory};
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
@@ -36,6 +36,7 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 /// - `load_callback` External function to call for loading bytes a reference from the blob store.
 /// - `read_token_account_balance_callback` External function to call reading the token balance of an account.
 /// - `update_token_account_balance_callback` External function to call updating the token balance of an account.
+/// - `touch_token_account_callback` External function to call to touch token account state.
 /// - `increment_plt_update_sequence_number_callback` External function for incrementing the PLT update instruction sequence number.
 /// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
 /// - `get_account_index_by_address_callback` External function for getting account index by account address.
@@ -74,6 +75,7 @@ extern "C" fn ffi_execute_transaction(
     mut load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
+    touch_token_account_callback: TouchTokenAccountCallback,
     increment_plt_update_sequence_number_callback: IncrementPltUpdateSequenceNumberCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -123,6 +125,7 @@ extern "C" fn ffi_execute_transaction(
             get_token_account_states_ptr: get_token_account_states_callback,
         },
         update_token_account_balance_ptr: update_token_account_balance_callback,
+        touch_token_account_ptr: touch_token_account_callback,
         increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
     };
 
@@ -225,6 +228,7 @@ extern "C" fn ffi_execute_transaction(
 /// - `load_callback` External function to call for loading bytes a reference from the blob store.
 /// - `read_token_account_balance_callback` External function to call reading the token balance of an account.
 /// - `update_token_account_balance_callback` External function to call updating the token balance of an account.
+/// - `touch_token_account_callback` External function to call to touch token account state.
 /// - `increment_plt_update_sequence_number_callback` External function for incrementing the PLT update instruction sequence number.
 /// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
 /// - `get_account_index_by_address_callback` External function for getting account index by account address.
@@ -257,6 +261,7 @@ extern "C" fn ffi_execute_chain_update(
     _load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
+    touch_token_account_callback: TouchTokenAccountCallback,
     increment_plt_update_sequence_number_callback: IncrementPltUpdateSequenceNumberCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -294,6 +299,7 @@ extern "C" fn ffi_execute_chain_update(
             get_token_account_states_ptr: get_token_account_states_callback,
         },
         update_token_account_balance_ptr: update_token_account_balance_callback,
+        touch_token_account_ptr: touch_token_account_callback,
         increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
     };
 

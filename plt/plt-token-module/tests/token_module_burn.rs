@@ -103,7 +103,7 @@ fn test_unauthorized_burn() {
     );
 
     // and that no events have been logged
-    assert_eq!(stub.events.len(), 0);
+    assert_eq!(stub.events().len(), 0);
 }
 
 /// Test burn amount that is not available on account.

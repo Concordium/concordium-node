@@ -47,7 +47,6 @@ where
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
@@ -116,7 +115,6 @@ where
         initial_supply: Some(TokenAmount::from_raw(5000, 4)),
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
@@ -142,10 +140,8 @@ where
 
     assert_eq!(
         block_state
-            .query_token_account_infos(&external, gov_account)
-            .get(0)
+            .token_account_state(&external, &token_id, gov_account)
             .unwrap()
-            .account_state
             .balance
             .amount,
         RawTokenAmount(5000)
@@ -191,7 +187,6 @@ where
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
 
@@ -258,7 +253,6 @@ where
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
 
@@ -312,7 +306,6 @@ where
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
 

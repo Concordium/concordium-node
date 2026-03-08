@@ -61,7 +61,6 @@ import Concordium.MultiVersion
 import Concordium.Queries
 import qualified Concordium.Scheduler as Scheduler
 import qualified Concordium.Scheduler.Environment as Scheduler
-import qualified Concordium.Scheduler.EnvironmentImplementation as Scheduler
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Skov as SkovV0
 import qualified Concordium.TransactionVerification as TVer

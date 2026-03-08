@@ -1,13 +1,8 @@
-use std::collections::HashMap;
-
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenModuleState};
-use concordium_base::{
-    common::cbor::value::Value,
-    protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
-};
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters};
 use kernel_stub::KernelStub;
 use plt_block_state::block_state::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -48,7 +43,6 @@ fn test_initialize_token_parameters_missing() {
         initial_supply: None,
         mintable: Some(true),
         burnable: Some(true),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
@@ -64,8 +58,7 @@ fn test_initialize_token_parameters_missing() {
 fn test_initialize_token_additional_parameter() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
-    let mut additional = HashMap::with_capacity(1);
-    additional.insert("_param1".into(), Value::Text("extravalue1".into()));
+
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
@@ -75,14 +68,21 @@ fn test_initialize_token_additional_parameter() {
         initial_supply: None,
         mintable: Some(true),
         burnable: Some(true),
-        additional,
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).into();
+
+    let mut dynamic_parameters: cbor::value::Value =
+        cbor::cbor_decode(cbor::cbor_encode(&parameters)).unwrap();
+    assert_matches!(&mut dynamic_parameters, cbor::value::Value::Map(map) => {
+        map.push((cbor::value::Value::Text("additionalField".to_string()), cbor::value::Value::Text("testvalue1".to_string())));
+    });
+
+    let encoded_parameters = cbor::cbor_encode(&dynamic_parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,
-        Err(TokenInitializationError::InvalidInitializationParameters(err))
-            if err == "Unknown additional parameters: [\"_param1\"]"
+        Err(TokenInitializationError::CborSerialization(err)) => {
+            assert!(err.to_string().contains("unknown map key"), "err: {}", err);
+        }
     );
 }
 
@@ -93,6 +93,7 @@ fn test_initialize_token_default_values() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
+
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
@@ -104,7 +105,6 @@ fn test_initialize_token_default_values() {
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
@@ -141,7 +141,6 @@ fn test_initialize_token_default_values() {
     assert_eq!(state.mintable, Some(false));
     assert_eq!(state.burnable, Some(false));
     assert_eq!(state.paused, Some(false));
-    assert!(state.additional.is_empty());
 }
 
 /// In this example, the parameters are valid, no minting.
@@ -161,7 +160,6 @@ fn test_initialize_token_no_minting() {
         initial_supply: None,
         mintable: Some(true),
         burnable: Some(true),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
@@ -207,7 +205,6 @@ fn test_initialize_token_no_minting() {
     assert_eq!(state.mintable, Some(true));
     assert_eq!(state.burnable, Some(true));
     assert_eq!(state.paused, Some(false));
-    assert!(state.additional.is_empty());
 }
 
 /// In this example, the parameters are valid, with minting.
@@ -227,7 +224,6 @@ fn test_initialize_token_with_minting() {
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
@@ -270,7 +266,6 @@ fn test_initialize_token_with_minting() {
     assert_eq!(state.mintable, Some(false));
     assert_eq!(state.burnable, Some(false));
     assert_eq!(state.paused, Some(false));
-    assert!(state.additional.is_empty());
 }
 
 /// In this example, the parameters specify an initial supply with higher precision
@@ -289,7 +284,6 @@ fn test_initialize_token_excessive_mint_decimals() {
         initial_supply: Some(TokenAmount::from_raw(500000, 6)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
@@ -320,7 +314,6 @@ fn test_initialize_token_insufficient_mint_decimals() {
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
@@ -350,7 +343,6 @@ fn test_initialize_token_non_existing_governance_account() {
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);

@@ -1,4 +1,4 @@
-use super::{blob_store, p10, BlockStateOperations};
+use super::{BlockStateOperations, blob_store, p10};
 
 /// Block state providing the various block state operations.
 #[derive(Debug, Clone)]

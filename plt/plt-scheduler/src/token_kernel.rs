@@ -98,13 +98,7 @@ impl<External: ExternalBlockStateOperations> TokenKernelOperations
     for TokenKernelOperationsImpl<'_, External>
 {
     fn touch_account(&mut self, account: &AccountWithAddress) {
-        self.external
-            .update_token_account_balance(
-                account.index,
-                self.token,
-                RawTokenAmountDelta::Add(RawTokenAmount(0)),
-            )
-            .ok();
+        self.external.touch_token_account(account.index, self.token);
     }
 
     fn mint(
