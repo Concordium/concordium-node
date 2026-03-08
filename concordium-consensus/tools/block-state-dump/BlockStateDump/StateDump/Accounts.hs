@@ -6,24 +6,24 @@
 
 module BlockStateDump.StateDump.Accounts where
 
+import Control.Monad
 import Data.Coerce
+import qualified Data.Map as Map
 
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 
 import qualified BlockStateDump.StateDump.LFMBTree as LFMBDump
+import qualified Concordium.GlobalState.Account as Account
 import qualified Concordium.GlobalState.Persistent.Account as Account
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountToken
+import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as AccountV0
+import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as AccountV1
 import qualified Concordium.GlobalState.Persistent.Accounts as Account
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 
 import BlockStateDump.Shared
-import qualified Concordium.GlobalState.Account as Account
-import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountToken
-import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as AccountV0
-import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as AccountV1
-import qualified Concordium.Types.Conditionally as Cond
-import Control.Monad
-import qualified Data.Map as Map
 
 dumpAccounts ::
     forall pv m.
