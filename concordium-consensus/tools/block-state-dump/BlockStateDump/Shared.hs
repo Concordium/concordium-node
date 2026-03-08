@@ -252,6 +252,17 @@ visitEBRNode output parent refLabel label ebr build = do
     maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
     forM_ maybeNode $ \node -> build node blobRef hash
 
+visitEHBRNode ::
+    forall pv m h a c.
+    ( BS.SupportsPersistentState pv m,
+      Coercible h Hash.Hash
+    ) =>
+    OutputFiles -> NodeId -> String -> String -> Blob.EagerlyHashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
+visitEHBRNode output parent refLabel label ehbr build = do
+    (blobRef, hash) <- getHEBRRefAndHash ehbr
+    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef hash
+    forM_ maybeNode $ \node -> build node blobRef hash
+
 type BuildNode = String -> IO (Maybe NodeId)
 
 buildStateData :: (Show a, Coercible h Hash.Hash, MonadIO m) => OutputFiles -> Blob.BlobRef a -> h -> a -> m ()
@@ -276,7 +287,7 @@ getHBRRefAndHash ::
       Hash.MHashableTo m h (Blob.HashedBufferedRef' h a)
     ) =>
     Blob.HashedBufferedRef' h a -> m (Blob.BlobRef a, h)
-getHBRRefAndHash hbr@(Blob.HashedBufferedRef br hashIORef) = do
+getHBRRefAndHash (Blob.HashedBufferedRef br hashIORef) = do
     -- (_hash :: h) <- Hash.getHashM hbr
     hash <- liftIO getHash
     return (getBlobRef, hash)
@@ -305,3 +316,13 @@ getEBRRef ::
     Blob.EagerBufferedRef a -> m (Blob.BlobRef a)
 getEBRRef ebr =
     liftIO $ IORef.readIORef (Blob.ebrIORef ebr)
+
+getHEBRRefAndHash ::
+    forall pv m a h.
+    ( BS.SupportsPersistentState pv m
+    ) =>
+    Blob.EagerlyHashedBufferedRef' h a -> m (Blob.BlobRef a, h)
+getHEBRRefAndHash ehbr = do
+    ref <- liftIO $ IORef.readIORef (Blob.ebrIORef (Blob.ehbrReference ehbr))
+    let hash = Blob.ehbrHash ehbr
+    return (ref, hash)

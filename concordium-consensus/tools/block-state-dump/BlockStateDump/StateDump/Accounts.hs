@@ -18,8 +18,12 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 
 import BlockStateDump.Shared
 import qualified Concordium.GlobalState.Account as Account
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountToken
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as AccountV0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as AccountV1
+import qualified Concordium.Types.Conditionally as Cond
+import Control.Monad
+import qualified Data.Map as Map
 
 dumpAccounts ::
     forall pv m.
@@ -69,10 +73,26 @@ dumpAccounts output parentNode accounts = do
                                     $ \_persistentNode persistentBlobRef persistentHash -> do
                                         buildStateData output (coerce persistentBlobRef) persistentHash accountPersisting
 
+                        case (AccountV1.accountTokenStateTable account) of
+                            Cond.CTrue (Blob.Some pltTableRef) -> do
+                                pltTable <- Blob.refLoad pltTableRef
+                                visitEHBRNode
+                                    output
+                                    accountNode
+                                    ""
+                                    "plttbl"
+                                    pltTableRef
+                                    $ \pltTableNode _ _ -> do
+                                        forM_ (Map.toAscList (AccountToken.tokenAccountStateTable pltTable)) $ \(tokenIndex, tokenAccountStateRef) -> do
+                                            tokenAccountState <- Blob.refLoad tokenAccountStateRef
+                                            visitHBRNode output pltTableNode "" ("plt[" ++ show tokenIndex ++ "]") tokenAccountStateRef $ \_ tokenAccountStateBlobRef tokenAccountStateHash -> do
+                                                buildStateData output (coerce tokenAccountStateBlobRef) tokenAccountStateHash tokenAccountState
+                            _ -> return ()
+                        return ()
+
 data PersistentAccount' av = PersistentAccount'
     { accountNonce :: !Nonce,
       accountAmount :: !Amount
-      --   accountTokenStateTable :: !(Cond.Conditionally (SupportsPLT av) (Blob.Nullable (Blob.EagerlyHashedBufferedRef' Account.TokenStateTableHash AccountTokens.TokenAccountStateTable)))
     }
     deriving (Show)
 
