@@ -317,6 +317,13 @@ getEBRRef ::
 getEBRRef ebr =
     liftIO $ IORef.readIORef (Blob.ebrIORef ebr)
 
+getURRef ::
+    forall pv m a.
+    (BS.SupportsPersistentState pv m) =>
+    Blob.UnbufferedRef a -> m (Blob.BlobRef a)
+getURRef (Blob.URBlobbed ref) = return ref
+getURRef _ = error "UnbufferedRef not URBlobbed"    
+
 getHEBRRefAndHash ::
     forall pv m a h.
     ( BS.SupportsPersistentState pv m

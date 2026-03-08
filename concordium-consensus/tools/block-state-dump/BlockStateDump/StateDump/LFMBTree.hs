@@ -43,10 +43,10 @@ dumpLFMBTree output name rootParentNode tree dumpLeaf = do
   where
     dumpLFMBT :: BuildNode -> Word64 -> LFMB.T Blob.HashedBufferedRef v -> m ()
     dumpLFMBT nodeBuilder index = \case
-        LFMB.Leaf val -> do
+        LFMB.Leaf v -> do
             maybeNode <- liftIO $ nodeBuilder (name ++ "[" ++ show index ++ "]")
             forM_ maybeNode $ \node -> do
-                dumpLeaf node val
+                dumpLeaf node v
                 return ()
         LFMB.Node height leftRef rightRef -> do
             maybeNode <- liftIO $ nodeBuilder (name ++ "{height=" ++ show height ++ "}")

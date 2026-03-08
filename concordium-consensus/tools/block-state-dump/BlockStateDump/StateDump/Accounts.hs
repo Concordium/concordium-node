@@ -80,12 +80,12 @@ dumpAccounts output parentNode accounts = do
                                     output
                                     accountNode
                                     ""
-                                    "plttbl"
+                                    "accplts"
                                     pltTableRef
                                     $ \pltTableNode _ _ -> do
                                         forM_ (Map.toAscList (AccountToken.tokenAccountStateTable pltTable)) $ \(tokenIndex, tokenAccountStateRef) -> do
                                             tokenAccountState <- Blob.refLoad tokenAccountStateRef
-                                            visitHBRNode output pltTableNode "" ("plt[" ++ show tokenIndex ++ "]") tokenAccountStateRef $ \_ tokenAccountStateBlobRef tokenAccountStateHash -> do
+                                            visitHBRNode output pltTableNode (show tokenIndex) ("accplts[" ++ show tokenIndex ++ "]") tokenAccountStateRef $ \_ tokenAccountStateBlobRef tokenAccountStateHash -> do
                                                 buildStateData output (coerce tokenAccountStateBlobRef) tokenAccountStateHash tokenAccountState
                             _ -> return ()
                         return ()
