@@ -1,5 +1,6 @@
 use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
@@ -9,7 +10,7 @@ use concordium_base::protocol_level_tokens::{
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use plt_token_module::token_module::{self};
+use plt_token_module::token_module;
 
 mod kernel_stub;
 mod utils;
@@ -17,7 +18,10 @@ mod utils;
 /// Test successful mints.
 #[test]
 fn test_mint() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_mint_worker(ProtocolVersion::P10);
+}
+fn test_mint_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First mint
@@ -58,8 +62,11 @@ fn test_mint() {
 /// Rejects mint operations from non-governance accounts.
 #[test]
 fn test_unauthorized_mint() {
+    test_unauthorized_mint_worker(ProtocolVersion::P10);
+}
+fn test_unauthorized_mint_worker(protocol_version: ProtocolVersion) {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -109,8 +116,11 @@ fn test_unauthorized_mint() {
 /// address in reject reason is the alias and not the canonical address.
 #[test]
 fn test_unauthorized_mint_using_alias() {
+    test_unauthorized_mint_using_alias_worker(ProtocolVersion::P10);
+}
+fn test_unauthorized_mint_using_alias_worker(protocol_version: ProtocolVersion) {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     stub.init_token(TokenInitTestParams::default());
     let non_gov_account = stub.create_account();
 
@@ -152,7 +162,10 @@ fn test_unauthorized_mint_using_alias() {
 /// Test mint that would overflow circulating supply
 #[test]
 fn test_mint_overflow() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_mint_overflow_worker(ProtocolVersion::P10);
+}
+fn test_mint_overflow_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
@@ -183,7 +196,10 @@ fn test_mint_overflow() {
 /// Test mint with initial supply specified with wrong number of decimals
 #[test]
 fn test_mint_decimals_mismatch() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_mint_decimals_mismatch_worker(ProtocolVersion::P10);
+}
+fn test_mint_decimals_mismatch_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
@@ -208,7 +224,10 @@ fn test_mint_decimals_mismatch() {
 /// Reject "mint" operations while token is paused
 #[test]
 fn test_mint_paused() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_mint_paused_worker(ProtocolVersion::P10);
+}
+fn test_mint_paused_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_paused(true);
 
@@ -236,7 +255,10 @@ fn test_mint_paused() {
 /// Reject "mint" operation if the feature is not enabled.
 #[test]
 fn test_not_mintable() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_not_mintable_worker(ProtocolVersion::P10);
+}
+fn test_not_mintable_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);

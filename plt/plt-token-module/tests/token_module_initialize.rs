@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenModuleState};
@@ -18,7 +19,10 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 /// In this example, the parameters are not a valid encoding.
 #[test]
 fn test_initialize_token_parameters_decode_failure() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_initialize_token_parameters_decode_failure_worker(ProtocolVersion::P10);
+}
+fn test_initialize_token_parameters_decode_failure_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let res = token_module::initialize_token(&mut stub, vec![].into());
     assert_matches!(
         &res,
@@ -32,7 +36,10 @@ fn test_initialize_token_parameters_decode_failure() {
 /// In this example, a parameter is missing from the required initialization parameters.
 #[test]
 fn test_initialize_token_parameters_missing() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_initialize_token_parameters_missing_worker(ProtocolVersion::P10);
+}
+fn test_initialize_token_parameters_missing_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: None,
@@ -56,7 +63,10 @@ fn test_initialize_token_parameters_missing() {
 /// initialization parameters.
 #[test]
 fn test_initialize_token_additional_parameter() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_initialize_token_additional_parameter_worker(ProtocolVersion::P10);
+}
+fn test_initialize_token_additional_parameter_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.create_account();
 
     let parameters = TokenModuleInitializationParameters {
@@ -90,7 +100,10 @@ fn test_initialize_token_additional_parameter() {
 /// behaviour.
 #[test]
 fn test_initialize_token_default_values() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_initialize_token_default_values_worker(ProtocolVersion::P10);
+}
+fn test_initialize_token_default_values_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
 
@@ -146,7 +159,11 @@ fn test_initialize_token_default_values() {
 /// In this example, the parameters are valid, no minting.
 #[test]
 fn test_initialize_token_no_minting() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_initialize_token_no_minting_worker(ProtocolVersion::P10);
+}
+
+fn test_initialize_token_no_minting_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -210,7 +227,10 @@ fn test_initialize_token_no_minting() {
 /// In this example, the parameters are valid, with minting.
 #[test]
 fn test_initialize_token_with_minting() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_initialize_token_with_minting_worker(ProtocolVersion::P10);
+}
+fn test_initialize_token_with_minting_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -272,7 +292,10 @@ fn test_initialize_token_with_minting() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_excessive_mint_decimals() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_initialize_token_excessive_mint_decimals_worker(ProtocolVersion::P10);
+}
+fn test_initialize_token_excessive_mint_decimals_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.create_account();
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
@@ -302,7 +325,11 @@ fn test_initialize_token_excessive_mint_decimals() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_insufficient_mint_decimals() {
-    let mut stub = KernelStub::with_decimals(6);
+    test_initialize_token_insufficient_mint_decimals_worker(ProtocolVersion::P10);
+}
+
+fn test_initialize_token_insufficient_mint_decimals_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(6, protocol_version);
     let gov_account = stub.create_account();
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
@@ -332,7 +359,11 @@ fn test_initialize_token_insufficient_mint_decimals() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_non_existing_governance_account() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_initialize_token_non_existing_governance_account_worker(ProtocolVersion::P10);
+}
+
+fn test_initialize_token_non_existing_governance_account_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),

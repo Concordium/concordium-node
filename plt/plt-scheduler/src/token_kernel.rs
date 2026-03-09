@@ -1,6 +1,6 @@
 //! Implementation of the protocol-level token kernel.
 
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
@@ -74,6 +74,10 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.block_state.protocol_version()
     }
 }
 
@@ -289,5 +293,9 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.block_state.protocol_version()
     }
 }

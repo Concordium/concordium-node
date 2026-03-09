@@ -4,7 +4,7 @@
 
 use crate::queries;
 use crate::queries::QueryTokenInfoError;
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
 use libc::size_t;
 use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
@@ -52,6 +52,7 @@ extern "C" fn ffi_query_plt_list(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
+    protocol_version: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
@@ -72,8 +73,11 @@ extern "C" fn ffi_query_plt_list(
         get_token_account_states_ptr: get_token_account_states_callback,
     };
 
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
     let internal_block_state = unsafe { &*block_state };
     let block_state = ExecutionTimePltBlockState {
+        protocol_version,
         internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
@@ -134,6 +138,7 @@ extern "C" fn ffi_query_token_info(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
+    protocol_version: u64,
     token_id: *const u8,
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
@@ -156,8 +161,11 @@ extern "C" fn ffi_query_token_info(
         get_token_account_states_ptr: get_token_account_states_callback,
     };
 
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
     let internal_block_state = unsafe { &*block_state };
     let block_state = ExecutionTimePltBlockState {
+        protocol_version,
         internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,
@@ -227,6 +235,7 @@ extern "C" fn ffi_query_token_account_infos(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
+    protocol_version: u64,
     account_index: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -248,8 +257,11 @@ extern "C" fn ffi_query_token_account_infos(
         get_token_account_states_ptr: get_token_account_states_callback,
     };
 
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
     let internal_block_state = unsafe { &*block_state };
     let block_state = ExecutionTimePltBlockState {
+        protocol_version,
         internal_block_state,
         backing_store_load: load_callback,
         external_block_state: external_callbacks,

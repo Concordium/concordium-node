@@ -2,7 +2,7 @@
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
@@ -104,6 +104,14 @@ pub trait TokenKernelQueries {
 
     /// Lookup a key in the token state.
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
+
+    /// Query the protocol version for this block.
+    fn protocol_version(&self) -> ProtocolVersion;
+
+    /// Query whether to support RBAC operations.
+    fn support_rbac(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
 }
 
 /// Operations provided by the token kernel. All operations are in context of

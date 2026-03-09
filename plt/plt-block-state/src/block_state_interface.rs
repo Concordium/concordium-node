@@ -3,7 +3,7 @@ use crate::block_state::types::{
     TokenStateValue,
 };
 use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -130,6 +130,9 @@ pub trait BlockStateQuery {
         &self,
         account: &Self::Account,
     ) -> impl Iterator<Item = (Self::Token, TokenAccountState)>;
+
+    /// Query the protocol version of the block state.
+    fn protocol_version(&self) -> ProtocolVersion;
 }
 
 /// Operations on the state of a block in the chain.

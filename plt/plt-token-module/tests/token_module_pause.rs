@@ -1,5 +1,6 @@
 use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::TokenPauseEventDetails;
 use concordium_base::{
     common::cbor,
@@ -19,7 +20,10 @@ mod utils;
 /// Test that pause/unpause operations modify the token module state as expected
 #[test]
 fn test_token_pause_state() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_token_pause_state_worker(ProtocolVersion::P10);
+}
+fn test_token_pause_state_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // Assert initial state matches expectations
@@ -82,7 +86,10 @@ fn test_token_pause_state() {
 ///   operations.
 #[test]
 fn test_double_pause() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_double_pause_worker(ProtocolVersion::P10);
+}
+fn test_double_pause_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // First we try to perform a double "pause" operation within the same transaction.
@@ -126,7 +133,10 @@ fn test_double_pause() {
 /// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
 #[test]
 fn test_redundant_unpause() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_redundant_unpause_worker(ProtocolVersion::P10);
+}
+fn test_redundant_unpause_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // We already verified that the token moodule is initially _not_ paused, so performing an
@@ -155,8 +165,11 @@ fn test_redundant_unpause() {
 /// Rejects pause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_pause() {
+    test_unauthorized_pause_worker(ProtocolVersion::P10);
+}
+fn test_unauthorized_pause_worker(protocol_version: ProtocolVersion) {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -200,8 +213,11 @@ fn test_unauthorized_pause() {
 /// Rejects unpause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_unpause() {
+    test_unauthorized_unpause_worker(ProtocolVersion::P10);
+}
+fn test_unauthorized_unpause_worker(protocol_version: ProtocolVersion) {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -258,7 +274,10 @@ fn test_unauthorized_unpause() {
 /// permitted due to the paused token state.
 #[test]
 fn test_pause_multiple_ops() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_pause_multiple_ops_worker(ProtocolVersion::P10);
+}
+fn test_pause_multiple_ops_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // We test that a transaction consisting of a "pause" and "mint" operation fails, as minting is
@@ -302,7 +321,10 @@ fn test_pause_multiple_ops() {
 /// permitted while token is paused.
 #[test]
 fn test_unpause_multiple_ops() {
-    let mut stub = KernelStub::with_decimals(2);
+    test_unpause_multiple_ops_worker(ProtocolVersion::P10);
+}
+fn test_unpause_multiple_ops_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(2, protocol_version);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First we set the token to paused.

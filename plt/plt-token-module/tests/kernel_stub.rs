@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
+use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy, ProtocolVersion};
 use concordium_base::common::{Serial, cbor};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -32,6 +32,8 @@ use plt_token_module::token_module;
 /// configuring the state of the kernel.
 #[derive(Debug)]
 pub struct KernelStub {
+    /// Protocol version of the kernel implementation.
+    protocol_version: ProtocolVersion,
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token module managed state.
@@ -86,8 +88,9 @@ fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
 
 impl KernelStub {
     /// Create new kernel stub
-    pub fn with_decimals(decimals: u8) -> Self {
+    pub fn with_decimals(decimals: u8, protocol_version: ProtocolVersion) -> Self {
         Self {
+            protocol_version,
             accounts: vec![],
             state: Default::default(),
             decimals,
@@ -308,6 +311,10 @@ impl TokenKernelQueries for KernelStub {
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.state.get(&key).cloned()
     }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
 }
 
 impl TokenKernelOperations for KernelStub {
@@ -454,7 +461,11 @@ const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
 /// Test lookup account address and account from address
 #[test]
 fn test_account_lookup_address() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_account_lookup_address_worker(ProtocolVersion::P10);
+}
+
+fn test_account_lookup_address_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let account = stub.create_account();
 
     let address = stub.account_address(&account);
@@ -469,7 +480,11 @@ fn test_account_lookup_address() {
 /// Test lookup account index and account from index
 #[test]
 fn test_account_lookup_index() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_account_lookup_index_worker(ProtocolVersion::P10);
+}
+
+fn test_account_lookup_index_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let account = stub.create_account();
 
     let index = stub.account_index(&account);
@@ -484,7 +499,10 @@ fn test_account_lookup_index() {
 /// Test get account balance
 #[test]
 fn test_account_balance() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_account_balance_worker(ProtocolVersion::P10);
+}
+fn test_account_balance_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
     let account0 = stub.create_account();
     let account1 = stub.create_account();
     stub.set_account_balance(account0, RawTokenAmount(245));
@@ -499,7 +517,11 @@ fn test_account_balance() {
 /// Test looking up account by alias.
 #[test]
 fn test_account_by_alias() {
-    let mut stub = KernelStub::with_decimals(0);
+    test_account_by_alias_worker(ProtocolVersion::P10);
+}
+
+fn test_account_by_alias_worker(protocol_version: ProtocolVersion) {
+    let mut stub = KernelStub::with_decimals(0, protocol_version);
 
     let account = stub.create_account();
     let account_address = stub.account_address(&account);
