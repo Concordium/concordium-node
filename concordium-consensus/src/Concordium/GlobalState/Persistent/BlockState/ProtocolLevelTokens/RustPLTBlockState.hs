@@ -11,6 +11,7 @@ module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTB
     withPLTBlockState,
     migrate,
     ProtocolLevelTokensHash (..),
+    dumpPLTBlockState,
 ) where
 
 import qualified Data.Serialize as S
@@ -22,6 +23,7 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.Types.HashableTo as Hashable
 import Control.Monad.Trans (lift, liftIO)
 import qualified Data.FixedByteString as FixedByteString
+import qualified Foreign.C as FFI
 
 -- | Opaque type representing a Rust maintained PLT state.
 -- The value is allocated in Rust and must be deallocated in Rust.
@@ -167,3 +169,52 @@ foreign import ccall "ffi_migrate_plt_block_state"
         FFI.Ptr RustPLTBlockState ->
         -- | Pointer to the new block state.
         IO (FFI.Ptr RustPLTBlockState)
+
+-- | Dump PLT block state. Use for debugging purposes only.
+dumpPLTBlockState ::
+    (BlobStore.MonadBlobStore m) =>
+    -- | Current block state
+    ForeignPLTBlockStatePtr ->
+    -- | Parent node
+    FFI.Word64 ->
+    -- | Path to graph file
+    String ->
+    -- | Path to state file
+    String ->
+    m ()
+dumpPLTBlockState blockState parentNode graphFilePath dataFilePath =
+    do
+        loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+        liftIO $ do
+            withPLTBlockState blockState $ \blockStatePtr ->
+                FFI.withCStringLen graphFilePath $ \(graphFilePathPtr, graphFilePathLen) ->
+                    FFI.withCStringLen dataFilePath $ \(dataFilePathPtr, dataFilePathLen) ->
+                        ffiDumpPLTBlockState
+                            loadCallbackPtr
+                            blockStatePtr
+                            parentNode
+                            (FFI.castPtr graphFilePathPtr)
+                            (fromIntegral graphFilePathLen)
+                            (FFI.castPtr dataFilePathPtr)
+                            (fromIntegral dataFilePathLen)
+
+-- | Dump PLT block state. Use for debugging purposes only.
+--
+-- See the exported function in the Rust code for documentation of safety.
+foreign import ccall "ffi_dump_plt_block_state"
+    ffiDumpPLTBlockState ::
+        -- | Called to read data from blob store.
+        FFI.LoadCallback ->
+        -- | Pointer to the block state to dump.
+        FFI.Ptr RustPLTBlockState ->
+        -- | Parent node
+        FFI.Word64 ->
+        -- | Path to graph file
+        FFI.Ptr FFI.Word8 ->
+        -- | Length of path to graph file
+        FFI.CSize ->
+        -- | Path to state file
+        FFI.Ptr FFI.Word8 ->
+        -- | Length of path to state file
+        FFI.CSize ->
+        IO ()

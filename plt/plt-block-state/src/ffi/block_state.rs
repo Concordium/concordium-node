@@ -2,8 +2,10 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{PltBlockStateSavepoint, blob_store};
+use crate::block_state::state_dump::shared;
+use crate::block_state::{PltBlockStateSavepoint, blob_store, state_dump};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
+use libc::size_t;
 
 /// Allocate a new empty PLT block state and returns it.
 ///
@@ -159,4 +161,58 @@ extern "C" fn ffi_cache_plt_block_state(
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
     block_state.cache(&mut load_callback)
+}
+
+/// Dump the PLT block state to files for debugging.
+///
+/// # Arguments
+///
+/// - `load_callback` External function to call for loading bytes a reference from the blob store.
+/// - `block_state` The block state to store in the blob store.
+/// - `state_graph_file_path` Shared pointer to state graph file path bytes.
+/// - `state_graph_file_path_len` Byte length of state graph file path bytes.
+/// - `state_data_file_path` Shared pointer to state data file path bytes.
+/// - `state_data_file_path_len` Byte length of state data file path bytes.
+///
+/// # Safety
+///
+/// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
+/// - Argument `state_graph_file_path` must be non-null and valid for reads for `state_graph_file_path_len` many bytes.
+/// - Argument `state_data_file_path` must be non-null and valid for reads for `state_data_file_path_len` many bytes.
+#[unsafe(no_mangle)]
+extern "C" fn ffi_dump_plt_block_state(
+    mut load_callback: LoadCallback,
+    block_state: *const PltBlockStateSavepoint,
+    parent_node: u64,
+    state_graph_file_path: *const u8,
+    state_graph_file_path_len: size_t,
+    state_data_file_path: *const u8,
+    state_data_file_path_len: size_t,
+) {
+    assert!(!block_state.is_null(), "block_state is a null pointer.");
+    assert!(
+        !state_graph_file_path.is_null(),
+        "state_graph_file_path is a null pointer."
+    );
+    assert!(
+        !state_data_file_path.is_null(),
+        "state_data_file_path is a null pointer."
+    );
+    let block_state = unsafe { &*block_state };
+
+    let state_graph_file_path = String::from_utf8(
+        unsafe { std::slice::from_raw_parts(state_graph_file_path, state_graph_file_path_len) }
+            .to_vec(),
+    )
+    .unwrap();
+    let state_data_file_path = String::from_utf8(
+        unsafe { std::slice::from_raw_parts(state_data_file_path, state_data_file_path_len) }
+            .to_vec(),
+    )
+    .unwrap();
+
+    let mut output = shared::open_output_files(&state_graph_file_path, &state_data_file_path);
+    state_dump::dump_plt_block_state(&mut output, load_callback, block_state);
 }

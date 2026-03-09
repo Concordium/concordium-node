@@ -59,38 +59,73 @@ instance Show NodeId where
     show (NodeId w) = show w
 
 data OutputFiles = OutputFiles
-    { ofStateGraph :: IO.Handle,
-      ofBlocks :: IO.Handle,
-      ofState :: IO.Handle,
-      ofMutable :: IO.IORef OutputFilesMutable
+    { ofMutable :: IO.IORef OutputFilesMutable,
+      ofStateGraphFilePath :: FilePath,
+      ofStateFilePath :: FilePath,
+      ofBlocksFilePath :: FilePath
     }
 
 data OutputFilesMutable = OutputFilesMutable
     { ofNextNodeId :: NodeId,
-      ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Maybe Hash.Hash)
+      ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Maybe Hash.Hash),
+      ofStateGraph :: IO.Handle,
+      ofBlocks :: IO.Handle,
+      ofState :: IO.Handle
     }
 
 openOutputFiles :: FilePath -> IO OutputFiles
 openOutputFiles outDir = do
     Dir.createDirectoryIfMissing True outDir
-    ofStateGraph <- IO.openFile (outDir FP.</> "graph.dot") IO.WriteMode
-    ofBlocks <- IO.openFile (outDir FP.</> "blocks.txt") IO.WriteMode
-    ofState <- IO.openFile (outDir FP.</> "state.txt") IO.WriteMode
+    let ofStateGraphFilePath = outDir FP.</> "graph.dot"
+    let ofBlocksFilePath = outDir FP.</> "blocks.txt"
+    let ofStateFilePath = outDir FP.</> "state.txt"
+    ofStateGraph <- IO.openFile ofStateGraphFilePath IO.WriteMode
+    ofBlocks <- IO.openFile ofBlocksFilePath IO.WriteMode
+    ofState <- IO.openFile ofStateFilePath IO.WriteMode
     ofMutable <-
         IORef.newIORef
             OutputFilesMutable
                 { ofNextNodeId = NodeId 0,
-                  ofBlobRefToNodeId = Map.empty
+                  ofBlobRefToNodeId = Map.empty,
+                  ..
                 }
 
     return OutputFiles{..}
 
+flushOutputFiles :: OutputFiles -> IO ()
+flushOutputFiles output = do
+    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
+    IO.hFlush ofStateGraph
+    IO.hFlush ofBlocks
+    IO.hFlush ofState
+    return ()
+
 closeOutputFiles :: OutputFiles -> IO ()
-closeOutputFiles OutputFiles{..} = do
+closeOutputFiles output = do
+    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
     IO.hClose ofStateGraph
     IO.hClose ofBlocks
     IO.hClose ofState
     return ()
+
+reopenOutputFiles :: OutputFiles -> IO ()
+reopenOutputFiles OutputFiles{..} = do
+    outputMutable <- liftIO $ IO.readIORef ofMutable
+    ofStateGraph <- IO.openFile ofStateGraphFilePath IO.AppendMode
+    ofBlocks <- IO.openFile ofBlocksFilePath IO.AppendMode
+    ofState <- IO.openFile ofStateFilePath IO.AppendMode
+    liftIO $ IO.writeIORef ofMutable outputMutable{ofStateGraph = ofStateGraph, ofBlocks = ofBlocks, ofState = ofState}
+    return ()
+
+-- ofStateGraph <- IO.openFile (ofStateGraphFilePath output) IO.WriteMode
+-- ofBlocks <- IO.openFile (ofBlocksFilePath output) IO.WriteMode
+-- ofState <- IO.openFile (ofStateFilePath output) IO.WriteMode
+-- return
+--     output
+--         { ofStateGraph = ofStateGraph,
+--           ofBlocks = ofBlocks,
+--           ofState = ofState
+--         }
 
 hashDisplayLength :: Int
 hashDisplayLength = 6
@@ -107,11 +142,11 @@ buildBlobRefNodeNoEdge output label blobRef maybeHash = do
                     ++ take hashDisplayLength (show hash)
             Nothing -> (escapeQuotes label)
 
-    OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
+    outputMutable@OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
 
     case Map.lookup (coerce blobRef) ofBlobRefToNodeId of
         Nothing -> do
-            IO.hPutStrLn (ofStateGraph output) $
+            IO.hPutStrLn ofStateGraph $
                 "    "
                     ++ show ofNextNodeId
                     ++ " [label=\""
@@ -122,7 +157,7 @@ buildBlobRefNodeNoEdge output label blobRef maybeHash = do
             let updatedBlobRefToNodeId = Map.insert (coerce blobRef) (ofNextNodeId, maybeHash) ofBlobRefToNodeId
             IO.writeIORef
                 (ofMutable output)
-                OutputFilesMutable
+                outputMutable
                     { ofNextNodeId = updatedNextNodeId,
                       ofBlobRefToNodeId = updatedBlobRefToNodeId
                     }
@@ -150,7 +185,7 @@ buildCompNodeNoEdge output label maybeHash = do
             { ofNextNodeId = updatedNextNodeId
             }
 
-    IO.hPutStrLn (ofStateGraph output) $
+    IO.hPutStrLn ofStateGraph $
         "    "
             ++ show ofNextNodeId
             ++ " [label=\""
@@ -171,7 +206,8 @@ escapeQuotes =
 buildBlobRefEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
 buildBlobRefEdge_ output label source target blobRef = do
     let edgeLabel = (escapeQuotes label) ++ show blobRef
-    IO.hPutStrLn (ofStateGraph output) $
+    OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
+    IO.hPutStrLn ofStateGraph $
         "    "
             ++ show source
             ++ " -> "
@@ -183,7 +219,8 @@ buildBlobRefEdge_ output label source target blobRef = do
 
 buildCompEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> IO ()
 buildCompEdge_ output _label source target = do
-    IO.hPutStrLn (ofStateGraph output) $
+    OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
+    IO.hPutStrLn ofStateGraph $
         "    "
             ++ show source
             ++ " -> "
@@ -269,19 +306,21 @@ type BuildNode = String -> IO (Maybe NodeId)
 
 buildStateData :: (Show a, Coercible h Hash.Hash, MonadIO m) => OutputFiles -> Blob.BlobRef a -> h -> a -> m ()
 buildStateData output blobRef hash stateData = do
+    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
     liftIO $
-        IO.hPutStrLn (ofState output) $
+        IO.hPutStrLn ofState $
             show blobRef
                 ++ "/"
                 ++ show (coerce hash :: Hash.Hash)
                 ++ ":\n"
                 ++ Text.unpack (Pretty.pShowNoColor stateData)
-    liftIO $ IO.hPutStrLn (ofState output) ""
+    liftIO $ IO.hPutStrLn ofState ""
     return ()
 
 writeGraphStateRaw :: (MonadIO m) => OutputFiles -> String -> m ()
-writeGraphStateRaw output raw =
-    liftIO $ IO.hPutStrLn (ofStateGraph output) raw
+writeGraphStateRaw output raw = do
+    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
+    liftIO $ IO.hPutStrLn ofStateGraph raw
 
 getHBRRefAndHash ::
     forall pv m a h.

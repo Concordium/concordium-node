@@ -32,6 +32,7 @@ import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 import BlockStateDump.Shared
 import qualified BlockStateDump.StateDump.Accounts as AccountsDump
 import qualified BlockStateDump.StateDump.ProtocolLevelTokens as PLTDump
+import qualified GHC.IORef as IO
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -140,8 +141,9 @@ dumpBlockState ::
     BS.HashedPersistentBlockState (MPV m) ->
     m NodeId
 dumpBlockState output BlockEntry{..} bs = do
-    liftBSOIO $ Pretty.pHPrintNoColor (ofBlocks output) beBlock
-    liftBSOIO $ IO.hPutStrLn (ofBlocks output) ""
+    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
+    liftBSOIO $ Pretty.pHPrintNoColor ofBlocks beBlock
+    liftBSOIO $ IO.hPutStrLn ofBlocks ""
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
     let blockHeight = TreeState.bmHeight $ TreeState.stbInfo beBlock
