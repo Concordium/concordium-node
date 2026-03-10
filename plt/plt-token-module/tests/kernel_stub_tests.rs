@@ -9,13 +9,11 @@ mod utils;
 // Tests for the kernel stub
 
 const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
-/// Default protocol version used across the tests.
-const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
 
 /// Test lookup account address and account from address
 #[test]
 fn test_account_lookup_address() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
 
     let address = stub.account_address(&account);
@@ -30,7 +28,7 @@ fn test_account_lookup_address() {
 /// Test lookup account index and account from index
 #[test]
 fn test_account_lookup_index() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
 
     let index = stub.account_index(&account);
@@ -45,7 +43,7 @@ fn test_account_lookup_index() {
 /// Test get account balance
 #[test]
 fn test_account_balance() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let account0 = stub.create_account();
     let account1 = stub.create_account();
     stub.set_account_balance(account0, RawTokenAmount(245));
@@ -60,7 +58,7 @@ fn test_account_balance() {
 /// Test looking up account by alias.
 #[test]
 fn test_account_by_alias() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
 
     let account = stub.create_account();
     let account_address = stub.account_address(&account);
