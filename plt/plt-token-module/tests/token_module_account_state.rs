@@ -1,15 +1,15 @@
-use crate::kernel_stub::{KernelStub, TokenInitTestParams};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::TokenModuleAccountState;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
+use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
-mod kernel_stub;
+mod utils;
 
 /// Test token module account state without lists enabled.
 #[test]
 fn test_query_token_module_account_state_default() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let account = stub.create_account();
 
@@ -23,7 +23,7 @@ fn test_query_token_module_account_state_default() {
 /// Test token module account state with lists.
 #[test]
 fn test_query_token_module_account_state_lists() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default().allow_list().deny_list());
     let account = stub.create_account();
 

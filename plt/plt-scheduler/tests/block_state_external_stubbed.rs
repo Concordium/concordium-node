@@ -4,7 +4,7 @@
 #![allow(unused)]
 
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -84,7 +84,7 @@ struct AccountToken {
 impl BlockStateWithExternalStateStubbed {
     /// Create block state stub
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(protocol_version: ProtocolVersion) -> Self {
         let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
 
         let external_block_state = ExternalBlockStateStub {
@@ -93,6 +93,7 @@ impl BlockStateWithExternalStateStubbed {
         };
 
         let block_state = ExecutionTimePltBlockState {
+            protocol_version,
             internal_block_state: inner_block_state,
             backing_store_load: BlobStoreLoadStub,
             external_block_state,
@@ -364,7 +365,7 @@ impl ExternalBlockStateOperations for ExternalBlockStateStub {
 /// Test looking up account by alias.
 #[test]
 fn test_account_by_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
 
     let account = stub.create_account();
     let account_address = stub.account_canonical_address(&account);
