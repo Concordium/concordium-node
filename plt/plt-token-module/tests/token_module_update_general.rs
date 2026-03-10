@@ -20,7 +20,7 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 /// Test failure to decode token operations
 #[test]
 fn test_update_token_decode_failure() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let sender = stub.create_account();
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let res = token_module::execute_token_update_transaction(
@@ -41,7 +41,7 @@ fn test_update_token_decode_failure() {
 /// Test additional fields specifeid in token update operation.
 #[test]
 fn test_update_token_additional_fields() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let sender = stub.create_account();
     let receiver = stub.create_account();
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
@@ -82,7 +82,7 @@ fn test_update_token_additional_fields() {
 /// Test transaction with multiple operations
 #[test]
 fn test_multiple_operations() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -116,7 +116,7 @@ fn test_multiple_operations() {
 /// Test transaction with multiple operations where one of them fail.
 #[test]
 fn test_single_failing_operation() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -155,7 +155,7 @@ fn test_single_failing_operation() {
 /// Test that energy is charged for execution of operations.
 #[test]
 fn test_energy_charge() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -183,7 +183,7 @@ fn test_energy_charge() {
 /// Test hitting out of energy error.
 #[test]
 fn test_out_of_energy_error() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();

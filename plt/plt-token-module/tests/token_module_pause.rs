@@ -19,7 +19,7 @@ mod utils;
 /// Test that pause/unpause operations modify the token module state as expected
 #[test]
 fn test_token_pause_state() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // Assert initial state matches expectations
@@ -82,7 +82,7 @@ fn test_token_pause_state() {
 ///   operations.
 #[test]
 fn test_double_pause() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // First we try to perform a double "pause" operation within the same transaction.
@@ -126,7 +126,7 @@ fn test_double_pause() {
 /// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
 #[test]
 fn test_redundant_unpause() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // We already verified that the token moodule is initially _not_ paused, so performing an
@@ -156,7 +156,7 @@ fn test_redundant_unpause() {
 #[test]
 fn test_unauthorized_pause() {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -201,7 +201,7 @@ fn test_unauthorized_pause() {
 #[test]
 fn test_unauthorized_unpause() {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -258,7 +258,7 @@ fn test_unauthorized_unpause() {
 /// permitted due to the paused token state.
 #[test]
 fn test_pause_multiple_ops() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // We test that a transaction consisting of a "pause" and "mint" operation fails, as minting is
@@ -302,7 +302,7 @@ fn test_pause_multiple_ops() {
 /// permitted while token is paused.
 #[test]
 fn test_unpause_multiple_ops() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First we set the token to paused.

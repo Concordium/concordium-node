@@ -1,8 +1,12 @@
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{
     TokenModuleRejectReason, TokenModuleRejectReasonType,
 };
 use plt_token_module::token_module::{RejectReason, TokenUpdateError};
+
+/// The most recent protocol version.
+pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
 
 fn decode_reject_reason(reject_reason: &RejectReason) -> TokenModuleRejectReason {
     let reject_reason_type =

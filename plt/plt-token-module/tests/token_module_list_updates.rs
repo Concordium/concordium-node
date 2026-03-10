@@ -23,7 +23,7 @@ fn account_state_key(account_index: AccountIndex, subkey: &[u8]) -> Vec<u8> {
 
 #[test]
 fn test_allow_list_updates() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let target_account = stub.create_account();
 
@@ -94,7 +94,7 @@ fn test_allow_list_updates() {
 
 #[test]
 fn test_deny_list_updates() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let target_account = stub.create_account();
 
@@ -165,7 +165,7 @@ fn test_deny_list_updates() {
 
 #[test]
 fn test_add_allow_list_reject_non_governance() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let target_account = stub.create_account();
@@ -211,7 +211,7 @@ fn test_add_allow_list_reject_non_governance() {
 
 #[test]
 fn test_remove_allow_list_reject_non_governance() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let target_account = stub.create_account();
@@ -257,7 +257,7 @@ fn test_remove_allow_list_reject_non_governance() {
 
 #[test]
 fn test_add_deny_list_reject_non_governance() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let target_account = stub.create_account();
@@ -303,7 +303,7 @@ fn test_add_deny_list_reject_non_governance() {
 
 #[test]
 fn test_remove_deny_list_reject_non_governance() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let target_account = stub.create_account();
@@ -349,7 +349,7 @@ fn test_remove_deny_list_reject_non_governance() {
 
 #[test]
 fn test_add_allow_list_touches_account() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let target_account = stub.create_account();
 
@@ -371,7 +371,7 @@ fn test_add_allow_list_touches_account() {
 
 #[test]
 fn test_remove_allow_list_touches_account() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let target_account = stub.create_account();
 
@@ -393,7 +393,7 @@ fn test_remove_allow_list_touches_account() {
 
 #[test]
 fn test_add_deny_list_touches_account() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let target_account = stub.create_account();
 
@@ -415,7 +415,7 @@ fn test_add_deny_list_touches_account() {
 
 #[test]
 fn test_remove_deny_list_touches_account() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let target_account = stub.create_account();
 
@@ -437,7 +437,7 @@ fn test_remove_deny_list_touches_account() {
 
 #[test]
 fn test_add_to_not_enabled_allow_list() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let allow_account = stub.create_account();
 
@@ -467,7 +467,7 @@ fn test_add_to_not_enabled_allow_list() {
 
 #[test]
 fn test_remove_from_not_enabled_allow_list() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let allow_account = stub.create_account();
 
@@ -497,7 +497,7 @@ fn test_remove_from_not_enabled_allow_list() {
 
 #[test]
 fn test_add_to_not_enabled_deny_list() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let deny_account = stub.create_account();
 
@@ -527,7 +527,7 @@ fn test_add_to_not_enabled_deny_list() {
 
 #[test]
 fn test_remove_from_not_enabled_deny_list() {
-    let mut stub = KernelStub::with_decimals(0);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let deny_account = stub.create_account();
 
