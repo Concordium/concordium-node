@@ -2,9 +2,9 @@
 
 ## Unreleased changes
 
-# 11.0.0
+# 11.0.0 (DevNet)
 
-- Preliminary support for protocol version P11.
+- Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
  
 # 10.0.3
 
