@@ -17,13 +17,13 @@ use plt_token_module::token_module;
 mod kernel_stub;
 mod utils;
 
+/// Default protocol version used across the tests.
+const PROTOCOL_VERSION: ProtocolVersion = utils::LATEST_PROTOCOL_VERSION;
+
 /// Test that pause/unpause operations modify the token module state as expected
 #[test]
 fn test_token_pause_state() {
-    test_token_pause_state_worker(ProtocolVersion::P10);
-}
-fn test_token_pause_state_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // Assert initial state matches expectations
@@ -86,10 +86,7 @@ fn test_token_pause_state_worker(protocol_version: ProtocolVersion) {
 ///   operations.
 #[test]
 fn test_double_pause() {
-    test_double_pause_worker(ProtocolVersion::P10);
-}
-fn test_double_pause_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // First we try to perform a double "pause" operation within the same transaction.
@@ -133,10 +130,7 @@ fn test_double_pause_worker(protocol_version: ProtocolVersion) {
 /// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
 #[test]
 fn test_redundant_unpause() {
-    test_redundant_unpause_worker(ProtocolVersion::P10);
-}
-fn test_redundant_unpause_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // We already verified that the token moodule is initially _not_ paused, so performing an
@@ -165,11 +159,8 @@ fn test_redundant_unpause_worker(protocol_version: ProtocolVersion) {
 /// Rejects pause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_pause() {
-    test_unauthorized_pause_worker(ProtocolVersion::P10);
-}
-fn test_unauthorized_pause_worker(protocol_version: ProtocolVersion) {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -213,11 +204,8 @@ fn test_unauthorized_pause_worker(protocol_version: ProtocolVersion) {
 /// Rejects unpause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_unpause() {
-    test_unauthorized_unpause_worker(ProtocolVersion::P10);
-}
-fn test_unauthorized_unpause_worker(protocol_version: ProtocolVersion) {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
 
@@ -274,10 +262,7 @@ fn test_unauthorized_unpause_worker(protocol_version: ProtocolVersion) {
 /// permitted due to the paused token state.
 #[test]
 fn test_pause_multiple_ops() {
-    test_pause_multiple_ops_worker(ProtocolVersion::P10);
-}
-fn test_pause_multiple_ops_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // We test that a transaction consisting of a "pause" and "mint" operation fails, as minting is
@@ -321,10 +306,7 @@ fn test_pause_multiple_ops_worker(protocol_version: ProtocolVersion) {
 /// permitted while token is paused.
 #[test]
 fn test_unpause_multiple_ops() {
-    test_unpause_multiple_ops_worker(ProtocolVersion::P10);
-}
-fn test_unpause_multiple_ops_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First we set the token to paused.

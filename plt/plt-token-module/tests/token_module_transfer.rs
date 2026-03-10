@@ -19,14 +19,13 @@ mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
+/// Default protocol version used across the tests.
+const PROTOCOL_VERSION: ProtocolVersion = utils::LATEST_PROTOCOL_VERSION;
+
 /// Test successful transfer.
 #[test]
 fn test_transfer() {
-    test_transfer_worker(ProtocolVersion::P10);
-}
-
-fn test_transfer_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -55,10 +54,7 @@ fn test_transfer_worker(protocol_version: ProtocolVersion) {
 /// Test successful transfer with memo.
 #[test]
 fn test_transfer_with_memo() {
-    test_transfer_with_memo_worker(ProtocolVersion::P10);
-}
-fn test_transfer_with_memo_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -87,10 +83,7 @@ fn test_transfer_with_memo_worker(protocol_version: ProtocolVersion) {
 /// Test transfer to sending account
 #[test]
 fn test_transfer_self() {
-    test_transfer_self_worker(ProtocolVersion::P10);
-}
-fn test_transfer_self_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -114,10 +107,7 @@ fn test_transfer_self_worker(protocol_version: ProtocolVersion) {
 /// Test transfer with unsufficient funds
 #[test]
 fn test_transfer_insufficient_balance() {
-    test_transfer_insufficient_balance_worker(ProtocolVersion::P10);
-}
-fn test_transfer_insufficient_balance_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -150,11 +140,7 @@ fn test_transfer_insufficient_balance_worker(protocol_version: ProtocolVersion) 
 /// Test transfer with amount specified with wrong number of decimals
 #[test]
 fn test_transfer_decimals_mismatch() {
-    test_transfer_decimals_mismatch_worker(ProtocolVersion::P10);
-}
-
-fn test_transfer_decimals_mismatch_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -184,10 +170,7 @@ fn test_transfer_decimals_mismatch_worker(protocol_version: ProtocolVersion) {
 /// Test transfer where receiving account does not exist
 #[test]
 fn test_transfer_to_non_existing_receiver() {
-    test_transfer_to_non_existing_receiver_worker(ProtocolVersion::P10);
-}
-fn test_transfer_to_non_existing_receiver_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -217,10 +200,7 @@ fn test_transfer_to_non_existing_receiver_worker(protocol_version: ProtocolVersi
 /// Test transfer succeeds when both accounts are on allow list.
 #[test]
 fn test_transfer_allow_list_success() {
-    test_transfer_allow_list_success_worker(ProtocolVersion::P10);
-}
-fn test_transfer_allow_list_success_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -253,10 +233,7 @@ fn test_transfer_allow_list_success_worker(protocol_version: ProtocolVersion) {
 /// Test transfer succeeds when accounts are not on deny list.
 #[test]
 fn test_transfer_deny_list_success() {
-    test_transfer_deny_list_success_worker(ProtocolVersion::P10);
-}
-fn test_transfer_deny_list_success_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -289,10 +266,7 @@ fn test_transfer_deny_list_success_worker(protocol_version: ProtocolVersion) {
 /// Reject "transfer" operations when sender is not in allow list.
 #[test]
 fn test_transfer_sender_not_in_allow_list() {
-    test_transfer_sender_not_in_allow_list_worker(ProtocolVersion::P10);
-}
-fn test_transfer_sender_not_in_allow_list_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -334,10 +308,7 @@ fn test_transfer_sender_not_in_allow_list_worker(protocol_version: ProtocolVersi
 /// Reject "transfer" operations when recipient is not in allow list.
 #[test]
 fn test_transfer_recipient_not_in_allow_list() {
-    test_transfer_recipient_not_in_allow_list_worker(ProtocolVersion::P10);
-}
-fn test_transfer_recipient_not_in_allow_list_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -379,10 +350,7 @@ fn test_transfer_recipient_not_in_allow_list_worker(protocol_version: ProtocolVe
 /// Reject "transfer" operations when sender is in deny list.
 #[test]
 fn test_transfer_sender_in_deny_list() {
-    test_transfer_sender_in_deny_list_worker(ProtocolVersion::P10);
-}
-fn test_transfer_sender_in_deny_list_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -424,10 +392,7 @@ fn test_transfer_sender_in_deny_list_worker(protocol_version: ProtocolVersion) {
 /// Reject "transfer" operations when recipient is in deny list.
 #[test]
 fn test_transfer_recipient_in_deny_list() {
-    test_transfer_recipient_in_deny_list_worker(ProtocolVersion::P10);
-}
-fn test_transfer_recipient_in_deny_list_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -469,10 +434,7 @@ fn test_transfer_recipient_in_deny_list_worker(protocol_version: ProtocolVersion
 /// Reject "transfer" operations while token is paused
 #[test]
 fn test_transfer_paused() {
-    test_transfer_paused_worker(ProtocolVersion::P10);
-}
-fn test_transfer_paused_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let receiver = stub.create_account();
     stub.set_account_balance(gov_account, RawTokenAmount(5000));

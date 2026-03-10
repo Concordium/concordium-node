@@ -457,15 +457,13 @@ impl TransactionExecution for TransactionExecutionTestImpl {
 // Tests for the kernel stub
 
 const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
+/// Default protocol version used across the tests.
+const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
 
 /// Test lookup account address and account from address
 #[test]
 fn test_account_lookup_address() {
-    test_account_lookup_address_worker(ProtocolVersion::P10);
-}
-
-fn test_account_lookup_address_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let account = stub.create_account();
 
     let address = stub.account_address(&account);
@@ -480,11 +478,7 @@ fn test_account_lookup_address_worker(protocol_version: ProtocolVersion) {
 /// Test lookup account index and account from index
 #[test]
 fn test_account_lookup_index() {
-    test_account_lookup_index_worker(ProtocolVersion::P10);
-}
-
-fn test_account_lookup_index_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let account = stub.create_account();
 
     let index = stub.account_index(&account);
@@ -499,10 +493,7 @@ fn test_account_lookup_index_worker(protocol_version: ProtocolVersion) {
 /// Test get account balance
 #[test]
 fn test_account_balance() {
-    test_account_balance_worker(ProtocolVersion::P10);
-}
-fn test_account_balance_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let account0 = stub.create_account();
     let account1 = stub.create_account();
     stub.set_account_balance(account0, RawTokenAmount(245));
@@ -517,11 +508,7 @@ fn test_account_balance_worker(protocol_version: ProtocolVersion) {
 /// Test looking up account by alias.
 #[test]
 fn test_account_by_alias() {
-    test_account_by_alias_worker(ProtocolVersion::P10);
-}
-
-fn test_account_by_alias_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
 
     let account = stub.create_account();
     let account_address = stub.account_address(&account);

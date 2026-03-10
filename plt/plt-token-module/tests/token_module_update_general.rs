@@ -16,14 +16,13 @@ mod kernel_stub;
 mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+/// Default protocol version used across the tests.
+const PROTOCOL_VERSION: ProtocolVersion = utils::LATEST_PROTOCOL_VERSION;
 
 /// Test failure to decode token operations
 #[test]
 fn test_update_token_decode_failure() {
-    test_update_token_decode_failure_worker(ProtocolVersion::P10);
-}
-fn test_update_token_decode_failure_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let sender = stub.create_account();
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let res = token_module::execute_token_update_transaction(
@@ -44,10 +43,7 @@ fn test_update_token_decode_failure_worker(protocol_version: ProtocolVersion) {
 /// Test additional fields specifeid in token update operation.
 #[test]
 fn test_update_token_additional_fields() {
-    test_update_token_additional_fields_worker(ProtocolVersion::P10);
-}
-fn test_update_token_additional_fields_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(0, protocol_version);
+    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
     let sender = stub.create_account();
     let receiver = stub.create_account();
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
@@ -88,10 +84,7 @@ fn test_update_token_additional_fields_worker(protocol_version: ProtocolVersion)
 /// Test transaction with multiple operations
 #[test]
 fn test_multiple_operations() {
-    test_multiple_operations_worker(ProtocolVersion::P10);
-}
-fn test_multiple_operations_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -125,10 +118,7 @@ fn test_multiple_operations_worker(protocol_version: ProtocolVersion) {
 /// Test transaction with multiple operations where one of them fail.
 #[test]
 fn test_single_failing_operation() {
-    test_single_failing_operation_worker(ProtocolVersion::P10);
-}
-fn test_single_failing_operation_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -167,11 +157,7 @@ fn test_single_failing_operation_worker(protocol_version: ProtocolVersion) {
 /// Test that energy is charged for execution of operations.
 #[test]
 fn test_energy_charge() {
-    test_energy_charge_worker(ProtocolVersion::P10);
-}
-
-fn test_energy_charge_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -199,10 +185,7 @@ fn test_energy_charge_worker(protocol_version: ProtocolVersion) {
 /// Test hitting out of energy error.
 #[test]
 fn test_out_of_energy_error() {
-    test_out_of_energy_error_worker(ProtocolVersion::P10);
-}
-fn test_out_of_energy_error_worker(protocol_version: ProtocolVersion) {
-    let mut stub = KernelStub::with_decimals(2, protocol_version);
+    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
