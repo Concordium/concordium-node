@@ -1,4 +1,3 @@
-use concordium_base::base::ProtocolVersion;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;

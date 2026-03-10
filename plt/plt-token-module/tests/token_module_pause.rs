@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::TokenPauseEventDetails;
 use concordium_base::{
     common::cbor,
