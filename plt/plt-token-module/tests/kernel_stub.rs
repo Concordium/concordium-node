@@ -18,9 +18,8 @@ use plt_block_state::block_state::types::{
 };
 use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_interface::token_kernel_interface::{
-    AccountWithAddress, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenStateInvariantError,
-    TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
 use plt_scheduler_interface::transaction_execution_interface::{
     OutOfEnergyError, TransactionExecution,
@@ -186,17 +185,19 @@ impl KernelStub {
     }
 
     pub fn execution_with_sender(&self, account: AccountStubIndex) -> TransactionExecutionTestImpl {
-        TransactionExecutionTestImpl::with_sender(AccountWithAddress {
-            account,
-            account_address: self.account_address(&account),
-        })
+        TransactionExecutionTestImpl::with_sender(account, self.account_address(&account))
     }
 
-    pub fn execution_with_sender_and_energy(&self, account: AccountStubIndex, energy: Energy) -> TransactionExecutionTestImpl {
-        TransactionExecutionTestImpl::with_sender_and_energy(AccountWithAddress {
+    pub fn execution_with_sender_and_energy(
+        &self,
+        account: AccountStubIndex,
+        energy: Energy,
+    ) -> TransactionExecutionTestImpl {
+        TransactionExecutionTestImpl::with_sender_and_energy(
             account,
-            account_address: self.account_address(&account),
-        }, energy)
+            self.account_address(&account),
+            energy,
+        )
     }
 
     /// The circulating supply
@@ -273,16 +274,13 @@ impl TokenKernelQueries for KernelStub {
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<AccountWithAddress<Self::Account>, AccountNotFoundByAddressError> {
+    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
         self.accounts
             .iter()
             .enumerate()
             .find_map(|(i, account)| {
                 if account.address.is_alias(address) {
-                    Some(AccountWithAddress {
-                        account: AccountStubIndex(i),
-                        account_address: *address,
-                    })
+                    Some(AccountStubIndex(i))
                 } else {
                     None
                 }
@@ -329,7 +327,8 @@ impl TokenKernelOperations for KernelStub {
 
     fn mint(
         &mut self,
-        account: &AccountWithAddress<Self::Account>,
+        account: &Self::Account,
+        account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError> {
         self.circulating_supply.0 =
@@ -342,9 +341,7 @@ impl TokenKernelOperations for KernelStub {
                     max_representable_amount: RawTokenAmount::MAX,
                 })?;
 
-        let balance = self.accounts[account.account.0]
-            .balance
-            .get_or_insert_default();
+        let balance = self.accounts[account.0].balance.get_or_insert_default();
         balance.0 = balance
             .0
             .checked_add(amount.0)
@@ -354,12 +351,11 @@ impl TokenKernelOperations for KernelStub {
 
     fn burn(
         &mut self,
-        account: &AccountWithAddress<Self::Account>,
+        account: &Self::Account,
+        account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
-        let balance = self.accounts[account.account.0]
-            .balance
-            .get_or_insert_default();
+        let balance = self.accounts[account.0].balance.get_or_insert_default();
         balance.0 = balance
             .0
             .checked_sub(amount.0)
@@ -381,14 +377,14 @@ impl TokenKernelOperations for KernelStub {
 
     fn transfer(
         &mut self,
-        from: &AccountWithAddress<Self::Account>,
-        to: &AccountWithAddress<Self::Account>,
+        from: &Self::Account,
+        from_address: AccountAddress,
+        to: &Self::Account,
+        to_address: AccountAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError> {
-        let from_balance = self.accounts[from.account.0]
-            .balance
-            .get_or_insert_default();
+        let from_balance = self.accounts[from.0].balance.get_or_insert_default();
         from_balance.0 = from_balance
             .0
             .checked_sub(amount.0)
@@ -397,14 +393,13 @@ impl TokenKernelOperations for KernelStub {
                 required: amount,
             })?;
 
-        let to_balance = self.accounts[to.account.0].balance.get_or_insert_default();
+        let to_balance = self.accounts[to.0].balance.get_or_insert_default();
         to_balance.0 = to_balance
             .0
             .checked_add(amount.0)
             .ok_or_else(|| TokenStateInvariantError("Overflow".to_string()))?;
 
-        self.transfers
-            .push_back((from.account, to.account, amount, memo));
+        self.transfers.push_back((*from, *to, amount, memo));
 
         Ok(())
     }
@@ -424,23 +419,26 @@ impl TokenKernelOperations for KernelStub {
 /// Token kernel transaction execution context for test.
 #[derive(Debug)]
 pub struct TransactionExecutionTestImpl {
-    sender: AccountWithAddress<AccountStubIndex>,
+    sender: AccountStubIndex,
+    sender_address: AccountAddress,
     remaining_energy: Energy,
 }
 
 impl TransactionExecutionTestImpl {
     pub fn with_sender_and_energy(
-        sender: AccountWithAddress<AccountStubIndex>,
+        sender: AccountStubIndex,
+        sender_address: AccountAddress,
         remaining_energy: Energy,
     ) -> Self {
         Self {
             sender,
+            sender_address,
             remaining_energy,
         }
     }
 
-    pub fn with_sender(sender: AccountWithAddress<AccountStubIndex>) -> Self {
-        Self::with_sender_and_energy(sender, Energy::from(u64::MAX))
+    pub fn with_sender(sender: AccountStubIndex, sender_address: AccountAddress) -> Self {
+        Self::with_sender_and_energy(sender, sender_address, Energy::from(u64::MAX))
     }
 
     pub fn remaining_energy(&self) -> Energy {
@@ -451,8 +449,12 @@ impl TransactionExecutionTestImpl {
 impl TransactionExecution for TransactionExecutionTestImpl {
     type Account = AccountStubIndex;
 
-    fn sender_account_with_address(&self) -> &AccountWithAddress<Self::Account> {
+    fn sender_account(&self) -> &Self::Account {
         &self.sender
+    }
+
+    fn sender_account_address(&self) -> AccountAddress {
+        self.sender_address
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
@@ -524,6 +526,6 @@ fn test_account_by_alias() {
 
     assert_eq!(
         stub.account_index(&account),
-        stub.account_index(&account_by_alias.account)
+        stub.account_index(&account_by_alias)
     );
 }

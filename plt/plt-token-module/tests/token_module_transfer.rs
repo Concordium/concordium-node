@@ -1,4 +1,4 @@
-use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
+use crate::kernel_stub::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;

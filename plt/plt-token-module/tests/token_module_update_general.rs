@@ -1,4 +1,4 @@
-use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
+use crate::kernel_stub::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -162,8 +162,7 @@ fn test_energy_charge() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution =
-        stub.execution_with_sender_and_energy(sender, Energy::from(1000));
+    let mut execution = stub.execution_with_sender_and_energy(sender, Energy::from(1000));
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_address(&receiver)),
@@ -190,8 +189,7 @@ fn test_out_of_energy_error() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution =
-        stub.execution_with_sender_and_energy(sender, Energy::from(50));
+    let mut execution = stub.execution_with_sender_and_energy(sender, Energy::from(50));
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_address(&receiver)),

@@ -116,12 +116,10 @@ fn test_unauthorized_mint_using_alias() {
 
     let non_gov_account_address_alias =
         stub.account_address(&non_gov_account).get_alias(5).unwrap();
-    let non_gov_account_alias = stub
-        .account_by_address(&non_gov_account_address_alias)
-        .unwrap();
 
     // Attempt to mint as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_gov_account_alias.clone());
+    let mut execution =
+        TransactionExecutionTestImpl::with_sender(non_gov_account, non_gov_account_address_alias);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -142,7 +140,7 @@ fn test_unauthorized_mint_using_alias() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    non_gov_account_alias.account_address
+                    non_gov_account_address_alias
                 ))
             );
         }

@@ -1,4 +1,4 @@
-use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
+use crate::kernel_stub::{KernelStub, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::TokenPauseEventDetails;
 use concordium_base::{

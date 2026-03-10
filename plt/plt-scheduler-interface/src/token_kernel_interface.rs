@@ -67,16 +67,6 @@ pub enum TokenBurnError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
-/// Representation of an account, together with its address.
-#[derive(Debug, Clone)]
-pub struct AccountWithAddress<Account> {
-    /// Opaque type that represents an account on chain.
-    pub account: Account,
-    /// The account address of the account. This can be the canonical address or
-    /// an alias that was used to look up the account.
-    pub account_address: AccountAddress,
-}
-
 /// Queries provided by the token kernel. All queries are in context of
 /// a specific token that the kernel is initialized with.
 pub trait TokenKernelQueries {
@@ -88,7 +78,7 @@ pub trait TokenKernelQueries {
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<AccountWithAddress<Self::Account>, AccountNotFoundByAddressError>;
+    ) -> Result<Self::Account, AccountNotFoundByAddressError>;
 
     /// Lookup the account using an account index.
     /// Returns both the opaque account
@@ -138,7 +128,8 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn mint(
         &mut self,
-        account: &AccountWithAddress<Self::Account>,
+        account: &Self::Account,
+        account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError>;
 
@@ -154,7 +145,8 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn burn(
         &mut self,
-        account: &AccountWithAddress<Self::Account>,
+        account: &Self::Account,
+        account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError>;
 
@@ -170,8 +162,10 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn transfer(
         &mut self,
-        from: &AccountWithAddress<Self::Account>,
-        to: &AccountWithAddress<Self::Account>,
+        from: &Self::Account,
+        from_address: AccountAddress,
+        to: &Self::Account,
+        to_address: AccountAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError>;

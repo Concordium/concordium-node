@@ -1,6 +1,5 @@
 //! Interface/context for transaction execution.
 
-use crate::token_kernel_interface::AccountWithAddress;
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 
@@ -17,19 +16,11 @@ pub trait TransactionExecution {
     type Account;
 
     /// The account initiating the transaction.
-    fn sender_account(&self) -> &Self::Account {
-        &self.sender_account_with_address().account
-    }
+    fn sender_account(&self) -> &Self::Account;
 
     /// The account address of the account initiating the transaction. This need
     /// not be canonical address of the account, it can be an alias.
-    fn sender_account_address(&self) -> AccountAddress {
-        self.sender_account_with_address().account_address
-    }
-
-    /// The account initiating the transaction together with the account address. The address
-    /// need not be canonical address of the account, it can be an alias
-    fn sender_account_with_address(&self) -> &AccountWithAddress<Self::Account>;
+    fn sender_account_address(&self) -> AccountAddress;
 
     /// Reduce the available energy for the execution.
     ///
