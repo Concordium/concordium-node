@@ -135,17 +135,17 @@ hashDisplayLength = 6
 -- and a boolean indicating if a new node was build.
 buildBlobRefNodeNoEdge :: OutputFiles -> String -> Blob.BlobRef a -> Maybe Hash.Hash -> IO (NodeId, Bool)
 buildBlobRefNodeNoEdge output label blobRef maybeHash = do
-    let nodeLabel = case maybeHash of
-            Just hash ->
-                (escapeQuotes label)
-                    ++ "/"
-                    ++ take hashDisplayLength (show hash)
-            Nothing -> (escapeQuotes label)
-
     outputMutable@OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
 
     case Map.lookup (coerce blobRef) ofBlobRefToNodeId of
         Nothing -> do
+            let nodeLabel = case maybeHash of
+                    Just hash ->
+                        (escapeQuotes label)
+                            ++ "/"
+                            ++ take hashDisplayLength (show hash)
+                    Nothing -> (escapeQuotes label)
+
             IO.hPutStrLn ofStateGraph $
                 "    "
                     ++ show ofNextNodeId
@@ -218,17 +218,17 @@ buildBlobRefEdge_ output label source target blobRef = do
     return ()
 
 buildCompEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> IO ()
-buildCompEdge_ output _label source target = do
+buildCompEdge_ output label source target = do
+    let edgeLabel = label
     OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
     IO.hPutStrLn ofStateGraph $
         "    "
             ++ show source
             ++ " -> "
             ++ show target
-            ++ " [arrowhead=\"none\"];"
-    -- ++ " [label=\""
-    -- ++ edgeLabel
-    -- ++ "\"];"
+            ++ " [arrowhead=\"none\" label=\""
+            ++ edgeLabel
+            ++ "\"];"
     return ()
 
 -- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given

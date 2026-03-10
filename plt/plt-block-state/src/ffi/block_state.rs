@@ -3,9 +3,11 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::block_state::state_dump::shared;
+use crate::block_state::state_dump::shared::{Context, NodeId, StateDumpContext};
 use crate::block_state::{PltBlockStateSavepoint, blob_store, state_dump};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use libc::size_t;
+use std::sync::LazyLock;
 
 /// Allocate a new empty PLT block state and returns it.
 ///
@@ -213,6 +215,14 @@ extern "C" fn ffi_dump_plt_block_state(
     )
     .unwrap();
 
-    let mut output = shared::open_output_files(&state_graph_file_path, &state_data_file_path);
-    state_dump::dump_plt_block_state(&mut output, load_callback, block_state);
+    let files = shared::open_output_files(&state_graph_file_path, &state_data_file_path);
+    let mut context = Context {
+        files,
+        context: STATE_DUMP_CONTEXT.clone(),
+    };
+
+    state_dump::dump_plt_block_state(&mut context, load_callback, NodeId(parent_node), block_state);
 }
+
+/// Static context. Ideally we create a context per block state dump.
+static STATE_DUMP_CONTEXT: LazyLock<StateDumpContext> = LazyLock::new(|| StateDumpContext::new());
