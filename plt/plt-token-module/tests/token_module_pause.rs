@@ -11,7 +11,7 @@ use concordium_base::{
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
-use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
+use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
 mod utils;
 
@@ -28,7 +28,7 @@ fn test_token_pause_state() {
     assert_eq!(state.paused, Some(false));
 
     // First we pause the token
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -47,7 +47,7 @@ fn test_token_pause_state() {
     assert_eq!(state.paused, Some(true));
 
     // Then we unpause the token
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -85,7 +85,7 @@ fn test_double_pause() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // First we try to perform a double "pause" operation within the same transaction.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![
         TokenOperation::Pause(TokenPauseDetails {}),
         TokenOperation::Pause(TokenPauseDetails {}),
@@ -99,7 +99,7 @@ fn test_double_pause() {
 
     // Then we try to perform an "pause" operation on top of this state in a subsequent
     // transaction (with a new transaction execution context, for good measure).
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -130,7 +130,7 @@ fn test_redundant_unpause() {
 
     // We already verified that the token moodule is initially _not_ paused, so performing an
     // "unpause" operation on this state is already redundant.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -160,7 +160,7 @@ fn test_unauthorized_pause() {
     let non_governance_account = stub.create_account();
 
     // Attempt to pause as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
+    let mut execution = stub.execution_with_sender(non_governance_account);
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     let res = token_module::execute_token_update_transaction(
         &mut execution,
@@ -181,7 +181,7 @@ fn test_unauthorized_pause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_address(&non_governance_account)
+                    stub.account_canonical_address(&non_governance_account)
                 ))
             );
         }
@@ -206,7 +206,7 @@ fn test_unauthorized_unpause() {
 
     // First we pause the token in order to verify that the state is not changed from performing
     // the unauthorized "unpause" operation subsequently.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -216,7 +216,7 @@ fn test_unauthorized_unpause() {
     .expect("executes successfully");
 
     // Attempt to unpause as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
+    let mut execution = stub.execution_with_sender(non_governance_account);
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
     let res = token_module::execute_token_update_transaction(
         &mut execution,
@@ -237,7 +237,7 @@ fn test_unauthorized_unpause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_address(&non_governance_account)
+                    stub.account_canonical_address(&non_governance_account)
                 ))
             );
         }
@@ -262,7 +262,7 @@ fn test_pause_multiple_ops() {
 
     // We test that a transaction consisting of a "pause" and "mint" operation fails, as minting is
     // not allowed while a token is paused.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![
         TokenOperation::Pause(TokenPauseDetails {}),
         TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -305,7 +305,7 @@ fn test_unpause_multiple_ops() {
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First we set the token to paused.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -316,7 +316,7 @@ fn test_unpause_multiple_ops() {
 
     // We test that a transaction consisting of an "unpause" and "mint" operation succeeds when
     // executed sequentially within the same transaction.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![
         TokenOperation::Unpause(TokenPauseDetails {}),
         TokenOperation::Mint(TokenSupplyUpdateDetails {

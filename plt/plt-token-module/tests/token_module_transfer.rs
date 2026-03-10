@@ -10,7 +10,7 @@ use concordium_base::transactions::Memo;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
-use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
+use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
 mod utils;
 
@@ -26,10 +26,10 @@ fn test_transfer() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -54,11 +54,11 @@ fn test_transfer_with_memo() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: Some(CborMemo::Cbor(memo.clone())),
     })];
     token_module::execute_token_update_transaction(
@@ -82,10 +82,10 @@ fn test_transfer_self() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&sender)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&sender)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -107,10 +107,10 @@ fn test_transfer_insufficient_balance() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
@@ -140,10 +140,10 @@ fn test_transfer_decimals_mismatch() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
@@ -169,7 +169,7 @@ fn test_transfer_to_non_existing_receiver() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
@@ -206,10 +206,10 @@ fn test_transfer_allow_list_success() {
     stub.set_allow_list(receiver, true);
 
     // Transfer succeeds when both accounts are allow-listed.
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -239,10 +239,10 @@ fn test_transfer_deny_list_success() {
     stub.set_deny_list(denied, true);
 
     // Transfer succeeds when neither sender nor recipient is denied.
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -269,10 +269,10 @@ fn test_transfer_sender_not_in_allow_list() {
 
     stub.set_allow_list(receiver, true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
 
@@ -290,7 +290,7 @@ fn test_transfer_sender_not_in_allow_list() {
             address: Some(address),
             reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_address(&sender)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&sender)));
             assert_eq!(reason, "sender not in allow list");
         }
     );
@@ -311,10 +311,10 @@ fn test_transfer_recipient_not_in_allow_list() {
 
     stub.set_allow_list(sender, true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
 
@@ -332,7 +332,7 @@ fn test_transfer_recipient_not_in_allow_list() {
             address: Some(address),
             reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_address(&receiver)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
             assert_eq!(reason, "recipient not in allow list");
         }
     );
@@ -353,10 +353,10 @@ fn test_transfer_sender_in_deny_list() {
 
     stub.set_deny_list(sender, true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
 
@@ -374,7 +374,7 @@ fn test_transfer_sender_in_deny_list() {
             address: Some(address),
             reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_address(&sender)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&sender)));
             assert_eq!(reason, "sender in deny list");
         }
     );
@@ -395,10 +395,10 @@ fn test_transfer_recipient_in_deny_list() {
 
     stub.set_deny_list(receiver, true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
 
@@ -416,7 +416,7 @@ fn test_transfer_recipient_in_deny_list() {
             address: Some(address),
             reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_address(&receiver)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
             assert_eq!(reason, "recipient in deny list");
         }
     );
@@ -436,10 +436,10 @@ fn test_transfer_paused() {
 
     stub.set_paused(true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
 
