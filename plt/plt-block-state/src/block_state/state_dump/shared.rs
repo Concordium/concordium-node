@@ -160,7 +160,7 @@ pub fn build_comp_edge(context: &mut Context, label: &str, source: NodeId, targe
     let edge_label = label;
     write!(
         context.files.state_graph_file,
-        "    {} -> {} [label=\"{}\"]",
+        "    {} -> {} [arrowhead=\"none\" label=\"{}\"]",
         source, target, edge_label
     )
     .expect("write to graph data file");
