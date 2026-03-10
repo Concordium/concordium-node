@@ -122,7 +122,7 @@ impl KernelStub {
         stub_index
     }
 
-    pub fn account_address(&self, account: &AccountStubIndex) -> AccountAddress {
+    pub fn account_canonical_address(&self, account: &AccountStubIndex) -> AccountAddress {
         self.accounts[account.0].address
     }
 
@@ -167,7 +167,8 @@ impl KernelStub {
     /// Initialize token and return the governance account
     pub fn init_token(&mut self, params: TokenInitTestParams) -> AccountStubIndex {
         let gov_account = self.create_account();
-        let gov_holder_account = CborHolderAccount::from(self.account_address(&gov_account));
+        let gov_holder_account =
+            CborHolderAccount::from(self.account_canonical_address(&gov_account));
         let metadata = MetadataUrl::from("https://plt.token".to_string());
         let parameters = TokenModuleInitializationParameters {
             name: Some("Protocol-level token".to_owned()),
@@ -185,7 +186,7 @@ impl KernelStub {
     }
 
     pub fn execution_with_sender(&self, account: AccountStubIndex) -> TransactionExecutionTestImpl {
-        TransactionExecutionTestImpl::with_sender(account, self.account_address(&account))
+        TransactionExecutionTestImpl::with_sender(account, self.account_canonical_address(&account))
     }
 
     pub fn execution_with_sender_and_energy(
@@ -195,7 +196,7 @@ impl KernelStub {
     ) -> TransactionExecutionTestImpl {
         TransactionExecutionTestImpl::with_sender_and_energy(
             account,
-            self.account_address(&account),
+            self.account_canonical_address(&account),
             energy,
         )
     }
@@ -474,7 +475,7 @@ fn test_account_lookup_address() {
     let mut stub = KernelStub::with_decimals(0);
     let account = stub.create_account();
 
-    let address = stub.account_address(&account);
+    let address = stub.account_canonical_address(&account);
     stub.account_by_address(&address)
         .expect("Account is expected to exist");
     assert!(
@@ -519,7 +520,7 @@ fn test_account_by_alias() {
     let mut stub = KernelStub::with_decimals(0);
 
     let account = stub.create_account();
-    let account_address = stub.account_address(&account);
+    let account_address = stub.account_canonical_address(&account);
     let account_by_alias = stub
         .account_by_address(&account_address.get_alias(0).unwrap())
         .unwrap();

@@ -87,7 +87,7 @@ fn test_unauthorized_mint() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_address(&non_governance_account)
+                    stub.account_canonical_address(&non_governance_account)
                 ))
             );
         }
@@ -114,8 +114,10 @@ fn test_unauthorized_mint_using_alias() {
     stub.init_token(TokenInitTestParams::default());
     let non_gov_account = stub.create_account();
 
-    let non_gov_account_address_alias =
-        stub.account_address(&non_gov_account).get_alias(5).unwrap();
+    let non_gov_account_address_alias = stub
+        .account_canonical_address(&non_gov_account)
+        .get_alias(5)
+        .unwrap();
 
     // Attempt to mint as a non-governance account.
     let mut execution =
