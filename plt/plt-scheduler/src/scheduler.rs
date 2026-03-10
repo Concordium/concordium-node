@@ -27,7 +27,7 @@ struct TransactionExecutionImpl<Account> {
     sender_account_address: AccountAddress,
 }
 
-impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> {
+impl<Account> TransactionExecution for TransactionExecutionImpl<Account> {
     type Account = Account;
 
     fn sender_account(&self) -> &Self::Account {
@@ -93,10 +93,7 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: Payload,
     energy_limit: Energy,
-) -> Result<TransactionExecutionSummary, TransactionExecutionError>
-where
-    BSO::Account: Clone,
-{
+) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
     let mut execution = TransactionExecutionImpl {
         energy_limit,
         energy_used: Energy::default(),
@@ -149,10 +146,7 @@ pub enum ChainUpdateExecutionError {
 pub fn execute_chain_update<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: UpdatePayload,
-) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError>
-where
-    BSO::Account: Clone,
-{
+) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
             plt_scheduler::execute_create_plt_chain_update(block_state, create_plt)
