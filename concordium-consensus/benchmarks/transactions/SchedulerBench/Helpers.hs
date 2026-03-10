@@ -45,7 +45,7 @@ import Concordium.GlobalState.Types
 import Concordium.Logger
 import Concordium.Scheduler
 import qualified Concordium.Scheduler.DummyData as DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 import qualified Data.Bifunctor as Bifunctor

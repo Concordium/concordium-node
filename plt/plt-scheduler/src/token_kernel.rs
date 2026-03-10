@@ -1,6 +1,6 @@
 //! Implementation of the protocol-level token kernel.
 
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
@@ -75,6 +75,10 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
     }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.block_state.protocol_version()
+    }
 }
 
 /// Implementation of token kernel operations with a specific token in context.
@@ -95,13 +99,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
 
 impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
     fn touch_account(&mut self, account: &Self::AccountWithAddress) {
-        self.block_state
-            .update_token_account_balance(
-                self.token,
-                &account.0,
-                RawTokenAmountDelta::Add(RawTokenAmount(0)),
-            )
-            .ok();
+        self.block_state.touch_token_account(self.token, &account.0);
     }
 
     fn mint(
@@ -295,5 +293,9 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.block_state.protocol_version()
     }
 }

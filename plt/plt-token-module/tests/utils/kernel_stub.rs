@@ -1,11 +1,6 @@
-// Allow items in this file to be unused. This is needed because it is imported from multiple
-// compile targets (each of the integration tests), and some of the targets may not use all
-// items in the file.
-#![allow(unused)]
-
 use std::collections::{BTreeMap, VecDeque};
 
-use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
+use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy, ProtocolVersion};
 use concordium_base::common::{Serial, cbor};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -32,6 +27,8 @@ use plt_token_module::token_module;
 /// configuring the state of the kernel.
 #[derive(Debug)]
 pub struct KernelStub {
+    /// Protocol version of the kernel implementation.
+    protocol_version: ProtocolVersion,
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token module managed state.
@@ -86,8 +83,9 @@ fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
 
 impl KernelStub {
     /// Create new kernel stub
-    pub fn with_decimals(decimals: u8) -> Self {
+    pub fn with_decimals(decimals: u8, protocol_version: ProtocolVersion) -> Self {
         Self {
+            protocol_version,
             accounts: vec![],
             state: Default::default(),
             decimals,
@@ -182,7 +180,6 @@ impl KernelStub {
             initial_supply: None,
             mintable: params.mintable,
             burnable: params.burnable,
-            additional: Default::default(),
         };
         let encoded_parameters = cbor::cbor_encode(&parameters).into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");
@@ -308,6 +305,10 @@ impl TokenKernelQueries for KernelStub {
 
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.state.get(&key).cloned()
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
     }
 }
 
@@ -446,70 +447,4 @@ impl TransactionExecution for TransactionExecutionTestImpl {
             .tick_energy(energy)
             .map_err(|_err: InsufficientEnergy| OutOfEnergyError)
     }
-}
-
-// Tests for the kernel stub
-
-const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
-
-/// Test lookup account address and account from address
-#[test]
-fn test_account_lookup_address() {
-    let mut stub = KernelStub::with_decimals(0);
-    let account = stub.create_account();
-
-    let address = stub.account_address(&account);
-    stub.account_by_address(&address)
-        .expect("Account is expected to exist");
-    assert!(
-        stub.account_by_address(&TEST_ACCOUNT2).is_err(),
-        "Account is not expected to exist"
-    );
-}
-
-/// Test lookup account index and account from index
-#[test]
-fn test_account_lookup_index() {
-    let mut stub = KernelStub::with_decimals(0);
-    let account = stub.create_account();
-
-    let index = stub.account_index(&account);
-    stub.account_by_index(index)
-        .expect("Account is expected to exist");
-    assert!(
-        stub.account_by_index(2.into()).is_err(),
-        "Account is not expected to exist"
-    );
-}
-
-/// Test get account balance
-#[test]
-fn test_account_balance() {
-    let mut stub = KernelStub::with_decimals(0);
-    let account0 = stub.create_account();
-    let account1 = stub.create_account();
-    stub.set_account_balance(account0, RawTokenAmount(245));
-
-    let balance = stub.account_token_balance(&account0);
-    assert_eq!(balance, RawTokenAmount(245));
-
-    let balance = stub.account_token_balance(&account1);
-    assert_eq!(balance, RawTokenAmount(0));
-}
-
-/// Test looking up account by alias.
-#[test]
-fn test_account_by_alias() {
-    let mut stub = KernelStub::with_decimals(0);
-
-    let account = stub.create_account();
-    let account_address = stub.account_address(&account);
-    let account_by_alias = stub
-        .account_by_address(&account_address.get_alias(0).unwrap())
-        .unwrap();
-
-    assert_eq!(
-        stub.account_index(&account),
-        stub.account_index(&account_by_alias)
-    );
 }

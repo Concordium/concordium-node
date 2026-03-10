@@ -4,7 +4,7 @@
 #![allow(unused)]
 
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -63,6 +63,7 @@ impl BlockStateWithNoExternalState {
         let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
 
         let block_state = ExecutionTimePltBlockState {
+            protocol_version: ProtocolVersion::P10,
             internal_block_state: inner_block_state,
             backing_store_load: BlobStoreLoadStub,
             external_block_state: NoExternalBlockStateStub,
@@ -120,6 +121,10 @@ impl ExternalBlockStateOperations for NoExternalBlockStateStub {
         token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
+        unreachable!()
+    }
+
+    fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex) {
         unreachable!()
     }
 

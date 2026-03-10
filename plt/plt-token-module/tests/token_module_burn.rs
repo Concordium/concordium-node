@@ -1,4 +1,3 @@
-use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -6,18 +5,17 @@ use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
     TokenOperation, TokenSupplyUpdateDetails, UnsupportedOperationRejectReason,
 };
-use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use plt_token_module::token_module::{self};
+use plt_token_module::token_module;
+use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
-mod kernel_stub;
 mod utils;
 
 /// Test successful burns.
 #[test]
 fn test_burn() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
@@ -60,7 +58,7 @@ fn test_burn() {
 #[test]
 fn test_unauthorized_burn() {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let non_governance_account = stub.create_account();
     stub.set_account_balance(non_governance_account, RawTokenAmount(5000));
@@ -108,7 +106,7 @@ fn test_unauthorized_burn() {
 /// Test burn amount that is not available on account.
 #[test]
 fn test_burn_insufficient_balance() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
@@ -137,7 +135,7 @@ fn test_burn_insufficient_balance() {
 /// Test burn with amount specified with wrong number of decimals
 #[test]
 fn test_burn_decimals_mismatch() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
@@ -162,7 +160,7 @@ fn test_burn_decimals_mismatch() {
 /// Reject "burn" operations while token is paused
 #[test]
 fn test_burn_paused() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
     stub.set_paused(true);
@@ -191,7 +189,7 @@ fn test_burn_paused() {
 /// Reject "burn" operation if the feature is not enabled.
 #[test]
 fn test_not_burnable() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);

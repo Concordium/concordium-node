@@ -1,4 +1,3 @@
-use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -8,12 +7,11 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleRejectReason, TokenOperation, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
-use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use plt_token_module::token_module::{self};
+use plt_token_module::token_module;
+use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
-mod kernel_stub;
 mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
@@ -21,7 +19,7 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 /// Test successful transfer.
 #[test]
 fn test_transfer() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -50,7 +48,7 @@ fn test_transfer() {
 /// Test successful transfer with memo.
 #[test]
 fn test_transfer_with_memo() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -79,7 +77,7 @@ fn test_transfer_with_memo() {
 /// Test transfer to sending account
 #[test]
 fn test_transfer_self() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -103,7 +101,7 @@ fn test_transfer_self() {
 /// Test transfer with unsufficient funds
 #[test]
 fn test_transfer_insufficient_balance() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -136,7 +134,7 @@ fn test_transfer_insufficient_balance() {
 /// Test transfer with amount specified with wrong number of decimals
 #[test]
 fn test_transfer_decimals_mismatch() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -166,7 +164,7 @@ fn test_transfer_decimals_mismatch() {
 /// Test transfer where receiving account does not exist
 #[test]
 fn test_transfer_to_non_existing_receiver() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -196,7 +194,7 @@ fn test_transfer_to_non_existing_receiver() {
 /// Test transfer succeeds when both accounts are on allow list.
 #[test]
 fn test_transfer_allow_list_success() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -229,7 +227,7 @@ fn test_transfer_allow_list_success() {
 /// Test transfer succeeds when accounts are not on deny list.
 #[test]
 fn test_transfer_deny_list_success() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -262,7 +260,7 @@ fn test_transfer_deny_list_success() {
 /// Reject "transfer" operations when sender is not in allow list.
 #[test]
 fn test_transfer_sender_not_in_allow_list() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -304,7 +302,7 @@ fn test_transfer_sender_not_in_allow_list() {
 /// Reject "transfer" operations when recipient is not in allow list.
 #[test]
 fn test_transfer_recipient_not_in_allow_list() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -346,7 +344,7 @@ fn test_transfer_recipient_not_in_allow_list() {
 /// Reject "transfer" operations when sender is in deny list.
 #[test]
 fn test_transfer_sender_in_deny_list() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -388,7 +386,7 @@ fn test_transfer_sender_in_deny_list() {
 /// Reject "transfer" operations when recipient is in deny list.
 #[test]
 fn test_transfer_recipient_in_deny_list() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -430,7 +428,7 @@ fn test_transfer_recipient_in_deny_list() {
 /// Reject "transfer" operations while token is paused
 #[test]
 fn test_transfer_paused() {
-    let mut stub = KernelStub::with_decimals(2);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let receiver = stub.create_account();
     stub.set_account_balance(gov_account, RawTokenAmount(5000));

@@ -10,7 +10,7 @@ use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
 use concordium_base::common::Serialize;
 use concordium_base::constants::SHA256;
@@ -153,6 +153,8 @@ impl PltBlockState {
 /// for the parts of the state that is managed on the Haskell side.
 #[derive(Debug)]
 pub struct ExecutionTimePltBlockState<IntState, Load, ExtState> {
+    /// The protocol version of the block state.
+    pub protocol_version: ProtocolVersion,
     /// The library block state implementation.
     pub internal_block_state: IntState,
     /// External function for reading from the blob store.
@@ -303,6 +305,10 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
             .token_account_states(*account)
             .into_iter()
     }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
 }
 
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -336,6 +342,11 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
     ) -> Result<(), OverflowError> {
         self.external_block_state
             .update_token_account_balance(*account, *token, amount_delta)
+    }
+
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
+        self.external_block_state
+            .touch_token_account(*account, *token);
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
