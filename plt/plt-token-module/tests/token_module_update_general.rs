@@ -1,4 +1,3 @@
-use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::common::cbor;
@@ -7,12 +6,11 @@ use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
     TokenAmount, TokenModuleRejectReason, TokenOperation, TokenTransfer,
 };
-use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module::{self, TokenUpdateError};
+use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
-mod kernel_stub;
 mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
