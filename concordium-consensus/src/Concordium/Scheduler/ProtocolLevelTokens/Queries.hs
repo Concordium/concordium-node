@@ -1,14 +1,20 @@
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.Scheduler.ProtocolLevelTokens.Queries where
+module Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryTokenInfoError (..),
+    queryTokenInfo,
+    queryAccountTokens,
+    queryPLTList,
+) where
 
 import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Reader
-import Data.Bool.Singletons
+import Data.Functor
 import qualified Data.Map.Strict as Map
 import Data.Void
 
@@ -21,6 +27,7 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConf
 import Concordium.GlobalState.Types
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries as RustQ
 
 -- | The 'QueryContext' provides the context to run 'PLTKernelQuery' operations against a
 --  particular token index and block state.
@@ -62,7 +69,7 @@ runQueryTNoFail a ctx =
 instance MonadTrans (QueryT fail ret) where
     lift = QueryT . lift . lift
 
-instance (BS.BlockStateQuery m, PVSupportsPLT (MPV m)) => PLTKernelQuery (QueryT fail ret m) where
+instance (BS.BlockStateQuery m, PVSupportsHaskellManagedPLT (MPV m)) => PLTKernelQuery (QueryT fail ret m) where
     type PLTAccount (QueryT fail ret m) = IndexedAccount m
     getTokenState key = do
         QueryContext{..} <- ask
@@ -109,9 +116,9 @@ queryTokenInfo ::
     TokenId ->
     BlockState m ->
     m (Either QueryTokenInfoError TokenInfo)
-queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFor (MPV m))) of
-    SFalse -> return (Left QTIEUnknownToken)
-    STrue -> do
+queryTokenInfo tokenId bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateNone -> return (Left QTIEUnknownToken)
+    SPLTStateV0 -> do
         mTokenIx <- BS.getTokenIndex bs tokenId
         case mTokenIx of
             Nothing -> return (Left QTIEUnknownToken)
@@ -131,27 +138,50 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
                                       tsModuleState = tms
                                     }
                         return $ Right TokenInfo{tiTokenId = _pltTokenId, tiTokenState = ts}
+    SPLTStateV1 ->
+        RustQ.queryTokenInfo bs tokenId <&> \case
+            Just tokenInfo -> Right tokenInfo
+            Nothing -> Left QTIEUnknownToken
 
 -- | Get the list of 'Token's on an account.
-queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) => IndexedAccount m -> BlockState m -> m [Token]
-queryAccountTokens acc bs = do
-    tokenStatesMap <- BS.getAccountTokens (snd acc)
-    forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenAccountState) -> do
-        pltConfiguration <- BS.getTokenConfiguration @_ @_ @m bs tokenIndex
-        let accountBalance =
-                TokenAmount
-                    { taValue = tasBalance tokenAccountState,
-                      taDecimals = _pltDecimals pltConfiguration
-                    }
-        tokenState <- BS.getMutableTokenState bs tokenIndex
-        let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs, qcTokenState = tokenState}
-        accountState <- runQueryTNoFail (queryAccountState acc) ctx
-        return
-            Token
-                { tokenId = _pltTokenId pltConfiguration,
-                  tokenAccountState =
-                    TokenAccountState
-                        { balance = accountBalance,
-                          moduleAccountState = accountState
+queryAccountTokens ::
+    forall m.
+    (PVSupportsPLT (MPV m), BS.BlockStateQuery m) =>
+    IndexedAccount m -> BlockState m -> m [Token]
+queryAccountTokens acc bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateV0 ->
+        do
+            tokenStatesMap <- BS.getAccountTokens (snd acc)
+            forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenAccountState) -> do
+                pltConfiguration <- BS.getTokenConfiguration @_ @_ @m bs tokenIndex
+                let accountBalance =
+                        TokenAmount
+                            { taValue = tasBalance tokenAccountState,
+                              taDecimals = _pltDecimals pltConfiguration
+                            }
+                tokenState <- BS.getMutableTokenState bs tokenIndex
+                let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs, qcTokenState = tokenState}
+                accountState <- runQueryTNoFail (queryAccountState acc) ctx
+                return
+                    Token
+                        { tokenId = _pltTokenId pltConfiguration,
+                          tokenAccountState =
+                            TokenAccountState
+                                { balance = accountBalance,
+                                  moduleAccountState = accountState
+                                }
                         }
-                }
+    SPLTStateV1 ->
+        RustQ.queryTokenAccountInfos bs (fst acc)
+
+-- | Get the list all tokens
+queryPLTList ::
+    forall m.
+    (BS.BlockStateQuery m) =>
+    BlockState m ->
+    m [TokenId]
+queryPLTList bs =
+    case sPltStateVersionFor (protocolVersion @(MPV m)) of
+        SPLTStateNone -> return []
+        SPLTStateV0 -> BS.getPLTList bs
+        SPLTStateV1 -> RustQ.queryPLTList bs

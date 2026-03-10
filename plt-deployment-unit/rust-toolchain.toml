@@ -1,5 +1,0 @@
-[toolchain]
-# Rust version 1.87 and newer produces WASM instructions from WASM V2 specification,
-# which ATTOW are not supported by the Concordium Wasm engine.
-channel = "1.86"
-targets = [ "wasm32-unknown-unknown"]

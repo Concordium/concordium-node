@@ -300,7 +300,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just pthoRecipient,
+                                      trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount pthoRecipient,
                                       trrReason = Just "recipient not in allow list"
                                     }
                     enforceDenyList <- isJust <$> getModuleState "denyList"
@@ -321,7 +321,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just pthoRecipient,
+                                      trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
                     success <- transfer tcSender recipientAccount pthoAmount pthoMemo
@@ -514,12 +514,14 @@ requireAccount ::
     -- | The account to check.
     CborAccountAddress ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@CborAccountAddress{..} = do
-    getAccount chaAccount >>= \case
-        Nothing ->
-            pltError . encodeTokenRejectReason $
-                AddressNotFound{trrAddress = holder, ..}
-        Just acc -> return acc
+requireAccount
+    trrOperationIndex
+    CborAccountAddress{..} = do
+        getAccount chaAccount >>= \case
+            Nothing ->
+                pltError . encodeTokenRejectReason $
+                    AddressNotFound{trrAddress = accountTokenHolder chaAccount, ..}
+            Just acc -> return acc
 
 -- | An error that may be when querying the token state.
 newtype QueryTokenError
@@ -552,7 +554,7 @@ queryTokenModuleState = do
             getAccountByIndex govAccountIndex >>= \case
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
-        Just <$> accountTokenHolderShort <$> getAccountCanonicalAddress account
+        Just <$> accountTokenHolder <$> getAccountCanonicalAddress account
     tmsPaused <- Just . isJust <$> getModuleState "paused"
     tmsAllowList <- Just . isJust <$> getModuleState "allowList"
     tmsDenyList <- Just . isJust <$> getModuleState "denyList"

@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -94,11 +95,11 @@ import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
-    ProtocolLevelTokensHash (..),
     TokenIndex,
     TokenStateKey,
     TokenStateValue,
  )
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as RustBS
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -137,7 +138,7 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshBlockRewardDetails :: BlockRewardDetailsHash pv,
       -- | The protocol level tokens hash is present from protocol version 9.
       bshProtocolLevelTokens ::
-        Conditionally (SupportsPLT (AccountVersionFor pv)) ProtocolLevelTokensHash
+        Conditionally (PltStatePresent (PltStateVersionFor pv)) ProtocolLevelTokensHash
     }
     deriving (Show)
 
@@ -522,33 +523,37 @@ class (MonadProtocolVersion m, Monad m, TokenStateOperations ts m) => PLTQuery b
     -- | Get the 'TokenId's of all protocol-level tokens registered on the chain.
     --  If the protocol version does not support protocol-level tokens, this will return the empty
     --  list.
-    getPLTList :: bs -> m [TokenId]
+    getPLTList :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> m [TokenId]
 
     -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
-    getTokenIndex :: (PVSupportsPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
+    getTokenIndex :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
 
     -- | Convert a persistent state to a mutable one that can be updated by the scheduler.
     --
     -- Updates to this state will only persist in the block state using 'bsoSetTokenState'.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getMutableTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m ts
+    getMutableTokenState :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenIndex -> m ts
 
     -- | Get the configuration of a protocol-level token.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
+    getTokenConfiguration :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
 
     -- | Get the circulating supply of a protocol-level token.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenCirculatingSupply :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
+    getTokenCirculatingSupply :: (PVSupportsHaskellManagedPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
 
 -- | The block query methods can query block state. They are needed by
 --  consensus itself to compute stake, get a list of and information about
 --  bakers, finalization committee, etc.
 class
-    (ContractStateOperations m, AccountOperations m, ModuleQuery m, PLTQuery (BlockState m) (MutableTokenState m) m) =>
+    ( ContractStateOperations m,
+      AccountOperations m,
+      ModuleQuery m,
+      PLTQuery (BlockState m) (MutableTokenState m) m
+    ) =>
     BlockStateQuery m
     where
     -- | Get the module source from the module table as deployed to the chain.
@@ -758,6 +763,41 @@ class
     -- | Get the index of accounts in pre-pre-cooldown.
     getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
 
+    -- | Get the foreign pointer to the Rust managed PLT state.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    getRustPLTBlockState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        BlockState m -> m RustBS.ForeignPLTBlockStatePtr
+
+    -- | Lifts 'MonadBlobStore' action into the 'BlockStateOperations' monad.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    liftBlobStore ::
+        ( forall m'.
+          ( MonadBlobStore m',
+            MPV m ~ MPV m'
+          ) =>
+          m' a
+        ) ->
+        m a
+
+    -- | Allows construction of an IO action in a context where 'BlockStateQuery' actions
+    -- can be unlifted into the IO monad. The resulting IO action is then lifted
+    -- in to the 'BlockStateQuery' monad and returned.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    withUnliftBSQ ::
+        ( forall m'.
+          ( BlockStateQuery m',
+            MPV m ~ MPV m',
+            BlockState m ~ BlockState m',
+            Account m ~ Account m'
+          ) =>
+          (forall a. m' a -> IO a) -> IO b
+        ) ->
+        m b
+
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
     { -- | Minted amount allocated to the BakingRewardAccount
@@ -843,7 +883,12 @@ type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 -- | Block state update operations parametrized by a monad. The operations which
 --  mutate the state all also return an 'UpdatableBlockState' handle. This is to
 --  support different implementations, from pure ones to stateful ones.
-class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m) m) => BlockStateOperations m where
+class
+    ( BlockStateQuery m,
+      PLTQuery (UpdatableBlockState m) (MutableTokenState m) m
+    ) =>
+    BlockStateOperations m
+    where
     -- | Get the module from the module table of the state instance.
     bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
 
@@ -1559,7 +1604,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     -- To ensure this is future-proof, the mutable state should not be used after this call.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    bsoSetTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> MutableTokenState m -> m (UpdatableBlockState m)
+    bsoSetTokenState :: (PVSupportsHaskellManagedPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> MutableTokenState m -> m (UpdatableBlockState m)
 
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
@@ -1651,7 +1696,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     bsoSetTokenCirculatingSupply ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         -- | The current block state.
         UpdatableBlockState m ->
         -- | The token index to update.
@@ -1669,7 +1714,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     --  @Nothing@. The 'PLTConfiguration' MUST be valid, and in particular the
     --  '_pltGovernanceAccountIndex' MUST reference a valid account.
     bsoCreateToken ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         -- | The current block state @s@.
         UpdatableBlockState m ->
         -- | The configuration for the token @cfg@.
@@ -1718,6 +1763,36 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
 
     -- | Roll back to the state at the snapshot. This should be used with caution.
     bsoRollback :: UpdatableBlockState m -> StateSnapshot m -> m (UpdatableBlockState m)
+
+    -- | Get the foreign pointer to the Rust managed PLT state.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    bsoGetRustPLTBlockState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        UpdatableBlockState m -> m RustBS.ForeignPLTBlockStatePtr
+
+    -- | Set the foreign pointer to the Rust managed PLT state.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    bsoSetRustPLTBlockState ::
+        (PVSupportsRustManagedPLT (MPV m)) =>
+        UpdatableBlockState m -> RustBS.ForeignPLTBlockStatePtr -> m (UpdatableBlockState m)
+
+    -- | Allows construction of an IO action in a context where 'BlockStateOperations' actions
+    -- can be unlifted into the IO monad. The resulting IO action is then lifted
+    -- in to the 'BlockStateOperations' monad and returned.
+    --
+    -- This is a Low-level interface needed for foreign function interface access.
+    withUnliftBSO ::
+        ( forall m'.
+          ( BlockStateOperations m',
+            MPV m ~ MPV m',
+            UpdatableBlockState m ~ UpdatableBlockState m',
+            Account m ~ Account m'
+          ) =>
+          (forall a. m' a -> IO a) -> IO b
+        ) ->
+        m b
 
 -- | Block state storage operations
 class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
@@ -1901,6 +1976,9 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getCooldownAccounts = lift . getCooldownAccounts
     getPreCooldownAccounts = lift . getPreCooldownAccounts
     getPrePreCooldownAccounts = lift . getPrePreCooldownAccounts
+    getRustPLTBlockState bs = lift $ getRustPLTBlockState bs
+    liftBlobStore m = lift $ liftBlobStore m
+    withUnliftBSQ query = lift $ withUnliftBSQ query
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1940,6 +2018,9 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getCooldownAccounts #-}
     {-# INLINE getPreCooldownAccounts #-}
     {-# INLINE getPrePreCooldownAccounts #-}
+    {-# INLINE getRustPLTBlockState #-}
+    {-# INLINE liftBlobStore #-}
+    {-# INLINE withUnliftBSQ #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -2079,6 +2160,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoCreateToken s = lift . bsoCreateToken s
     bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
     bsoTouchTokenAccount s tokIx = lift . bsoTouchTokenAccount s tokIx
+    bsoGetRustPLTBlockState pbs = lift $ bsoGetRustPLTBlockState pbs
+    bsoSetRustPLTBlockState pbs pltState = lift $ bsoSetRustPLTBlockState pbs pltState
+    withUnliftBSO operation = lift $ withUnliftBSO operation
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -2143,6 +2227,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoTouchTokenAccount #-}
     {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSuspendValidators #-}
+    {-# INLINE bsoGetRustPLTBlockState #-}
+    {-# INLINE bsoSetRustPLTBlockState #-}
+    {-# INLINE withUnliftBSO #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 
