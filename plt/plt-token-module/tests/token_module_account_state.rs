@@ -1,11 +1,10 @@
-use crate::kernel_stub::{KernelStub, TokenInitTestParams};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::TokenModuleAccountState;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
+use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
-mod kernel_stub;
-pub mod utils;
+mod utils;
 
 /// Test token module account state without lists enabled.
 #[test]

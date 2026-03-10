@@ -3,16 +3,15 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenModuleState};
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters};
-use kernel_stub::KernelStub;
 use plt_block_state::block_state::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module::{
     self, TokenAmountDecimalsMismatchError, TokenInitializationError,
 };
+use utils::kernel_stub::KernelStub;
 
-mod kernel_stub;
-pub mod utils;
+mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 

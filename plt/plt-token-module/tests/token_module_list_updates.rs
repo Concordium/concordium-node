@@ -1,4 +1,3 @@
-use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
@@ -9,8 +8,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
+use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
-mod kernel_stub;
 mod utils;
 
 fn account_state_key(account_index: AccountIndex, subkey: &[u8]) -> Vec<u8> {

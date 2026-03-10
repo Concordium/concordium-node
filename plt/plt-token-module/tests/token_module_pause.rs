@@ -1,4 +1,3 @@
-use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::TokenPauseEventDetails;
 use concordium_base::{
@@ -12,8 +11,8 @@ use concordium_base::{
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
+use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
-mod kernel_stub;
 mod utils;
 
 /// Test that pause/unpause operations modify the token module state as expected

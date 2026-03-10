@@ -1,9 +1,16 @@
+// Allow items in this file to be unused. This is needed because it is imported from multiple
+// compile targets (each of the integration tests), and some of the targets may not use all
+// items in the file.
+#![allow(unused)]
+
 use assert_matches::assert_matches;
 use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{
     TokenModuleRejectReason, TokenModuleRejectReasonType,
 };
 use plt_token_module::token_module::{RejectReason, TokenUpdateError};
+
+pub mod kernel_stub;
 
 /// The most recent protocol version.
 pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
