@@ -177,7 +177,7 @@ fn test_energy_charge() {
     .expect("execute");
 
     // Assert energy was charged
-    assert_eq!(execution.remaining_energy().energy, 1000 - 100);
+    assert_eq!(execution.energy_used(), 100.into());
 }
 
 /// Test hitting out of energy error.

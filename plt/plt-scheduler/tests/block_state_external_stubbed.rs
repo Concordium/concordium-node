@@ -14,21 +14,24 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::blob_store::{BackingStoreLoad, Reference};
+use plt_block_state::block_state::blob_store::{self, BackingStoreLoad, Reference};
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
 use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use plt_block_state::block_state::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExecutionTimePltBlockState,
-    PltBlockState, PltBlockStateSavepoint,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateSavepoint, p10,
 };
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
+use plt_scheduler::queries::SchedulerQueries;
+use plt_scheduler::scheduler::SchedulerOperations;
 use plt_scheduler::{queries, scheduler};
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::queries::TokenAccountState as QueriesTokenAccountState;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
 use std::collections::BTreeMap;
@@ -43,35 +46,54 @@ impl BackingStoreLoad for BlobStoreLoadStub {
     }
 }
 
-type ExecutionTimePltBlockStateWithExternalStateStubbed =
-    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
-
-/// Block state where external interactions with the Haskell maintained block
-/// state is implemented by a stub.
-#[derive(Debug)]
-pub struct BlockStateWithExternalStateStubbed {
-    block_state: ExecutionTimePltBlockStateWithExternalStateStubbed,
-}
-
 /// Stubbed block state representing the Haskell maintained part of the block state.
 #[derive(Debug)]
 pub struct ExternalBlockStateStub {
     /// List of accounts in the stub.
-    accounts: Vec<Account<Token>>,
+    pub accounts: Vec<Account>,
     /// PLT update instruction sequence number
-    plt_update_instruction_sequence_number: u64,
+    pub plt_update_instruction_sequence_number: u64,
+}
+
+impl ExternalBlockStateStub {
+    pub fn empty() -> Self {
+        Self {
+            accounts: Default::default(),
+            plt_update_instruction_sequence_number: 0,
+        }
+    }
+
+    /// Create account in the stub and return stub representation of the account.
+    pub fn create_account(&mut self) -> AccountIndex {
+        let index = self.accounts.len();
+        let mut address = AccountAddress([0u8; 32]);
+        address.0[..8].copy_from_slice(&index.to_be_bytes());
+        let account_index = AccountIndex::from(index as u64);
+        let account = Account {
+            index: account_index,
+            address,
+            tokens: Default::default(),
+        };
+        let index = AccountIndex::from(index as u64);
+        self.accounts.push(account);
+
+        index
+    }
+
+    pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
+        self.accounts[account.index as usize].address
+    }
 }
 
 /// Internal representation of an account in [`BlockStateWithExternalStateStubbed`].
 #[derive(Debug)]
-pub struct Account<Token> {
+pub struct Account {
     /// The index of the account
     index: AccountIndex,
     /// The canonical account address of the account.
     address: AccountAddress,
     /// Tokens the account is holding
-    tokens: BTreeMap<Token, AccountToken>,
+    tokens: BTreeMap<TokenIndex, AccountToken>,
 }
 
 /// Internal representation of a token in an account.
@@ -81,69 +103,22 @@ struct AccountToken {
     balance: RawTokenAmount,
 }
 
-impl BlockStateWithExternalStateStubbed {
-    /// Create block state stub
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
-
-        let external_block_state = ExternalBlockStateStub {
-            accounts: Default::default(),
-            plt_update_instruction_sequence_number: 0,
-        };
-
-        let block_state = ExecutionTimePltBlockState {
-            internal_block_state: inner_block_state,
-            backing_store_load: BlobStoreLoadStub,
-            external_block_state,
-        };
-
-        Self { block_state }
-    }
-
-    /// Access to the underlying block state.
-    pub fn state(&self) -> &ExecutionTimePltBlockStateWithExternalStateStubbed {
-        &self.block_state
-    }
-
-    /// Mutable access to the underlying block state.
-    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithExternalStateStubbed {
-        &mut self.block_state
-    }
-
-    /// Create account in the stub and return stub representation of the account.
-    pub fn create_account(&mut self) -> AccountIndex {
-        let index = self.block_state.external_block_state.accounts.len();
-        let mut address = AccountAddress([0u8; 32]);
-        address.0[..8].copy_from_slice(&index.to_be_bytes());
-        let account_index = AccountIndex::from(index as u64);
-        let account = Account {
-            index: account_index,
-            address,
-            tokens: Default::default(),
-        };
-        let stub_index = AccountIndex::from(index as u64);
-        self.block_state.external_block_state.accounts.push(account);
-
-        stub_index
-    }
-
-    pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
-        self.block_state.external_block_state.accounts[account.index as usize].address
-    }
-
+pub trait BlockStateTestImpl:
+    SchedulerOperations + SchedulerQueries + BlockStateOperations
+{
     /// Create and initialize token in the stub and return stub representation of the token, together with
     /// the governance account.
-    pub fn create_and_init_token(
+    fn create_and_init_token(
         &mut self,
+        external: &mut ExternalBlockStateStub,
         token_id: TokenId,
         params: TokenInitTestParams,
         decimals: u8,
         initial_supply: Option<RawTokenAmount>,
-    ) -> (Token, AccountIndex) {
-        let gov_account = self.create_account();
+    ) -> AccountIndex {
+        let gov_account = external.create_account();
         let gov_holder_account =
-            CborHolderAccount::from(self.account_canonical_address(&gov_account));
+            CborHolderAccount::from(external.account_canonical_address(&gov_account));
         let metadata = MetadataUrl::from("https://plt.token".to_string());
         let parameters = TokenModuleInitializationParameters {
             name: Some("Protocol-level token".to_owned()),
@@ -163,70 +138,86 @@ impl BlockStateWithExternalStateStubbed {
             decimals,
             initialization_parameters,
         });
-        scheduler::execute_chain_update(self.state_mut(), payload)
+
+        self.execute_chain_update(external, payload)
             .expect("create and initialize token");
-
-        let token = self.state().token_by_id(&token_id).expect("created token");
-
-        (token, gov_account)
+        gov_account
     }
 
     /// Add amount to account balance in the stub. This is done by minting
     /// and transferring the given amount
-    pub fn increment_account_balance(
+    fn increment_account_balance(
         &mut self,
+        external: &mut ExternalBlockStateStub,
+        loader: &mut impl blob_store::BackingStoreLoad,
         account: AccountIndex,
-        token: Token,
+        token_id: &TokenId,
         balance: RawTokenAmount,
     ) {
-        let token_configuration = self.state().token_configuration(&token);
+        let token_info = self
+            .query_token_info(external, token_id)
+            .expect("Token assumed to exists");
         let operations = vec![
             TokenOperation::Mint(TokenSupplyUpdateDetails {
-                amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+                amount: TokenAmount::from_raw(balance.0, token_info.state.decimals),
             }),
             TokenOperation::Transfer(TokenTransfer {
-                amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
-                recipient: CborHolderAccount::from(self.account_canonical_address(&account)),
+                amount: TokenAmount::from_raw(balance.0, token_info.state.decimals),
+                recipient: CborHolderAccount::from(external.account_canonical_address(&account)),
                 memo: None,
             }),
         ];
         let payload = TokenOperationsPayload {
-            token_id: token_configuration.token_id.clone(),
+            token_id: token_id.clone(),
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
-
-        let token_info =
-            queries::query_token_info(self.state(), &token_configuration.token_id).unwrap();
         let token_module_state: TokenModuleState =
             cbor::cbor_decode(&token_info.state.module_state).unwrap();
-        let gov_account = self
-            .state()
-            .account_by_address(
-                &token_module_state
-                    .governance_account
-                    .as_ref()
-                    .unwrap()
-                    .address,
-            )
+        let gov_account_address = token_module_state
+            .governance_account
+            .as_ref()
+            .unwrap()
+            .address;
+        let gov_account = external
+            .account_index_by_account_address(&gov_account_address)
             .unwrap();
 
-        let outcome = scheduler::execute_transaction(
-            gov_account,
-            token_module_state.governance_account.unwrap().address,
-            self.state_mut(),
-            Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
-        )
-        .expect("transaction internal error");
+        let mut execution =
+            TransactionExecution::new(Energy::from(u64::MAX), gov_account, gov_account_address);
+        let outcome = self
+            .execute_transaction(
+                &mut execution,
+                loader,
+                external,
+                Payload::TokenUpdate { payload },
+            )
+            .expect("transaction internal error");
         assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
     }
 
-    /// Return protocol-level token update instruction sequence number
-    pub fn plt_update_instruction_sequence_number(&self) -> u64 {
-        self.block_state
-            .external_block_state
-            .plt_update_instruction_sequence_number
+    /// Helper function for using `query_token_account_infos` get the account token state of an
+    /// account for a specific token.
+    fn token_account_state(
+        &self,
+        external: &ExternalBlockStateStub,
+        token_id: &TokenId,
+        account: AccountIndex,
+    ) -> Option<QueriesTokenAccountState> {
+        self.query_token_account_infos(external, account)
+            .into_iter()
+            .find_map(|token_account_info| {
+                if &token_account_info.token_id == token_id {
+                    Some(token_account_info.account_state)
+                } else {
+                    None
+                }
+            })
     }
+}
+
+impl<A> BlockStateTestImpl for A where
+    A: SchedulerOperations + SchedulerQueries + BlockStateOperations
+{
 }
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
@@ -364,17 +355,16 @@ impl ExternalBlockStateOperations for ExternalBlockStateStub {
 /// Test looking up account by alias.
 #[test]
 fn test_account_by_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new();
+    let mut external = ExternalBlockStateStub::empty();
 
-    let account = stub.create_account();
-    let account_address = stub.account_canonical_address(&account);
-    let account_by_alias = stub
-        .state()
-        .account_by_address(&account_address.get_alias(0).unwrap())
+    let account = external.create_account();
+    let account_address = external.account_canonical_address(&account);
+    let account_by_alias = external
+        .account_index_by_account_address(&account_address.get_alias(0).unwrap())
         .unwrap();
-
-    assert_eq!(
-        stub.state().account_index(&account),
-        stub.state().account_index(&account_by_alias)
-    );
+    assert_eq!(account, account_by_alias);
+    let account_by_alias = external
+        .account_index_by_account_address(&account_address.get_alias(1).unwrap())
+        .unwrap();
+    assert_eq!(account, account_by_alias);
 }

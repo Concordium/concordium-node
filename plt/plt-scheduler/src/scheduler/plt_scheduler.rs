@@ -3,13 +3,13 @@
 
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
-use concordium_base::base::Energy;
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
+use plt_block_state::block_state::external::ExternalBlockStateOperations;
+use plt_block_state::block_state::p10;
 use plt_block_state::block_state::types::TokenConfiguration;
-use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
+use plt_block_state::block_state_interface::TokenNotFoundByIdError;
 use plt_scheduler_interface::transaction_execution_interface::{
     OutOfEnergyError, TransactionExecution,
 };
@@ -40,12 +40,10 @@ use plt_token_module::{TOKEN_MODULE_REF, token_module};
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_token_update_transaction<
-    BSO: BlockStateOperations,
-    TE: TransactionExecution<Account = BSO::Account>,
->(
-    transaction_execution: &mut TE,
-    block_state: &mut BSO,
+pub fn execute_token_update_transaction(
+    transaction_execution: &mut TransactionExecution,
+    tokens: &mut p10::Tokens,
+    external: &mut impl ExternalBlockStateOperations,
     payload: TokenOperationsPayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
     // Charge energy
@@ -59,7 +57,7 @@ pub fn execute_token_update_transaction<
     }
 
     // Lookup token
-    let token = match block_state.token_by_id(&payload.token_id) {
+    let token = match tokens.token_by_id(&payload.token_id) {
         Ok(token) => token,
         Err(TokenNotFoundByIdError(_)) => {
             return Ok(TransactionOutcome::Rejected(
@@ -68,34 +66,24 @@ pub fn execute_token_update_transaction<
         }
     };
 
-    let token_configuration = block_state.token_configuration(&token);
+    let token_configuration = tokens.token_configuration(token);
 
     let mut events = Vec::new();
-    let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+    let mut token_module_state = tokens.mutable_token_key_value_state(token);
     let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
-        block_state,
-        token: &token,
+        token,
+        external,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: &mut token_module_state_dirty,
         events: &mut events,
-    };
-
-    // Create transaction execution that uses the account type (AccountIndex, AccountAddress).
-    // This is done in order to match the AccountWithAddress type in the kernel implementation
-    // which is also (AccountIndex, AccountAddress):
-    // TransactionExecution::Account = TokenKernelQueries::AccountWithAddress
-    // (see trait bounds on execute_token_update_transaction).
-    // See the documentation on TokenKernelQueries::AccountWithAddress for why the token kernel
-    // opaque account type includes the account address.
-    let mut kernel_transaction_execution = KernelTransactionExecutionImpl {
-        inner: transaction_execution,
+        tokens,
     };
 
     // Call token module to execute operations
     let token_update_result = token_module::execute_token_update_transaction(
-        &mut kernel_transaction_execution,
+        transaction_execution,
         &mut kernel,
         payload.operations,
     );
@@ -104,7 +92,7 @@ pub fn execute_token_update_transaction<
         Ok(()) => {
             // Update token module state if dirty
             if token_module_state_dirty {
-                block_state.set_token_key_value_state(&token, token_module_state);
+                tokens.set_token_key_value_state(token, token_module_state);
             }
 
             // Return events
@@ -131,32 +119,6 @@ pub fn execute_token_update_transaction<
     }
 }
 
-/// Transaction execution joining the opaque account identifier with the account address.
-/// This is needed by the token kernel type `TokenKernelQueries::AccountWithAddress`.
-#[derive(Debug)]
-struct KernelTransactionExecutionImpl<'a, TE> {
-    inner: &'a mut TE,
-}
-
-impl<TE: TransactionExecution> TransactionExecution for KernelTransactionExecutionImpl<'_, TE> {
-    type Account = (TE::Account, AccountAddress);
-
-    fn sender_account(&self) -> Self::Account {
-        (
-            self.inner.sender_account(),
-            self.inner.sender_account_address(),
-        )
-    }
-
-    fn sender_account_address(&self) -> AccountAddress {
-        self.inner.sender_account_address()
-    }
-
-    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        self.inner.tick_energy(energy)
-    }
-}
-
 /// Execute a create protocol-level token chain update modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a failure kind is returned.
 ///
@@ -171,15 +133,16 @@ impl<TE: TransactionExecution> TransactionExecution for KernelTransactionExecuti
 ///
 /// - [`ChainUpdateExecutionError`] If executing the update instruction failed.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
-    block_state: &mut BSO,
+pub fn execute_create_plt_chain_update(
+    tokens: &mut p10::Tokens,
+    external: &mut impl ExternalBlockStateOperations,
     payload: CreatePlt,
 ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
     // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
     // as the check should be)
-    if let Ok(existing_token) = block_state.token_by_id(&payload.token_id) {
+    if let Ok(existing_token) = tokens.token_by_id(&payload.token_id) {
         return Ok(ChainUpdateOutcome::Failed(FailureKind::DuplicateTokenId(
-            block_state.token_configuration(&existing_token).token_id,
+            tokens.token_configuration(existing_token).token_id,
         )));
     }
 
@@ -197,22 +160,23 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
     };
 
     // Create token in block state
-    let token = block_state.create_token(token_configuration.clone());
+    let token = tokens.create_token(token_configuration.clone());
 
     let mut events = Vec::new();
     events.push(BlockItemEvent::TokenCreated(TokenCreateEvent {
         payload: payload.clone(),
     }));
 
-    let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+    let mut token_module_state = tokens.mutable_token_key_value_state(token);
     let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
-        block_state,
-        token: &token,
+        tokens,
+        token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: &mut token_module_state_dirty,
         events: &mut events,
+        external,
     };
 
     // Initialize token in token module
@@ -222,11 +186,11 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
     match token_initialize_result {
         Ok(()) => {
             // Increment protocol-level token update sequence number
-            block_state.increment_plt_update_instruction_sequence_number();
+            external.increment_plt_update_sequence_number();
 
             // Update token module state if dirty
             if token_module_state_dirty {
-                block_state.set_token_key_value_state(&token, token_module_state);
+                tokens.set_token_key_value_state(token, token_module_state);
             }
 
             // Return events

@@ -7,7 +7,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 use plt_block_state::block_state::types::{
-    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
+    AccountWithAddress, AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
 use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -70,20 +70,11 @@ pub enum TokenBurnError {
 /// Queries provided by the token kernel. All queries are in context of
 /// a specific token that the kernel is initialized with.
 pub trait TokenKernelQueries {
-    /// Opaque type that identifies an account on chain including the address it was connected with
-    /// when looking up the account.
-    /// The account is guaranteed to exist on chain, when holding an instance of this type.
-    ///
-    /// The type corresponds to `BlockStateQuery::Account` but includes the account address also.
-    /// The account address is included to tie it together with the opaque identifier for the account
-    /// in a way that cannot be manipulated by the token module.
-    type AccountWithAddress;
-
     /// Lookup the account using an account address.
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<Self::AccountWithAddress, AccountNotFoundByAddressError>;
+    ) -> Result<AccountWithAddress, AccountNotFoundByAddressError>;
 
     /// Lookup the account using an account index.
     /// Returns both the opaque account
@@ -91,13 +82,13 @@ pub trait TokenKernelQueries {
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::AccountWithAddress>, AccountNotFoundByIndexError>;
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
-    fn account_index(&self, account: &Self::AccountWithAddress) -> AccountIndex;
+    fn account_index(&self, account: &AccountWithAddress) -> AccountIndex;
 
     /// Get the token balance of the account.
-    fn account_token_balance(&self, account: &Self::AccountWithAddress) -> RawTokenAmount;
+    fn account_token_balance(&self, account: &AccountWithAddress) -> RawTokenAmount;
 
     /// The number of decimals used in the presentation of the token amount.
     fn decimals(&self) -> u8;
@@ -119,7 +110,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// in order to make sure the token is returned when querying token account info.
     ///
     /// If the account already has a balance for the token in context, the operation has no effect
-    fn touch_account(&mut self, account: &Self::AccountWithAddress);
+    fn touch_account(&mut self, account: &AccountWithAddress);
 
     /// Mint a specified amount and deposit it in the account.
     ///
@@ -133,7 +124,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn mint(
         &mut self,
-        account: &Self::AccountWithAddress,
+        account: &AccountWithAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError>;
 
@@ -149,7 +140,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn burn(
         &mut self,
-        account: &Self::AccountWithAddress,
+        account: &AccountWithAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError>;
 
@@ -165,8 +156,8 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn transfer(
         &mut self,
-        from: &Self::AccountWithAddress,
-        to: &Self::AccountWithAddress,
+        from: &AccountWithAddress,
+        to: &AccountWithAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError>;
