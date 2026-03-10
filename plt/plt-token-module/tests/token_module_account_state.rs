@@ -1,5 +1,4 @@
 use crate::kernel_stub::{KernelStub, TokenInitTestParams};
-use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::TokenModuleAccountState;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
