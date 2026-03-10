@@ -202,6 +202,7 @@ extern "C" fn ffi_dump_plt_block_state(
         !state_data_file_path.is_null(),
         "state_data_file_path is a null pointer."
     );
+
     let block_state = unsafe { &*block_state };
 
     let state_graph_file_path = String::from_utf8(
@@ -225,4 +226,4 @@ extern "C" fn ffi_dump_plt_block_state(
 }
 
 /// Static context. Ideally we create a context per block state dump.
-static STATE_DUMP_CONTEXT: LazyLock<StateDumpContext> = LazyLock::new(|| StateDumpContext::new());
+static STATE_DUMP_CONTEXT: LazyLock<StateDumpContext> = LazyLock::new(|| StateDumpContext::new(NodeId(1_000_000)));

@@ -19,6 +19,8 @@ import qualified Concordium.Types.Tokens as PLT
 
 import BlockStateDump.Shared
 import Control.Monad.IO.Class
+import qualified Concordium.GlobalState.ContractStateV1 as PST
+
 
 dumpProtocolLevelTokens ::
     forall pv m.
@@ -47,6 +49,8 @@ dumpProtocolLevelTokens output parentNode pltsForSV = do
                         buildStateData output (coerce pltBlobRef) pltHash plt'
                         visitHBRNode output pltNode "" "pltconf" pltConfRef $ \_pltConfNode pltConfBlobRef pltConfHash -> do
                             buildStateData output pltConfBlobRef pltConfHash pltConf
+                        let NodeId pltNodeWord = pltNode                            
+                        PST.dumpPersistentState (PLT._pltState plt) pltNodeWord (ofStateGraphFilePath output) (ofStateFilePath output)   
         PLT.ProtocolLevelTokensV1 pltsState -> do
             liftIO $ closeOutputFiles output
             let NodeId parentNodeWord = parentNode

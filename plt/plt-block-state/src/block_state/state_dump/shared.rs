@@ -21,9 +21,9 @@ pub struct StateDumpContext {
 }
 
 impl StateDumpContext {
-    pub fn new() -> Self {
+    pub fn new(next_node_id: NodeId) -> Self {
         Self {
-            mutable: Arc::new(Mutex::new(StateDumpContextMutable::new(NodeId(1_000_000)))),
+            mutable: Arc::new(Mutex::new(StateDumpContextMutable::new())),
         }
     }
 }

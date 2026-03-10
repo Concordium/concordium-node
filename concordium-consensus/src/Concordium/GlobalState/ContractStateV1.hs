@@ -29,6 +29,7 @@ module Concordium.GlobalState.ContractStateV1 (
     -- * Testing
     lookupKey,
     generatePersistentTree,
+    dumpPersistentState,
 )
 where
 
@@ -49,6 +50,7 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback, StoreCallback, errorLoadCallback)
 import Concordium.GlobalState.Persistent.BlobStore
+import Foreign.C.String
 
 -- | Opaque pointer to the mutable state. This state exists only for the duration
 --  of a transaction and is then deallocated by running a finalizer.
@@ -453,3 +455,52 @@ toByteString ps = do
         bytePtr <- serializePersistentState loadCallback psPtr sizePtr
         len <- peek sizePtr
         BSU.unsafePackCStringFinalizer (castPtr bytePtr) (fromIntegral len) (rs_free_array_len bytePtr (fromIntegral len))
+
+-- | Dump PLT block state. Use for debugging purposes only.
+dumpPersistentState ::
+    (MonadBlobStore m) =>
+    -- | Current block state
+    PersistentState ->
+    -- | Parent node
+    Word64 ->
+    -- | Path to graph file
+    String ->
+    -- | Path to state file
+    String ->
+    m ()
+dumpPersistentState persistentState parentNode graphFilePath dataFilePath =
+    do
+        loadCallbackPtr <- fst <$> getCallbacks
+        liftIO $ do
+            withPersistentState persistentState $ \persistentStatePtr ->
+                withCStringLen graphFilePath $ \(graphFilePathPtr, graphFilePathLen) ->
+                    withCStringLen dataFilePath $ \(dataFilePathPtr, dataFilePathLen) ->
+                        ffiDumpPersistentState
+                            loadCallbackPtr
+                            persistentStatePtr
+                            parentNode
+                            (castPtr graphFilePathPtr)
+                            (fromIntegral graphFilePathLen)
+                            (castPtr dataFilePathPtr)
+                            (fromIntegral dataFilePathLen)
+
+-- | Dump PLT block state. Use for debugging purposes only.
+--
+-- See the exported function in the Rust code for documentation of safety.
+foreign import ccall "ffi_dump_persistent_state"
+    ffiDumpPersistentState ::
+        -- | Called to read data from blob store.
+        LoadCallback ->
+        -- | Pointer to the block state to dump.
+        Ptr PersistentState ->
+        -- | Parent node
+        Word64 ->
+        -- | Path to graph file
+        Ptr Word8 ->
+        -- | Length of path to graph file
+        CSize ->
+        -- | Path to state file
+        Ptr Word8 ->
+        -- | Length of path to state file
+        CSize ->
+        IO ()
