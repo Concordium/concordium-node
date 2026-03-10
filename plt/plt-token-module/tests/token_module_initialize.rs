@@ -17,13 +17,10 @@ pub mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
-/// Default protocol version used across the tests.
-const PROTOCOL_VERSION: ProtocolVersion = utils::LATEST_PROTOCOL_VERSION;
-
 /// In this example, the parameters are not a valid encoding.
 #[test]
 fn test_initialize_token_parameters_decode_failure() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let res = token_module::initialize_token(&mut stub, vec![].into());
     assert_matches!(
         &res,
@@ -37,7 +34,7 @@ fn test_initialize_token_parameters_decode_failure() {
 /// In this example, a parameter is missing from the required initialization parameters.
 #[test]
 fn test_initialize_token_parameters_missing() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: None,
@@ -61,7 +58,7 @@ fn test_initialize_token_parameters_missing() {
 /// initialization parameters.
 #[test]
 fn test_initialize_token_additional_parameter() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
 
     let parameters = TokenModuleInitializationParameters {
@@ -95,7 +92,7 @@ fn test_initialize_token_additional_parameter() {
 /// behaviour.
 #[test]
 fn test_initialize_token_default_values() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
 
@@ -151,7 +148,7 @@ fn test_initialize_token_default_values() {
 /// In this example, the parameters are valid, no minting.
 #[test]
 fn test_initialize_token_no_minting() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -215,7 +212,7 @@ fn test_initialize_token_no_minting() {
 /// In this example, the parameters are valid, with minting.
 #[test]
 fn test_initialize_token_with_minting() {
-    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -277,7 +274,7 @@ fn test_initialize_token_with_minting() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_excessive_mint_decimals() {
-    let mut stub = KernelStub::with_decimals(2, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
@@ -307,7 +304,7 @@ fn test_initialize_token_excessive_mint_decimals() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_insufficient_mint_decimals() {
-    let mut stub = KernelStub::with_decimals(6, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(6, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
@@ -337,7 +334,7 @@ fn test_initialize_token_insufficient_mint_decimals() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_non_existing_governance_account() {
-    let mut stub = KernelStub::with_decimals(0, PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
