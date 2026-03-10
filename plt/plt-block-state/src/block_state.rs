@@ -22,9 +22,8 @@ use std::collections::BTreeMap;
 
 pub mod blob_store;
 pub mod external;
-pub mod types;
 pub mod state_dump;
-
+pub mod types;
 
 /// Account with given address does not exist
 #[derive(Debug, thiserror::Error)]

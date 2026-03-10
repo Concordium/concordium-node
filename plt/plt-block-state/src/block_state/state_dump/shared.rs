@@ -23,7 +23,7 @@ pub struct StateDumpContext {
 impl StateDumpContext {
     pub fn new(next_node_id: NodeId) -> Self {
         Self {
-            mutable: Arc::new(Mutex::new(StateDumpContextMutable::new())),
+            mutable: Arc::new(Mutex::new(StateDumpContextMutable::new(next_node_id))),
         }
     }
 }
@@ -71,7 +71,7 @@ pub fn open_output_files(state_graph_file_path: &str, state_data_file_path: &str
     }
 }
 
-pub fn build_state_data(    context: &mut Context, data: impl Debug) {
+pub fn build_state_data(context: &mut Context, data: impl Debug) {
     writeln!(&mut context.files.state_data_file, "{:#?}", data).expect("write data data");
     writeln!(&mut context.files.state_data_file, "").expect("write data data");
 }

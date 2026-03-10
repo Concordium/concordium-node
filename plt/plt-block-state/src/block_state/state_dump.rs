@@ -2,7 +2,7 @@ pub mod shared;
 
 use crate::block_state::PltBlockStateSavepoint;
 use crate::block_state::blob_store::BackingStoreLoad;
-use crate::block_state::state_dump::shared::{Context, NodeId, OutputFiles};
+use crate::block_state::state_dump::shared::{Context, NodeId};
 
 pub fn dump_plt_block_state(
     context: &mut Context,

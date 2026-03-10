@@ -185,7 +185,7 @@ extern "C" fn ffi_cache_plt_block_state(
 /// - Argument `state_data_file_path` must be non-null and valid for reads for `state_data_file_path_len` many bytes.
 #[unsafe(no_mangle)]
 extern "C" fn ffi_dump_plt_block_state(
-    mut load_callback: LoadCallback,
+    load_callback: LoadCallback,
     block_state: *const PltBlockStateSavepoint,
     parent_node: u64,
     state_graph_file_path: *const u8,
@@ -222,8 +222,14 @@ extern "C" fn ffi_dump_plt_block_state(
         context: STATE_DUMP_CONTEXT.clone(),
     };
 
-    state_dump::dump_plt_block_state(&mut context, load_callback, NodeId(parent_node), block_state);
+    state_dump::dump_plt_block_state(
+        &mut context,
+        load_callback,
+        NodeId(parent_node),
+        block_state,
+    );
 }
 
 /// Static context. Ideally we create a context per block state dump.
-static STATE_DUMP_CONTEXT: LazyLock<StateDumpContext> = LazyLock::new(|| StateDumpContext::new(NodeId(1_000_000)));
+static STATE_DUMP_CONTEXT: LazyLock<StateDumpContext> =
+    LazyLock::new(|| StateDumpContext::new(NodeId(1_000_000)));
