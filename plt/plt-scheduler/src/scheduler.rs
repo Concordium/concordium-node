@@ -6,6 +6,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
+use plt_scheduler_interface::token_kernel_interface::AccountWithAddress;
 use plt_scheduler_interface::transaction_execution_interface::{
     OutOfEnergyError, TransactionExecution,
 };
@@ -20,21 +21,17 @@ struct TransactionExecutionImpl<Account> {
     energy_limit: Energy,
     /// Energy used so far by execution. Energy is always charged in advance for each step executed.
     energy_used: Energy,
-    /// The account which signed as the sender of the transaction.
-    sender_account: Account,
-    /// The address of the account which signed as the sender of the transaction.
-    sender_account_address: AccountAddress,
+    /// The account which signed as the sender of the transaction, together with the account
+    /// address specified as the sender. This need not be the canonical address of the account,
+    /// it can be an account alias.
+    sender_account: AccountWithAddress<Account>,
 }
 
 impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> {
     type Account = Account;
 
-    fn sender_account(&self) -> Account {
-        self.sender_account.clone()
-    }
-
-    fn sender_account_address(&self) -> AccountAddress {
-        self.sender_account_address
+    fn sender_account_with_address(&self) -> &AccountWithAddress<Self::Account> {
+        &self.sender_account
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
@@ -99,8 +96,10 @@ where
     let mut execution = TransactionExecutionImpl {
         energy_limit,
         energy_used: Energy::default(),
-        sender_account,
-        sender_account_address,
+        sender_account: AccountWithAddress {
+            account: sender_account,
+            account_address: sender_account_address,
+        },
     };
 
     match payload {

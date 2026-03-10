@@ -86,7 +86,7 @@ fn initialize_token_impl(
     }
 
     let governance_account = kernel.account_by_address(&governance_account.address)?;
-    let governance_account_index = kernel.account_index(&governance_account);
+    let governance_account_index = kernel.account_index(&governance_account.account);
     kernel.set_module_state(
         STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(common::to_bytes(&governance_account_index.index)),

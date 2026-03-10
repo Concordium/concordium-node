@@ -67,23 +67,28 @@ pub enum TokenBurnError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
+/// Representation of an account, together with its address.
+#[derive(Debug, Clone)]
+pub struct AccountWithAddress<Account> {
+    /// Opaque type that represents an account on chain.
+    pub account: Account,
+    /// The account address of the account. This can be the canonical address or
+    /// an alias that was used to look up the account.
+    pub account_address: AccountAddress,
+}
+
 /// Queries provided by the token kernel. All queries are in context of
 /// a specific token that the kernel is initialized with.
 pub trait TokenKernelQueries {
-    /// Opaque type that identifies an account on chain including the address it was connected with
-    /// when looking up the account.
+    /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
-    ///
-    /// The type corresponds to `BlockStateQuery::Account` but includes the account address also.
-    /// The account address is included to tie it together with the opaque identifier for the account
-    /// in a way that cannot be manipulated by the token module.
-    type AccountWithAddress;
+    type Account;
 
     /// Lookup the account using an account address.
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<Self::AccountWithAddress, AccountNotFoundByAddressError>;
+    ) -> Result<AccountWithAddress<Self::Account>, AccountNotFoundByAddressError>;
 
     /// Lookup the account using an account index.
     /// Returns both the opaque account
@@ -91,13 +96,13 @@ pub trait TokenKernelQueries {
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::AccountWithAddress>, AccountNotFoundByIndexError>;
+    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
-    fn account_index(&self, account: &Self::AccountWithAddress) -> AccountIndex;
+    fn account_index(&self, account: &Self::Account) -> AccountIndex;
 
     /// Get the token balance of the account.
-    fn account_token_balance(&self, account: &Self::AccountWithAddress) -> RawTokenAmount;
+    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount;
 
     /// The number of decimals used in the presentation of the token amount.
     fn decimals(&self) -> u8;
@@ -119,7 +124,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// in order to make sure the token is returned when querying token account info.
     ///
     /// If the account already has a balance for the token in context, the operation has no effect
-    fn touch_account(&mut self, account: &Self::AccountWithAddress);
+    fn touch_account(&mut self, account: &Self::Account);
 
     /// Mint a specified amount and deposit it in the account.
     ///
@@ -133,7 +138,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn mint(
         &mut self,
-        account: &Self::AccountWithAddress,
+        account: &AccountWithAddress<Self::Account>,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError>;
 
@@ -149,7 +154,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn burn(
         &mut self,
-        account: &Self::AccountWithAddress,
+        account: &AccountWithAddress<Self::Account>,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError>;
 
@@ -165,8 +170,8 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn transfer(
         &mut self,
-        from: &Self::AccountWithAddress,
-        to: &Self::AccountWithAddress,
+        from: &AccountWithAddress<Self::Account>,
+        to: &AccountWithAddress<Self::Account>,
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError>;

@@ -99,7 +99,7 @@ pub enum TokenUpdateError {
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -282,7 +282,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 
 fn execute_token_update_operation<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -340,14 +340,11 @@ fn check_not_paused<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn check_authorized<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
->(
+fn check_authorized<TK: TokenKernelOperations, TE: TransactionExecution<Account = TK::Account>>(
     transaction_execution: &mut TE,
     kernel: &TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let sender_index = kernel.account_index(&transaction_execution.sender_account());
+    let sender_index = kernel.account_index(transaction_execution.sender_account());
     let authorized = key_value_state::get_governance_account_index(kernel)
         .is_ok_and(|gov_index| gov_index == sender_index);
 
@@ -362,7 +359,7 @@ fn check_authorized<
 
 fn execute_token_transfer<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -373,18 +370,17 @@ fn execute_token_transfer<
 
     // operation execution
     check_not_paused(kernel)?;
-    let sender = transaction_execution.sender_account();
-    let sender_address = transaction_execution.sender_account_address();
+    let sender = transaction_execution.sender_account_with_address();
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
 
     if key_value_state::has_allow_list(kernel) {
-        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&sender)) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&sender.account)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(sender_address),
+                account_address: Some(sender.account_address),
                 reason: "sender not in allow list",
             });
         }
-        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&receiver)) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&receiver.account)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient not in allow list",
@@ -393,13 +389,13 @@ fn execute_token_transfer<
     }
 
     if key_value_state::has_deny_list(kernel) {
-        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&sender)) {
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&sender.account)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(sender_address),
+                account_address: Some(sender.account_address),
                 reason: "sender in deny list",
             });
         }
-        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&receiver)) {
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&receiver.account)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient in deny list",
@@ -408,7 +404,7 @@ fn execute_token_transfer<
     }
 
     kernel.transfer(
-        &sender,
+        sender,
         &receiver,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
@@ -418,7 +414,7 @@ fn execute_token_transfer<
 
 fn execute_token_mint<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -436,13 +432,16 @@ fn execute_token_mint<
         });
     };
 
-    kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
+    kernel.mint(
+        transaction_execution.sender_account_with_address(),
+        raw_amount,
+    )?;
     Ok(())
 }
 
 fn execute_token_burn<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -460,13 +459,16 @@ fn execute_token_burn<
         });
     }
 
-    kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
+    kernel.burn(
+        transaction_execution.sender_account_with_address(),
+        raw_amount,
+    )?;
     Ok(())
 }
 
 fn execute_token_pause<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -482,7 +484,7 @@ fn execute_token_pause<
 
 fn execute_token_unpause<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -498,7 +500,7 @@ fn execute_token_unpause<
 
 fn execute_add_allow_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -512,8 +514,8 @@ fn execute_add_allow_list<
     }
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), true);
+    kernel.touch_account(&account.account);
+    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account.account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -526,7 +528,7 @@ fn execute_add_allow_list<
 
 fn execute_add_deny_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -541,8 +543,8 @@ fn execute_add_deny_list<
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), true);
+    kernel.touch_account(&account.account);
+    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account.account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -555,7 +557,7 @@ fn execute_add_deny_list<
 
 fn execute_remove_allow_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -570,8 +572,8 @@ fn execute_remove_allow_list<
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), false);
+    kernel.touch_account(&account.account);
+    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account.account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -581,9 +583,10 @@ fn execute_remove_allow_list<
 
     Ok(())
 }
+
 fn execute_remove_deny_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -598,8 +601,8 @@ fn execute_remove_deny_list<
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), false);
+    kernel.touch_account(&account.account);
+    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account.account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),

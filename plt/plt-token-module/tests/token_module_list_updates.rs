@@ -35,7 +35,7 @@ fn test_allow_list_updates() {
     assert_eq!(state.deny_list, None);
 
     // Add an acccount to the allow list
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -53,7 +53,7 @@ fn test_allow_list_updates() {
     assert_eq!(state.deny_list, None);
 
     // Remove the same acccount to the allow list
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -106,7 +106,7 @@ fn test_deny_list_updates() {
     assert_eq!(state.deny_list, Some(false));
 
     // Add an acccount to the deny list
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -124,7 +124,7 @@ fn test_deny_list_updates() {
     assert_eq!(state.deny_list, Some(true));
 
     // Remove the same acccount to the deny list
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -170,7 +170,7 @@ fn test_add_allow_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -216,7 +216,7 @@ fn test_remove_allow_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -262,7 +262,7 @@ fn test_add_deny_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -308,7 +308,7 @@ fn test_remove_deny_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = stub.execution_with_sender(sender);
     let operations = vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -355,7 +355,7 @@ fn test_add_allow_list_touches_account() {
 
     assert!(!stub.account_touched(&target_account));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -377,7 +377,7 @@ fn test_remove_allow_list_touches_account() {
 
     assert!(!stub.account_touched(&target_account));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -399,7 +399,7 @@ fn test_add_deny_list_touches_account() {
 
     assert!(!stub.account_touched(&target_account));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -421,7 +421,7 @@ fn test_remove_deny_list_touches_account() {
 
     assert!(!stub.account_touched(&target_account));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&target_account)),
     })];
@@ -441,7 +441,7 @@ fn test_add_to_not_enabled_allow_list() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let allow_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&allow_account)),
     })];
@@ -471,7 +471,7 @@ fn test_remove_from_not_enabled_allow_list() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let allow_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&allow_account)),
     })];
@@ -501,7 +501,7 @@ fn test_add_to_not_enabled_deny_list() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let deny_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&deny_account)),
     })];
@@ -531,7 +531,7 @@ fn test_remove_from_not_enabled_deny_list() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let deny_account = stub.create_account();
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
         target: CborHolderAccount::from(stub.account_address(&deny_account)),
     })];
