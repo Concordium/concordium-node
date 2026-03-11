@@ -49,7 +49,7 @@ postConfHook args flags _ _ = do
     -- Build and copy/symlink PLT scheduler project
     pltWorkspace <- canonicalizePath pltWorkspaceRelative
     -- FIXME: Hardcoded rust version `1.86` should be replaced.
-    withCurrentDirectory pltWorkspace $ runCmd verbosity $ "rustup default 1.86 && cargo build --release --locked --features ffi -p plt-scheduler"
+    withCurrentDirectory pltWorkspace $ runCmd verbosity $ "cargo +1.86 build --release --locked --features ffi -p plt-scheduler"
     case buildOS of
         Windows -> do
             runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ libraryDestination
