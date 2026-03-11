@@ -65,8 +65,18 @@ impl StateDumpBuilder {
         Self { files, context }
     }
 
-    pub fn build_state_data(&mut self, data: impl Debug) {
-        writeln!(&mut self.files.state_data_file, "{:#?}", data).expect("write data data");
+    pub fn build_state_data(
+        &mut self,
+        blob_ref: blob_store::Reference,
+        hash: Hash,
+        data: impl Debug,
+    ) {
+        writeln!(
+            &mut self.files.state_data_file,
+            "{}/{:?}:\n{:#?}",
+            blob_ref, hash, data
+        )
+        .expect("write data data");
         writeln!(&mut self.files.state_data_file).expect("write data data");
     }
 

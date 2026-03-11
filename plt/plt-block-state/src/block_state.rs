@@ -1,6 +1,6 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
+use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError, Reference};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
     AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
@@ -36,7 +36,9 @@ pub struct AccountNotFoundByAddressError(pub AccountAddress);
 pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Marker for PLT block state hash type.
+#[derive(Debug, Clone, Copy)]
 pub enum PltBlockStateHashMarker {}
+
 /// Hash of PLT block state
 pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHashMarker>;
 
@@ -48,6 +50,7 @@ pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHas
 pub struct PltBlockStateSavepoint {
     /// The inner block state, which will not be mutated.
     block_state: PltBlockState,
+    pub blob_ref: Option<Reference>,
 }
 
 impl PltBlockStateSavepoint {
@@ -55,6 +58,7 @@ impl PltBlockStateSavepoint {
     pub fn empty() -> Self {
         Self {
             block_state: PltBlockState::empty(),
+            blob_ref: None,
         }
     }
 
@@ -111,14 +115,23 @@ impl PltBlockStateSavepoint {
 impl blob_store::Loadable for PltBlockStateSavepoint {
     fn load(
         _loader: &mut impl BackingStoreLoad,
-        source: impl AsRef<[u8]>,
+        _source: impl AsRef<[u8]>,
     ) -> Result<Self, DecodeError> {
+       unimplemented!()
+    }
+
+    fn load_from_location(
+        loader: &mut impl BackingStoreLoad,
+        location: Reference,
+    ) -> Result<Self, DecodeError> {
+        let bytes = loader.load_raw(location);
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state: SimplisticPltBlockState = common::from_bytes_complete(source)
+        let state: SimplisticPltBlockState = common::from_bytes_complete(bytes)
             .map_err(|err| DecodeError::Decode(err.to_string()))?;
 
         Ok(Self {
             block_state: PltBlockState { state },
+            blob_ref: Some(location),
         })
     }
 }
@@ -141,7 +154,7 @@ impl PltBlockState {
 
     /// Consume the mutable block state and create an immutable save-point.
     pub fn savepoint(self) -> PltBlockStateSavepoint {
-        PltBlockStateSavepoint { block_state: self }
+        PltBlockStateSavepoint { block_state: self, blob_ref: None }
     }
 }
 

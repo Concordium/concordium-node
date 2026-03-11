@@ -6,11 +6,12 @@ use crate::block_state::state_dump::shared::{NodeId, StateDumpBuilder};
 
 pub fn dump_plt_block_state(
     builder: &mut StateDumpBuilder,
-    _load_callback: impl BackingStoreLoad,
+    mut loader: impl BackingStoreLoad,
     parent_node: NodeId,
     block_state: &PltBlockStateSavepoint,
 ) {
-    builder.build_state_data(&block_state.block_state);
+    let hash = block_state.hash(& mut loader);
+    builder.build_state_data(block_state.blob_ref.expect("blob reference not set"), hash.into_pure(), &block_state.block_state);
 
-    builder.build_comp_node(parent_node, "pltstate", "pltstate", None);
+    builder.build_comp_node(parent_node, "pltstate", "pltstate", Some(hash.into_pure()));
 }
