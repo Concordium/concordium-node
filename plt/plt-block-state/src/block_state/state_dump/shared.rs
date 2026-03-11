@@ -73,7 +73,7 @@ impl StateDumpBuilder {
     ) {
         writeln!(
             &mut self.files.state_data_file,
-            "{}/{:?}:\n{:#?}",
+            "{}/{}:\n{:#?}",
             blob_ref, hash, data
         )
         .expect("write data data");
@@ -106,7 +106,7 @@ impl StateDumpBuilder {
                 .insert(blob_ref, (node_id, hash));
 
             let node_label = if let Some(hash) = hash {
-                format!("{}/{}", escape_quotes(label), hash)
+                format!("{}/{:?}", escape_quotes(label), hash)
             } else {
                 escape_quotes(label)
             };
@@ -127,7 +127,7 @@ impl StateDumpBuilder {
         nodes_guard.next_node_id.0 += 1;
 
         let node_label = if let Some(hash) = hash {
-            format!("{}/{}", escape_quotes(label), hash)
+            format!("{}/{:?}", escape_quotes(label), hash)
         } else {
             escape_quotes(label)
         };

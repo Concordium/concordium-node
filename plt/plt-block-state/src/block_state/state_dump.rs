@@ -10,8 +10,18 @@ pub fn dump_plt_block_state(
     parent_node: NodeId,
     block_state: &PltBlockStateSavepoint,
 ) {
-    let hash = block_state.hash(& mut loader);
-    builder.build_state_data(block_state.blob_ref.expect("blob reference not set"), hash.into_pure(), &block_state.block_state);
+    let hash = block_state.hash(&mut loader);
+    builder.build_state_data(
+        block_state.blob_ref.expect("blob reference not set"),
+        hash.into_pure(),
+        &block_state.block_state,
+    );
 
-    builder.build_comp_node(parent_node, "pltstate", "pltstate", Some(hash.into_pure()));
+    builder.build_blob_ref_node(
+        parent_node,
+        "pltstate",
+        "pltstate",
+        block_state.blob_ref.expect("blob reference not set"),
+        Some(hash.into_pure()),
+    );
 }

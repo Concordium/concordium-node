@@ -292,7 +292,7 @@ visitEBRNode output parent refLabel label ebr build = do
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitEHBRNode ::
-    forall pv m h a c.
+    forall pv m h a.
     ( BS.SupportsPersistentState pv m,
       Coercible h Hash.Hash
     ) =>
