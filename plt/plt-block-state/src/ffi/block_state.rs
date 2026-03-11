@@ -2,8 +2,9 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::state_dump::shared;
-use crate::block_state::state_dump::shared::{Context, NodeId, StateDumpContext};
+use crate::block_state::state_dump::shared::{
+    NodeId, OutputFilesPaths, StateDumpBuilder, StateDumpContext,
+};
 use crate::block_state::{PltBlockStateSavepoint, blob_store, state_dump};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use libc::size_t;
@@ -216,14 +217,15 @@ extern "C" fn ffi_dump_plt_block_state(
     )
     .unwrap();
 
-    let files = shared::open_output_files(&state_graph_file_path, &state_data_file_path);
-    let mut context = Context {
-        files,
-        context: STATE_DUMP_CONTEXT.clone(),
+    let output_paths = OutputFilesPaths {
+        state_graph_file_path,
+        state_data_file_path,
     };
 
+    let mut builder = StateDumpBuilder::new(STATE_DUMP_CONTEXT.clone(), output_paths);
+
     state_dump::dump_plt_block_state(
-        &mut context,
+        &mut builder,
         load_callback,
         NodeId(parent_node),
         block_state,
