@@ -208,7 +208,7 @@ async fn main() {
 }
 
 #[allow(clippy::cognitive_complexity)]
-async fn collect_data<'a>(
+async fn collect_data(
     node_name: NodeName,
     grpc_host: String,
     conf: &ConfigCli,
