@@ -14,6 +14,7 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
+use plt_block_state::block_state::blob_reference::BlobReference;
 use plt_block_state::block_state::blob_store::BackingStoreLoad;
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
@@ -32,7 +33,6 @@ use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
 use std::collections::BTreeMap;
-use plt_block_state::block_state::blob_reference::BlobReference;
 
 /// Block store load stub for tests.
 #[derive(Debug)]

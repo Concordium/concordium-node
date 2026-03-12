@@ -2,12 +2,11 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-
-use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::block_state::blob_reference::BlobReference;
-use crate::block_state::hash::Hashable;
-use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use crate::block_state::bufferable::Bufferable;
+use crate::block_state::hash::Hashable;
+use crate::block_state::{PltBlockStateSavepoint, blob_store};
+use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
 /// Allocate a new empty PLT block state and returns it.
 ///

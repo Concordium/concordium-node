@@ -1,6 +1,6 @@
 use crate::block_state::blob_reference::{BlobReference, Link};
 use crate::block_state::blob_store::{
-    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, Storable,
+    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
 };
 use crate::block_state::bufferable::Bufferable;
 use crate::block_state::hash::Hashable;
@@ -8,13 +8,32 @@ use concordium_base::common::{Buffer, Deserial};
 use concordium_base::hashes::Hash;
 use std::io::Read;
 
-/// A potentially buffered and lazily hashed value V. This is a value that can either be purely in
-/// memory, purely in backing storage, or both in memory and in backing storage.
-/// The hash is calculated lazily when needed. The implementation of
-/// [`Loadable`] will only load the blob reference from the blob store.
+/// Representation of an immutable, buffered and lazily hashed value of type `V`.
+/// The represented value is immutable in the sense that the value itself does not change,
+/// once the [`HashedBufferedRef`] has been created. The value representation can be in
+///
+/// * memory: initial representation for a new value created with [`HashedBufferedRef::new`]
+/// * backing store: initial representation for a value loaded
+///   from the backing store with [`Loadable::load`]
+/// * backing store and buffered in memory: representation after either storing a value
+///   represented in memory with [`Storable::store`] or buffering a value in the backing store
+///   with [`Bufferable::buffer_blob_references`].
+///
+/// The representation change during the lifetime of [`HashedBufferedRef`] is implemented
+/// via interior mutability, but the value itself never changes during the lifetime.
+///
+/// The hash of the represented is calculated lazily when needed, and cached
+/// via interior mutability.
 #[derive(Debug)]
 pub struct HashedBufferedRef<V> {
     inner: Link<HashedBufferedRefImpl<V>>,
+}
+
+impl<V> HashedBufferedRef<V> {
+    /// Create a new value represented in memory.
+    pub fn new(value: V) -> Self {
+        todo!()
+    }
 }
 
 impl<V> Clone for HashedBufferedRef<V> {
@@ -36,7 +55,7 @@ struct HashedBufferedRefImpl<V> {
 #[derive(Debug)]
 enum HashedBufferedRefVariant<V> {
     /// The value is in the backing storage.
-    Disk { reference: BlobReference },
+    Store { reference: BlobReference },
     /// The value is in memory and not written to backing storage.
     Memory { value: V },
     /// The value is in the backing storage, and also buffered in memory.
@@ -44,8 +63,9 @@ enum HashedBufferedRefVariant<V> {
 }
 
 impl<V: Loadable> Loadable for HashedBufferedRef<V> {
-    fn load(source: impl Read) -> Result<Self, DecodeError> {
-        let reference = BlobReference::deserial(source)?;
+    fn load(mut source: impl Read) -> Result<Self, DecodeError> {
+        let reference = BlobReference::deserial(&mut source).into_decode_result()?;
+        todo!()
     }
 }
 

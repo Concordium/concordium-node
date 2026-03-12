@@ -1,9 +1,11 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable};
+use crate::block_state::blob_store::{
+    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
+};
 use crate::block_state::bufferable::Bufferable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::hash::{Hashable, };
+use crate::block_state::hash::Hashable;
 use crate::block_state::types::{
     AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
     TokenStateValue,
@@ -83,8 +85,7 @@ impl PltBlockStateSavepoint {
 impl Loadable for PltBlockStateSavepoint {
     fn load(mut source: impl Read) -> Result<Self, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state = SimplisticPltBlockState::deserial(&mut source)
-            .into_decode_result()?;
+        let state = SimplisticPltBlockState::deserial(&mut source).into_decode_result()?;
 
         Ok(Self {
             block_state: PltBlockState { state },

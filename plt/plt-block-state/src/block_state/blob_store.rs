@@ -32,22 +32,21 @@ impl<T: BackingStoreLoad> BackingStoreLoad for &mut T {
     }
 }
 
-/// A trait implemented by types that can be loaded from a [BackingStoreLoad]
-/// storage.
+/// A trait implemented by types that can be loaded from a [backing store](BackingStoreLoad).
 pub trait Loadable: Sized {
-    /// Load value from the given backing store `source` bytes. If the value is a blob reference type,
-    /// or contains nested blob references, these should not have their values loaded (they may
-    /// be loaded by further operations on the returned value, like caching). As such,
-    /// `load` is a "shallow" operation.
+    /// Load value from the given `source` bytes that has been retrieved from the backing store.
+    /// If the value is composed of [`BlobReference`]s, these references should not
+    /// have their values loaded into memory as a result of the [`Self::load`] operation.
+    /// As such, [`Self::load`] is a "shallow" operation.
     fn load(source: impl Read) -> Result<Self, DecodeError>;
 }
 
-/// A trait implemented by types that can be stored to a [BackingStoreStore]
-/// storage.
+/// A trait implemented by types that can be stored to a [backing store](BackingStoreStore).
 pub trait Storable {
-    /// Store the value in the given backing store `buffer`.
-    /// Notice that when storing the value, it must recursively store all values pointed to by
-    /// nested blob references, if not already stored, in order to store itself.
+    /// Store the value in the given `buffer` that will be written to the backing store.
+    /// Notice that when storing the value, the operation must recursively store all
+    /// values pointed to by the [`BlobReference`]s the value may be composed of,
+    /// if these values are not already represented in the backing store.
     /// As such, `store` is a "deep" operation.
     fn store(&self, buffer: impl Buffer, storer: impl BackingStoreStore);
 }
@@ -59,9 +58,8 @@ impl<T: Storable> Storable for &T {
 }
 
 /// Load value from the backing store at the given `location`. The value will
-/// not recursively load values pointed to by nested blob references. Nested blob
-/// references in the value will be loaded by when explicitly requested by
-/// further operations (like caching) on the returned value.
+/// not recursively load values pointed to by [`BlobReference`]s the value
+/// may be composed of as part of this operation.
 pub fn load_from_store<T: Loadable>(
     mut loader: impl BackingStoreLoad,
     location: BlobReference,
@@ -80,7 +78,8 @@ pub fn load_from_store<T: Loadable>(
 
 /// Store the value in the backing store, and return the reference to the stored value.
 /// Notice that when storing the value, it will recursively store all values pointed to by
-/// nested blob references, if not already stored, in order to store itself.
+/// [`BlobReference`]s it may be composed of, if these values are not already represented
+/// in the backing store.
 pub fn store_to_store(
     mut storer: impl BackingStoreStore,
     storable: impl Storable,
@@ -89,29 +88,6 @@ pub fn store_to_store(
     storable.store(&mut buffer, &mut storer);
     storer.store_raw(buffer)
 }
-
-// todo ar2 remove impls
-
-// /// Adapter that stores its value into the backing store by plain serialization
-// /// of the value.
-// pub struct StoreSerialized<T>(pub T);
-//
-// impl<T: Serial> Storable for StoreSerialized<T> {
-//     fn store(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
-//         self.0.serial(&mut buffer);
-//     }
-// }
-//
-// /// Adapter that loads its value from the backing store via plain serialization
-// /// of the value.
-// pub struct LoadSerialized<T>(pub T);
-//
-// impl<T: Deserial> Loadable for LoadSerialized<T> {
-//     fn load(mut source: impl Read) -> Result<Self, DecodeError> {
-//         let value = T::deserial(&mut source).map_err(|err| DecodeError::Decode(err.to_string()))?;
-//         Ok(Self(value))
-//     }
-// }
 
 /// An error that may occur when loading data from persistent storage.
 #[derive(Debug, thiserror::Error)]
