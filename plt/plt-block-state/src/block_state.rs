@@ -19,8 +19,10 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
 use std::collections::BTreeMap;
+use crate::block_state::types::reference::BlobReference;
 
 pub mod blob_store;
+pub mod hash;
 pub mod external;
 pub mod types;
 
@@ -79,7 +81,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Store a PLT block state in a blob store.
-    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
+    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> BlobReference {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let block_state_bytes = common::to_bytes(&self.block_state.state);
         storer.store_raw(&block_state_bytes)
@@ -109,7 +111,7 @@ impl PltBlockStateSavepoint {
 
 impl blob_store::Loadable for PltBlockStateSavepoint {
     fn load(
-        _loader: &mut impl BackingStoreLoad,
+        _loader: impl BackingStoreLoad,
         source: impl AsRef<[u8]>,
     ) -> Result<Self, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
