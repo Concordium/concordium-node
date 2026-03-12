@@ -458,11 +458,11 @@ impl Eq for Connection {}
 impl fmt::Display for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let target = if let Some(id) = self.remote_id() {
-            format!("peer {}", id)
+            format!("peer {id}")
         } else {
             self.remote_addr().to_string()
         };
-        write!(f, "{}", target)
+        write!(f, "{target}")
     }
 }
 

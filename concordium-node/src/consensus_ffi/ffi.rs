@@ -2161,7 +2161,7 @@ impl ConsensusContainer {
 
         (
             ConsensusFfiResponse::try_from(result)
-                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {code}"))
                 .check_consistent(),
             callback,
         )
@@ -2174,7 +2174,7 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let result = unsafe { executeBlock(consensus, execute_block_callback) };
         ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {code}"))
             .check_consistent()
     }
 
@@ -2199,7 +2199,7 @@ impl ConsensusContainer {
         };
 
         let return_code = ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {code}"))
             .check_consistent();
         if return_code == ConsensusFfiResponse::Success {
             (Some(out_hash.into()), return_code)
@@ -2260,7 +2260,7 @@ impl ConsensusContainer {
         };
 
         ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {code}"))
             .check_consistent()
     }
 

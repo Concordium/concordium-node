@@ -21,8 +21,7 @@ fn main() -> std::io::Result<()> {
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
     // Compile the flatbuffers schema
     println!(
-        "cargo:rerun-if-changed={}/src/network/serialization/schema.fbs",
-        cargo_dir
+        "cargo:rerun-if-changed={cargo_dir}/src/network/serialization/schema.fbs"
     );
     flatc_rust::run(flatc_rust::Args {
         inputs: &[Path::new("src/network/serialization/schema.fbs")],
@@ -33,7 +32,7 @@ fn main() -> std::io::Result<()> {
 
     // Build GRPC
 
-    let proto_root_input = format!("{}/../concordium-base/concordium-grpc-api", cargo_dir);
+    let proto_root_input = format!("{cargo_dir}/../concordium-base/concordium-grpc-api");
 
     #[cfg(not(feature = "static"))]
     {
@@ -64,10 +63,10 @@ fn main() -> std::io::Result<()> {
             // below.
             if let Ok(root) = env::var("CONCORDIUM_HASKELL_ROOT") {
                 if let Err(e) = std::fs::read_dir(&root) {
-                    println!("Cannot read CONCORDIUM_HASKELL_ROOT: {}", e);
+                    println!("Cannot read CONCORDIUM_HASKELL_ROOT: {e}");
                     return Err(e);
                 }
-                println!("cargo:rustc-link-search=native={}", root);
+                println!("cargo:rustc-link-search=native={root}");
                 println!("cargo:rustc-link-lib=dylib=concordium-consensus");
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-consensus-0.1.0.0");
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
@@ -115,11 +114,11 @@ fn main() -> std::io::Result<()> {
                             .unwrap()
                             .strip_prefix("lib")
                             .unwrap();
-                        println!("cargo:rustc-link-lib=dylib={}", name);
+                        println!("cargo:rustc-link-lib=dylib={name}");
                     }
                 }
                 if let Ok(ref extra_libs_path) = env::var("EXTRA_LIBS_PATH").as_ref() {
-                    println!("cargo:rustc-link-search=native={}", extra_libs_path);
+                    println!("cargo:rustc-link-search=native={extra_libs_path}");
                 }
                 let ghc_lib_dir = link_ghc_libs()?;
                 let lib_path = if cfg!(target_os = "linux") {
@@ -150,15 +149,14 @@ fn main() -> std::io::Result<()> {
 // GRPC2 interface.
 fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     {
-        let types = format!("{}/v2/concordium/types.proto", proto_root_input);
-        println!("cargo:rerun-if-changed={}", types);
+        let types = format!("{proto_root_input}/v2/concordium/types.proto");
+        println!("cargo:rerun-if-changed={types}");
         let plts = format!(
-            "{}/v2/concordium/protocol-level-tokens.proto",
-            proto_root_input
+            "{proto_root_input}/v2/concordium/protocol-level-tokens.proto"
         );
-        println!("cargo:rerun-if-changed={}", plts);
-        let kernel = format!("{}/v2/concordium/kernel.proto", proto_root_input);
-        println!("cargo:rerun-if-changed={}", kernel);
+        println!("cargo:rerun-if-changed={plts}");
+        let kernel = format!("{proto_root_input}/v2/concordium/kernel.proto");
+        println!("cargo:rerun-if-changed={kernel}");
         prost_build::compile_protos(&[kernel, plts, types], &[proto_root_input])?;
     }
 
@@ -784,7 +782,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         .compile(&[query_service]);
 
     {
-        let health = format!("{}/v2/concordium/health.proto", proto_root_input);
+        let health = format!("{proto_root_input}/v2/concordium/health.proto");
         let descriptor_path =
             std::path::PathBuf::from(env::var("OUT_DIR").unwrap()).join("health_descriptor.bin");
         // build the health service with reflection support
@@ -796,7 +794,7 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             .expect("Failed to compile gRPC health definitions!");
     }
     {
-        let grpc_health_v1 = format!("{}/grpc/health/v1/health.proto", proto_root_input);
+        let grpc_health_v1 = format!("{proto_root_input}/grpc/health/v1/health.proto");
         let descriptor_path = std::path::PathBuf::from(env::var("OUT_DIR").unwrap())
             .join("grpc_health_v1_descriptor.bin");
         // build the health service with reflection support
@@ -847,7 +845,7 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
         if file_stem.starts_with(&rts_variant) {
             if let Some(true) = item.path().extension().map(|ext| ext == DYLIB_EXTENSION) {
                 let lib_name = file_stem.strip_prefix("lib").unwrap();
-                println!("cargo:rustc-link-lib=dylib={}", lib_name);
+                println!("cargo:rustc-link-lib=dylib={lib_name}");
             }
         }
     }
@@ -922,8 +920,7 @@ fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> 
         Some(path) => Ok(path),
         None => {
             eprintln!(
-                "No subdirectory in {:?} with prefix {}",
-                stack_install_lib, GHC_VARIANT
+                "No subdirectory in {stack_install_lib:?} with prefix {GHC_VARIANT}"                
             );
             Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,

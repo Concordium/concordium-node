@@ -76,7 +76,7 @@ impl TryFrom<u8> for PacketType {
         PACKET_TYPE_FROM_INT
             .get(value as usize)
             .copied()
-            .context(format! {"Unsupported packet type ({})", value})
+            .context(format! {"Unsupported packet type ({value})"})
     }
 }
 
@@ -90,7 +90,7 @@ impl fmt::Display for PacketType {
             PacketType::CatchUpStatus => "catch-up status message",
         };
 
-        write!(f, "{}", name)
+        write!(f, "{name}")
     }
 }
 
@@ -443,9 +443,9 @@ impl ConsensusQueryResponse {
     pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
             Self::InvalidArgument => Err(tonic::Status::invalid_argument("Invalid argument.")),
-            Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}. Please report this bug at https://github.com/Concordium/concordium-node/issues.", msg))),
+            Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {msg}. Please report this bug at https://github.com/Concordium/concordium-node/issues."))),
             Self::Ok => Ok(()),
-            Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
+            Self::NotFound => Err(tonic::Status::not_found(format!("{msg} not found."))),
             Self::Unavailable => Err(tonic::Status::unavailable("The service is not available at the current protocol version.")),
             Self::FutureEpoch => Err(tonic::Status::unavailable("Future epoch.")),
         }

@@ -447,7 +447,7 @@ fn send_consensus_msg_to_net(
 
     if sent > 0 {
         let target_desc = if let Some(id) = target_id {
-            format!("direct message to peer {}", id)
+            format!("direct message to peer {id}")
         } else {
             "broadcast".to_string()
         };

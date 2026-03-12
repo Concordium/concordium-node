@@ -253,7 +253,7 @@ pub mod types {
 
         fn try_from(value: InitName) -> Result<Self, Self::Error> {
             Self::new(value.value).map_err(|e| {
-                tonic::Status::invalid_argument(format!("Invalid contract init name: {}", e))
+                tonic::Status::invalid_argument(format!("Invalid contract init name: {e}"))
             })
         }
     }
@@ -263,7 +263,7 @@ pub mod types {
 
         fn try_from(value: ReceiveName) -> Result<Self, Self::Error> {
             Self::new(value.value).map_err(|e| {
-                tonic::Status::invalid_argument(format!("Invalid contract receive name: {}", e))
+                tonic::Status::invalid_argument(format!("Invalid contract receive name: {e}"))
             })
         }
     }
@@ -273,7 +273,7 @@ pub mod types {
 
         fn try_from(value: Parameter) -> Result<Self, Self::Error> {
             Self::try_from(value.value)
-                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid parameter: {}", e)))
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid parameter: {e}")))
         }
     }
 
@@ -298,7 +298,7 @@ pub mod types {
 
         fn try_from(value: RegisteredData) -> Result<Self, Self::Error> {
             value.value.try_into().map_err(|e| {
-                tonic::Status::invalid_argument(format!("Invalid register data payload: {}", e))
+                tonic::Status::invalid_argument(format!("Invalid register data payload: {e}"))
             })
         }
     }
@@ -2703,8 +2703,7 @@ pub mod server {
             match self.node.close() {
                 Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
                 Err(e) => Err(tonic::Status::internal(format!(
-                    "Unable to shutdown server {}.",
-                    e
+                    "Unable to shutdown server {e}."
                 ))),
             }
         }
@@ -2808,13 +2807,11 @@ pub mod server {
                 Ok(ip_addr) => match self.node.drop_by_ip_and_ban(ip_addr) {
                     Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
                     Err(e) => Err(tonic::Status::internal(format!(
-                        "Could not ban peer {}.",
-                        e
+                        "Could not ban peer {e}."
                     ))),
                 },
                 Err(e) => Err(tonic::Status::invalid_argument(format!(
-                    "Invalid IP address provided {}",
-                    e
+                    "Invalid IP address provided {e}"
                 ))),
             }
         }
@@ -2838,14 +2835,12 @@ pub mod server {
                     match self.node.unban_node(banned_id) {
                         Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
                         Err(e) => Err(tonic::Status::internal(format!(
-                            "Could not unban peer {}.",
-                            e
+                            "Could not unban peer {e}."
                         ))),
                     }
                 }
                 Err(e) => Err(tonic::Status::invalid_argument(format!(
-                    "Invalid IP address {}.",
-                    e
+                    "Invalid IP address {e}."
                 ))),
             }
         }
@@ -3193,8 +3188,7 @@ pub mod server {
                     Err(tonic::Status::new(
                         tonic::Code::Internal,
                         format!(
-                            "Couldn't put a transaction in the outbound queue due to {:?}",
-                            e
+                            "Couldn't put a transaction in the outbound queue due to {e:?}"
                         ),
                     ))
                 }

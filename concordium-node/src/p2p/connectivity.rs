@@ -487,7 +487,7 @@ pub fn connect(
         "Attempting to connect to {}{}",
         peer_addr,
         if let Some(id) = peer_id {
-            format!(" ({})", id)
+            format!(" ({id})")
         } else {
             "".to_owned()
         }
