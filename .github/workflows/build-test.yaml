@@ -98,7 +98,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: "1.83"
+        - rust: "1.85"
 
     steps:
     - name: Checkout
@@ -132,7 +132,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: 1.83
+        - rust: 1.85
           ghc: 9.10.2
 
     steps:
