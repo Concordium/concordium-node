@@ -440,6 +440,7 @@ pub enum ConsensusQueryResponse {
 impl ConsensusQueryResponse {
     /// Convert the response to a [Result]. The concrete type makes it
     /// convenient to use in the implementations of the different queries.
+    #[expect(clippy::result_large_err)]
     pub fn ensure_ok(self, msg: impl std::fmt::Display) -> Result<(), tonic::Status> {
         match self {
             Self::InvalidArgument => Err(tonic::Status::invalid_argument("Invalid argument.")),

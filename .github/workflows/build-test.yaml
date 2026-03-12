@@ -53,7 +53,6 @@ on:
 env:
   dummy: 17                # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
-  RUST_VERSION: 1.86
   GHC_VERSION: 9.10.2
 
 jobs:
@@ -100,16 +99,9 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: ${{ env.RUST_VERSION }}
-        override: true
-        components: rustfmt
-
     - name: Run rustfmt
       run: |
+        rustup component add rustfmt        
         cargo fmt --manifest-path concordium-node/Cargo.toml -- --check
         cargo fmt --manifest-path collector-backend/Cargo.toml -- --check
         cargo fmt --manifest-path collector/Cargo.toml -- --check
@@ -146,19 +138,20 @@ jobs:
     # This must be done before checking the Rust sources (obviously)
     # but also before building the Haskell sources because the Haskell
     # build kicks of a Rust build.
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: ${{ env.RUST_VERSION }}
-        override: true
-        components: clippy, llvm-tools
-        target: x86_64-pc-windows-gnu
-    # Install tool for code coverage reporting.
-    # Version cargo-llvm-cov 0.6.22 requries Rust 1.87, so we use 0.6.21 for now
-    - name: Install cargo-llvm-cov
+    - name: Install Rust tools
+      working-directory: plt
       run: |
-        cargo install cargo-llvm-cov --version 0.6.21 --locked
+        rustup component add clippy llvm-tools
+        rustup target add x86_64-pc-windows-gnu
+        cargo install cargo-llvm-cov --locked
+    - name: Read Rust version
+      id: read-rust-version
+      run: |
+        echo "RUST_VERSION=$(cargo --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+    - name: Print Rust version
+      id: print-rust-version
+      run: |
+        echo "Rust version: ${{ steps.read-rust-version.outputs.RUST_VERSION }}"
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
       with:
@@ -171,10 +164,10 @@ jobs:
           concordium-base/smart-contracts/lib
           concordium-node/target
           collector/target
-        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}-${{ hashFiles('concordium-base/rust-src/**/*.rs','concordium-base/smart-contracts/wasm-chain-integration/**/*.rs')}}
+        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ steps.read-rust-version.outputs.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}-${{ hashFiles('concordium-base/rust-src/**/*.rs','concordium-base/smart-contracts/wasm-chain-integration/**/*.rs')}}
         restore-keys: |
-          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ env.RUST_VERSION }}
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ steps.read-rust-version.outputs.RUST_VERSION }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ steps.read-rust-version.outputs.RUST_VERSION }}
 
     # HASKELL #
 
