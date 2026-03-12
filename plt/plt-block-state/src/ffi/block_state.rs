@@ -2,9 +2,12 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::types::blob_reference::BlobReference;
+
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
+use crate::block_state::blob_reference::BlobReference;
+use crate::block_state::hash::Hashable;
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
+use crate::block_state::bufferable::Bufferable;
 
 /// Allocate a new empty PLT block state and returns it.
 ///
@@ -158,5 +161,5 @@ extern "C" fn ffi_cache_plt_block_state(
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
-    block_state.cache(&mut load_callback)
+    block_state.buffer_blob_references(&mut load_callback)
 }

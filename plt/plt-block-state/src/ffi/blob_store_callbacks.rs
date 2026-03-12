@@ -1,6 +1,5 @@
-use crate::block_state::blob_store;
+use crate::block_state::blob_reference::BlobReference;
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
-use crate::block_state::types::blob_reference::BlobReference;
 use libc::size_t;
 use std::mem;
 

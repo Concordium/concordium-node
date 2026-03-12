@@ -1,10 +1,9 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{
-    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, Storable,
-};
+use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable};
+use crate::block_state::bufferable::Bufferable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::types::blob_reference::BlobReference;
+use crate::block_state::hash::{Hashable, };
 use crate::block_state::types::{
     AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
     TokenStateValue,
@@ -24,7 +23,9 @@ use sha2::Digest;
 use std::collections::BTreeMap;
 use std::io::Read;
 
+pub mod blob_reference;
 pub mod blob_store;
+pub mod bufferable;
 pub mod external;
 pub mod hash;
 pub mod types;
@@ -62,8 +63,52 @@ impl PltBlockStateSavepoint {
         }
     }
 
-    /// Compute the hash.
-    pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
+    /// Migrate the PLT block state from one blob store to another.
+    pub fn migrate(
+        &self,
+        _loader: &mut impl BackingStoreLoad,
+        _storer: &mut impl BackingStoreStore,
+    ) -> Self {
+        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        todo!()
+    }
+
+    /// Construct a mutable block state which can be mutated without affecting this
+    /// save-point.
+    pub fn mutable_state(&self) -> PltBlockState {
+        self.block_state.clone()
+    }
+}
+
+impl Loadable for PltBlockStateSavepoint {
+    fn load(mut source: impl Read) -> Result<Self, DecodeError> {
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        let state = SimplisticPltBlockState::deserial(&mut source)
+            .into_decode_result()?;
+
+        Ok(Self {
+            block_state: PltBlockState { state },
+        })
+    }
+}
+
+impl Storable for PltBlockStateSavepoint {
+    fn store(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        self.block_state.state.serial(&mut buffer);
+    }
+}
+
+impl Bufferable for PltBlockStateSavepoint {
+    fn buffer_blob_references(&self, _loader: impl BackingStoreLoad) {
+        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+    }
+}
+
+impl Hashable for PltBlockStateSavepoint {
+    type Hash = PltBlockStateHash;
+
+    fn hash(&self, _loader: impl BackingStoreLoad) -> Self::Hash {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         if self.block_state.state.tokens.is_empty() {
             // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
@@ -81,46 +126,6 @@ impl PltBlockStateSavepoint {
                 &block_state_bytes,
             )))
         }
-    }
-
-    /// Migrate the PLT block state from one blob store to another.
-    pub fn migrate(
-        &self,
-        _loader: &mut impl BackingStoreLoad,
-        _storer: &mut impl BackingStoreStore,
-    ) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        todo!()
-    }
-
-    /// Cache the block state in memory.
-    pub fn cache(&self, _loader: &mut impl BackingStoreLoad) {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-    }
-
-    /// Construct a mutable block state which can be mutated without affecting this
-    /// save-point.
-    pub fn mutable_state(&self) -> PltBlockState {
-        self.block_state.clone()
-    }
-}
-
-impl Loadable for PltBlockStateSavepoint {
-    fn load(mut source: impl Read) -> Result<Self, DecodeError> {
-        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state = SimplisticPltBlockState::deserial(&mut source)
-            .map_err(|err| DecodeError::Decode(err.to_string()))?;
-
-        Ok(Self {
-            block_state: PltBlockState { state },
-        })
-    }
-}
-
-impl Storable for PltBlockStateSavepoint {
-    fn store(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
-        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        self.block_state.state.serial(&mut buffer);
     }
 }
 

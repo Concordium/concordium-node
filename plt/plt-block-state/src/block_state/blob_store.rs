@@ -1,7 +1,8 @@
-use crate::block_state::types::blob_reference::BlobReference;
-use concordium_base::common::{Buffer, Deserial, Serial};
+use crate::block_state::blob_reference::BlobReference;
+use concordium_base::common;
+use concordium_base::common::Buffer;
 use std::any;
-use std::io::{Read, Write};
+use std::io::Read;
 
 /// Trait implemented by types that can be used to store binary data, and return
 /// a handle for loading data. Dual to [`BackingStoreLoad`].
@@ -36,7 +37,8 @@ impl<T: BackingStoreLoad> BackingStoreLoad for &mut T {
 pub trait Loadable: Sized {
     /// Load value from the given backing store `source` bytes. If the value is a blob reference type,
     /// or contains nested blob references, these should not have their values loaded (they may
-    /// be loaded by further operations on the returned value, like caching).
+    /// be loaded by further operations on the returned value, like caching). As such,
+    /// `load` is a "shallow" operation.
     fn load(source: impl Read) -> Result<Self, DecodeError>;
 }
 
@@ -46,6 +48,7 @@ pub trait Storable {
     /// Store the value in the given backing store `buffer`.
     /// Notice that when storing the value, it must recursively store all values pointed to by
     /// nested blob references, if not already stored, in order to store itself.
+    /// As such, `store` is a "deep" operation.
     fn store(&self, buffer: impl Buffer, storer: impl BackingStoreStore);
 }
 
@@ -63,7 +66,7 @@ pub fn load_from_store<T: Loadable>(
     mut loader: impl BackingStoreLoad,
     location: BlobReference,
 ) -> Result<T, DecodeError> {
-    let mut bytes = loader.load_raw(location);
+    let bytes = loader.load_raw(location);
     let mut bytes_slice = bytes.as_slice();
     let value = T::load(&mut bytes_slice)?;
     if !bytes_slice.is_empty() {
@@ -115,4 +118,14 @@ pub fn store_to_store(
 pub enum DecodeError {
     #[error("{0}")]
     Decode(String),
+}
+
+pub trait ParseResultExt<T> {
+    fn into_decode_result(self) -> Result<T, DecodeError>;
+}
+
+impl<T> ParseResultExt<T> for common::ParseResult<T> {
+    fn into_decode_result(self) -> Result<T, DecodeError> {
+        self.map_err(|err| DecodeError::Decode(err.to_string()))
+    }
 }

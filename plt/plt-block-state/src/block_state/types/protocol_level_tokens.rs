@@ -1,5 +1,4 @@
 use concordium_base::common::Serialize;
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
