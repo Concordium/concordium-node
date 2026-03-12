@@ -36,8 +36,6 @@ pub struct TokenAccountState {
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;
 
-
-
 #[cfg(test)]
 mod test {
     use super::*;

@@ -1,13 +1,10 @@
 //! Types used specifically in the block state.
 
 // todo ar restructure
+pub mod blob_reference;
 mod protocol_level_tokens;
-pub mod reference;
-
 
 pub use protocol_level_tokens::*;
-
-
 
 use concordium_base::common::Serialize;
 use concordium_base::contracts_common::AccountAddress;

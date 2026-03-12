@@ -2,7 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::types::reference::BlobReference;
+use crate::block_state::types::blob_reference::BlobReference;
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
@@ -82,7 +82,7 @@ extern "C" fn ffi_load_plt_block_state(
     blob_ref: BlobReference,
 ) -> *mut PltBlockStateSavepoint {
     // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state = blob_store::Loadable::load(&mut load_callback, blob_ref).unwrap();
+    let block_state = blob_store::load_from_store(&mut load_callback, blob_ref).unwrap();
     Box::into_raw(Box::new(block_state))
 }
 
@@ -106,7 +106,7 @@ extern "C" fn ffi_store_plt_block_state(
 ) -> BlobReference {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
-    block_state.store_update(&mut store_callback)
+    blob_store::store_to_store(&mut store_callback, block_state)
 }
 
 /// Migrate the PLT block state from one blob store to another and return the migrated state.

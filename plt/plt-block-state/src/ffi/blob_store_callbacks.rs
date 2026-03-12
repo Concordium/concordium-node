@@ -1,8 +1,8 @@
 use crate::block_state::blob_store;
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
+use crate::block_state::types::blob_reference::BlobReference;
 use libc::size_t;
 use std::mem;
-use crate::block_state::types::reference::BlobReference;
 
 /// A [loader](BackingStoreLoad) implemented by an external function.
 /// This is the dual to [`StoreCallback`].
@@ -18,8 +18,9 @@ pub type LoadCallback = extern "C" fn(BlobReference) -> *mut Vec<u8>;
 pub type StoreCallback = extern "C" fn(data: *const u8, len: size_t) -> BlobReference;
 
 impl BackingStoreStore for StoreCallback {
-    fn store_raw(&mut self, data: &[u8]) -> BlobReference {
-        self(data.as_ptr(), data.len())
+    fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobReference {
+        let data_ref = data.as_ref();
+        self(data_ref.as_ptr(), data_ref.len())
     }
 }
 

@@ -1,7 +1,10 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
+use crate::block_state::blob_store::{
+    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, Storable,
+};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::block_state::types::blob_reference::BlobReference;
 use crate::block_state::types::{
     AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
     TokenStateValue,
@@ -12,18 +15,18 @@ use crate::block_state_interface::{
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
-use concordium_base::common::Serialize;
+use concordium_base::common::{Buffer, Deserial, Serial, Serialize};
 use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
 use std::collections::BTreeMap;
-use crate::block_state::types::reference::BlobReference;
+use std::io::Read;
 
 pub mod blob_store;
-pub mod hash;
 pub mod external;
+pub mod hash;
 pub mod types;
 
 /// Account with given address does not exist
@@ -80,13 +83,6 @@ impl PltBlockStateSavepoint {
         }
     }
 
-    /// Store a PLT block state in a blob store.
-    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> BlobReference {
-        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let block_state_bytes = common::to_bytes(&self.block_state.state);
-        storer.store_raw(&block_state_bytes)
-    }
-
     /// Migrate the PLT block state from one blob store to another.
     pub fn migrate(
         &self,
@@ -109,18 +105,22 @@ impl PltBlockStateSavepoint {
     }
 }
 
-impl blob_store::Loadable for PltBlockStateSavepoint {
-    fn load(
-        _loader: impl BackingStoreLoad,
-        source: impl AsRef<[u8]>,
-    ) -> Result<Self, DecodeError> {
+impl Loadable for PltBlockStateSavepoint {
+    fn load(mut source: impl Read) -> Result<Self, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state: SimplisticPltBlockState = common::from_bytes_complete(source)
+        let state = SimplisticPltBlockState::deserial(&mut source)
             .map_err(|err| DecodeError::Decode(err.to_string()))?;
 
         Ok(Self {
             block_state: PltBlockState { state },
         })
+    }
+}
+
+impl Storable for PltBlockStateSavepoint {
+    fn store(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        self.block_state.state.serial(&mut buffer);
     }
 }
 
