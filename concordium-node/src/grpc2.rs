@@ -491,6 +491,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl TryFrom<AccountTransactionSignature> for concordium_base::common::types::TransactionSignature {
         type Error = tonic::Status;
 
@@ -520,6 +521,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl TryFrom<AccountTransactionV1Signatures>
         for concordium_base::common::types::TransactionSignaturesV1
     {
@@ -534,6 +536,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl TryFrom<SignatureMap> for concordium_base::updates::UpdateInstructionSignature {
         type Error = tonic::Status;
 
@@ -553,6 +556,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl SendBlockItemRequest {
         /// Return the Versioned block item serialized in the V0 format.
         pub(crate) fn get_v0_format(self) -> Result<Vec<u8>, tonic::Status> {
@@ -1650,6 +1654,7 @@ pub mod server {
     }
 
     #[async_trait]
+    #[expect(clippy::result_large_err)]
     impl service::queries_server::Queries for RpcServerImpl {
         /// Return type for the 'DryRun' method.
         type DryRunStream = std::pin::Pin<Box<DryRunStream>>;
@@ -3436,6 +3441,7 @@ pub mod server {
     }
 }
 
+#[expect(clippy::result_large_err)]
 /// Add a block hash to the metadata of a response. Used for returning the block
 /// hash.
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
