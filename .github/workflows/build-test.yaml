@@ -142,6 +142,7 @@ jobs:
       working-directory: plt
       run: |
         rustup component add clippy llvm-tools
+        rustup target add x86_64-pc-windows-gnu
         cargo install cargo-llvm-cov --locked
     - name: Read Rust version
       id: read-rust-version
