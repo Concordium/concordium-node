@@ -35,7 +35,7 @@ pub mod types {
         pub mod plt {
             include!(concat!(env!("OUT_DIR"), "/concordium.v2.plt.rs"));
         }
-        
+
         include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
     }
     pub use concordium_v2_wrapper::*;
