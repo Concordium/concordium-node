@@ -15,9 +15,21 @@ pub trait IntoPureHash {
     fn into_pure(self) -> Hash;
 }
 
+/// Implemented by types that are marked hashes `HashBytes<Purpose>`,
+/// but can be converted from a "pure", unmarked [hash](Hash)
+pub trait FromPureHash {
+    fn from_pure(hash: Hash) -> Self;
+}
+
 impl<Purpose> IntoPureHash for HashBytes<Purpose> {
     fn into_pure(self) -> Hash {
         Hash::from(self.bytes)
+    }
+}
+
+impl<Purpose> FromPureHash for HashBytes<Purpose> {
+    fn from_pure(hash: Hash) -> Self {
+        HashBytes::from(hash.bytes)
     }
 }
 
@@ -25,7 +37,7 @@ impl<Purpose> IntoPureHash for HashBytes<Purpose> {
 /// to load values from the backing store to calculate the hash.
 pub trait Hashable {
     /// Type of the hash. Must be convertible into a "pure" hash.
-    type Hash: IntoPureHash + Debug + Copy;
+    type Hash: IntoPureHash + FromPureHash + Debug + Copy;
 
     /// Calculate hash of value. The given backing store `loader` can be used
     /// to load values pointed to by [`BlobReference`](super::blob_reference::BlobReference)s

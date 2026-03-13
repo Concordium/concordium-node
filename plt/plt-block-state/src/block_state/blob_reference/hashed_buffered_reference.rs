@@ -4,8 +4,9 @@ use crate::block_state::blob_store::{
     BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
 };
 use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::Hashable;
+use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
 use concordium_base::common::{Buffer, Deserial, Serial};
+use concordium_base::hashes::Hash;
 use std::io::Read;
 use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 
@@ -28,11 +29,11 @@ use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 /// The hash of the represented is calculated lazily when needed, and cached
 /// via interior mutability.
 #[derive(Debug)]
-pub struct HashedCacheableRef<V: Hashable> {
+pub struct HashedCacheableRef<V> {
     inner: Link<HashedBufferedRefImpl<V>>,
 }
 
-impl<V: Hashable> HashedCacheableRef<V> {
+impl<V> HashedCacheableRef<V> {
     /// Create a new value represented in memory.
     pub fn new(value: V) -> Self {
         let inner = HashedBufferedRefImpl {
@@ -84,7 +85,7 @@ impl<V: Hashable> HashedCacheableRef<V> {
     }
 }
 
-impl<V: Hashable> Clone for HashedCacheableRef<V> {
+impl<V> Clone for HashedCacheableRef<V> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -93,9 +94,9 @@ impl<V: Hashable> Clone for HashedCacheableRef<V> {
 }
 
 #[derive(Debug)]
-struct HashedBufferedRefImpl<V: Hashable> {
+struct HashedBufferedRefImpl<V> {
     /// Lazily calculated hash.
-    hash: Option<V::Hash>,
+    hash: Option<Hash>,
     /// The potentially buffered value.
     repr: HashedBufferedRefRepr<V>,
 }
@@ -113,7 +114,7 @@ enum HashedBufferedRefRepr<V> {
     },
 }
 
-impl<V: Hashable + Loadable> Loadable for HashedCacheableRef<V> {
+impl<V: Loadable> Loadable for HashedCacheableRef<V> {
     fn load_from_buffer(mut buffer: impl Read) -> Result<Self, DecodeError> {
         let reference = BlobReference::deserial(&mut buffer).into_decode_result()?;
         let inner = HashedBufferedRefImpl {
@@ -125,7 +126,7 @@ impl<V: Hashable + Loadable> Loadable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Hashable + Storable> Storable for HashedCacheableRef<V> {
+impl<V: Storable> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
         let mut inner = self.inner_mut();
         let reference = match &inner.repr {
@@ -144,7 +145,7 @@ impl<V: Hashable + Storable> Storable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Hashable + Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
+impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
     fn cache_reference_values(&self, mut loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
         let mut inner = self.inner_mut();
         let value = match &inner.repr {
@@ -171,11 +172,11 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
         let mut inner = self.inner_mut();
         Ok(if let Some(hash) = inner.hash {
-            hash
+            Self::Hash::from_pure(hash)
         } else {
             let value = self.get_or_load_value(&mut loader)?;
             let hash = value.hash(loader)?;
-            inner.hash = Some(hash);
+            inner.hash = Some(hash.into_pure());
             hash
         })
     }
