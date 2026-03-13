@@ -40,7 +40,6 @@ find ~/.stack/snapshots/x86_64-linux/ -type f -name "*_p.a" -exec cp {} /target/
 ## they are not needed for the final binaries and can cause linking issues if they contain ruststd symbols
 mkdir -p /target/rust
 cp -r /build/concordium-base/rust-src/target/release/*.a /target/rust/
-cp -r /build/plt/target/release/*.a /target/rust/
 
 find /target /binaries -type f -exec strip --strip-debug {} \;
 
