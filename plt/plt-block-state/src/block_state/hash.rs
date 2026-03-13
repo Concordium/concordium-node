@@ -1,13 +1,8 @@
 use crate::block_state::blob_store::{BackingStoreLoad, DecodeError};
+use concordium_base::common::{Put, Serial};
 use concordium_base::hashes::{Hash, HashBytes};
+use sha2::Digest;
 use std::fmt::Debug;
-
-/// Trait implemented by hashable values, that can be hashed without
-/// loading blob store references.
-pub trait SimpleHashable {
-    /// Calculate hash of value.
-    fn simple_hash(&self) -> Hash;
-}
 
 /// Implemented by types that are marked hashes `HashBytes<Purpose>`,
 /// but can be converted into a "pure", unmarked [hash](Hash)
@@ -48,4 +43,27 @@ pub trait Hashable {
     /// if the hash needs to be calculated again.
     /// As such, the [`Self::hash`] is mixture of a "shallow" and "deep" operation.
     fn hash(&self, loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError>;
+}
+
+impl<T: Serial> Hashable for T {
+    type Hash = Hash;
+
+    fn hash(&self, _loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
+        Ok(hash_of_serialization(self))
+    }
+}
+
+/// Calculate has by digesting the bytes of two hashes.
+pub fn hash_of_hashes(hash1: Hash, hash2: Hash) -> Hash {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(hash1);
+    hasher.update(hash2);
+    Hash::new(hasher.finalize().into())
+}
+
+/// Calculate hash by digesting the serialized bytes of a value.
+pub fn hash_of_serialization(value: impl Serial) -> Hash {
+    let mut hasher = sha2::Sha256::new();
+    hasher.put(value);
+    Hash::new(hasher.finalize().into())
 }

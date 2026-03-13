@@ -3,10 +3,10 @@ use crate::block_state::blob_store;
 use crate::block_state::blob_store::{
     BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
 };
-use crate::block_state::cacheable::{Cacheable, Link};
+use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
-use crate::block_state::utils::OwnedOrBorrowed;
-use concordium_base::common::{Buffer, Deserial, Get, Put, Serial};
+use crate::block_state::utils::{Link, OwnedOrBorrowed};
+use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
 use std::mem;

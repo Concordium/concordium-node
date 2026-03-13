@@ -7,22 +7,19 @@ use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
-    TokenStateValue,
+    AccountWithCanonicalAddress, ProtocolLevelTokens, Token, TokenAccountState, TokenConfiguration,
+    TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
-use concordium_base::common;
 use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};
-use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
-use std::collections::BTreeMap;
 use std::io::Read;
 
 pub mod blob_reference;
@@ -60,6 +57,8 @@ pub struct PltBlockStateSavepoint {
     block_state: PltBlockState,
 }
 
+// todo ar do something about savepoint?
+
 impl PltBlockStateSavepoint {
     /// Initialize a new block state.
     pub fn empty() -> Self {
@@ -88,18 +87,24 @@ impl PltBlockStateSavepoint {
 impl Loadable for PltBlockStateSavepoint {
     fn load_from_buffer(mut source: impl Read) -> Result<Self, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state = source.get().into_decode_result()?;
 
-        Ok(Self {
-            block_state: PltBlockState { state },
-        })
+        todo!() // todo ar
+
+        // let state = source.get().into_decode_result()?;
+        //
+        // Ok(Self {
+        //     block_state: PltBlockState { state },
+        // })
     }
 }
 
 impl Storable for PltBlockStateSavepoint {
     fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        buffer.put(&self.block_state.state);
+
+        todo!() // todo ar
+
+        // buffer.put(&self.block_state.state);
     }
 }
 
@@ -115,38 +120,40 @@ impl Hashable for PltBlockStateSavepoint {
 
     fn hash(&self, _loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        Ok(if self.block_state.state.tokens.is_empty() {
-            // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
-            // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
-            PltBlockStateHash::from(
-                <[u8; SHA256]>::try_from(
-                    hex::decode("c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05")
-                        .unwrap(),
-                )
-                .unwrap(),
-            )
-        } else {
-            let block_state_bytes = common::to_bytes(&self.block_state.state);
-            PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
-                &block_state_bytes,
-            )))
-        })
+
+        todo!() // todo ar
+
+        // Ok(if self.block_state.state.tokens.is_empty() {
+        //     // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
+        //     // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
+        //     PltBlockStateHash::from(
+        //         <[u8; SHA256]>::try_from(
+        //             hex::decode("c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05")
+        //                 .unwrap(),
+        //         )
+        //         .unwrap(),
+        //     )
+        // } else {
+        //     let block_state_bytes = common::to_bytes(&self.block_state.state);
+        //     PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
+        //         &block_state_bytes,
+        //     )))
+        // })
     }
 }
 
 /// Block state providing the various block state operations.
 #[derive(Debug, Clone)]
 pub struct PltBlockState {
-    // todo implement real block state as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
     /// Simplistic state that is used as a temporary implementation of the block state
-    state: SimplisticPltBlockState,
+    tokens: ProtocolLevelTokens,
 }
 
 impl PltBlockState {
     /// Construct an empty block state.
     fn empty() -> Self {
         PltBlockState {
-            state: Default::default(),
+            tokens: ProtocolLevelTokens::empty(),
         }
     }
 
@@ -372,23 +379,4 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
         self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
             token_key_value_state;
     }
-}
-
-/// Simplistic implementation of the block state that serializes as a flat sequence of bytes.
-// todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-#[derive(Debug, Default, Clone, Serialize)]
-struct SimplisticPltBlockState {
-    tokens: Vec<Token>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct Token {
-    key_value_state: SimplisticTokenKeyValueState,
-    configuration: TokenConfiguration,
-    circulating_supply: RawTokenAmount,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct SimplisticTokenKeyValueState {
-    state: BTreeMap<TokenStateKey, TokenStateValue>,
 }

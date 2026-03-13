@@ -1,6 +1,6 @@
 use crate::block_state::blob_reference::BlobReference;
 use concordium_base::common;
-use concordium_base::common::Buffer;
+use concordium_base::common::{Buffer, Deserial, Get, Put, Serial};
 use std::any;
 use std::io::Read;
 
@@ -60,6 +60,18 @@ impl<T: Storable> Storable for &T {
 impl<T: Storable> Storable for &mut T {
     fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
         (**self).store_to_buffer(buffer, storer)
+    }
+}
+
+impl<T: Deserial> Loadable for T {
+    fn load_from_buffer(mut buffer: impl Read) -> Result<Self, DecodeError> {
+        buffer.get().into_decode_result()
+    }
+}
+
+impl<T: Serial> Storable for T {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
+        buffer.put(self);
     }
 }
 
