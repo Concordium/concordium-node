@@ -5,12 +5,11 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
-use assert_matches::assert_matches;
 use concordium_base::common::{Buffer, Deserial, Serial};
 use concordium_base::hashes::Hash;
 use std::borrow::Cow;
 use std::io::Read;
-use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -84,10 +83,10 @@ struct HashedBufferedRefImpl<V> {
 }
 
 impl<V> HashedBufferedRefRepr<V> {
-    /// Load the referenced value. If the value is already in memory, a reference to it is simply
+    /// Load the referenced value and return it. If the value is already in memory, a reference to it is simply
     /// returned. If it is not in memory, it is loaded from the backing storage, and returned as owned.
     /// Loading from the backing storage will not make the value cached in the reference.
-    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<Cow<V>, DecodeError>
+    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<Cow<'_, V>, DecodeError>
     where
         V: Loadable + Clone,
     {
@@ -101,8 +100,8 @@ impl<V> HashedBufferedRefRepr<V> {
         })
     }
 
-    /// Cache the referenced value. If the value is already in memory, a reference to it is simply
-    /// returned. If it is not in memory, it is loaded from the backing storage and cached in the reference first.
+    /// Cache the referenced value and return it. If the value is already in memory, a reference to it is simply
+    /// returned. If it is not in memory, it is loaded from the backing storage and cached in [`HashedBufferedRefRepr::Cache`] first.
     fn get_or_cache_value(&mut self, loader: impl BackingStoreLoad) -> Result<&V, DecodeError>
     where
         V: Loadable,
@@ -125,6 +124,28 @@ impl<V> HashedBufferedRefRepr<V> {
             HashedBufferedRefRepr::Memory { value } => value,
             HashedBufferedRefRepr::Cache { value, .. } => value,
         })
+    }
+
+    /// Store the value and return its [`BlobReference`]. If the value is already stored in the backing store,
+    /// the [`BlobReference`] to it is simply returned. If it is not stored, it is stored into the
+    /// backing storage, and the resulting [`BlobReference`] is saved in [`HashedBufferedRefRepr::Cache`]
+    /// before it is returned.
+    fn get_reference_or_store(&mut self, storer: impl BackingStoreStore) -> BlobReference
+    where
+        V: Storable + Clone,
+    {
+        match self {
+            HashedBufferedRefRepr::Store { reference } => *reference,
+            HashedBufferedRefRepr::Memory { value } => {
+                let reference = blob_store::store_to_store(storer, &*value);
+                *self = HashedBufferedRefRepr::Cache {
+                    reference,
+                    value: value.clone(),
+                };
+                reference
+            }
+            HashedBufferedRefRepr::Cache { reference, .. } => *reference,
+        }
     }
 }
 
@@ -153,18 +174,7 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
 impl<V: Storable + Clone> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
         let mut inner = self.inner_mut();
-        let reference = match &inner.repr {
-            HashedBufferedRefRepr::Store { reference } => *reference,
-            HashedBufferedRefRepr::Memory { value } => {
-                let reference = blob_store::store_to_store(storer, value);
-                inner.repr = HashedBufferedRefRepr::Cache {
-                    reference,
-                    value: value.clone(),
-                };
-                reference
-            }
-            HashedBufferedRefRepr::Cache { reference, .. } => *reference,
-        };
+        let reference = inner.repr.get_reference_or_store(storer);
         reference.serial(&mut buffer);
     }
 }

@@ -14,7 +14,7 @@ pub trait BackingStoreStore {
 
 impl<T: BackingStoreStore> BackingStoreStore for &mut T {
     fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobReference {
-        (*self).store_raw(data)
+        (**self).store_raw(data)
     }
 }
 
@@ -28,7 +28,7 @@ pub trait BackingStoreLoad {
 
 impl<T: BackingStoreLoad> BackingStoreLoad for &mut T {
     fn load_raw(&mut self, location: BlobReference) -> Vec<u8> {
-        (*self).load_raw(location)
+        (**self).load_raw(location)
     }
 }
 
@@ -53,7 +53,13 @@ pub trait Storable {
 
 impl<T: Storable> Storable for &T {
     fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
-        (*self).store_to_buffer(buffer, storer)
+        (**self).store_to_buffer(buffer, storer)
+    }
+}
+
+impl<T: Storable> Storable for &mut T {
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
+        (**self).store_to_buffer(buffer, storer)
     }
 }
 
