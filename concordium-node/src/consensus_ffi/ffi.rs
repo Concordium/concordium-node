@@ -1918,6 +1918,7 @@ impl Drop for DryRun {
     }
 }
 
+#[expect(clippy::result_large_err)]
 impl DryRun {
     /// Load the state of a particular block in the dry-run session, and use its
     /// timestamp as the current timestamp for the session.
@@ -2134,6 +2135,7 @@ impl DryRun {
     }
 }
 
+#[expect(clippy::result_large_err)]
 impl ConsensusContainer {
     pub fn receive_block(
         &self,
