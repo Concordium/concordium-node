@@ -16,7 +16,7 @@ use crate::block_state_interface::{
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
-use concordium_base::common::{Buffer, Deserial, Serial, Serialize};
+use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};
 use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -88,7 +88,7 @@ impl PltBlockStateSavepoint {
 impl Loadable for PltBlockStateSavepoint {
     fn load_from_buffer(mut source: impl Read) -> Result<Self, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state = SimplisticPltBlockState::deserial(&mut source).into_decode_result()?;
+        let state = source.get().into_decode_result()?;
 
         Ok(Self {
             block_state: PltBlockState { state },
@@ -99,7 +99,7 @@ impl Loadable for PltBlockStateSavepoint {
 impl Storable for PltBlockStateSavepoint {
     fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        self.block_state.state.serial(&mut buffer);
+        buffer.put(&self.block_state.state);
     }
 }
 

@@ -6,11 +6,10 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::{Cacheable, Link};
 use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
 use crate::block_state::utils::OwnedOrBorrowed;
-use concordium_base::common::{Buffer, Deserial, Serial};
+use concordium_base::common::{Buffer, Deserial, Get, Put, Serial};
 use concordium_base::hashes::Hash;
 use std::io::Read;
-use std::mem::MaybeUninit;
-use std::{mem, ptr};
+use std::mem;
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -128,10 +127,10 @@ impl<V> HashedBufferedRefRepr<V> {
             HashedBufferedRefRepr::Memory { value } => {
                 let reference = blob_store::store_to_store(storer, &*value);
 
-                /// We need the Memory representation owned, in order to move the value out of
-                /// it and into the Cache representation. In order to achieve this,
-                /// we write an intermediate representation Store to self.
-                /// It is done this way to avoid cloning the value.
+                // We need the Memory representation owned, in order to move the value out of
+                // it and into the Cache representation. In order to achieve this,
+                // we write an intermediate representation Store to self.
+                // It is done this way to avoid cloning the value.
                 let mut old_repr = HashedBufferedRefRepr::Store { reference };
                 mem::swap(&mut old_repr, self);
                 let HashedBufferedRefRepr::Memory { value } = old_repr else {
@@ -158,7 +157,7 @@ enum HashedBufferedRefRepr<V> {
 
 impl<V: Loadable> Loadable for HashedCacheableRef<V> {
     fn load_from_buffer(mut buffer: impl Read) -> Result<Self, DecodeError> {
-        let reference = BlobReference::deserial(&mut buffer).into_decode_result()?;
+        let reference = buffer.get().into_decode_result()?;
         let inner = HashedBufferedRefImpl {
             hash: None,
             repr: HashedBufferedRefRepr::Store { reference },
@@ -172,7 +171,7 @@ impl<V: Storable> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
         let mut inner = self.inner.write();
         let reference = inner.repr.get_reference_or_store(storer);
-        reference.serial(&mut buffer);
+        buffer.put(reference);
     }
 }
 
