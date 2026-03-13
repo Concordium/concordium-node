@@ -112,6 +112,11 @@ pub trait TokenKernelQueries {
     fn support_rbac(&self) -> bool {
         self.protocol_version() >= ProtocolVersion::P11
     }
+
+    /// Query whether to support updating metadata operations.
+    fn support_updating_metadata(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
 }
 
 /// Operations provided by the token kernel. All operations are in context of

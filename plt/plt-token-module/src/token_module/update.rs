@@ -5,17 +5,18 @@ use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
-    MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
-    TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
-    TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleRejectReason, TokenOperation,
-    TokenPauseEventDetails, TokenSupplyUpdateDetails, TokenTransfer,
-    UnsupportedOperationRejectReason,
+    MetadataUrl, MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
+    TokenAdminRole, TokenBalanceInsufficientRejectReason, TokenListUpdateDetails,
+    TokenListUpdateEventDetails, TokenModuleCborTypeDiscriminator, TokenModuleEvent,
+    TokenModuleRejectReason, TokenOperation, TokenPauseEventDetails, TokenSupplyUpdateDetails,
+    TokenTransfer, TokenUpdateAdminRolesDetails, TokenUpdateAdminRolesEventDetails,
+    TokenUpdateMetadataEventDetails, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::block_state::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenMintError, TokenStateInvariantError, TokenTransferError,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
 use plt_scheduler_interface::transaction_execution_interface::{
     OutOfEnergyError, TransactionExecution,
@@ -215,6 +216,9 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
         TokenOperation::RemoveDenyList(_) => "removeDenyList",
         TokenOperation::Pause(_) => "pause",
         TokenOperation::Unpause(_) => "unpause",
+        TokenOperation::AssignAdminRoles(_) => "assignAdminRoles",
+        TokenOperation::RevokeAdminRoles(_) => "revokeAdminRoles",
+        TokenOperation::UpdateMetadata(_) => "updateMetadata",
     }
 }
 
@@ -313,6 +317,18 @@ fn execute_token_update_operation<
         TokenOperation::RemoveDenyList(list_operation) => {
             execute_remove_deny_list(transaction_execution, kernel, list_operation)
         }
+        TokenOperation::AssignAdminRoles(operation) if kernel.support_rbac() => {
+            execute_assign_admin_roles(transaction_execution, kernel, operation)
+        }
+        TokenOperation::RevokeAdminRoles(operation) if kernel.support_rbac() => {
+            execute_revoke_admin_roles(transaction_execution, kernel, operation)
+        }
+        TokenOperation::UpdateMetadata(operation) if kernel.support_updating_metadata() => {
+            execute_update_metadata(transaction_execution, kernel, operation)
+        }
+        _ => Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "Operation not supported by the protocol",
+        }),
     }
 }
 
@@ -328,6 +344,10 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
         | TokenOperation::AddDenyList(_)
         | TokenOperation::RemoveDenyList(_) => PLT_LIST_UPDATE,
         TokenOperation::Pause(_) | TokenOperation::Unpause(_) => PLT_PAUSE,
+        TokenOperation::AssignAdminRoles(_) | TokenOperation::RevokeAdminRoles(_) => {
+            PLT_ASSIGN_REVOKE_ROLES
+        }
+        TokenOperation::UpdateMetadata(_) => PLT_UPDATE_TOKEN_METADATA,
     }
 }
 
@@ -340,22 +360,35 @@ fn check_not_paused<TK: TokenKernelOperations>(
     Ok(())
 }
 
+/// Ensure the sender account from the transaction context is authorized to perform the operation.
 fn check_authorized<
-    TK: TokenKernelOperations,
+    TK: TokenKernelQueries,
     TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &TK,
+    role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let sender_index = kernel.account_index(&transaction_execution.sender_account());
-    let authorized = key_value_state::get_governance_account_index(kernel)
-        .is_ok_and(|gov_index| gov_index == sender_index);
-
-    if !authorized {
-        return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-            account_address: Some(transaction_execution.sender_account_address()),
-            reason: "sender is not the token governance account",
-        });
+    if kernel.support_rbac() {
+        // Ensure the sender holds the specified role.
+        let sender_index = kernel.account_index(&transaction_execution.sender_account());
+        let account_roles = key_value_state::get_account_roles(kernel, sender_index)?;
+        if !account_roles.has(role) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(transaction_execution.sender_account_address()),
+                reason: "sender is not authorized to perform the operation for this token",
+            });
+        }
+    } else {
+        // Ensure the sender is the governance account.
+        let sender_index = kernel.account_index(&transaction_execution.sender_account());
+        let gov_index = key_value_state::get_governance_account_index(kernel)?;
+        if gov_index != sender_index {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(transaction_execution.sender_account_address()),
+                reason: "sender is not the token governance account",
+            });
+        }
     }
     Ok(())
 }
@@ -428,7 +461,7 @@ fn execute_token_mint<
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     // operation execution
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(transaction_execution, kernel, TokenAdminRole::Mint)?;
     check_not_paused(kernel)?;
     if !key_value_state::is_mintable(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
@@ -452,7 +485,7 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     // operation execution
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(transaction_execution, kernel, TokenAdminRole::Burn)?;
     check_not_paused(kernel)?;
     if !key_value_state::is_burnable(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
@@ -471,7 +504,7 @@ fn execute_token_pause<
     transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
 
     key_value_state::set_paused(kernel, true);
 
@@ -487,7 +520,7 @@ fn execute_token_unpause<
     transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
 
     key_value_state::set_paused(kernel, false);
 
@@ -504,7 +537,11 @@ fn execute_add_allow_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateAllowList,
+    )?;
     if !key_value_state::has_allow_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
@@ -532,7 +569,11 @@ fn execute_add_deny_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateDenyList,
+    )?;
     if !key_value_state::has_deny_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
@@ -561,7 +602,11 @@ fn execute_remove_allow_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateAllowList,
+    )?;
     if !key_value_state::has_allow_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
@@ -589,7 +634,11 @@ fn execute_remove_deny_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel)?;
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateDenyList,
+    )?;
     if !key_value_state::has_deny_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
@@ -607,5 +656,121 @@ fn execute_remove_deny_list<
     let (event_type, details) = TokenModuleEvent::RemoveDenyList(event_details).encode_event();
     kernel.log_token_event(event_type.to_type_discriminator(), details);
 
+    Ok(())
+}
+
+/// Whether the roles are supported for the features enabled.
+fn check_roles_supported(
+    kernel: &impl TokenKernelQueries,
+    roles: &[TokenAdminRole],
+) -> Result<(), TokenUpdateErrorInternal> {
+    for role in roles {
+        let supported = match role {
+            TokenAdminRole::UpdateAdminRoles => true,
+            TokenAdminRole::Mint => key_value_state::is_mintable(kernel),
+            TokenAdminRole::Burn => key_value_state::is_burnable(kernel),
+            TokenAdminRole::UpdateAllowList => key_value_state::has_allow_list(kernel),
+            TokenAdminRole::UpdateDenyList => key_value_state::has_deny_list(kernel),
+            TokenAdminRole::Pause => true,
+            TokenAdminRole::UpdateMetadata => true,
+        };
+        if !supported {
+            return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+                reason: "feature using role is not enabled",
+            });
+        }
+    }
+    Ok(())
+}
+
+fn execute_assign_admin_roles<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    operation: &TokenUpdateAdminRolesDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateAdminRoles,
+    )?;
+    check_roles_supported(kernel, &operation.roles)?;
+    let account = kernel.account_by_address(&operation.account.address)?;
+    kernel.touch_account(&account);
+    key_value_state::assign_account_roles(
+        kernel,
+        kernel.account_index(&account),
+        &operation.roles,
+    )?;
+    let event = TokenModuleEvent::AssignAdminRoles(TokenUpdateAdminRolesEventDetails {
+        roles: operation.roles.clone(),
+        account: operation.account.clone(),
+    });
+    let (event_type, details) = event.encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    Ok(())
+}
+
+fn execute_revoke_admin_roles<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    operation: &TokenUpdateAdminRolesDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateAdminRoles,
+    )?;
+    check_roles_supported(kernel, &operation.roles)?;
+    let account = kernel.account_by_address(&operation.account.address)?;
+    let account_index = kernel.account_index(&account);
+    if account_index == kernel.account_index(&transaction_execution.sender_account())
+        && operation.roles.contains(&TokenAdminRole::UpdateAdminRoles)
+    {
+        return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            account_address: Some(operation.account.address),
+            reason: "Sender not allowed to remove own admin role",
+        });
+    }
+    kernel.touch_account(&account);
+    key_value_state::revoke_account_roles(kernel, account_index, &operation.roles)?;
+    let event = TokenModuleEvent::RevokeAdminRoles(TokenUpdateAdminRolesEventDetails {
+        roles: operation.roles.clone(),
+        account: operation.account.clone(),
+    });
+    let (event_type, details) = event.encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    Ok(())
+}
+
+fn execute_update_metadata<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    metadata_url: &MetadataUrl,
+) -> Result<(), TokenUpdateErrorInternal> {
+    if !metadata_url.additional.is_empty() {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "Unknown additional metadata fields",
+        });
+    }
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateMetadata,
+    )?;
+    key_value_state::set_metadata_url(kernel, metadata_url);
+    let event = TokenModuleEvent::UpdateMetadata(TokenUpdateMetadataEventDetails {
+        metadata_url: metadata_url.clone(),
+    });
+    let (event_type, details) = event.encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }

@@ -1,5 +1,7 @@
 use assert_matches::assert_matches;
-use concordium_base::protocol_level_tokens::TokenPauseEventDetails;
+use concordium_base::protocol_level_tokens::{
+    TokenAdminRole, TokenPauseEventDetails, TokenUpdateAdminRolesDetails,
+};
 use concordium_base::{
     common::cbor,
     protocol_level_tokens::{
@@ -350,4 +352,84 @@ fn test_unpause_multiple_ops() {
         TokenModuleEventType::Unpause.to_type_discriminator()
     );
     let _details: TokenPauseEventDetails = cbor::cbor_decode(&stub.events()[1].1).unwrap();
+}
+
+/// Reject when governance account is not holding the pause role.
+#[test]
+fn test_reject_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+
+    // 1st transaction: removing pause role from governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::Pause],
+            account: CborHolderAccount::from(gov_account.1),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: attempting to pause as governance account
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+        }
+    );
+}
+
+/// Succeeds for another account holding the pause role.
+#[test]
+fn test_new_account_with_role_succeeds() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let account2 = stub.create_account();
+
+    // 1st transaction: Assign the pause role to an account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AssignAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::Pause],
+            account: CborHolderAccount::from(account2.1),
+        },
+    )];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("success");
+
+    // 2nd transaction: Pause as account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+    assert_eq!(
+        stub.lookup_token_state_value(b"\0\0paused".into()),
+        Some(Vec::new())
+    );
 }

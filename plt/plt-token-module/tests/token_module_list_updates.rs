@@ -2,9 +2,10 @@ use assert_matches::assert_matches;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenListUpdateDetails,
-    TokenListUpdateEventDetails, TokenModuleAccountState, TokenModuleEventType,
-    TokenModuleRejectReason, TokenOperation, UnsupportedOperationRejectReason,
+    CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole,
+    TokenListUpdateDetails, TokenListUpdateEventDetails, TokenModuleAccountState,
+    TokenModuleEventType, TokenModuleRejectReason, TokenOperation, TokenUpdateAdminRolesDetails,
+    UnsupportedOperationRejectReason,
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
@@ -188,7 +189,7 @@ fn test_add_allow_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(stub.account_address(&sender)));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -234,7 +235,7 @@ fn test_remove_allow_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(stub.account_address(&sender)));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -280,7 +281,7 @@ fn test_add_deny_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(stub.account_address(&sender)));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -326,7 +327,7 @@ fn test_remove_deny_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(stub.account_address(&sender)));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -552,4 +553,290 @@ fn test_remove_from_not_enabled_deny_list() {
                 reason: Some(reason) })
             if reason == "feature not enabled" && operation_type == "removeDenyList"
     );
+}
+
+/// Reject addDenyList when governance account is not holding the updateDenylist role.
+#[test]
+fn test_reject_add_denylist_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+
+    // 1st transaction: removing updateDenylist role from governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::UpdateDenyList],
+            account: CborHolderAccount::from(gov_account.1),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: attempting to update deny list as governance account
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+        }
+    );
+}
+
+/// Reject addAllowList when governance account is not holding the updateAllowlist role.
+#[test]
+fn test_reject_add_allowlist_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
+
+    // 1st transaction: removing updateAllowlist role from governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::UpdateAllowList],
+            account: CborHolderAccount::from(gov_account.1),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: attempting to update allow list as governance account
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+        }
+    );
+}
+
+/// Reject removeDenyList when governance account is not holding the updateDenylist role.
+#[test]
+fn test_reject_remove_denylist_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    // 1st transaction: add governance account to deny list
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: removing updateDenylist role from governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::UpdateDenyList],
+            account: CborHolderAccount::from(gov_account.1),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 3nd transaction: attempting to update deny list as governance account
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+        }
+    );
+}
+
+/// Reject removeAllowList when governance account is not holding the updateAllowlist role.
+#[test]
+fn test_reject_remove_allowlist_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
+    // 1st transaction: add governance account to allow list
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: removing updateAllowlist role from governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::UpdateAllowList],
+            account: CborHolderAccount::from(gov_account.1),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 3nd transaction: attempting to update allow list as governance account
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+        }
+    );
+}
+
+/// Succeeds for another account holding the updateDenylist role.
+#[test]
+fn test_succeeds_add_deny_list_new_account_with_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let account2 = stub.create_account();
+
+    // 1st transaction: Assign the updateAllowlist role to an account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AssignAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::UpdateDenyList],
+            account: CborHolderAccount::from(account2.1),
+        },
+    )];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    // 2nd transaction: Add to deny list as account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&gov_account));
+    let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
+    assert_eq!(state.deny_list, Some(true));
+}
+
+/// Succeeds for another account holding the updateAllowlist role.
+#[test]
+fn test_succeeds_add_allow_list_new_account_with_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
+    let account2 = stub.create_account();
+
+    // 1st transaction: Assign the updateAllowlist role to an account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AssignAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::UpdateAllowList],
+            account: CborHolderAccount::from(account2.1),
+        },
+    )];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    // 2nd transaction: Add to allow list as account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(gov_account.1),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&gov_account));
+    let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
+    assert_eq!(state.allow_list, Some(true));
 }

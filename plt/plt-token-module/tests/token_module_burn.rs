@@ -2,8 +2,9 @@ use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
-    RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
-    TokenOperation, TokenSupplyUpdateDetails, UnsupportedOperationRejectReason,
+    RawCbor, TokenAdminRole, TokenAmount, TokenBalanceInsufficientRejectReason,
+    TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails,
+    TokenUpdateAdminRolesDetails, UnsupportedOperationRejectReason,
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -213,4 +214,93 @@ fn test_not_burnable() {
                 reason: Some(reason) })
             if reason == "feature not enabled" && operation_type == "burn"
     );
+}
+
+/// Reject when governance account is not holding the burn role.
+#[test]
+fn test_reject_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
+
+    // 1st transaction: removing burn role from governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::Burn],
+            account: CborHolderAccount::from(gov_account.1),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: attempting to burn as governance account
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(200, 2),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+        }
+    );
+}
+
+/// Succeeds for another account holding the burn role.
+#[test]
+fn test_new_account_with_role_succeeds() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
+    stub.set_account_balance(gov_account, RawTokenAmount(5000));
+    let account2 = stub.create_account();
+    stub.set_account_balance(account2, RawTokenAmount(5000));
+
+    // 1st transaction: Assign the burn role to an account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AssignAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::Burn],
+            account: CborHolderAccount::from(account2.1),
+        },
+    )];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    // 2nd transaction: Burn as account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(200, 2),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    assert_eq!(
+        stub.account_token_balance(&gov_account),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(stub.account_token_balance(&account2), RawTokenAmount(4800));
 }
