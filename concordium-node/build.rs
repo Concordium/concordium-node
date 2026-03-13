@@ -894,7 +894,7 @@ fn link_static_libs() -> std::io::Result<()> {
         out_dir
     );
     println!("cargo:rustc-link-lib=static=Rcrypto");
-    
+
     println!("cargo:rustc-link-lib=static=plt_scheduler");
 
     println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
@@ -928,7 +928,7 @@ fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> 
                 "No subdirectory in {:?} with prefix {}",
                 stack_install_lib, GHC_VARIANT
             );
-            Err(std::io::Error::new(   
+            Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "GHC_VARIANT directory not found",
             ))
