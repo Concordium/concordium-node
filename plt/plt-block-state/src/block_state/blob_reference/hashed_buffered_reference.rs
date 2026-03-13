@@ -5,10 +5,12 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::{Cacheable, Link};
 use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
+use crate::block_state::utils::OwnedOrBorrowed;
 use concordium_base::common::{Buffer, Deserial, Serial};
 use concordium_base::hashes::Hash;
-use crate::block_state::utils::OwnedOrBorrowed;
 use std::io::Read;
+use std::mem::MaybeUninit;
+use std::{mem, ptr};
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -49,7 +51,6 @@ impl<V> HashedCacheableRef<V> {
             inner: Link::new(inner),
         }
     }
-
 }
 
 impl<V> Clone for HashedCacheableRef<V> {
@@ -72,9 +73,12 @@ impl<V> HashedBufferedRefRepr<V> {
     /// Load the referenced value and return it. If the value is already in memory, a reference to it is simply
     /// returned. If it is not in memory, it is loaded from the backing storage, and returned as owned.
     /// Loading from the backing storage will not make the value cached in the reference.
-    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<OwnedOrBorrowed<'_, V>, DecodeError>
+    fn get_or_load_value(
+        &self,
+        loader: impl BackingStoreLoad,
+    ) -> Result<OwnedOrBorrowed<'_, V>, DecodeError>
     where
-        V: Loadable ,
+        V: Loadable,
     {
         Ok(match self {
             HashedBufferedRefRepr::Store { reference } => {
@@ -101,11 +105,10 @@ impl<V> HashedBufferedRefRepr<V> {
                 };
                 // We just wrote the Cache variant, so we can safely assert this variant,
                 // in order to borrow the value just written.
-                if let HashedBufferedRefRepr::Cache { value, .. } = self {
-                    value
-                } else {
+                let HashedBufferedRefRepr::Cache { value, .. } = self else {
                     unreachable!("not HashedBufferedRefRepr::Cache though it was just written")
-                }
+                };
+                value
             }
             HashedBufferedRefRepr::Memory { value } => value,
             HashedBufferedRefRepr::Cache { value, .. } => value,
@@ -118,16 +121,24 @@ impl<V> HashedBufferedRefRepr<V> {
     /// before it is returned.
     fn get_reference_or_store(&mut self, storer: impl BackingStoreStore) -> BlobReference
     where
-        V: Storable + Clone,
+        V: Storable,
     {
         match self {
             HashedBufferedRefRepr::Store { reference } => *reference,
             HashedBufferedRefRepr::Memory { value } => {
                 let reference = blob_store::store_to_store(storer, &*value);
-                *self = HashedBufferedRefRepr::Cache {
-                    reference,
-                    value: value.clone(),
+
+                /// We need the Memory representation owned, in order to move the value out of
+                /// it and into the Cache representation. In order to achieve this,
+                /// we write an intermediate representation Store to self.
+                /// It is done this way to avoid cloning the value.
+                let mut old_repr = HashedBufferedRefRepr::Store { reference };
+                mem::swap(&mut old_repr, self);
+                let HashedBufferedRefRepr::Memory { value } = old_repr else {
+                    unreachable!("not HashedBufferedRefRepr::Memory though it was just written")
                 };
+                *self = HashedBufferedRefRepr::Cache { value, reference };
+
                 reference
             }
             HashedBufferedRefRepr::Cache { reference, .. } => *reference,
@@ -157,7 +168,7 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Storable + Clone> Storable for HashedCacheableRef<V> {
+impl<V: Storable> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
         let mut inner = self.inner.write();
         let reference = inner.repr.get_reference_or_store(storer);
@@ -173,7 +184,7 @@ impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Hashable + Loadable + Clone> Hashable for HashedCacheableRef<V> {
+impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     type Hash = <V as Hashable>::Hash;
 
     fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {

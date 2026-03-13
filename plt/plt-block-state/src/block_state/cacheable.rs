@@ -1,5 +1,5 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crate::block_state::blob_store::{BackingStoreLoad, DecodeError};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Trait implemented by types that are stored in the backing store and may
 /// be composed of further [`BlobReference`](super::blob_reference::BlobReference)s
@@ -33,8 +33,6 @@ impl<V> Clone for Link<V> {
         }
     }
 }
-
-
 
 impl<V> Link<V> {
     /// Create new [`Link`] with given value.

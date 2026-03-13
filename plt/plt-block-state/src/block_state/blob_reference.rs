@@ -6,4 +6,3 @@ pub mod hashed_buffered_reference;
 #[derive(Default, Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[repr(transparent)]
 pub struct BlobReference(pub u64);
-
