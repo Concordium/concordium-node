@@ -884,7 +884,7 @@ fn link_static_libs() -> std::io::Result<()> {
                             );
                         }
                     }
-                    _ => panic!("Unable tod link ghc libs"),
+                    _ => panic!("Unable to link ghc libs"),
                 }
             }
         });
