@@ -28,11 +28,17 @@ pub mod types {
     };
     use std::convert::{TryFrom, TryInto};
 
-    /// Types generated from the protocol-level-tokens.proto file.
-    pub mod plt {
-        include!(concat!(env!("OUT_DIR"), "/concordium.v2.plt.rs"));
+    #[allow(dead_code)]
+    #[allow(clippy::doc_overindented_list_items)]
+    pub mod concordium_v2_wrapper {
+        /// Types generated from the protocol-level-tokens.proto file.
+        pub mod plt {
+            include!(concat!(env!("OUT_DIR"), "/concordium.v2.plt.rs"));
+        }
+        
+        include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
     }
-    include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
+    pub use concordium_v2_wrapper::*;
 
     /// Convert an account address to a pointer to the content. The length of
     /// the content is checked to be 32 bytes.
