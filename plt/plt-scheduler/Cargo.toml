@@ -11,12 +11,16 @@ default = ["ffi"]
 ffi = ["dep:libc"]
 
 [dependencies]
+# Workspace dependencies
 plt-block-state.workspace = true
 plt-scheduler-types.workspace = true
 plt-scheduler-interface.workspace = true
 plt-token-module.workspace = true
 
+# Concordium dependencies
 concordium_base.workspace = true
+
+# Third party dependencies
 thiserror.workspace = true
 libc = { workspace = true, optional = true }
 

@@ -8,14 +8,18 @@ default = ["ffi"]
 ffi = ["dep:libc"]
 
 [dependencies]
+# Workspace dependencies
 plt-scheduler-types.workspace = true
 
+# Concordium dependencies
 concordium_base.workspace = true
+
+# Third party dependencies
+assert_matches.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 libc = { workspace = true, optional = true }
 hex.workspace = true
 
 [dev-dependencies]
-assert_matches.workspace = true
 hex.workspace = true

@@ -5,8 +5,10 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
+use assert_matches::assert_matches;
 use concordium_base::common::{Buffer, Deserial, Serial};
 use concordium_base::hashes::Hash;
+use std::borrow::Cow;
 use std::io::Read;
 use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 
@@ -63,24 +65,6 @@ impl<V> HashedCacheableRef<V> {
             .write()
             .expect("HashedCacheableRef inner poisoned")
     }
-
-    /// Load the referenced value. If the value is already in memory, it is simply
-    /// returned. If it is not in memory, it is loaded from the backing storage.
-    /// Loading from the backing storage will not make the value cached in the reference.
-    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<V, DecodeError>
-    where
-        V: Loadable + Clone,
-    {
-        let inner = self.inner();
-        Ok(match &inner.repr {
-            HashedBufferedRefRepr::Store { reference } => {
-                let value: V = blob_store::load_from_store(loader, *reference)?;
-                value
-            }
-            HashedBufferedRefRepr::Memory { value } => value.clone(),
-            HashedBufferedRefRepr::Cache { value, .. } => value.clone(),
-        })
-    }
 }
 
 impl<V> Clone for HashedCacheableRef<V> {
@@ -97,6 +81,51 @@ struct HashedBufferedRefImpl<V> {
     hash: Option<Hash>,
     /// The potentially buffered value.
     repr: HashedBufferedRefRepr<V>,
+}
+
+impl<V> HashedBufferedRefRepr<V> {
+    /// Load the referenced value. If the value is already in memory, a reference to it is simply
+    /// returned. If it is not in memory, it is loaded from the backing storage, and returned as owned.
+    /// Loading from the backing storage will not make the value cached in the reference.
+    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<Cow<V>, DecodeError>
+    where
+        V: Loadable + Clone,
+    {
+        Ok(match self {
+            HashedBufferedRefRepr::Store { reference } => {
+                let value: V = blob_store::load_from_store(loader, *reference)?;
+                Cow::Owned(value)
+            }
+            HashedBufferedRefRepr::Memory { value } => Cow::Borrowed(value),
+            HashedBufferedRefRepr::Cache { value, .. } => Cow::Borrowed(value),
+        })
+    }
+
+    /// Cache the referenced value. If the value is already in memory, a reference to it is simply
+    /// returned. If it is not in memory, it is loaded from the backing storage and cached in the reference first.
+    fn get_or_cache_value(&mut self, loader: impl BackingStoreLoad) -> Result<&V, DecodeError>
+    where
+        V: Loadable,
+    {
+        Ok(match self {
+            HashedBufferedRefRepr::Store { reference } => {
+                let value: V = blob_store::load_from_store(loader, *reference)?;
+                *self = HashedBufferedRefRepr::Cache {
+                    reference: *reference,
+                    value,
+                };
+                // We just wrote the Cache variant, so we can safely assert this variant,
+                // in order to borrow the value just written.
+                if let HashedBufferedRefRepr::Cache { value, .. } = self {
+                    value
+                } else {
+                    unreachable!("not HashedBufferedRefRepr::Cache though it was just written")
+                }
+            }
+            HashedBufferedRefRepr::Memory { value } => value,
+            HashedBufferedRefRepr::Cache { value, .. } => value,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -143,27 +172,12 @@ impl<V: Storable + Clone> Storable for HashedCacheableRef<V> {
 impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
     fn cache_reference_values(&self, mut loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
         let mut inner = self.inner_mut();
-        let value = match &inner.repr {
-            HashedBufferedRefRepr::Store { reference } => {
-                let value: V = blob_store::load_from_store(&mut loader, *reference)?;
-                value.cache_reference_values(loader)?;
-                inner.repr = HashedBufferedRefRepr::Cache {
-                    reference: *reference,
-                    value,
-                };
-            }
-            HashedBufferedRefRepr::Memory { value } => {
-                value.cache_reference_values(loader)?;
-            }
-            HashedBufferedRefRepr::Cache { value, .. } => {
-                value.cache_reference_values(loader)?;
-            }
-        };
-        Ok(())
+        let value = inner.repr.get_or_cache_value(&mut loader)?;
+        value.cache_reference_values(loader)
     }
 }
 
-impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
+impl<V: Hashable + Loadable + Clone> Hashable for HashedCacheableRef<V> {
     type Hash = <V as Hashable>::Hash;
 
     fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
@@ -171,7 +185,7 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
         Ok(if let Some(hash) = inner.hash {
             Self::Hash::from_pure(hash)
         } else {
-            let value = self.get_or_load_value(&mut loader)?;
+            let value = inner.repr.get_or_load_value(&mut loader)?;
             let hash = value.hash(loader)?;
             inner.hash = Some(hash.into_pure());
             hash
