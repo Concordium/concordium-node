@@ -38,9 +38,7 @@ impl<V> HashedCacheableRef<V> {
     pub fn new(value: V) -> Self {
         let inner = HashedBufferedRefImpl {
             hash: None,
-            repr: HashedBufferedRefRepr::Memory {
-                value: Arc::new(value),
-            },
+            repr: HashedBufferedRefRepr::Memory { value },
         };
 
         Self::from_inner(inner)
@@ -69,18 +67,18 @@ impl<V> HashedCacheableRef<V> {
     /// Load the referenced value. If the value is already in memory, it is simply
     /// returned. If it is not in memory, it is loaded from the backing storage.
     /// Loading from the backing storage will not make the value cached in the reference.
-    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<Arc<V>, DecodeError>
+    fn get_or_load_value(&self, loader: impl BackingStoreLoad) -> Result<V, DecodeError>
     where
-        V: Loadable,
+        V: Loadable + Clone,
     {
         let inner = self.inner();
         Ok(match &inner.repr {
             HashedBufferedRefRepr::Store { reference } => {
                 let value: V = blob_store::load_from_store(loader, *reference)?;
-                Arc::new(value)
+                value
             }
-            HashedBufferedRefRepr::Memory { value } => Arc::clone(value),
-            HashedBufferedRefRepr::Cache { value, .. } => Arc::clone(value),
+            HashedBufferedRefRepr::Memory { value } => value.clone(),
+            HashedBufferedRefRepr::Cache { value, .. } => value.clone(),
         })
     }
 }
@@ -106,12 +104,9 @@ enum HashedBufferedRefRepr<V> {
     /// The value is in the backing storage.
     Store { reference: BlobReference },
     /// The value is in memory and not written to backing storage.
-    Memory { value: Arc<V> },
+    Memory { value: V },
     /// The value is in the backing storage, and also cached in memory.
-    Cache {
-        reference: BlobReference,
-        value: Arc<V>,
-    },
+    Cache { reference: BlobReference, value: V },
 }
 
 impl<V: Loadable> Loadable for HashedCacheableRef<V> {
@@ -126,16 +121,16 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Storable> Storable for HashedCacheableRef<V> {
+impl<V: Storable + Clone> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
         let mut inner = self.inner_mut();
         let reference = match &inner.repr {
             HashedBufferedRefRepr::Store { reference } => *reference,
             HashedBufferedRefRepr::Memory { value } => {
-                let reference = blob_store::store_to_store(storer, &**value);
+                let reference = blob_store::store_to_store(storer, value);
                 inner.repr = HashedBufferedRefRepr::Cache {
                     reference,
-                    value: Arc::clone(value),
+                    value: value.clone(),
                 };
                 reference
             }
@@ -151,17 +146,19 @@ impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
         let value = match &inner.repr {
             HashedBufferedRefRepr::Store { reference } => {
                 let value: V = blob_store::load_from_store(&mut loader, *reference)?;
-                let value = Arc::new(value);
+                value.cache_reference_values(loader)?;
                 inner.repr = HashedBufferedRefRepr::Cache {
                     reference: *reference,
-                    value: Arc::clone(&value),
+                    value,
                 };
-                value
             }
-            HashedBufferedRefRepr::Memory { value } => Arc::clone(value),
-            HashedBufferedRefRepr::Cache { value, .. } => Arc::clone(value),
+            HashedBufferedRefRepr::Memory { value } => {
+                value.cache_reference_values(loader)?;
+            }
+            HashedBufferedRefRepr::Cache { value, .. } => {
+                value.cache_reference_values(loader)?;
+            }
         };
-        value.cache_reference_values(loader)?;
         Ok(())
     }
 }
