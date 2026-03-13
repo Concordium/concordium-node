@@ -35,6 +35,7 @@ enum LFMBTreeImpl<V> {
 }
 
 /// Non-empty tree. The type is used recursively to represent subtrees of the tree also.
+#[derive(Debug)]
 enum Tree<V> {
     /// Node with two subtrees
     Node(

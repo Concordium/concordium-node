@@ -32,6 +32,7 @@ pub mod external;
 pub mod hash;
 mod lfmb_tree;
 pub mod types;
+mod utils;
 
 /// Account with given address does not exist
 #[derive(Debug, thiserror::Error)]
