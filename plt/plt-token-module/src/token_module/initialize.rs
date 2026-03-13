@@ -1,11 +1,10 @@
 use crate::key_value_state::{
-    KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
-    STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME,
+    self, KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
+    STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_MINTABLE, STATE_KEY_NAME,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
-use crate::util;
+use crate::{roles, util};
 use concordium_base::common;
-use concordium_base::common::cbor;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleInitializationParameters};
 use plt_block_state::block_state::AccountNotFoundByAddressError;
@@ -54,6 +53,14 @@ fn initialize_token_impl(
     kernel: &mut impl TokenKernelOperations,
     init_params: TokenModuleInitializationParameters,
 ) -> Result<(), TokenInitializationError> {
+    if !init_params.additional.is_empty() {
+        return Err(TokenInitializationError::InvalidInitializationParameters(
+            format!(
+                "Unknown additional parameters: {:?}",
+                init_params.additional
+            ),
+        ));
+    }
     let name = init_params.name.ok_or_else(|| {
         TokenInitializationError::InvalidInitializationParameters(
             "Token name is missing".to_string(),
@@ -70,8 +77,8 @@ fn initialize_token_impl(
         )
     })?;
     kernel.set_module_state(STATE_KEY_NAME, Some(name.into()));
-    let encoded_metadata = cbor::cbor_encode(&metadata);
-    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata));
+    key_value_state::set_metadata_url(kernel, &metadata);
+
     if init_params.allow_list == Some(true) {
         kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]));
     }
@@ -91,6 +98,9 @@ fn initialize_token_impl(
         STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(common::to_bytes(&governance_account_index.index)),
     );
+    if kernel.support_rbac() {
+        key_value_state::assign_account_roles(kernel, governance_account_index, roles::ALL)?;
+    }
     if let Some(initial_supply) = init_params.initial_supply {
         let mint_amount = util::to_raw_token_amount(kernel, initial_supply)?;
         kernel.mint(&governance_account, mint_amount)?;
