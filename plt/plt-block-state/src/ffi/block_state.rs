@@ -3,7 +3,7 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::block_state::blob_reference::BlobReference;
-use crate::block_state::bufferable::Bufferable;
+use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
@@ -59,7 +59,8 @@ extern "C" fn ffi_hash_plt_block_state(
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!destination.is_null(), "destination is a null pointer.");
     let block_state = unsafe { &*block_state };
-    let hash = block_state.hash(&mut load_callback);
+    // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    let hash = block_state.hash(&mut load_callback).unwrap();
     unsafe {
         std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
     }
@@ -160,5 +161,8 @@ extern "C" fn ffi_cache_plt_block_state(
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
-    block_state.buffer_blob_references(&mut load_callback)
+    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    block_state
+        .cache_reference_values(&mut load_callback)
+        .unwrap();
 }

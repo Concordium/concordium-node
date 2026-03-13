@@ -34,11 +34,11 @@ impl<T: BackingStoreLoad> BackingStoreLoad for &mut T {
 
 /// A trait implemented by types that can be loaded from a [backing store](BackingStoreLoad).
 pub trait Loadable: Sized {
-    /// Load value from the given `source` bytes that has been retrieved from the backing store.
+    /// Load value from the bytes in the given `buffer` that has been retrieved from the backing store.
     /// If the value is composed of [`BlobReference`]s, these references should not
-    /// have their values loaded into memory as a result of the [`Self::load`] operation.
-    /// As such, [`Self::load`] is a "shallow" operation.
-    fn load(source: impl Read) -> Result<Self, DecodeError>;
+    /// have their values loaded into memory as a result of the [`Self::load_from_buffer`] operation.
+    /// As such, [`Self::load_from_buffer`] is a "shallow" operation.
+    fn load_from_buffer(buffer: impl Read) -> Result<Self, DecodeError>;
 }
 
 /// A trait implemented by types that can be stored to a [backing store](BackingStoreStore).
@@ -48,12 +48,12 @@ pub trait Storable {
     /// values pointed to by the [`BlobReference`]s the value may be composed of,
     /// if these values are not already represented in the backing store.
     /// As such, `store` is a "deep" operation.
-    fn store(&self, buffer: impl Buffer, storer: impl BackingStoreStore);
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore);
 }
 
 impl<T: Storable> Storable for &T {
-    fn store(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
-        (*self).store(buffer, storer)
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
+        (*self).store_to_buffer(buffer, storer)
     }
 }
 
@@ -66,10 +66,10 @@ pub fn load_from_store<T: Loadable>(
 ) -> Result<T, DecodeError> {
     let bytes = loader.load_raw(location);
     let mut bytes_slice = bytes.as_slice();
-    let value = T::load(&mut bytes_slice)?;
+    let value = T::load_from_buffer(&mut bytes_slice)?;
     if !bytes_slice.is_empty() {
-        return Err(DecodeError::Decode(format!(
-            "Bytes remaining after loading {} from blob store",
+        return Err(DecodeError(format!(
+            "Bytes remaining after loading value of type {} from blob store",
             any::type_name::<T>()
         )));
     };
@@ -85,15 +85,19 @@ pub fn store_to_store(
     storable: impl Storable,
 ) -> BlobReference {
     let mut buffer = Vec::new();
-    storable.store(&mut buffer, &mut storer);
+    storable.store_to_buffer(&mut buffer, &mut storer);
     storer.store_raw(buffer)
 }
 
-/// An error that may occur when loading data from persistent storage.
+/// Error decoding bytes that has been retrieved from the backing store.
 #[derive(Debug, thiserror::Error)]
-pub enum DecodeError {
-    #[error("{0}")]
-    Decode(String),
+#[error("Error decoding bytes retrived from backing store: {0}")]
+pub struct DecodeError(String);
+
+impl From<String> for DecodeError {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
 }
 
 pub trait ParseResultExt<T> {
@@ -102,6 +106,12 @@ pub trait ParseResultExt<T> {
 
 impl<T> ParseResultExt<T> for common::ParseResult<T> {
     fn into_decode_result(self) -> Result<T, DecodeError> {
-        self.map_err(|err| DecodeError::Decode(err.to_string()))
+        self.map_err(|err| {
+            DecodeError(format!(
+                "Error loading value of type {} from blob store: {}",
+                any::type_name::<T>(),
+                err
+            ))
+        })
     }
 }

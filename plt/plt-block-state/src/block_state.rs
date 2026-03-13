@@ -3,7 +3,7 @@
 use crate::block_state::blob_store::{
     BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
 };
-use crate::block_state::bufferable::Bufferable;
+use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
 use crate::block_state::types::{
@@ -27,7 +27,7 @@ use std::io::Read;
 
 pub mod blob_reference;
 pub mod blob_store;
-pub mod bufferable;
+pub mod cacheable;
 pub mod external;
 pub mod hash;
 pub mod types;
@@ -43,6 +43,7 @@ pub struct AccountNotFoundByAddressError(pub AccountAddress);
 pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Marker for PLT block state hash type.
+#[derive(Clone, Copy)]
 pub enum PltBlockStateHashMarker {}
 /// Hash of PLT block state
 pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHashMarker>;
@@ -83,7 +84,7 @@ impl PltBlockStateSavepoint {
 }
 
 impl Loadable for PltBlockStateSavepoint {
-    fn load(mut source: impl Read) -> Result<Self, DecodeError> {
+    fn load_from_buffer(mut source: impl Read) -> Result<Self, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let state = SimplisticPltBlockState::deserial(&mut source).into_decode_result()?;
 
@@ -94,24 +95,25 @@ impl Loadable for PltBlockStateSavepoint {
 }
 
 impl Storable for PltBlockStateSavepoint {
-    fn store(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         self.block_state.state.serial(&mut buffer);
     }
 }
 
-impl Bufferable for PltBlockStateSavepoint {
-    fn buffer_blob_references(&self, _loader: impl BackingStoreLoad) {
+impl Cacheable for PltBlockStateSavepoint {
+    fn cache_reference_values(&self, _loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
         // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        Ok(())
     }
 }
 
 impl Hashable for PltBlockStateSavepoint {
     type Hash = PltBlockStateHash;
 
-    fn hash(&self, _loader: impl BackingStoreLoad) -> Self::Hash {
+    fn hash(&self, _loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        if self.block_state.state.tokens.is_empty() {
+        Ok(if self.block_state.state.tokens.is_empty() {
             // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
             // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
             PltBlockStateHash::from(
@@ -126,7 +128,7 @@ impl Hashable for PltBlockStateSavepoint {
             PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
                 &block_state_bytes,
             )))
-        }
+        })
     }
 }
 
