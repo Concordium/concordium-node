@@ -4,7 +4,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash;
-use crate::block_state::hash::{Hashable, IntoPureHash};
+use crate::block_state::hash::Hashable;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use sha2::{Digest, Sha256};
@@ -168,9 +168,7 @@ impl<V: Storable> Storable for Tree<V> {
 }
 
 impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
-    type Hash = Hash;
-
-    fn hash(&self, loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
+    fn hash(&self, loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         let mut hasher = sha2::Sha256::new();
 
         match &self.inner {
@@ -188,14 +186,12 @@ impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
 }
 
 impl<V: Hashable + Loadable> Hashable for Tree<V> {
-    type Hash = Hash;
-
     fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         Ok(match self {
             Tree::Node(_, left, right) => {
                 hash::hash_of_hashes(left.hash(&mut loader)?, right.hash(&mut loader)?)
             }
-            Tree::Leaf(v) => v.hash(loader)?.into_pure(),
+            Tree::Leaf(v) => v.hash(loader)?,
         })
     }
 }

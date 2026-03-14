@@ -21,8 +21,8 @@ use plt_block_state::block_state::external::{
 };
 use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use plt_block_state::block_state::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExecutionTimePltBlockState,
-    PltBlockState, PltBlockStateSavepoint,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockState, BlockState,
+    ExecutionTimeBlockState,
 };
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -43,7 +43,7 @@ impl BackingStoreLoad for BlobStoreLoadStub {
 }
 
 type ExecutionTimePltBlockStateWithNoExternalState =
-    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, NoExternalBlockStateStub>;
+    ExecutionTimeBlockState<BlockState, BlobStoreLoadStub, NoExternalBlockStateStub>;
 type Token = <ExecutionTimePltBlockStateWithNoExternalState as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
@@ -61,9 +61,9 @@ impl BlockStateWithNoExternalState {
     /// Create block state stub
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
+        let inner_block_state = BlockState::empty().mutable_state();
 
-        let block_state = ExecutionTimePltBlockState {
+        let block_state = ExecutionTimeBlockState {
             protocol_version: ProtocolVersion::P10,
             internal_block_state: inner_block_state,
             backing_store_load: BlobStoreLoadStub,

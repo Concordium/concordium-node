@@ -28,6 +28,32 @@ impl ProtocolLevelTokens {
     }
 }
 
+impl Storable for ProtocolLevelTokens {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, mut storer: impl BackingStoreStore) {
+        self.tokens.store_to_buffer(&mut buffer, &mut storer);
+    }
+}
+
+impl Loadable for ProtocolLevelTokens {
+    fn load_from_buffer(mut buffer: impl Read) -> Result<Self, DecodeError> {
+        let tokens = Loadable::load_from_buffer(&mut buffer)?;
+
+        Ok(Self { tokens })
+    }
+}
+
+impl Cacheable for ProtocolLevelTokens {
+    fn cache_reference_values(&self, loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
+        self.tokens.cache_reference_values(loader)
+    }
+}
+
+impl Hashable for ProtocolLevelTokens {
+    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+        self.tokens.hash(loader)
+    }
+}
+
 /// Index of the protocol-level token in the block state map of tokens.
 ///
 /// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.TokenIndex`
@@ -82,9 +108,7 @@ impl Cacheable for Token {
 }
 
 impl Hashable for Token {
-    type Hash = Hash;
-
-    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
+    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         let config = self.configuration.hash(&mut loader)?;
         let key_value_state = self.key_value_state.hash(&mut loader)?;
         let circulating_supply = self.circulating_supply.hash(&mut loader)?;

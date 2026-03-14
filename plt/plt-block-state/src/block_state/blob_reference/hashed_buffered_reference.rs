@@ -4,7 +4,7 @@ use crate::block_state::blob_store::{
     BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
 };
 use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::{FromPureHash, Hashable, IntoPureHash};
+use crate::block_state::hash::Hashable;
 use crate::block_state::utils::{Link, OwnedOrBorrowed};
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
@@ -184,16 +184,14 @@ impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
 }
 
 impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
-    type Hash = <V as Hashable>::Hash;
-
     fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
         let mut inner = self.inner.write();
         Ok(if let Some(hash) = inner.hash {
-            Self::Hash::from_pure(hash)
+            hash
         } else {
             let value = inner.repr.get_or_load_value(&mut loader)?;
             let hash = value.hash(loader)?;
-            inner.hash = Some(hash.into_pure());
+            inner.hash = Some(hash);
             hash
         })
     }
