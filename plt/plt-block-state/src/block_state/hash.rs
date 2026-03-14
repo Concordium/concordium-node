@@ -1,8 +1,7 @@
 use crate::block_state::blob_store::{BackingStoreLoad, DecodeError};
 use concordium_base::common::{Put, Serial};
-use concordium_base::hashes::{Hash, HashBytes};
+use concordium_base::hashes::Hash;
 use sha2::Digest;
-use std::fmt::Debug;
 
 /// Trait implemented by hashable values, that potentially needs
 /// to load values from the backing store to calculate the hash.

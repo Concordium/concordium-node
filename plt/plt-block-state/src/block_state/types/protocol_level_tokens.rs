@@ -49,7 +49,7 @@ impl Cacheable for ProtocolLevelTokens {
 }
 
 impl Hashable for ProtocolLevelTokens {
-    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         self.tokens.hash(loader)
     }
 }

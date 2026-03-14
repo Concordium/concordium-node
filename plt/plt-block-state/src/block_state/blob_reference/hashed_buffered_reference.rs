@@ -5,7 +5,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::utils::{Link, OwnedOrBorrowed};
+use crate::block_state::utils::{LockRef, OwnedOrBorrowed};
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
@@ -31,7 +31,11 @@ use std::mem;
 /// via interior mutability.
 #[derive(Debug)]
 pub struct HashedCacheableRef<V> {
-    inner: Link<HashedBufferedRefImpl<V>>,
+    /// The representation is wrapped in a [`LockRef`] to allow cheap cloning and
+    /// interior mutability. The interior mutability must not be used to change which value
+    /// is actually represented, only to update internal structure, such that where the value
+    /// is represented.
+    inner: LockRef<HashedBufferedRefImpl<V>>,
 }
 
 impl<V> HashedCacheableRef<V> {
@@ -47,11 +51,13 @@ impl<V> HashedCacheableRef<V> {
 
     fn from_inner(inner: HashedBufferedRefImpl<V>) -> Self {
         Self {
-            inner: Link::new(inner),
+            inner: LockRef::new(inner),
         }
     }
 }
 
+/// Implement [`Clone`] directly, such that clonability does not depend on
+/// if `V` is clonable.
 impl<V> Clone for HashedCacheableRef<V> {
     fn clone(&self) -> Self {
         Self {
@@ -184,7 +190,7 @@ impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
 }
 
 impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
-    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Self::Hash, DecodeError> {
+    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         let mut inner = self.inner.write();
         Ok(if let Some(hash) = inner.hash {
             hash

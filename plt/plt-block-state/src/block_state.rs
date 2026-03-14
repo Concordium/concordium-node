@@ -1,7 +1,7 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 
 use crate::block_state::blob_store::{
-    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, ParseResultExt, Storable,
+    BackingStoreLoad, BackingStoreStore, DecodeError, Loadable, Storable,
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
@@ -11,16 +11,15 @@ use crate::block_state::types::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
-use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};
+use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use sha2::Digest;
 use std::io::Read;
 
 pub mod blob_reference;
@@ -153,6 +152,8 @@ impl HasBlockState for MutableBlockState {
         &self.immutable_state
     }
 }
+
+// todo ar impl query and operations
 
 impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>

@@ -22,16 +22,16 @@ impl<T> Deref for OwnedOrBorrowed<'_, T> {
 /// This is used in this module to construct trees, allowing for sharing of
 /// values in trees and subtrees in case of the persistent tree.
 ///
-/// This [Link] achieves the following properties
+/// This [LockRef] achieves the following properties
 /// - it is cheap to clone
 /// - it allows for inner mutability
 /// - it is safe to use in a concurrent context.
 #[derive(Debug)]
-pub struct Link<V> {
+pub struct LockRef<V> {
     link: Arc<RwLock<V>>,
 }
 
-impl<V> Clone for Link<V> {
+impl<V> Clone for LockRef<V> {
     fn clone(&self) -> Self {
         Self {
             link: self.link.clone(),
@@ -39,8 +39,8 @@ impl<V> Clone for Link<V> {
     }
 }
 
-impl<V> Link<V> {
-    /// Create new [`Link`] with given value.
+impl<V> LockRef<V> {
+    /// Create new [`LockRef`] with given value.
     pub fn new(value: V) -> Self {
         Self {
             link: Arc::new(RwLock::new(value)),
