@@ -80,21 +80,21 @@ impl Loadable for BlockState {
 }
 
 impl Storable for BlockState {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BackingStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
     }
 }
 
 impl Cacheable for BlockState {
-    fn cache_reference_values(&self, mut loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
-        self.tokens.cache_reference_values(&mut loader)?;
+    fn cache_reference_values(&self, mut loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
+        self.tokens.cache_reference_values( loader)?;
         Ok(())
     }
 }
 
 impl Hashable for BlockState {
-    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
-        self.tokens.hash(&mut loader)
+    fn hash(&self, mut loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+        self.tokens.hash( loader)
     }
 }
 

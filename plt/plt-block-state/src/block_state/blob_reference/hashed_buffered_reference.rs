@@ -80,7 +80,7 @@ impl<V> HashedBufferedRefRepr<V> {
     /// Loading from the backing storage will not make the value cached in the reference.
     fn get_or_load_value(
         &self,
-        loader: impl BackingStoreLoad,
+        loader: &mut impl BackingStoreLoad,
     ) -> Result<OwnedOrBorrowed<'_, V>, DecodeError>
     where
         V: Loadable,
@@ -97,7 +97,7 @@ impl<V> HashedBufferedRefRepr<V> {
 
     /// Cache the referenced value and return it. If the value is already in memory, a reference to it is simply
     /// returned. If it is not in memory, it is loaded from the backing storage and cached in [`HashedBufferedRefRepr::Cache`] first.
-    fn get_or_cache_value(&mut self, loader: impl BackingStoreLoad) -> Result<&V, DecodeError>
+    fn get_or_cache_value(&mut self, loader: &mut impl BackingStoreLoad) -> Result<&V, DecodeError>
     where
         V: Loadable,
     {
@@ -124,7 +124,7 @@ impl<V> HashedBufferedRefRepr<V> {
     /// the [`BlobReference`] to it is simply returned. If it is not stored, it is stored into the
     /// backing storage, and the resulting [`BlobReference`] is saved in [`HashedBufferedRefRepr::Cache`]
     /// before it is returned.
-    fn get_reference_or_store(&mut self, storer: impl BackingStoreStore) -> BlobReference
+    fn get_reference_or_store(&mut self, storer: &mut impl BackingStoreStore) -> BlobReference
     where
         V: Storable,
     {
@@ -174,7 +174,7 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
 }
 
 impl<V: Storable> Storable for HashedCacheableRef<V> {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: impl BackingStoreStore) {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BackingStoreStore) {
         let mut inner = self.inner.write();
         let reference = inner.repr.get_reference_or_store(storer);
         buffer.put(reference);
@@ -182,20 +182,20 @@ impl<V: Storable> Storable for HashedCacheableRef<V> {
 }
 
 impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
-    fn cache_reference_values(&self, mut loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, mut loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
         let mut inner = self.inner.write();
-        let value = inner.repr.get_or_cache_value(&mut loader)?;
+        let value = inner.repr.get_or_cache_value( loader)?;
         value.cache_reference_values(loader)
     }
 }
 
 impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
-    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         let mut inner = self.inner.write();
         Ok(if let Some(hash) = inner.hash {
             hash
         } else {
-            let value = inner.repr.get_or_load_value(&mut loader)?;
+            let value = inner.repr.get_or_load_value( loader)?;
             let hash = value.hash(loader)?;
             inner.hash = Some(hash);
             hash

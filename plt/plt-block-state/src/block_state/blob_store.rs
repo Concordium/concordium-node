@@ -12,11 +12,6 @@ pub trait BackingStoreStore {
     fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobReference;
 }
 
-impl<T: BackingStoreStore> BackingStoreStore for &mut T {
-    fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobReference {
-        (**self).store_raw(data)
-    }
-}
 
 /// Trait implemented by types that can load data from given locations.
 /// Dual to [`BackingStoreStore`].
@@ -26,11 +21,6 @@ pub trait BackingStoreLoad {
     fn load_raw(&mut self, location: BlobReference) -> Vec<u8>;
 }
 
-impl<T: BackingStoreLoad> BackingStoreLoad for &mut T {
-    fn load_raw(&mut self, location: BlobReference) -> Vec<u8> {
-        (**self).load_raw(location)
-    }
-}
 
 /// A trait implemented by types that can be loaded from a [backing store](BackingStoreLoad).
 pub trait Loadable: Sized {
@@ -48,17 +38,17 @@ pub trait Storable {
     /// values pointed to by the [`BlobReference`]s the value may be composed of,
     /// if these values are not already represented in the backing store.
     /// As such, `store` is a "deep" operation.
-    fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore);
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut impl BackingStoreStore);
 }
 
 impl<T: Storable> Storable for &T {
-    fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut  impl BackingStoreStore) {
         (**self).store_to_buffer(buffer, storer)
     }
 }
 
 impl<T: Storable> Storable for &mut T {
-    fn store_to_buffer(&self, buffer: impl Buffer, storer: impl BackingStoreStore) {
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut impl BackingStoreStore) {
         (**self).store_to_buffer(buffer, storer)
     }
 }
@@ -73,7 +63,7 @@ impl<T: Deserial> Loadable for StoreSerialized<T> {
 }
 
 impl<T: Serial> Storable for StoreSerialized<T> {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: &mut impl BackingStoreStore) {
         buffer.put(&self.0);
     }
 }
@@ -82,7 +72,7 @@ impl<T: Serial> Storable for StoreSerialized<T> {
 /// not recursively load values pointed to by [`BlobReference`]s the value
 /// may be composed of as part of this operation.
 pub fn load_from_store<T: Loadable>(
-    mut loader: impl BackingStoreLoad,
+     loader: &mut impl BackingStoreLoad,
     location: BlobReference,
 ) -> Result<T, DecodeError> {
     let bytes = loader.load_raw(location);
@@ -102,11 +92,11 @@ pub fn load_from_store<T: Loadable>(
 /// [`BlobReference`]s it may be composed of, if these values are not already represented
 /// in the backing store.
 pub fn store_to_store(
-    mut storer: impl BackingStoreStore,
+     storer: &mut impl BackingStoreStore,
     storable: impl Storable,
 ) -> BlobReference {
     let mut buffer = Vec::new();
-    storable.store_to_buffer(&mut buffer, &mut storer);
+    storable.store_to_buffer(&mut buffer,  storer);
     storer.store_raw(buffer)
 }
 

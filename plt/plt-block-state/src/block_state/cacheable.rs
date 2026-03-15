@@ -10,11 +10,11 @@ pub trait Cacheable {
     /// This operation should recursively apply the cache operation as values are cached into memory,
     /// and values that are already in memory.
     /// As such, `store` is a "deep" operation.
-    fn cache_reference_values(&self, loader: impl BackingStoreLoad) -> Result<(), DecodeError>;
+    fn cache_reference_values(&self, loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError>;
 }
 
 impl<T: Deserial> Cacheable for StoreSerialized<T> {
-    fn cache_reference_values(&self, _loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, _loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
         // nothing to cache, if a value is directly deserializable
         Ok(())
     }

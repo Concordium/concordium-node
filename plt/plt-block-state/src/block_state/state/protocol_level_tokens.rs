@@ -38,8 +38,8 @@ impl ProtocolLevelTokens {
 }
 
 impl Storable for ProtocolLevelTokens {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, mut storer: impl BackingStoreStore) {
-        self.tokens.store_to_buffer(&mut buffer, &mut storer);
+    fn store_to_buffer(&self, mut buffer: impl Buffer,  storer: &mut impl BackingStoreStore) {
+        self.tokens.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -52,13 +52,13 @@ impl Loadable for ProtocolLevelTokens {
 }
 
 impl Cacheable for ProtocolLevelTokens {
-    fn cache_reference_values(&self, loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
         self.tokens.cache_reference_values(loader)
     }
 }
 
 impl Hashable for ProtocolLevelTokens {
-    fn hash(&self, loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         self.tokens.hash(loader)
     }
 }
@@ -81,12 +81,12 @@ pub struct Token {
 }
 
 impl Storable for Token {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, mut storer: impl BackingStoreStore) {
-        self.configuration.store_to_buffer(&mut buffer, &mut storer);
+    fn store_to_buffer(&self, mut buffer: impl Buffer,  storer: &mut impl BackingStoreStore) {
+        self.configuration.store_to_buffer(&mut  buffer,  storer);
         self.key_value_state
-            .store_to_buffer(&mut buffer, &mut storer);
+            .store_to_buffer(&mut buffer,  storer);
         self.circulating_supply
-            .store_to_buffer(&mut buffer, &mut storer);
+            .store_to_buffer(&mut buffer,  storer);
     }
 }
 
@@ -105,16 +105,16 @@ impl Loadable for Token {
 }
 
 impl Cacheable for Token {
-    fn cache_reference_values(&self, loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
         self.configuration.cache_reference_values(loader)
     }
 }
 
 impl Hashable for Token {
-    fn hash(&self, mut loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
-        let config = self.configuration.hash(&mut loader)?;
-        let key_value_state = self.key_value_state.hash(&mut loader)?;
-        let circulating_supply = self.circulating_supply.hash(&mut loader)?;
+    fn hash(&self,  loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+        let config = self.configuration.hash( loader)?;
+        let key_value_state = self.key_value_state.hash( loader)?;
+        let circulating_supply = self.circulating_supply.hash( loader)?;
 
         Ok(hash::hash_of_hashes(
             config,
