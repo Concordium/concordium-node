@@ -9,14 +9,14 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
-use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
-use plt_block_state::ffi::block_state_callbacks::{
+use plt_block_state::block_state::ffi::blob_store_callbacks::LoadCallback;
+use plt_block_state::block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
     GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
     GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
     ReadTokenAccountBalanceCallback, TouchTokenAccountCallback, UpdateTokenAccountBalanceCallback,
 };
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
 use plt_block_state::ffi::memory;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 
@@ -126,7 +126,7 @@ extern "C" fn ffi_execute_transaction(
 
     let protocol_version =
         ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { (*block_state).into_mutable() };
+    let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
     let mut block_state = ExecutionTimeBlockState {
         protocol_version,
         internal_block_state,
@@ -276,7 +276,7 @@ extern "C" fn ffi_execute_chain_update(
 
     let protocol_version =
         ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { (*block_state).into_mutable() };
+    let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
     let mut block_state = ExecutionTimeBlockState {
         protocol_version,
         internal_block_state,

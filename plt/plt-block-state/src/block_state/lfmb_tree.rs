@@ -10,6 +10,7 @@ use concordium_base::hashes::Hash;
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::marker::PhantomData;
+use std::vec;
 
 /// Representation of an immutable, left-full merkle binary (LFMB) tree with values of type `V`.
 /// The represented tree is immutable in the sense that the tree itself does not change,
@@ -58,6 +59,10 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         V: Clone,
     {
         todo!()
+    }
+
+    pub fn values<T>(&self, read: impl FnMut(&V) -> T) -> impl Iterator<Item = T> {
+        todo!() as vec::IntoIter<_>
     }
 
     pub fn append(&self, value: V) -> (K, Self) {

@@ -7,13 +7,13 @@ use crate::queries::QueryTokenInfoError;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
 use libc::size_t;
-use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
-use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
-use plt_block_state::ffi::block_state_callbacks::{
+use plt_block_state::block_state::ffi::blob_store_callbacks::LoadCallback;
+use plt_block_state::block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
     GetCanonicalAddressByAccountIndexCallback, GetTokenAccountStatesCallback,
     ReadTokenAccountBalanceCallback,
 };
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
 use plt_block_state::ffi::memory;
 
 /// C-binding for calling [`queries::query_plt_list`].

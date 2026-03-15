@@ -1,4 +1,4 @@
-use crate::block_state::blob_store::{BackingStoreLoad, DecodeError};
+use crate::block_state::blob_store::{BackingStoreLoad, DecodeError, StoreSerialized};
 use concordium_base::common::Deserial;
 
 /// Trait implemented by types that are stored in the backing store and may
@@ -13,7 +13,7 @@ pub trait Cacheable {
     fn cache_reference_values(&self, loader: impl BackingStoreLoad) -> Result<(), DecodeError>;
 }
 
-impl<T: Deserial> Cacheable for T {
+impl<T: Deserial> Cacheable for StoreSerialized<T> {
     fn cache_reference_values(&self, _loader: impl BackingStoreLoad) -> Result<(), DecodeError> {
         // nothing to cache, if a value is directly deserializable
         Ok(())

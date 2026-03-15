@@ -63,15 +63,18 @@ impl<T: Storable> Storable for &mut T {
     }
 }
 
-impl<T: Deserial> Loadable for T {
+#[derive(Debug, Clone)]
+pub struct StoreSerialized<T>(pub T);
+
+impl<T: Deserial> Loadable for StoreSerialized<T> {
     fn load_from_buffer(mut buffer: impl Read) -> Result<Self, DecodeError> {
-        buffer.get().into_decode_result()
+        Ok(StoreSerialized(buffer.get().into_decode_result()?))
     }
 }
 
-impl<T: Serial> Storable for T {
+impl<T: Serial> Storable for StoreSerialized<T> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: impl BackingStoreStore) {
-        buffer.put(self);
+        buffer.put(&self.0);
     }
 }
 

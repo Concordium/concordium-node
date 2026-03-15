@@ -1,10 +1,8 @@
 //! Types used specifically in the block state.
 
-mod protocol_level_tokens;
+pub mod protocol_level_tokens;
 
 use concordium_base::contracts_common::AccountAddress;
-
-pub use protocol_level_tokens::*;
 
 /// Account representing (read-only) account state.
 ///

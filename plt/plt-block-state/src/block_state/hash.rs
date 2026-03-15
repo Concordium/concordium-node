@@ -1,4 +1,4 @@
-use crate::block_state::blob_store::{BackingStoreLoad, DecodeError};
+use crate::block_state::blob_store::{BackingStoreLoad, DecodeError, StoreSerialized};
 use concordium_base::common::{Put, Serial};
 use concordium_base::hashes::Hash;
 use sha2::Digest;
@@ -17,9 +17,9 @@ pub trait Hashable {
     fn hash(&self, loader: impl BackingStoreLoad) -> Result<Hash, DecodeError>;
 }
 
-impl<T: Serial> Hashable for T {
+impl<T: Serial> Hashable for StoreSerialized<T> {
     fn hash(&self, _loader: impl BackingStoreLoad) -> Result<Hash, DecodeError> {
-        Ok(hash_of_serialization(self))
+        Ok(hash_of_serialization(&self.0))
     }
 }
 

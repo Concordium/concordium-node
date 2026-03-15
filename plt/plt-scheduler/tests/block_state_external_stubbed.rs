@@ -19,14 +19,11 @@ use plt_block_state::block_state::blob_store::BackingStoreLoad;
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
-use plt_block_state::block_state::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockState, BlockState,
-    ExecutionTimeBlockState,
-};
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState, MutableBlockState};
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::TransactionOutcome;
@@ -45,7 +42,7 @@ impl BackingStoreLoad for BlobStoreLoadStub {
 }
 
 type ExecutionTimePltBlockStateWithExternalStateStubbed =
-    ExecutionTimeBlockState<BlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
+    ExecutionTimeBlockState<MutableBlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
 type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
@@ -86,7 +83,7 @@ impl BlockStateWithExternalStateStubbed {
     /// Create block state stub
     #[allow(clippy::new_without_default)]
     pub fn new(protocol_version: ProtocolVersion) -> Self {
-        let inner_block_state = BlockState::empty().mutable_state();
+        let inner_block_state = BlockState::empty().into_mutable();
 
         let external_block_state = ExternalBlockStateStub {
             accounts: Default::default(),

@@ -1,6 +1,6 @@
 //! Interactions with block state managed externally in Haskell.
 
-use crate::block_state::types::{TokenAccountState, TokenIndex};
+use crate::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
