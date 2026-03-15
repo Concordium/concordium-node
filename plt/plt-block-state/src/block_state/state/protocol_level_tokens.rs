@@ -16,10 +16,9 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::vec;
 
 /// Block state for protocol level tokens
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ProtocolLevelTokens {
     /// Simplistic state that is used as a temporary implementation of the block state
     tokens: LFMBTree<TokenIndex, HashedCacheableRef<Token>>,
@@ -55,7 +54,7 @@ impl ProtocolLevelTokens {
                     OwnedOrBorrowed::Borrowed(r) => r.key_value_state.0.clone(),
                 })
             })
-            .expect("token out found by index")
+            .expect("token not found by index")
     }
 
     pub fn token_configuration(
@@ -71,7 +70,7 @@ impl ProtocolLevelTokens {
                         .with_value(loader, |conf| conf.into_owned().0)
                 })
             })
-            .expect("token out found by index")
+            .expect("token not found by index")
     }
 
     pub fn token_circulating_supply(
@@ -83,7 +82,63 @@ impl ProtocolLevelTokens {
             .lookup(loader, token_index, |token_ref| {
                 token_ref.with_value(loader, |token| token.circulating_supply.0)
             })
-            .expect("token out found by index")
+            .expect("token not found by index")
+    }
+
+    pub fn set_token_circulating_supply(
+        self,
+        loader: &impl BackingStoreLoad,
+        token_index: TokenIndex,
+        circulating_supply: RawTokenAmount,
+    ) -> ProtocolLevelTokens {
+        ProtocolLevelTokens {
+            tokens: self
+                .tokens
+                .update_(loader, token_index, |token_ref| {
+                    let token = token_ref.get_or_load_value(loader);
+                    HashedCacheableRef::new(Token {
+                        circulating_supply: StoreSerialized(circulating_supply),
+                        ..token
+                    })
+                })
+                .expect("token not found by index"),
+        }
+    }
+
+    pub fn create_token(
+        self,
+        loader: &impl BackingStoreLoad,
+        configuration: TokenConfiguration,
+    ) -> (TokenIndex, ProtocolLevelTokens) {
+        let token = Token {
+            configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
+            key_value_state: Default::default(),
+            circulating_supply: Default::default(),
+        };
+
+        let (token_index, tokens) = self.tokens.append(loader, HashedCacheableRef::new(token));
+
+        (token_index, ProtocolLevelTokens { tokens })
+    }
+
+    pub fn set_token_key_value_state(
+        self,
+        loader: &impl BackingStoreLoad,
+        token_index: TokenIndex,
+        token_key_value_state: SimplisticTokenKeyValueState,
+    ) -> ProtocolLevelTokens {
+        ProtocolLevelTokens {
+            tokens: self
+                .tokens
+                .update_(loader, token_index, |token_ref| {
+                    let token = token_ref.get_or_load_value(loader);
+                    HashedCacheableRef::new(Token {
+                        key_value_state: StoreSerialized(token_key_value_state),
+                        ..token
+                    })
+                })
+                .expect("token not found by index"),
+        }
     }
 }
 

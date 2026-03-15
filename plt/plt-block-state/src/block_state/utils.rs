@@ -13,8 +13,7 @@ impl<'a, T: Clone> OwnedOrBorrowed<'a, T> {
     pub fn into_owned(self) -> T {
         match self {
             OwnedOrBorrowed::Owned(v) => v,
-            OwnedOrBorrowed::Borrowed(r) => r
-                .clone(),
+            OwnedOrBorrowed::Borrowed(r) => r.clone(),
         }
     }
 }

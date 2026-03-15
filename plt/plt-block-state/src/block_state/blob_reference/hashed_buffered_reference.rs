@@ -38,6 +38,12 @@ pub struct HashedCacheableRef<V> {
     inner: LockRef<HashedBufferedRefImpl<V>>,
 }
 
+impl<V: Default> Default for HashedCacheableRef<V> {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
 impl<V> HashedCacheableRef<V> {
     /// Create a new value represented in memory.
     pub fn new(value: V) -> Self {
@@ -73,6 +79,21 @@ impl<V> HashedCacheableRef<V> {
         // todo ar what to do about decode errors?
         let maybe_owned = inner.repr.get_or_load_value(loader).expect("decode");
         read(maybe_owned)
+    }
+
+    /// Load the referenced value and return it. If the value is already in memory, it is cloned
+    /// and returned. If it is not in memory, it is loaded from the backing storage, and returned.
+    /// Loading from the backing storage will not make the value cached in the reference.
+    pub fn get_or_load_value(&self, loader: &impl BackingStoreLoad) -> V
+    where
+        V: Loadable + Clone,
+    {
+        let inner = self.inner.read();
+        inner
+            .repr
+            .get_or_load_value(loader)
+            .expect("decode")
+            .into_owned()
     }
 }
 
@@ -202,10 +223,7 @@ impl<V: Storable> Storable for HashedCacheableRef<V> {
 }
 
 impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
-    fn cache_reference_values(
-        &self,
-        mut loader: &impl BackingStoreLoad,
-    ) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &impl BackingStoreLoad) -> Result<(), DecodeError> {
         let mut inner = self.inner.write();
         let value = inner.repr.get_or_cache_value(loader)?;
         value.cache_reference_values(loader)

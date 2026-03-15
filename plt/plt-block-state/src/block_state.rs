@@ -24,7 +24,7 @@ use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-use std::vec;
+use std::mem;
 
 pub mod blob_reference;
 pub mod blob_store;
@@ -43,7 +43,7 @@ mod utils;
 ///
 /// The internal representation in [`BlockState`] may change during the lifetime via interior mutability.
 /// This happens if state are cached, stored or hashes are lazily calculated.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BlockState {
     /// Simplistic state that is used as a temporary implementation of the block state
     tokens: ProtocolLevelTokens,
@@ -84,17 +84,14 @@ impl Storable for BlockState {
 }
 
 impl Cacheable for BlockState {
-    fn cache_reference_values(
-        &self,
-        mut loader: &impl BackingStoreLoad,
-    ) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &impl BackingStoreLoad) -> Result<(), DecodeError> {
         self.tokens.cache_reference_values(loader)?;
         Ok(())
     }
 }
 
 impl Hashable for BlockState {
-    fn hash(&self, mut loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         self.tokens.hash(loader)
     }
 }
@@ -110,16 +107,24 @@ pub struct MutableBlockState {
 }
 
 impl MutableBlockState {
-    pub fn into_immutable(self) -> BlockState {
-        self.immutable_state
-    }
-}
-
-impl MutableBlockState {
     fn new(mutable_state: BlockState) -> Self {
         Self {
             immutable_state: mutable_state,
         }
+    }
+
+    pub fn into_immutable(self) -> BlockState {
+        self.immutable_state
+    }
+
+    fn update_block_state_(&mut self, update: impl FnOnce(BlockState) -> BlockState) {
+        self.immutable_state = update(mem::take(&mut self.immutable_state));
+    }
+
+    fn update_block_state<T>(&mut self, update: impl FnOnce(BlockState) -> (T, BlockState)) -> T {
+        let ret;
+        (ret, self.immutable_state) = update(mem::take(&mut self.immutable_state));
+        ret
     }
 }
 
@@ -156,8 +161,6 @@ impl HasBlockState for MutableBlockState {
         &self.immutable_state
     }
 }
-
-
 
 impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
@@ -286,8 +289,6 @@ impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockSta
     }
 }
 
-// todo ar impl operations
-
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
     for ExecutionTimeBlockState<MutableBlockState, Load, ExtState>
 {
@@ -296,21 +297,23 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        // self.internal_block_state.state.tokens[token.0 as usize].circulating_supply =
-        //     circulating_supply;
-        todo!()
+        self.internal_block_state
+            .update_block_state_(|state| BlockState {
+                tokens: state.tokens.set_token_circulating_supply(
+                    &self.backing_store_load,
+                    *token,
+                    circulating_supply,
+                ),
+            });
     }
 
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        // let token_index = TokenIndex(self.internal_block_state.state.tokens.len() as u64);
-        // let token = Token {
-        //     key_value_state: Default::default(),
-        //     configuration,
-        //     circulating_supply: Default::default(),
-        // };
-        // self.internal_block_state.state.tokens.push(token);
-        // token_index
-        todo!()
+        self.internal_block_state.update_block_state(|state| {
+            let (token_index, tokens) = state
+                .tokens
+                .create_token(&self.backing_store_load, configuration);
+            (token_index, BlockState { tokens })
+        })
     }
 
     fn update_token_account_balance(
@@ -338,8 +341,13 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
         token: &Self::Token,
         token_key_value_state: Self::TokenKeyValueState,
     ) {
-        // self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
-        //     token_key_value_state;
-        todo!()
+        self.internal_block_state
+            .update_block_state_(|state| BlockState {
+                tokens: state.tokens.set_token_key_value_state(
+                    &self.backing_store_load,
+                    *token,
+                    token_key_value_state,
+                ),
+            });
     }
 }

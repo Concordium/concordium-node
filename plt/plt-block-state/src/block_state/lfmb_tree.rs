@@ -37,6 +37,12 @@ pub struct LFMBTree<K, V> {
     _key_type: PhantomData<K>,
 }
 
+impl<K: LFMBTreeKey, V> Default for LFMBTree<K, V> {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 pub trait LFMBTreeKey: Copy {
     fn to_u64(self) -> u64;
 
@@ -50,7 +56,7 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
 
         Self {
             inner,
-            _key_type: PhantomData::default(),
+            _key_type: PhantomData,
         }
     }
 
@@ -78,13 +84,12 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         todo!()
     }
 
-
-    pub fn update<T>(
+    pub fn update_(
         &self,
         loader: &impl BackingStoreLoad,
         key: K,
-        update: impl FnOnce(&V) -> (T, Option<V>),
-    ) -> Option<(T, Option<Self>)> {
+        update: impl FnOnce(&V) -> V,
+    ) -> Option<Self> {
         todo!()
     }
 }
@@ -132,7 +137,7 @@ impl<K, V: Loadable> Loadable for LFMBTree<K, V> {
 
         Ok(Self {
             inner,
-            _key_type: PhantomData::default(),
+            _key_type: PhantomData,
         })
     }
 }
@@ -171,7 +176,7 @@ impl<V: Loadable> Loadable for Tree<V> {
 }
 
 impl<V: Storable> Storable for Tree<V> {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, mut storer: &mut impl BackingStoreStore) {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BackingStoreStore) {
         match self {
             Tree::Leaf(value) => {
                 buffer.put(0u8);
@@ -229,10 +234,7 @@ impl<K, V: Cacheable + Loadable> Cacheable for LFMBTree<K, V> {
 }
 
 impl<V: Cacheable + Loadable> Cacheable for Tree<V> {
-    fn cache_reference_values(
-        &self,
-        mut loader: &impl BackingStoreLoad,
-    ) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &impl BackingStoreLoad) -> Result<(), DecodeError> {
         match self {
             Tree::Leaf(value) => {
                 value.cache_reference_values(loader)?;

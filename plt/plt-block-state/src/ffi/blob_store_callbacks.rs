@@ -24,7 +24,7 @@ impl BackingStoreStore for StoreCallback {
 }
 
 impl BackingStoreLoad for LoadCallback {
-    fn load_raw(& self, location: BlobReference) -> Vec<u8> {
+    fn load_raw(&self, location: BlobReference) -> Vec<u8> {
         let vec_from_different_allocator = unsafe { Box::from_raw(self(location)) };
 
         let vec = vec_from_different_allocator.as_ref().clone();
