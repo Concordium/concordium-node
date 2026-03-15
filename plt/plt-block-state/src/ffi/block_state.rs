@@ -4,9 +4,9 @@
 
 use crate::block_state::blob_reference::BlobReference;
 use crate::block_state::cacheable::Cacheable;
-use crate::block_state::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use crate::block_state::hash::Hashable;
 use crate::block_state::{BlockState, blob_store};
+use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
 /// Allocate a new empty PLT block state and returns it.
 ///

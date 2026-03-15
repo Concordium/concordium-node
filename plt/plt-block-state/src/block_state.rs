@@ -28,11 +28,9 @@ use std::vec;
 
 pub mod blob_reference;
 pub mod blob_store;
-mod cacheable;
+pub mod cacheable;
 pub mod external;
-#[cfg(feature = "ffi")]
-pub mod ffi;
-mod hash;
+pub mod hash;
 mod lfmb_tree;
 mod state;
 pub mod types;
@@ -86,15 +84,18 @@ impl Storable for BlockState {
 }
 
 impl Cacheable for BlockState {
-    fn cache_reference_values(&self, mut loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
-        self.tokens.cache_reference_values( loader)?;
+    fn cache_reference_values(
+        &self,
+        mut loader: &impl BackingStoreLoad,
+    ) -> Result<(), DecodeError> {
+        self.tokens.cache_reference_values(loader)?;
         Ok(())
     }
 }
 
 impl Hashable for BlockState {
-    fn hash(&self, mut loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
-        self.tokens.hash( loader)
+    fn hash(&self, mut loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+        self.tokens.hash(loader)
     }
 }
 
@@ -156,7 +157,7 @@ impl HasBlockState for MutableBlockState {
     }
 }
 
-// todo ar impl query and operations
+
 
 impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
@@ -166,13 +167,14 @@ impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockSta
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
-        // self.internal_block_state
-        //     .block_state()
-        //     .tokens.plt_list(&self.backing_store_load)
-        todo!() as vec::IntoIter<_>
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .plt_list(&self.backing_store_load)
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
+        // todo ar look up via normalized token id map
         // self.internal_block_state
         //     .block_state()
         //     .tokens
@@ -195,28 +197,24 @@ impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockSta
     }
 
     fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
-        // self.internal_block_state.block_state().tokens[token.0 as usize]
-        //     .key_value_state
-        //     .clone()
-        todo!()
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .mutable_token_key_value_state(&self.backing_store_load, *token)
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        // let configuration = self.internal_block_state.block_state().tokens[token.0 as usize]
-        //     .configuration
-        //     .clone();
-        //
-        // TokenConfiguration {
-        //     token_id: configuration.token_id,
-        //     module_ref: configuration.module_ref,
-        //     decimals: configuration.decimals,
-        // }
-        todo!()
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .token_configuration(&self.backing_store_load, *token)
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        // self.internal_block_state.block_state().tokens[token.0 as usize].circulating_supply
-        todo!()
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .token_circulating_supply(&self.backing_store_load, *token)
     }
 
     fn lookup_token_state_value(
@@ -224,8 +222,7 @@ impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockSta
         token_key_value_state: &Self::TokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
-        // token_key_value_state.state.get(key).cloned()
-        todo!()
+        token_key_value_state.lookup_value(key)
     }
 
     fn update_token_state_value(
@@ -234,12 +231,7 @@ impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockSta
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
-        // if let Some(value) = value {
-        //     token_key_value_state.state.insert(key.clone(), value);
-        // } else {
-        //     token_key_value_state.state.remove(key);
-        // }
-        todo!()
+        token_key_value_state.update_value(key, value)
     }
 
     fn account_by_address(
@@ -276,25 +268,25 @@ impl<IntState: HasBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockSta
         account: &Self::Account,
         token: &Self::Token,
     ) -> RawTokenAmount {
-        // self.external_block_state
-        //     .read_token_account_balance(*account, *token)
-        todo!()
+        self.external_block_state
+            .read_token_account_balance(*account, *token)
     }
 
     fn token_account_states(
         &self,
         account: &Self::Account,
     ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
-        // self.external_block_state
-        //     .token_account_states(*account)
-        //     .into_iter()
-        todo!() as vec::IntoIter<_>
+        self.external_block_state
+            .token_account_states(*account)
+            .into_iter()
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
         self.protocol_version
     }
 }
+
+// todo ar impl operations
 
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
     for ExecutionTimeBlockState<MutableBlockState, Load, ExtState>
@@ -327,19 +319,18 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        // self.external_block_state
-        //     .update_token_account_balance(*account, *token, amount_delta)
-        todo!()
+        self.external_block_state
+            .update_token_account_balance(*account, *token, amount_delta)
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
-        // self.external_block_state
-        //     .touch_token_account(*account, *token);
+        self.external_block_state
+            .touch_token_account(*account, *token);
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
-        // self.external_block_state
-        //     .increment_plt_update_sequence_number();
+        self.external_block_state
+            .increment_plt_update_sequence_number();
     }
 
     fn set_token_key_value_state(
@@ -349,5 +340,6 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
     ) {
         // self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
         //     token_key_value_state;
+        todo!()
     }
 }

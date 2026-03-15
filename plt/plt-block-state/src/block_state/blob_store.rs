@@ -18,7 +18,7 @@ pub trait BackingStoreStore {
 pub trait BackingStoreLoad {
     /// Load the provided value from the given location. The implementation of
     /// this should match [BackingStoreStore::store_raw].
-    fn load_raw(&mut self, location: BlobReference) -> Vec<u8>;
+    fn load_raw(&self, location: BlobReference) -> Vec<u8>;
 }
 
 
@@ -72,7 +72,7 @@ impl<T: Serial> Storable for StoreSerialized<T> {
 /// not recursively load values pointed to by [`BlobReference`]s the value
 /// may be composed of as part of this operation.
 pub fn load_from_store<T: Loadable>(
-     loader: &mut impl BackingStoreLoad,
+     loader: &impl BackingStoreLoad,
     location: BlobReference,
 ) -> Result<T, DecodeError> {
     let bytes = loader.load_raw(location);

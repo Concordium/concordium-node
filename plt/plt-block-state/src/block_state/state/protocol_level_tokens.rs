@@ -9,6 +9,7 @@ use crate::block_state::lfmb_tree::{LFMBTree, LFMBTreeKey};
 use crate::block_state::types::protocol_level_tokens::{
     TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
+use crate::block_state::utils::OwnedOrBorrowed;
 use concordium_base::common::{Buffer, Serialize};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -31,14 +32,63 @@ impl ProtocolLevelTokens {
         }
     }
 
-    pub fn plt_list(&self) -> impl Iterator<Item = TokenId> {
-        // self.tokens.values(|token|token.)
-        todo!() as vec::IntoIter<_>
+    pub fn plt_list(&self, loader: &impl BackingStoreLoad) -> impl Iterator<Item = TokenId> {
+        self.tokens.values(loader, |token_ref| {
+            token_ref.with_value(loader, |token| {
+                token.configuration.with_value(loader, |conf| match conf {
+                    OwnedOrBorrowed::Owned(v) => v.0.token_id,
+                    OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
+                })
+            })
+        })
+    }
+
+    pub fn mutable_token_key_value_state(
+        &self,
+        loader: &impl BackingStoreLoad,
+        token_index: TokenIndex,
+    ) -> SimplisticTokenKeyValueState {
+        self.tokens
+            .lookup(loader, token_index, |token_ref| {
+                token_ref.with_value(loader, |token| match token {
+                    OwnedOrBorrowed::Owned(v) => v.key_value_state.0,
+                    OwnedOrBorrowed::Borrowed(r) => r.key_value_state.0.clone(),
+                })
+            })
+            .expect("token out found by index")
+    }
+
+    pub fn token_configuration(
+        &self,
+        loader: &impl BackingStoreLoad,
+        token_index: TokenIndex,
+    ) -> TokenConfiguration {
+        self.tokens
+            .lookup(loader, token_index, |token_ref| {
+                token_ref.with_value(loader, |token| {
+                    token
+                        .configuration
+                        .with_value(loader, |conf| conf.into_owned().0)
+                })
+            })
+            .expect("token out found by index")
+    }
+
+    pub fn token_circulating_supply(
+        &self,
+        loader: &impl BackingStoreLoad,
+        token_index: TokenIndex,
+    ) -> RawTokenAmount {
+        self.tokens
+            .lookup(loader, token_index, |token_ref| {
+                token_ref.with_value(loader, |token| token.circulating_supply.0)
+            })
+            .expect("token out found by index")
     }
 }
 
 impl Storable for ProtocolLevelTokens {
-    fn store_to_buffer(&self, mut buffer: impl Buffer,  storer: &mut impl BackingStoreStore) {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BackingStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
     }
 }
@@ -52,13 +102,13 @@ impl Loadable for ProtocolLevelTokens {
 }
 
 impl Cacheable for ProtocolLevelTokens {
-    fn cache_reference_values(&self, loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &impl BackingStoreLoad) -> Result<(), DecodeError> {
         self.tokens.cache_reference_values(loader)
     }
 }
 
 impl Hashable for ProtocolLevelTokens {
-    fn hash(&self, loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         self.tokens.hash(loader)
     }
 }
@@ -81,12 +131,10 @@ pub struct Token {
 }
 
 impl Storable for Token {
-    fn store_to_buffer(&self, mut buffer: impl Buffer,  storer: &mut impl BackingStoreStore) {
-        self.configuration.store_to_buffer(&mut  buffer,  storer);
-        self.key_value_state
-            .store_to_buffer(&mut buffer,  storer);
-        self.circulating_supply
-            .store_to_buffer(&mut buffer,  storer);
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BackingStoreStore) {
+        self.configuration.store_to_buffer(&mut buffer, storer);
+        self.key_value_state.store_to_buffer(&mut buffer, storer);
+        self.circulating_supply.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -105,16 +153,16 @@ impl Loadable for Token {
 }
 
 impl Cacheable for Token {
-    fn cache_reference_values(&self, loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &impl BackingStoreLoad) -> Result<(), DecodeError> {
         self.configuration.cache_reference_values(loader)
     }
 }
 
 impl Hashable for Token {
-    fn hash(&self,  loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
-        let config = self.configuration.hash( loader)?;
-        let key_value_state = self.key_value_state.hash( loader)?;
-        let circulating_supply = self.circulating_supply.hash( loader)?;
+    fn hash(&self, loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+        let config = self.configuration.hash(loader)?;
+        let key_value_state = self.key_value_state.hash(loader)?;
+        let circulating_supply = self.circulating_supply.hash(loader)?;
 
         Ok(hash::hash_of_hashes(
             config,
@@ -127,4 +175,18 @@ impl Hashable for Token {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SimplisticTokenKeyValueState {
     state: BTreeMap<TokenStateKey, TokenStateValue>,
+}
+
+impl SimplisticTokenKeyValueState {
+    pub fn lookup_value(&self, key: &TokenStateKey) -> Option<TokenStateValue> {
+        self.state.get(key).cloned()
+    }
+
+    pub fn update_value(&mut self, key: &TokenStateKey, value: Option<TokenStateValue>) {
+        if let Some(value) = value {
+            self.state.insert(key.clone(), value);
+        } else {
+            self.state.remove(key);
+        }
+    }
 }

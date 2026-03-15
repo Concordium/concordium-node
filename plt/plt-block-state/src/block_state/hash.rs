@@ -14,11 +14,11 @@ pub trait Hashable {
     /// next hash calculation, such that loading from the blob store is not necessary
     /// if the hash needs to be calculated again.
     /// As such, the [`Self::hash`] is mixture of a "shallow" and "deep" operation.
-    fn hash(&self, loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError>;
+    fn hash(&self, loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError>;
 }
 
 impl<T: Serial> Hashable for StoreSerialized<T> {
-    fn hash(&self, _loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, _loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         Ok(hash_of_serialization(&self.0))
     }
 }

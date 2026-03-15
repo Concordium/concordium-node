@@ -9,8 +9,8 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::ffi::blob_store_callbacks::LoadCallback;
-use plt_block_state::block_state::ffi::block_state_callbacks::{
+use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
+use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
     GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
     GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,

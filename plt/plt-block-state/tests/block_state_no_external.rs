@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 pub struct BlobStoreLoadStub;
 
 impl BackingStoreLoad for BlobStoreLoadStub {
-    fn load_raw(&mut self, location: BlobReference) -> Vec<u8> {
+    fn load_raw(& self, location: BlobReference) -> Vec<u8> {
         unimplemented!("should not be called")
     }
 }

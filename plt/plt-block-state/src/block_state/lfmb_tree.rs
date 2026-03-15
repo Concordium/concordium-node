@@ -54,22 +54,37 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         }
     }
 
-    pub fn lookup<T>(&self, key: K, read: impl FnOnce(&V) -> T) -> Option<V>
+    pub fn lookup<T>(
+        &self,
+        loader: &impl BackingStoreLoad,
+        key: K,
+        read: impl FnOnce(&V) -> T,
+    ) -> Option<T>
     where
         V: Clone,
     {
         todo!()
     }
 
-    pub fn values<T>(&self, read: impl FnMut(&V) -> T) -> impl Iterator<Item = T> {
+    pub fn values<T>(
+        &self,
+        loader: &impl BackingStoreLoad,
+        read: impl FnMut(&V) -> T,
+    ) -> impl Iterator<Item = T> {
         todo!() as vec::IntoIter<_>
     }
 
-    pub fn append(&self, value: V) -> (K, Self) {
+    pub fn append(&self, loader: &impl BackingStoreLoad, value: V) -> (K, Self) {
         todo!()
     }
 
-    pub fn update<T>(&self, key: K, update: impl FnOnce(&V) -> (T, Option<V>)) -> Option<Self> {
+
+    pub fn update<T>(
+        &self,
+        loader: &impl BackingStoreLoad,
+        key: K,
+        update: impl FnOnce(&V) -> (T, Option<V>),
+    ) -> Option<(T, Option<Self>)> {
         todo!()
     }
 }
@@ -165,7 +180,7 @@ impl<V: Storable> Storable for Tree<V> {
             Tree::Node(size, left, right) => {
                 buffer.put(1u8);
                 buffer.put(size);
-                left.store_to_buffer(&mut buffer,  storer);
+                left.store_to_buffer(&mut buffer, storer);
                 right.store_to_buffer(&mut buffer, storer);
             }
         }
@@ -173,7 +188,7 @@ impl<V: Storable> Storable for Tree<V> {
 }
 
 impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
-    fn hash(&self, loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         let mut hasher = sha2::Sha256::new();
 
         match &self.inner {
@@ -191,10 +206,10 @@ impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
 }
 
 impl<V: Hashable + Loadable> Hashable for Tree<V> {
-    fn hash(&self, mut loader: &mut impl BackingStoreLoad) -> Result<Hash, DecodeError> {
+    fn hash(&self, loader: &impl BackingStoreLoad) -> Result<Hash, DecodeError> {
         Ok(match self {
             Tree::Node(_, left, right) => {
-                hash::hash_of_hashes(left.hash( loader)?, right.hash( loader)?)
+                hash::hash_of_hashes(left.hash(loader)?, right.hash(loader)?)
             }
             Tree::Leaf(v) => v.hash(loader)?,
         })
@@ -202,7 +217,7 @@ impl<V: Hashable + Loadable> Hashable for Tree<V> {
 }
 
 impl<K, V: Cacheable + Loadable> Cacheable for LFMBTree<K, V> {
-    fn cache_reference_values(&self, loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(&self, loader: &impl BackingStoreLoad) -> Result<(), DecodeError> {
         match &self.inner {
             LFMBTreeImpl::Empty => (),
             LFMBTreeImpl::NonEmpty(_, tree) => {
@@ -214,14 +229,17 @@ impl<K, V: Cacheable + Loadable> Cacheable for LFMBTree<K, V> {
 }
 
 impl<V: Cacheable + Loadable> Cacheable for Tree<V> {
-    fn cache_reference_values(&self, mut loader: &mut impl BackingStoreLoad) -> Result<(), DecodeError> {
+    fn cache_reference_values(
+        &self,
+        mut loader: &impl BackingStoreLoad,
+    ) -> Result<(), DecodeError> {
         match self {
             Tree::Leaf(value) => {
                 value.cache_reference_values(loader)?;
             }
             Tree::Node(_, left, right) => {
-                left.cache_reference_values( loader)?;
-                right.cache_reference_values( loader)?;
+                left.cache_reference_values(loader)?;
+                right.cache_reference_values(loader)?;
             }
         }
         Ok(())
