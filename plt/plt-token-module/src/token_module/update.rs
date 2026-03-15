@@ -12,7 +12,7 @@ use concordium_base::protocol_level_tokens::{
     UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::AccountNotFoundByAddressError;
+use plt_block_state::block_state_interface::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
     TokenMintError, TokenStateInvariantError, TokenTransferError,

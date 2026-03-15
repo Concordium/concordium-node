@@ -9,7 +9,7 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::{ExecutionTimePltBlockState, PltBlockStateSavepoint};
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
@@ -59,7 +59,7 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
@@ -77,14 +77,14 @@ extern "C" fn ffi_execute_transaction(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const BlockState,
     protocol_version: u64,
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
     sender_account_address: *const u8,
     remaining_energy: u64,
-    block_state_out: *mut *mut PltBlockStateSavepoint,
+    block_state_out: *mut *mut BlockState,
     used_energy_out: *mut u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -126,8 +126,8 @@ extern "C" fn ffi_execute_transaction(
 
     let protocol_version =
         ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { (*block_state).mutable_state() };
-    let mut block_state = ExecutionTimePltBlockState {
+    let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
+    let mut block_state = ExecutionTimeBlockState {
         protocol_version,
         internal_block_state,
         backing_store_load: load_callback,
@@ -172,7 +172,7 @@ extern "C" fn ffi_execute_transaction(
         TransactionOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
-                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
+                    Box::into_raw(Box::new(block_state.internal_block_state.into_immutable()));
             }
             (0, common::to_bytes(&events))
         }
@@ -239,11 +239,11 @@ extern "C" fn ffi_execute_chain_update(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const PltBlockStateSavepoint,
+    block_state: *const BlockState,
     protocol_version: u64,
     payload: *const u8,
     payload_len: size_t,
-    block_state_out: *mut *mut PltBlockStateSavepoint,
+    block_state_out: *mut *mut BlockState,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> u8 {
@@ -276,8 +276,8 @@ extern "C" fn ffi_execute_chain_update(
 
     let protocol_version =
         ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { (*block_state).mutable_state() };
-    let mut block_state = ExecutionTimePltBlockState {
+    let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
+    let mut block_state = ExecutionTimeBlockState {
         protocol_version,
         internal_block_state,
         backing_store_load: load_callback,
@@ -297,7 +297,7 @@ extern "C" fn ffi_execute_chain_update(
         ChainUpdateOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
-                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
+                    Box::into_raw(Box::new(block_state.internal_block_state.into_immutable()));
             }
             (0, common::to_bytes(&events))
         }

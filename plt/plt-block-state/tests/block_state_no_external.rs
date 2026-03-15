@@ -14,18 +14,16 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::blob_store::{BackingStoreLoad, Reference};
+use plt_block_state::block_state::blob_reference::BlobReference;
+use plt_block_state::block_state::blob_store::BackingStoreLoad;
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
-use plt_block_state::block_state::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExecutionTimePltBlockState,
-    PltBlockState, PltBlockStateSavepoint,
-};
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState, MutableBlockState};
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -36,20 +34,20 @@ use std::collections::BTreeMap;
 pub struct BlobStoreLoadStub;
 
 impl BackingStoreLoad for BlobStoreLoadStub {
-    fn load_raw(&mut self, location: Reference) -> Vec<u8> {
+    fn load_raw(&self, location: BlobReference) -> Vec<u8> {
         unimplemented!("should not be called")
     }
 }
 
-type ExecutionTimePltBlockStateWithNoExternalState =
-    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, NoExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithNoExternalState as BlockStateQuery>::Token;
+type ExecutionTimeBlockStateWithNoExternalState =
+    ExecutionTimeBlockState<MutableBlockState, BlobStoreLoadStub, NoExternalBlockStateStub>;
+type Token = <ExecutionTimeBlockStateWithNoExternalState as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
 /// state is not possible.
 #[derive(Debug)]
 pub struct BlockStateWithNoExternalState {
-    block_state: ExecutionTimePltBlockStateWithNoExternalState,
+    block_state: ExecutionTimeBlockStateWithNoExternalState,
 }
 
 /// Non-accessible block state representing the Haskell maintained part of the block state.
@@ -60,9 +58,9 @@ impl BlockStateWithNoExternalState {
     /// Create block state stub
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
+        let inner_block_state = BlockState::empty().into_mutable();
 
-        let block_state = ExecutionTimePltBlockState {
+        let block_state = ExecutionTimeBlockState {
             protocol_version: ProtocolVersion::P10,
             internal_block_state: inner_block_state,
             backing_store_load: BlobStoreLoadStub,
@@ -73,12 +71,12 @@ impl BlockStateWithNoExternalState {
     }
 
     /// Access to the underlying block state.
-    pub fn state(&self) -> &ExecutionTimePltBlockStateWithNoExternalState {
+    pub fn state(&self) -> &ExecutionTimeBlockStateWithNoExternalState {
         &self.block_state
     }
 
     /// Mutable access to the underlying block state.
-    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithNoExternalState {
+    pub fn state_mut(&mut self) -> &mut ExecutionTimeBlockStateWithNoExternalState {
         &mut self.block_state
     }
 }

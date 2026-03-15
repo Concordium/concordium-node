@@ -7,6 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+# Concordium dependencies
 concordium_base.workspace = true
 
 [dev-dependencies]

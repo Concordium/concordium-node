@@ -2,7 +2,10 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{PltBlockStateSavepoint, blob_store};
+use crate::block_state::blob_reference::BlobReference;
+use crate::block_state::cacheable::Cacheable;
+use crate::block_state::hash::Hashable;
+use crate::block_state::{BlockState, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
 /// Allocate a new empty PLT block state and returns it.
@@ -10,8 +13,8 @@ use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 /// The returned pointer is to a uniquely owned instance.
 /// It must be freed by calling [`ffi_free_plt_block_state`].
 #[unsafe(no_mangle)]
-extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
-    let block_state = PltBlockStateSavepoint::empty();
+extern "C" fn ffi_empty_plt_block_state() -> *mut BlockState {
+    let block_state = BlockState::empty();
     Box::into_raw(Box::new(block_state))
 }
 
@@ -23,11 +26,11 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
 ///
 /// # Safety
 ///
-/// - Argument `block_state` must be unique, non-null pointer to well-formed [`PltBlockStateSavepoint`].
+/// - Argument `block_state` must be unique, non-null pointer to well-formed [`BlockState`].
 ///   No other pointers to the block state must exist.
 /// - Freeing is only ever done once.
 #[unsafe(no_mangle)]
-extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint) {
+extern "C" fn ffi_free_plt_block_state(block_state: *mut BlockState) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let state = unsafe { Box::from_raw(block_state) };
     drop(state);
@@ -44,19 +47,20 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint)
 /// # Safety
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `destination` must be non-null and valid for writes of 32 bytes.
 #[unsafe(no_mangle)]
 extern "C" fn ffi_hash_plt_block_state(
-    mut load_callback: LoadCallback,
-    block_state: *const PltBlockStateSavepoint,
+    load_callback: LoadCallback,
+    block_state: *const BlockState,
     destination: *mut u8,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!destination.is_null(), "destination is a null pointer.");
     let block_state = unsafe { &*block_state };
-    let hash = block_state.hash(&mut load_callback);
+    // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    let hash = block_state.hash(&load_callback).unwrap();
     unsafe {
         std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
     }
@@ -77,12 +81,11 @@ extern "C" fn ffi_hash_plt_block_state(
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
 #[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
-    mut load_callback: LoadCallback,
-    blob_ref: blob_store::Reference,
-) -> *mut PltBlockStateSavepoint {
+    load_callback: LoadCallback,
+    blob_ref: BlobReference,
+) -> *mut BlockState {
     // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state =
-        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
+    let block_state = blob_store::load_from_store(&load_callback, blob_ref).unwrap();
     Box::into_raw(Box::new(block_state))
 }
 
@@ -97,16 +100,16 @@ extern "C" fn ffi_load_plt_block_state(
 /// # Safety
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
-    block_state: *const PltBlockStateSavepoint,
-) -> blob_store::Reference {
+    block_state: *const BlockState,
+) -> BlobReference {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
-    block_state.store_update(&mut store_callback)
+    blob_store::store_to_store(&mut store_callback, block_state)
 }
 
 /// Migrate the PLT block state from one blob store to another and return the migrated state.
@@ -125,17 +128,17 @@ extern "C" fn ffi_store_plt_block_state(
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
 /// - Argument `store_callback` must be a valid function pointer to a function with a signature matching [`StoreCallback`].
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_migrate_plt_block_state(
-    mut load_callback: LoadCallback,
-    mut store_callback: StoreCallback,
-    block_state: *const PltBlockStateSavepoint,
-) -> *mut PltBlockStateSavepoint {
+    load_callback: LoadCallback,
+    store_callback: StoreCallback,
+    block_state: *const BlockState,
+) -> *mut BlockState {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
-    let new_block_state = block_state.migrate(&mut load_callback, &mut store_callback);
+    let new_block_state = block_state.migrate(load_callback, store_callback);
     Box::into_raw(Box::new(new_block_state))
 }
 
@@ -149,14 +152,15 @@ extern "C" fn ffi_migrate_plt_block_state(
 /// # Safety
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_cache_plt_block_state(
-    mut load_callback: LoadCallback,
-    block_state: *const PltBlockStateSavepoint,
+    load_callback: LoadCallback,
+    block_state: *const BlockState,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
-    block_state.cache(&mut load_callback)
+    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    block_state.cache_reference_values(&load_callback).unwrap();
 }

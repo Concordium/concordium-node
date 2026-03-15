@@ -3,7 +3,7 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenModuleState};
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters};
-use plt_block_state::block_state::AccountNotFoundByAddressError;
+use plt_block_state::block_state_interface::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module::{

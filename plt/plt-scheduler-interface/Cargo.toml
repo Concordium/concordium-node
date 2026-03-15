@@ -7,9 +7,12 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
+# Workspace dependencies
 plt-scheduler-types.workspace = true
 plt-block-state.workspace = true
 
+# Concordium dependencies
 concordium_base.workspace = true
 
+# Third party dependencies
 thiserror.workspace = true
