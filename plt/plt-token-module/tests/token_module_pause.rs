@@ -260,7 +260,7 @@ fn test_unauthorized_unpause() {
 #[test]
 fn test_pause_multiple_ops() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // We test that a transaction consisting of a "pause" and "mint" operation fails, as minting is
     // not allowed while a token is paused.

@@ -296,6 +296,11 @@ fn execute_token_update_operation<
     let energy_cost = energy_cost(token_operation);
     transaction_execution.tick_energy(energy_cost)?;
 
+    const WRONG_PROTOCOL_ERROR: TokenUpdateErrorInternal =
+        TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "Operation not supported at the current protocol version",
+        };
+
     // Execute operation
     match token_operation {
         TokenOperation::Transfer(transfer) => {
@@ -317,18 +322,27 @@ fn execute_token_update_operation<
         TokenOperation::RemoveDenyList(list_operation) => {
             execute_remove_deny_list(transaction_execution, kernel, list_operation)
         }
-        TokenOperation::AssignAdminRoles(operation) if kernel.support_rbac() => {
-            execute_assign_admin_roles(transaction_execution, kernel, operation)
+        TokenOperation::AssignAdminRoles(operation) => {
+            if kernel.support_rbac() {
+                execute_assign_admin_roles(transaction_execution, kernel, operation)
+            } else {
+                Err(WRONG_PROTOCOL_ERROR)
+            }
         }
-        TokenOperation::RevokeAdminRoles(operation) if kernel.support_rbac() => {
-            execute_revoke_admin_roles(transaction_execution, kernel, operation)
+        TokenOperation::RevokeAdminRoles(operation) => {
+            if kernel.support_rbac() {
+                execute_revoke_admin_roles(transaction_execution, kernel, operation)
+            } else {
+                Err(WRONG_PROTOCOL_ERROR)
+            }
         }
-        TokenOperation::UpdateMetadata(operation) if kernel.support_updating_metadata() => {
-            execute_update_metadata(transaction_execution, kernel, operation)
+        TokenOperation::UpdateMetadata(operation) => {
+            if kernel.support_updating_metadata() {
+                execute_update_metadata(transaction_execution, kernel, operation)
+            } else {
+                Err(WRONG_PROTOCOL_ERROR)
+            }
         }
-        _ => Err(TokenUpdateErrorInternal::UnsupportedOperation {
-            reason: "Operation not supported by the protocol",
-        }),
     }
 }
 
@@ -367,13 +381,13 @@ fn check_authorized<
 >(
     transaction_execution: &mut TE,
     kernel: &TK,
-    role: TokenAdminRole,
+    required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if kernel.support_rbac() {
         // Ensure the sender holds the specified role.
         let sender_index = kernel.account_index(&transaction_execution.sender_account());
         let account_roles = key_value_state::get_account_roles(kernel, sender_index)?;
-        if !account_roles.has(role) {
+        if !account_roles.has(required_role) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transaction_execution.sender_account_address()),
                 reason: "sender is not authorized to perform the operation for this token",
@@ -461,13 +475,13 @@ fn execute_token_mint<
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     // operation execution
-    check_authorized(transaction_execution, kernel, TokenAdminRole::Mint)?;
-    check_not_paused(kernel)?;
     if !key_value_state::is_mintable(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     };
+    check_authorized(transaction_execution, kernel, TokenAdminRole::Mint)?;
+    check_not_paused(kernel)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -485,13 +499,13 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     // operation execution
-    check_authorized(transaction_execution, kernel, TokenAdminRole::Burn)?;
-    check_not_paused(kernel)?;
     if !key_value_state::is_burnable(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
+    check_authorized(transaction_execution, kernel, TokenAdminRole::Burn)?;
+    check_not_paused(kernel)?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -537,16 +551,16 @@ fn execute_add_allow_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(
-        transaction_execution,
-        kernel,
-        TokenAdminRole::UpdateAllowList,
-    )?;
     if !key_value_state::has_allow_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateAllowList,
+    )?;
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -569,16 +583,16 @@ fn execute_add_deny_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(
-        transaction_execution,
-        kernel,
-        TokenAdminRole::UpdateDenyList,
-    )?;
     if !key_value_state::has_deny_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateDenyList,
+    )?;
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
@@ -602,16 +616,16 @@ fn execute_remove_allow_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(
-        transaction_execution,
-        kernel,
-        TokenAdminRole::UpdateAllowList,
-    )?;
     if !key_value_state::has_allow_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateAllowList,
+    )?;
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
@@ -634,16 +648,16 @@ fn execute_remove_deny_list<
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(
-        transaction_execution,
-        kernel,
-        TokenAdminRole::UpdateDenyList,
-    )?;
     if !key_value_state::has_deny_list(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
+    check_authorized(
+        transaction_execution,
+        kernel,
+        TokenAdminRole::UpdateDenyList,
+    )?;
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
@@ -698,7 +712,6 @@ fn execute_assign_admin_roles<
     )?;
     check_roles_supported(kernel, &operation.roles)?;
     let account = kernel.account_by_address(&operation.account.address)?;
-    kernel.touch_account(&account);
     key_value_state::assign_account_roles(
         kernel,
         kernel.account_index(&account),
@@ -737,7 +750,6 @@ fn execute_revoke_admin_roles<
             reason: "Sender not allowed to remove own admin role",
         });
     }
-    kernel.touch_account(&account);
     key_value_state::revoke_account_roles(kernel, account_index, &operation.roles)?;
     let event = TokenModuleEvent::RevokeAdminRoles(TokenUpdateAdminRolesEventDetails {
         roles: operation.roles.clone(),

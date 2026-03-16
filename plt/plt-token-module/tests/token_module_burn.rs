@@ -60,7 +60,7 @@ fn test_burn() {
 fn test_unauthorized_burn() {
     // Arrange a token and an unauthorized sender.
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    stub.init_token(TokenInitTestParams::default().burnable());
     let non_governance_account = stub.create_account();
     stub.set_account_balance(non_governance_account, RawTokenAmount(5000));
 
@@ -162,7 +162,7 @@ fn test_burn_decimals_mismatch() {
 #[test]
 fn test_burn_paused() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
     stub.set_paused(true);
 

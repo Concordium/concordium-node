@@ -80,8 +80,8 @@ fn test_initialize_token_additional_parameter() {
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,
-        Err(TokenInitializationError::InvalidInitializationParameters(err)) => {
-            assert!(err.to_string().contains("Unknown additional parameters"), "err: {}", err);
+        Err(TokenInitializationError::CborSerialization(err)) => {
+            assert!(err.to_string().contains("unknown map key"), "err: {}", err);
         }
     );
 }

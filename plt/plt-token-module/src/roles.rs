@@ -4,13 +4,9 @@ use concordium_base::common;
 use concordium_base::protocol_level_tokens::TokenAdminRole;
 use plt_block_state::block_state::types::TokenStateValue;
 
-/// List of every role
-pub const ALL: &[TokenAdminRole] = &[
+/// List roles which are unaffected by which features are enabled.
+pub const MANDATORY_ROLES: &[TokenAdminRole] = &[
     TokenAdminRole::UpdateAdminRoles,
-    TokenAdminRole::Mint,
-    TokenAdminRole::Burn,
-    TokenAdminRole::UpdateAllowList,
-    TokenAdminRole::UpdateDenyList,
     TokenAdminRole::Pause,
     TokenAdminRole::UpdateMetadata,
 ];

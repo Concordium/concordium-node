@@ -59,7 +59,7 @@ fn test_mint() {
 fn test_unauthorized_mint() {
     // Arrange a token and an unauthorized sender.
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     let non_governance_account = stub.create_account();
 
     // Attempt to mint as a non-governance account.
@@ -110,7 +110,7 @@ fn test_unauthorized_mint() {
 fn test_unauthorized_mint_using_alias() {
     // Arrange a token and an unauthorized sender.
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    stub.init_token(TokenInitTestParams::default().mintable());
     let non_gov_account = stub.create_account();
 
     let non_gov_account_address_alias =
@@ -208,7 +208,7 @@ fn test_mint_decimals_mismatch() {
 #[test]
 fn test_mint_paused() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     stub.set_paused(true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
