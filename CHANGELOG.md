@@ -2,9 +2,6 @@
 
 ## Unreleased changes
 
-# 10.0.7.1-alpha
-- upgraded rust version to 1.94
-
 # 10.0.7
 
 - Enhance node performance by limiting outbound queue saturation to peers that are slow in processing messages.
