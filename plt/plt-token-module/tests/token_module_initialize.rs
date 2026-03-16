@@ -43,7 +43,6 @@ fn test_initialize_token_parameters_missing() {
         initial_supply: None,
         mintable: Some(true),
         burnable: Some(true),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
@@ -69,7 +68,6 @@ fn test_initialize_token_additional_parameter() {
         initial_supply: None,
         mintable: Some(true),
         burnable: Some(true),
-        additional: Default::default(),
     };
 
     let mut dynamic_parameters: cbor::value::Value =
@@ -107,7 +105,6 @@ fn test_initialize_token_default_values() {
         initial_supply: None,
         mintable: None,
         burnable: None,
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
@@ -163,7 +160,6 @@ fn test_initialize_token_no_minting() {
         initial_supply: None,
         mintable: Some(true),
         burnable: Some(true),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
@@ -228,7 +224,6 @@ fn test_initialize_token_with_minting() {
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
@@ -289,7 +284,6 @@ fn test_initialize_token_excessive_mint_decimals() {
         initial_supply: Some(TokenAmount::from_raw(500000, 6)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
@@ -320,7 +314,6 @@ fn test_initialize_token_insufficient_mint_decimals() {
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
@@ -350,7 +343,6 @@ fn test_initialize_token_non_existing_governance_account() {
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
         mintable: Some(false),
         burnable: Some(false),
-        additional: Default::default(),
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);

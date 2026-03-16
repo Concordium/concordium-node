@@ -53,14 +53,6 @@ fn initialize_token_impl(
     kernel: &mut impl TokenKernelOperations,
     init_params: TokenModuleInitializationParameters,
 ) -> Result<(), TokenInitializationError> {
-    if !init_params.additional.is_empty() {
-        return Err(TokenInitializationError::InvalidInitializationParameters(
-            format!(
-                "Unknown additional parameters: {:?}",
-                init_params.additional
-            ),
-        ));
-    }
     let name = init_params.name.ok_or_else(|| {
         TokenInitializationError::InvalidInitializationParameters(
             "Token name is missing".to_string(),
