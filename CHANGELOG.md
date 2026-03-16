@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-# 10.0.7.1-alpha
+# 10.0.8
 - upgraded rust version to 1.94
 
 # 10.0.7
