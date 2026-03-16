@@ -98,7 +98,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: "1.82"
+        - rust: "1.94"
 
     steps:
     - name: Checkout
@@ -132,7 +132,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: 1.82
+        - rust: 1.94
           ghc: 9.10.2
 
     steps:
@@ -291,3 +291,9 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         verbose: true
         files: lcov.info,codecov-haskell.json
+
+  all-checks-passed:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All matrix builds passed!"
