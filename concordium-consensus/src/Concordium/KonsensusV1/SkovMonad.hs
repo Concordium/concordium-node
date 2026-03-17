@@ -23,6 +23,7 @@ import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Reader hiding (ask)
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
+import System.Directory
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -537,9 +538,7 @@ initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov g
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
     if existingDB
         then do
-            pbsc <- newPersistentBlockStateContext False gsc
-            let initWithLLDB skovLldb = do
-                    checkDatabaseVersion skovLldb
+            let initWithDBs skovLldb pbsc = do
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
                     RollbackResult{..} <-
                         flip runReaderT (LMDBDatabases skovLldb $ pbscAccountMap pbsc) $
@@ -575,10 +574,27 @@ initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov g
                                   esProtocolUpdate = effectiveProtocolUpdate
                                 }
                     return $ Just es
-            let initWithBlockState = do
-                    (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
-                    initWithLLDB lldb `onException` liftIO (closeDatabase lldb)
-            initWithBlockState `onException` liftIO (closeBlobStore $ pbscBlobStore pbsc)
+            let initWithLLDB skovLldb = do
+                    dbVersionOk <- checkDatabaseVersion skovLldb
+                    if dbVersionOk
+                        then do
+                            bracketOnError
+                                (newPersistentBlockStateContext False gsc)
+                                (liftIO . closeBlobStore . pbscBlobStore)
+                                (initWithDBs skovLldb)
+                        else do
+                            liftIO $ closeDatabase skovLldb
+                            logEvent GlobalState LLWarning $
+                                "Deleting blockstate '" ++ gscBlockStateFile ++ "'"
+                            liftIO $ removeFile gscBlockStateFile
+                            logEvent GlobalState LLWarning $
+                                "Deleting treestate '" ++ gscTreeStateDirectory ++ "'"
+                            liftIO . removeDirectoryRecursive $ gscTreeStateDirectory
+                            return Nothing
+            bracketOnError
+                (liftIO $ openDatabase gscTreeStateDirectory)
+                (liftIO . closeDatabase)
+                initWithLLDB
         else do
             logEvent Skov LLDebug "No existing global state."
             return Nothing
@@ -688,6 +704,23 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
     closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
     closeDatabase _vcDisk
 
+-- | Remove any existing block state or tree state corresponding to the supplied configuration,
+--  logging a warning if it is necessary to do so.
+ensureNoExistingState :: GlobalStateConfig -> LogIO ()
+ensureNoExistingState GlobalStateConfig{..} = do
+    bsExists <- liftIO $ doesPathExist gscBlockStateFile
+    when bsExists $ do
+        logEvent GlobalState LLWarning $
+            "Block state '" ++ gscBlockStateFile ++ "' already exists during protocol update. It will be deleted."
+        liftIO $ removeFile gscBlockStateFile
+    tsExists <- liftIO $ doesPathExist gscTreeStateDirectory
+    when tsExists $ do
+        logEvent GlobalState LLWarning $
+            "Tree state '"
+                ++ gscTreeStateDirectory
+                ++ "' already exists during protocol update. It will be deleted."
+        liftIO $ removeDirectoryRecursive gscTreeStateDirectory
+
 -- | Migrate an existing state to a 'ConsensusV1' state.
 --  This function should be used when a protocol update occurs.
 --
@@ -734,6 +767,7 @@ migrateSkovV1 ::
     -- | Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
 migrateSkovV1 genesisBlockHeightInfo regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
+    ensureNoExistingState gsConfig
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)

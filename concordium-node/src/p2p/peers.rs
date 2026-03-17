@@ -1,12 +1,12 @@
 //! Peer handling.
 
+use crate::connection::{ConnChange, MessageSendingPriority};
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId, PeerStats, PeerType},
-    connection::Connection,
     netmsg,
     network::NetworkRequest,
     p2p::{connectivity::connect, maintenance::attempt_bootstrap, P2PNode},
-    read_or_die,
+    read_or_die, write_or_die,
 };
 use anyhow::ensure;
 use chrono::Utc;
@@ -94,16 +94,27 @@ impl P2PNode {
         let request =
             NetworkRequest::GetPeers(read_or_die!(self.networks()).iter().copied().collect());
         let message = netmsg!(NetworkRequest, request);
-        let filter = |_: &Connection| true;
-
         let mut buf = Vec::with_capacity(256);
 
-        if let Err(e) = message
-            .serialize(&mut buf)
-            .map(|_| buf)
-            .map(|buf| self.send_over_all_connections(&buf, &filter))
-        {
+        if let Err(e) = message.serialize(&mut buf) {
             error!("Can't send a GetPeers request: {}", e);
+            return;
+        }
+
+        let data: Arc<[u8]> = Arc::from(buf);
+        for conn in write_or_die!(self.connections()).values_mut() {
+            conn.get_peers_list_semaphore.add_permits(1);
+
+            if conn
+                .pending_messages
+                .enqueue(MessageSendingPriority::Low, Arc::clone(&data))
+                .is_err()
+            {
+                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
+                warn!(
+                    "Dropping connection to peer {conn}: low-priority outbound message queue full"
+                );
+            };
         }
     }
 

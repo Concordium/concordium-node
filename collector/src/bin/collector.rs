@@ -12,6 +12,7 @@ use tonic::transport::{channel::Channel, ClientTlsConfig};
 extern crate log;
 
 #[allow(
+    unused,
     clippy::large_enum_variant,
     clippy::enum_variant_names,
     clippy::doc_overindented_list_items
