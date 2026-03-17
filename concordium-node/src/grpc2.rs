@@ -556,9 +556,9 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl SendBlockItemRequest {
         /// Return the Versioned block item serialized in the V0 format.
-        #[expect(clippy::result_large_err)]
         pub(crate) fn get_v0_format(self) -> Result<Vec<u8>, tonic::Status> {
             match self.block_item.require()? {
                 send_block_item_request::BlockItem::AccountTransaction(at) => {
