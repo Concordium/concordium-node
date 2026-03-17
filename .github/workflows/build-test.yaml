@@ -53,7 +53,7 @@ on:
 env:
   dummy: 17                # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
-  RUST_VERSION: 1.86
+  RUST_VERSION: 1.94
   GHC_VERSION: 9.10.2
 
 jobs:
