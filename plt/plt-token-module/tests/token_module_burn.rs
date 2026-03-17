@@ -218,7 +218,7 @@ fn test_not_burnable() {
 
 /// Reject when governance account is not holding the burn role.
 #[test]
-fn test_reject_without_role() {
+fn test_role_authorization_burn() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
 
@@ -256,7 +256,7 @@ fn test_reject_without_role() {
             address: Some(address),
             reason: Some(reason)
         }) => {
-            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(reason.as_str(), "sender is not authorized to perform the operation for this token");
             assert_eq!(address, CborHolderAccount::from(gov_account.1));
         }
     );
@@ -264,7 +264,7 @@ fn test_reject_without_role() {
 
 /// Succeeds for another account holding the burn role.
 #[test]
-fn test_new_account_with_role_succeeds() {
+fn test_new_account_with_role_succeeds_burn() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));

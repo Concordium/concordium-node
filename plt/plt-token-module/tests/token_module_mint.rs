@@ -308,7 +308,7 @@ fn test_reject_without_role() {
 
 /// Succeeds when another account holds the mint role.
 #[test]
-fn test_new_account_with_role_succeeds() {
+fn test_new_account_with_role_succeeds_mint() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     let account2 = stub.create_account();

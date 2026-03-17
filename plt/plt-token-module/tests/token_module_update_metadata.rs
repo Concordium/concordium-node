@@ -1,8 +1,9 @@
 use assert_matches::assert_matches;
-use concordium_base::common::cbor;
+use concordium_base::common::{self, cbor};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole,
-    TokenModuleRejectReason, TokenOperation, TokenUpdateAdminRolesDetails,
+    TokenModuleRejectReason, TokenModuleState, TokenOperation, TokenUpdateAdminRolesDetails,
+    UnsupportedOperationRejectReason,
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
@@ -38,16 +39,15 @@ fn test_token_metadata_updates() {
     )
     .expect("executes successfully");
 
-    let new_encoded_metadata = cbor::cbor_encode(&new_metadata_url);
-    assert_eq!(
-        stub.lookup_token_state_value(b"\0\0metadata".into()),
-        Some(new_encoded_metadata)
-    );
+    let module_state_raw = token_module::query_token_module_state(&stub).unwrap();
+    let module_state: TokenModuleState = cbor::cbor_decode(module_state_raw).unwrap();
+    let actual_metadata = module_state.metadata.unwrap();
+    assert_eq!(new_metadata_url, actual_metadata);
 }
 
 /// Succeeds for another account holding the updateMetadata role.
 #[test]
-fn test_new_account_with_role_succeeds() {
+fn test_new_account_with_role_succeeds_update_metadata() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let account2 = stub.create_account();
@@ -82,16 +82,15 @@ fn test_new_account_with_role_succeeds() {
     )
     .expect("executes successfully");
 
-    let new_encoded_metadata = cbor::cbor_encode(&new_metadata_url);
-    assert_eq!(
-        stub.lookup_token_state_value(b"\0\0metadata".into()),
-        Some(new_encoded_metadata)
-    );
+    let module_state_raw = token_module::query_token_module_state(&stub).unwrap();
+    let module_state: TokenModuleState = cbor::cbor_decode(module_state_raw).unwrap();
+    let actual_metadata = module_state.metadata.unwrap();
+    assert_eq!(new_metadata_url, actual_metadata);
 }
 
 /// Reject when governance account is not holding the updateMetadata role.
 #[test]
-fn test_reject_without_role() {
+fn test_role_authorization_update_metadata() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
@@ -110,7 +109,7 @@ fn test_reject_without_role() {
     );
     assert!(res.is_ok());
 
-    // 2nd transaction: attempting to pause as governance account
+    // 2nd transaction: attempting to update metadata as governance account
     let new_metadata_url = MetadataUrl {
         url: "https://plt2.token".to_string(),
         checksum_sha_256: Some([5u8; 32].into()),
@@ -131,11 +130,41 @@ fn test_reject_without_role() {
             address: Some(address),
             reason: Some(reason)
         }) => {
-            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(&reason, "sender is not authorized to perform the operation for this token");
             assert_eq!(address, CborHolderAccount::from(gov_account.1));
         }
     );
 }
 
-// TODO
-// - Reject when additional metadata fields are provided.
+/// Reject when additional metadata fields are provided.
+#[test]
+fn test_update_metadata_rejects_with_additional_data() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+
+    // transaction: Attempting to update metadata with additional data set.
+    let new_metadata_url = MetadataUrl {
+        url: "https://plt2.token".to_string(),
+        checksum_sha_256: Some([5u8; 32].into()),
+        additional: [(
+            "my_own_data_field".to_string(),
+            common::cbor::value::Value::Text("custom_data".to_string()),
+        )]
+        .into(),
+    };
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::UpdateMetadata(new_metadata_url)];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::UnsupportedOperation(UnsupportedOperationRejectReason {index: 0, reason: Some(reason), operation_type }) => {
+            assert_eq!(&operation_type, "updateMetadata");
+            assert_eq!(&reason, "Unknown additional metadata fields");
+        }
+    );
+}

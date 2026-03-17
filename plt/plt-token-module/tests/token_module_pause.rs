@@ -356,7 +356,7 @@ fn test_unpause_multiple_ops() {
 
 /// Reject when governance account is not holding the pause role.
 #[test]
-fn test_reject_without_role() {
+fn test_role_authorization_pause() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
@@ -399,7 +399,7 @@ fn test_reject_without_role() {
 
 /// Succeeds for another account holding the pause role.
 #[test]
-fn test_new_account_with_role_succeeds() {
+fn test_new_account_with_role_succeeds_pause() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let account2 = stub.create_account();
@@ -428,8 +428,7 @@ fn test_new_account_with_role_succeeds() {
         RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
-    assert_eq!(
-        stub.lookup_token_state_value(b"\0\0paused".into()),
-        Some(Vec::new())
-    );
+    let state: TokenModuleState =
+        cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    assert_eq!(state.paused, Some(true));
 }
