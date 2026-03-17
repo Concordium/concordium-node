@@ -556,7 +556,6 @@ pub mod types {
         }
     }
 
-    #[expect(clippy::result_large_err)]
     impl SendBlockItemRequest {
         /// Return the Versioned block item serialized in the V0 format.
         #[expect(clippy::result_large_err)]
@@ -3442,7 +3441,6 @@ pub mod server {
     }
 }
 
-#[expect(clippy::result_large_err)]
 /// Add a block hash to the metadata of a response. Used for returning the block
 /// hash.
 #[expect(clippy::result_large_err)]

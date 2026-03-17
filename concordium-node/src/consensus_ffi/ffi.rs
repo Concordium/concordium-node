@@ -1922,7 +1922,6 @@ impl Drop for DryRun {
 impl DryRun {
     /// Load the state of a particular block in the dry-run session, and use its
     /// timestamp as the current timestamp for the session.
-    #[expect(clippy::result_large_err)]
     pub fn load_block_state(
         &mut self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -1940,7 +1939,6 @@ impl DryRun {
 
     /// Look up information on a particular account in the current dry-run
     /// state.
-    #[expect(clippy::result_large_err)]
     pub fn get_account_info(
         &mut self,
         target: &crate::grpc2::types::AccountIdentifierInput,
@@ -1956,7 +1954,6 @@ impl DryRun {
 
     /// Look up information on a particular smart contract instance in the
     /// current dry-run state.
-    #[expect(clippy::result_large_err)]
     pub fn get_instance_info(
         &mut self,
         target: &crate::grpc2::types::ContractAddress,
@@ -1972,7 +1969,6 @@ impl DryRun {
     /// Invoke an entrypoint on a smart contract instance in the current dry-run
     /// state. No changes to the state are retained at the completion of
     /// this operation.
-    #[expect(clippy::result_large_err)]
     pub fn invoke_instance(
         &mut self,
         request: &crate::grpc2::types::DryRunInvokeInstance,
@@ -2046,7 +2042,6 @@ impl DryRun {
     }
 
     /// Set the current block time for the dry-run session.
-    #[expect(clippy::result_large_err)]
     pub fn set_timestamp(
         &mut self,
         new_timestamp: crate::grpc2::types::Timestamp,
@@ -2059,7 +2054,6 @@ impl DryRun {
     }
 
     /// Mint a specified amount and credit it to the specified account.
-    #[expect(clippy::result_large_err)]
     pub fn mint_to_account(
         &mut self,
         mint: crate::grpc2::types::DryRunMintToAccount,
@@ -2080,7 +2074,6 @@ impl DryRun {
 
     /// Run a transaction in the current dry-run state, updating the state if it
     /// succeeds.
-    #[expect(clippy::result_large_err)]
     pub fn transaction(
         &mut self,
         request: crate::grpc2::types::DryRunTransaction,
@@ -2128,7 +2121,6 @@ impl DryRun {
 
     /// Convert a result code returned by a dry-run FFI into an appropriate
     /// [`tonic::Status`].
-    #[expect(clippy::result_large_err)]
     fn check_result(result: i64, origin: &str) -> Result<(), tonic::Status> {
         match result {
             0 => Ok(()),
@@ -2349,7 +2341,6 @@ impl ConsensusContainer {
     ///
     /// If the account cannot be found then a [tonic::Status::not_found] is
     /// returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_account_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2386,7 +2377,6 @@ impl ConsensusContainer {
     ///
     /// If the token cannot be found then a [tonic::Status::not_found] is
     /// returned. If the token id is not valid
-    #[expect(clippy::result_large_err)]
     pub fn get_token_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2427,7 +2417,6 @@ impl ConsensusContainer {
     /// be. If all account transactions are finalized, then this information
     /// is reliable. Otherwise, this is the best guess, assuming all other
     /// transactions will be committed to blocks and eventually finalized.
-    #[expect(clippy::result_large_err)]
     pub fn get_next_account_sequence_number_v2(
         &self,
         account_address: &crate::grpc2::types::AccountAddress,
@@ -2451,7 +2440,6 @@ impl ConsensusContainer {
     }
 
     /// Get information of the current state of consensus.
-    #[expect(clippy::result_large_err)]
     pub fn get_consensus_info_v2(&self) -> Result<Vec<u8>, tonic::Status> {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
@@ -2462,7 +2450,6 @@ impl ConsensusContainer {
         Ok(out_data)
     }
 
-    #[expect(clippy::result_large_err)]
     pub fn get_consensus_detailed_status_v2(
         &self,
         genesis_index: Option<u32>,
@@ -2488,7 +2475,6 @@ impl ConsensusContainer {
     }
 
     /// Get the cryptographic parameters in a given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_cryptographic_parameters_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2531,7 +2517,6 @@ impl ConsensusContainer {
     ///
     /// The return value is a block hash used for the query. If the requested
     /// block does not exist a [tonic::Status::not_found] is returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_account_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2568,7 +2553,6 @@ impl ConsensusContainer {
     ///
     /// The return value is a block hash used for the query. If the requested
     /// block does not exist a [tonic::Status::not_found] is returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_token_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2603,7 +2587,6 @@ impl ConsensusContainer {
     /// Get a list of all smart contract modules. The stream will end
     /// when all modules that exist in the state at the end of the given
     /// block have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_module_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2632,7 +2615,6 @@ impl ConsensusContainer {
     }
 
     /// Get the source of a smart contract module.
-    #[expect(clippy::result_large_err)]
     pub fn get_module_source_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2664,7 +2646,6 @@ impl ConsensusContainer {
     /// Get a list of addresses for all smart contract instances. The stream
     /// will end when all instances that exist in the state at the end of the
     /// given block has been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_instance_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2692,7 +2673,6 @@ impl ConsensusContainer {
     }
 
     /// Get information about a specific smart contract instance.
-    #[expect(clippy::result_large_err)]
     pub fn get_instance_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2724,7 +2704,6 @@ impl ConsensusContainer {
     }
 
     /// Get the entire smart contract state of the specified instance.
-    #[expect(clippy::result_large_err)]
     pub fn get_instance_state_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2768,7 +2747,6 @@ impl ConsensusContainer {
     }
 
     /// Get ancestors for the provided block.
-    #[expect(clippy::result_large_err)]
     pub fn get_ancestors_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2797,7 +2775,6 @@ impl ConsensusContainer {
         Ok(buf)
     }
 
-    #[expect(clippy::result_large_err)]
     pub fn get_first_block_epoch_v2(
         &self,
         query: &crate::grpc2::types::EpochRequest,
@@ -2816,7 +2793,6 @@ impl ConsensusContainer {
     }
 
     /// Get the winning bakers for a particular epoch.
-    #[expect(clippy::result_large_err)]
     pub fn get_winning_bakers_epoch_v2(
         &self,
         query: &crate::grpc2::types::EpochRequest,
@@ -2842,7 +2818,6 @@ impl ConsensusContainer {
     }
 
     /// Get information about a specific transaction.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_item_status_v2(
         &self,
         transaction_hash: &crate::grpc2::types::TransactionHash,
@@ -2868,7 +2843,6 @@ impl ConsensusContainer {
     /// Run the smart contract entrypoint in a given context and in the state at
     /// the end of the given block.Get status of the tokenomics at the end of a
     /// given block.
-    #[expect(clippy::result_large_err)]
     pub fn invoke_instance_v2(
         &self,
         request: &crate::grpc2::types::InvokeInstanceRequest,
@@ -2954,7 +2928,6 @@ impl ConsensusContainer {
 
     /// Get information, such as height, timings, and transaction counts for the
     /// given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -2982,7 +2955,6 @@ impl ConsensusContainer {
 
     /// Get a list bakers at the end of a given block. The stream will end when
     /// all bakers has been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_baker_list_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -3010,7 +2982,6 @@ impl ConsensusContainer {
     }
 
     /// Get status information about a given pool at the end of a given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_pool_info_v2(
         &self,
         request: &crate::grpc2::types::PoolInfoRequest,
@@ -3044,7 +3015,6 @@ impl ConsensusContainer {
 
     /// Get status information about the passive delegators at the end of a
     /// given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_passive_delegation_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -3071,7 +3041,6 @@ impl ConsensusContainer {
     }
 
     /// Get a stream of live blocks at a given height.
-    #[expect(clippy::result_large_err)]
     pub fn get_blocks_at_height_v2(
         &self,
         height: &crate::grpc2::types::BlocksAtHeightRequest,
@@ -3099,7 +3068,6 @@ impl ConsensusContainer {
     }
 
     /// Get status of the tokenomics at the end of a given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_tokenomics_info_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,
@@ -3127,7 +3095,6 @@ impl ConsensusContainer {
 
     /// Get the pool delegators of a given pool at the end of a given block.
     /// The stream will end when all the delegators have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_pool_delegators_v2(
         &self,
         request: &crate::grpc2::types::GetPoolDelegatorsRequest,
@@ -3161,7 +3128,6 @@ impl ConsensusContainer {
     /// Get the reward period pool delegators of a given pool at the end of a
     /// given block. The stream will end when all the delegators have been
     /// returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_pool_delegators_reward_period_v2(
         &self,
         request: &crate::grpc2::types::GetPoolDelegatorsRequest,
@@ -3194,7 +3160,6 @@ impl ConsensusContainer {
 
     /// Get the passive delegators at the end of a given block.
     /// The stream will end when all the delegators have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_passive_delegators_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3224,7 +3189,6 @@ impl ConsensusContainer {
     /// Get the reward period pool delegators of a given pool at the end of a
     /// given block. The stream will end when all the delegators have been
     /// returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_passive_delegators_reward_period_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3253,7 +3217,6 @@ impl ConsensusContainer {
 
     /// Get the current branches of blocks starting and including from the last
     /// finalized block.
-    #[expect(clippy::result_large_err)]
     pub fn get_branches_v2(&self) -> Result<Vec<u8>, tonic::Status> {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
@@ -3263,7 +3226,6 @@ impl ConsensusContainer {
     }
 
     /// Get information related to the baker election for a particular block.
-    #[expect(clippy::result_large_err)]
     pub fn get_election_info_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3292,7 +3254,6 @@ impl ConsensusContainer {
 
     /// Get the identity providers registered as of the end of a given block.
     /// The stream will end when all the identity providers have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_identity_providers_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3322,7 +3283,6 @@ impl ConsensusContainer {
 
     /// Get the anonymity revokers registered as of the end of a given block.
     /// The stream will end when all the anonymity revokers have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_anonymity_revokers_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3353,7 +3313,6 @@ impl ConsensusContainer {
     /// Get a list of non-finalized transaction hashes for a given account.
     /// The stream will end when all the non-finalized transaction hashes have
     /// been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_account_non_finalized_transactions_v2(
         &self,
         request: &crate::grpc2::types::AccountAddress,
@@ -3377,7 +3336,6 @@ impl ConsensusContainer {
     }
 
     /// Get a list of block items in a block specified by a block hash.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_items_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3407,7 +3365,6 @@ impl ConsensusContainer {
     /// Get a list of transaction events in a given block.
     /// The stream will end when all the transaction events for a given block
     /// have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_transaction_events_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3437,7 +3394,6 @@ impl ConsensusContainer {
     /// Get a list of special events in a given block.
     /// The stream will end when all the special events for a given block have
     /// been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_special_events_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3467,7 +3423,6 @@ impl ConsensusContainer {
     /// Get the pending updates to chain parameters at the end of a given block.
     /// The stream will end when all the pending updates for a given block have
     /// been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_pending_updates_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3496,7 +3451,6 @@ impl ConsensusContainer {
 
     /// Get next available sequence numbers for updating chain parameters after
     /// a given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_next_update_sequence_numbers_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3525,7 +3479,6 @@ impl ConsensusContainer {
     /// Get accounts with scheduled releases at the end of a given block.
     /// The stream will end when all accounts with scheduled releases have been
     /// returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_scheduled_release_accounts_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3554,7 +3507,6 @@ impl ConsensusContainer {
 
     /// Get accounts in cooldown at the end of a given block.
     /// The stream will end when all accounts in cooldown have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_cooldown_accounts_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3584,7 +3536,6 @@ impl ConsensusContainer {
     /// Get accounts in pre-cooldown at the end of a given block.
     /// The stream will end when all accounts in pre-cooldown have been
     /// returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_pre_cooldown_accounts_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3614,7 +3565,6 @@ impl ConsensusContainer {
     /// Get accounts in pre-pre-cooldown at the end of a given block.
     /// The stream will end when all accounts in pre-pre-cooldown have been
     /// returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_pre_pre_cooldown_accounts_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3642,7 +3592,6 @@ impl ConsensusContainer {
     }
 
     /// Get chain parameters for the given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_chain_parameters_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3669,7 +3618,6 @@ impl ConsensusContainer {
     }
 
     /// Get chain parameters for the given block.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_finalization_summary_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3706,7 +3654,6 @@ impl ConsensusContainer {
 
     /// Get the bakers for the reward period of the block.
     /// The stream ends when all bakers have been returned.
-    #[expect(clippy::result_large_err)]
     pub fn get_bakers_reward_period_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3734,7 +3681,6 @@ impl ConsensusContainer {
     }
 
     /// Get the certificates for a block.
-    #[expect(clippy::result_large_err)]
     pub fn get_block_certificates_v2(
         &self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -3760,7 +3706,6 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
-    #[expect(clippy::result_large_err)]
     pub fn get_baker_earliest_win_time_v2(
         &self,
         request: &crate::grpc2::types::BakerId,
