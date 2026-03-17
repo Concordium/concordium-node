@@ -491,6 +491,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl TryFrom<AccountTransactionSignature> for concordium_base::common::types::TransactionSignature {
         type Error = tonic::Status;
 
@@ -520,6 +521,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl TryFrom<AccountTransactionV1Signatures>
         for concordium_base::common::types::TransactionSignaturesV1
     {
@@ -534,6 +536,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl TryFrom<SignatureMap> for concordium_base::updates::UpdateInstructionSignature {
         type Error = tonic::Status;
 
@@ -553,6 +556,7 @@ pub mod types {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl SendBlockItemRequest {
         /// Return the Versioned block item serialized in the V0 format.
         pub(crate) fn get_v0_format(self) -> Result<Vec<u8>, tonic::Status> {
@@ -1035,7 +1039,10 @@ struct ServiceConfig {
 }
 
 impl ServiceConfig {
-    pub const fn new_all_enabled() -> Self {
+    /// Create a new [ServiceConfig] with all non-admin endpoints enabled.
+    /// Admin endpoints are those that can modify the state of the node or its
+    /// network connections, except for transaction submission (SendBlockItem).
+    pub const fn new_nonadmin_enabled() -> Self {
         Self {
             get_finalized_blocks: true,
             get_blocks: true,
@@ -1081,14 +1088,14 @@ impl ServiceConfig {
             get_pre_pre_cooldown_accounts: true,
             get_block_chain_parameters: true,
             get_block_finalization_summary: true,
-            shutdown: true,
-            peer_connect: true,
-            peer_disconnect: true,
+            shutdown: false,
+            peer_connect: false,
+            peer_disconnect: false,
             get_banned_peers: true,
-            ban_peer: true,
-            unban_peer: true,
-            dump_start: true,
-            dump_stop: true,
+            ban_peer: false,
+            unban_peer: false,
+            dump_start: false,
+            dump_stop: false,
             get_peers_info: true,
             get_node_info: true,
             send_block_item: true,
@@ -1319,7 +1326,7 @@ pub mod server {
                 let service_config = if let Some(ref source) = config.endpoint_config {
                     ServiceConfig::from_file(source)?
                 } else {
-                    ServiceConfig::new_all_enabled()
+                    ServiceConfig::new_nonadmin_enabled()
                 };
                 debug!("GRPC endpoints enabled: {:#?}", service_config);
 
@@ -1647,6 +1654,7 @@ pub mod server {
     }
 
     #[async_trait]
+    #[expect(clippy::result_large_err)]
     impl service::queries_server::Queries for RpcServerImpl {
         /// Return type for the 'DryRun' method.
         type DryRunStream = std::pin::Pin<Box<DryRunStream>>;
@@ -3433,6 +3441,7 @@ pub mod server {
     }
 }
 
+#[expect(clippy::result_large_err)]
 /// Add a block hash to the metadata of a response. Used for returning the block
 /// hash.
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {

@@ -320,25 +320,35 @@ closeDatabase :: DatabaseHandlers pv -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
 -- | Check that the database version matches the expected version.
---  If it does not, this throws a 'DatabaseInvariantViolation' exception.
-checkDatabaseVersion :: forall pv. (IsProtocolVersion pv) => DatabaseHandlers pv -> LogIO ()
+--  Returns 'True' if it does. Logs an error and returns 'False' if it does not
+--  or the version could not be determined.
+checkDatabaseVersion :: forall pv. (IsProtocolVersion pv) => DatabaseHandlers pv -> LogIO Bool
 checkDatabaseVersion db = do
     metadata <- liftIO . transaction (db ^. storeEnv) True $ \txn ->
         loadRecord txn (db ^. metadataStore) versionMetadata
     case metadata of
-        Nothing ->
-            throwM . DatabaseInvariantViolation $
-                "no version data was found, but expected " ++ show expectedVersion
+        Nothing -> do
+            logEvent LMDB LLError $
+                "Database invariant violation: no version data was found, but expected "
+                    ++ show expectedVersion
+            return False
         Just vs -> case S.decode vs of
             Right vm
                 | vm == expectedVersion -> do
                     logEvent LMDB LLTrace $ "Database version: " ++ show vm
-                | otherwise ->
-                    throwM . DatabaseInvariantViolation $
-                        "database version is " ++ show vm ++ " but expected " ++ show expectedVersion
-            _ ->
-                throwM . DatabaseInvariantViolation $
-                    "version data could not be deserialized, but expected " ++ show expectedVersion
+                    return True
+                | otherwise -> do
+                    logEvent LMDB LLError $
+                        "Database invariant violation: version is "
+                            ++ show vm
+                            ++ " but expected "
+                            ++ show expectedVersion
+                    return False
+            _ -> do
+                logEvent LMDB LLError $
+                    "Database invariant violation: version data could not be deserialized, but expected "
+                        ++ show expectedVersion
+                return False
   where
     expectedVersion =
         VersionMetadata

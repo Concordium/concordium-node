@@ -250,7 +250,7 @@ function collectDylibs() {
         # Paths to search for dylibs are added with the '-s' flag.
         # We use `--create-dir` to ensure that the `./libs` folder exists.
         # But we should not use `--overwrite-dir` even though it implies `--create-dir`
-        # because it will delete the libs folder if it already exists, which would delete 
+        # because it will delete the libs folder if it already exists, which would delete
         # the results of previous calls to `collectDylibsFor`.
         "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --create-dir \
             -s "$concordiumDylibDir" \
@@ -261,7 +261,7 @@ function collectDylibs() {
 
     logInfo "Collecting dylibs with dylibbundler (this will take a few minutes)..."
 
-    concordiumDylibDir=$(stack --stack-yaml "$baseDir/stack.yaml" path --local-install-root)"/lib"    
+    concordiumDylibDir=$(stack --stack-yaml "$baseDir/stack.yaml" path --local-install-root)"/lib"
     # We use `find` to get the first directory that matches the GHC version.
     # There SHOULD be exactly one such directory. We do this because we do not want to
     # hardcode the ABI short hash, which is the last part of the directory name.
@@ -276,7 +276,7 @@ function collectDylibs() {
     fi
     concordiumDylibGhcDir="${concordiumDylibGhcDirs[0]}"
 
-    stackSnapshotRoot=$(stack --stack-yaml "$baseDir/stack.yaml" path --snapshot-install-root)"/lib"    
+    stackSnapshotRoot=$(stack --stack-yaml "$baseDir/stack.yaml" path --snapshot-install-root)"/lib"
     stackSnapshotDirs=()
     while IFS= read -r dir; do
         stackSnapshotDirs+=("$dir")
@@ -359,15 +359,26 @@ function signProduct() {
 # Notarize the product and wait for it to finish.
 # If successful, a notarization 'ticket' will be created on Apple's servers for the product.
 # To enable offline installation without warnings, the ticket should be stapled onto the installer.
+# Retries on transient network failures to avoid restarting the entire pipeline.
 function notarize() {
     logInfo "Notarizing..."
-    xcrun notarytool submit \
-        "$signedProductFile" \
-        --apple-id "$APPLEID" \
-        --password "$APPLEIDPASS" \
-        --team-id "$teamId" \
-        --wait
-    logInfo "Done"
+    local maxAttempts=5
+    local attempt
+    for attempt in $(seq 1 "$maxAttempts"); do
+        if xcrun notarytool submit \
+            "$signedProductFile" \
+            --apple-id "$APPLEID" \
+            --password "$APPLEIDPASS" \
+            --team-id "$teamId" \
+            --wait; then
+            logInfo "Done"
+            return 0
+        fi
+        logInfo "Notarization attempt $attempt/$maxAttempts failed. Retrying in 30s..."
+        sleep 30
+    done
+    logInfo "Notarization failed after $maxAttempts attempts."
+    exit 1
 }
 
 # Staple the notarization ticket onto the installer.

@@ -1,6 +1,7 @@
 //! Consensus layer handling.
 use anyhow::{bail, Context};
 use crossbeam_channel::TrySendError;
+use tokio::sync::OwnedSemaphorePermit;
 
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId},
@@ -8,7 +9,9 @@ use crate::{
     connection::ConnChange,
     consensus_ffi::{
         catch_up::{PeerList, PeerStatus},
-        consensus::{ConsensusContainer, ConsensusRuntimeParameters, CALLBACK_QUEUE},
+        consensus::{
+            ConsensusContainer, ConsensusRuntimeParameters, SemaphoredMessage, CALLBACK_QUEUE,
+        },
         ffi::{self, ExecuteBlockCallback, StartConsensusConfig},
         helpers::{
             ConsensusFfiResponse,
@@ -101,12 +104,46 @@ pub fn get_baker_data(
     Ok((genesis_data, private_data))
 }
 
+/// Returns true if the message is a catch-up response message.
+/// See: Serialization of a 'VersionedCatchUpStatus' message
+/// in `concordium-consensus/src/Concordium/Types/CatchUp.hs`.
+pub fn is_catch_up_response_message(request: &ConsensusMessage) -> anyhow::Result<bool> {
+    if request.variant != PacketType::CatchUpStatus {
+        return Ok(false);
+    }
+
+    let (discriminator, _payload) = request
+        .payload
+        .split_at_checked(7)
+        .context("Catch-up message payload should have at least 7 bytes")?;
+
+    let version = discriminator[5];
+    let tag = discriminator[6];
+
+    // Enforce valid version
+    if version != 0 && version != 1 {
+        anyhow::bail!("Invalid catch-up message version: {}", version);
+    }
+
+    // Version 0/1, use tag bytes 2 or 3 for response messages.
+    // Version 0 ("no genesis"), use tag byte 6 for response messages.
+    //
+    // This means any tag with the bit 1 set, is a response message.
+    // That is, tag AND 0b10 equals 0b10.
+    //
+    // 2 → 0b10
+    // 3 → 0b11
+    // 6 → 0b110
+    Ok(tag & 0x02 == 0x02)
+}
+
 /// Handles packets coming from other peers.
 pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<RemotePeerId>,
     peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
+    permit: OwnedSemaphorePermit,
     is_broadcast: bool,
 ) -> anyhow::Result<()> {
     let (consensus_type_bytes, payload) = msg
@@ -124,7 +161,7 @@ pub fn handle_pkt_out(
     // length of the actual payload. The message has a 1-byte tag prepended to it.
     let payload_len = payload.len();
 
-    let request = ConsensusMessage::new(
+    let consensus_message = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
         packet_type,
         Arc::from(msg),
@@ -132,41 +169,92 @@ pub fn handle_pkt_out(
         None,
     );
 
-    if packet_type == PacketType::Transaction {
-        if payload_len > configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
-            bail!(
-                "Transaction size exceeds {} bytes.",
-                configuration::PROTOCOL_MAX_TRANSACTION_SIZE
-            )
-        }
-        if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
-            match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
-                TrySendError::Full(_) => {
-                    node.stats
-                        .received_consensus_messages
-                        .with_label_values(&[packet_type.label(), "dropped"])
-                        .inc();
-                    node.bad_events.inc_dropped_low_queue(peer_id);
-                }
-                TrySendError::Disconnected(_) => {
-                    panic!("Low priority consensus queue has been shutdown!")
+    let request = SemaphoredMessage::new(consensus_message, permit);
+
+    match packet_type {
+        PacketType::Transaction => {
+            if payload_len > configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
+                bail!(
+                    "Transaction size exceeds {} bytes.",
+                    configuration::PROTOCOL_MAX_TRANSACTION_SIZE
+                )
+            }
+            if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
+                match e {
+                    TrySendError::Full(_) => {
+                        node.stats
+                            .received_consensus_messages
+                            .with_label_values(&[packet_type.label(), "dropped"])
+                            .inc();
+                        node.bad_events.inc_dropped_low_queue(peer_id);
+                    }
+                    TrySendError::Disconnected(_) => {
+                        panic!("Low priority consensus queue has been shutdown!")
+                    }
                 }
             }
         }
-    } else {
-        // high priority message
-        if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
-            match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
-                TrySendError::Full(_) => {
-                    node.stats
-                        .received_consensus_messages
-                        .with_label_values(&[packet_type.label(), "dropped"])
-                        .inc();
+        PacketType::CatchUpStatus => {
+            if is_catch_up_response_message(&request.message)? {
+                // Send responses if previously requested into the high priority queue.
+                // These messages need to be processed in the high priority queue synchronously to avoid race-conditions.
+                // The issue is that a catch-up response needs to be processed after any other (direct) messages (typically blocks)
+                // that were sent as part of the response.
+                // If not, the consensus may treat it as a protocol violation if the catch-up response message includes
+                // finalization messages associated with blocks that were sent but have not been processed.
+                if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
+                    match e {
+                        TrySendError::Full(_) => {
+                            node.stats
+                                .received_consensus_messages
+                                .with_label_values(&[packet_type.label(), "dropped"])
+                                .inc();
 
-                    node.bad_events.inc_dropped_high_queue(peer_id);
+                            node.bad_events.inc_dropped_high_queue(peer_id);
+                        }
+                        TrySendError::Disconnected(_) => {
+                            panic!("High priority consensus queue has been shutdown!")
+                        }
+                    }
                 }
-                TrySendError::Disconnected(_) => {
-                    panic!("High priority consensus queue has been shutdown!")
+            } else {
+                // Handle catch-up message in the background queue, since it
+                // does not require the block state lock.
+                if let Err(e) = CALLBACK_QUEUE.send_in_background_message(request) {
+                    match e {
+                        TrySendError::Full(QueueMsg::Relay(_request)) => {
+                            node.stats
+                                .received_consensus_messages
+                                .with_label_values(&[packet_type.label(), "dropped"])
+                                .inc();
+                            node.bad_events.inc_dropped_background_queue(peer_id);
+                        }
+                        TrySendError::Full(QueueMsg::Stop) => {
+                            // Should not happen, as we are not sending Stop messages here.
+                            unreachable!();
+                        }
+                        TrySendError::Disconnected(_) => {
+                            panic!("Background consensus queue has been shutdown!")
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // high priority message
+            if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
+                match e {
+                    TrySendError::Full(_) => {
+                        node.stats
+                            .received_consensus_messages
+                            .with_label_values(&[packet_type.label(), "dropped"])
+                            .inc();
+
+                        node.bad_events.inc_dropped_high_queue(peer_id);
+                    }
+                    TrySendError::Disconnected(_) => {
+                        panic!("High priority consensus queue has been shutdown!")
+                    }
                 }
             }
         }

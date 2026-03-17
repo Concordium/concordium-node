@@ -277,3 +277,9 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         verbose: true
         files: lcov.info,codecov-haskell.json
+
+  all-checks-passed:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All matrix builds passed!"
