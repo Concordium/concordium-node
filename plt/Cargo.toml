@@ -10,6 +10,10 @@ members = [
     "plt-token-module"
 ]
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [workspace.dependencies]
 plt-block-state = {path = "plt-block-state"}
 plt-token-module = {path = "plt-token-module"}
