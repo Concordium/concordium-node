@@ -100,7 +100,7 @@ pub enum TokenUpdateError {
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -286,7 +286,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 
 fn execute_token_update_operation<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -375,17 +375,14 @@ fn check_not_paused<TK: TokenKernelOperations>(
 }
 
 /// Ensure the sender account from the transaction context is authorized to perform the operation.
-fn check_authorized<
-    TK: TokenKernelQueries,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
->(
+fn check_authorized<TK: TokenKernelQueries, TE: TransactionExecution<Account = TK::Account>>(
     transaction_execution: &mut TE,
     kernel: &TK,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if kernel.support_rbac() {
         // Ensure the sender holds the specified role.
-        let sender_index = kernel.account_index(&transaction_execution.sender_account());
+        let sender_index = kernel.account_index(transaction_execution.sender_account());
         let account_roles = key_value_state::get_account_roles(kernel, sender_index)?;
         if !account_roles.has(required_role) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -395,7 +392,7 @@ fn check_authorized<
         }
     } else {
         // Ensure the sender is the governance account.
-        let sender_index = kernel.account_index(&transaction_execution.sender_account());
+        let sender_index = kernel.account_index(transaction_execution.sender_account());
         let gov_index = key_value_state::get_governance_account_index(kernel)?;
         if gov_index != sender_index {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -409,7 +406,7 @@ fn check_authorized<
 
 fn execute_token_transfer<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -425,7 +422,7 @@ fn execute_token_transfer<
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
 
     if key_value_state::has_allow_list(kernel) {
-        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&sender)) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender not in allow list",
@@ -440,7 +437,7 @@ fn execute_token_transfer<
     }
 
     if key_value_state::has_deny_list(kernel) {
-        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&sender)) {
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender in deny list",
@@ -455,8 +452,10 @@ fn execute_token_transfer<
     }
 
     kernel.transfer(
-        &sender,
+        sender,
+        sender_address,
         &receiver,
+        transfer_operation.recipient.address,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
     )?;
@@ -465,7 +464,7 @@ fn execute_token_transfer<
 
 fn execute_token_mint<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -483,13 +482,17 @@ fn execute_token_mint<
     check_authorized(transaction_execution, kernel, TokenAdminRole::Mint)?;
     check_not_paused(kernel)?;
 
-    kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
+    kernel.mint(
+        transaction_execution.sender_account(),
+        transaction_execution.sender_account_address(),
+        raw_amount,
+    )?;
     Ok(())
 }
 
 fn execute_token_burn<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -507,13 +510,17 @@ fn execute_token_burn<
     check_authorized(transaction_execution, kernel, TokenAdminRole::Burn)?;
     check_not_paused(kernel)?;
 
-    kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
+    kernel.burn(
+        transaction_execution.sender_account(),
+        transaction_execution.sender_account_address(),
+        raw_amount,
+    )?;
     Ok(())
 }
 
 fn execute_token_pause<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -529,7 +536,7 @@ fn execute_token_pause<
 
 fn execute_token_unpause<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -545,7 +552,7 @@ fn execute_token_unpause<
 
 fn execute_add_allow_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -577,7 +584,7 @@ fn execute_add_allow_list<
 
 fn execute_add_deny_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -610,7 +617,7 @@ fn execute_add_deny_list<
 
 fn execute_remove_allow_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -640,9 +647,10 @@ fn execute_remove_allow_list<
 
     Ok(())
 }
+
 fn execute_remove_deny_list<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -699,7 +707,7 @@ fn check_roles_supported(
 
 fn execute_assign_admin_roles<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -728,7 +736,7 @@ fn execute_assign_admin_roles<
 
 fn execute_revoke_admin_roles<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -742,7 +750,7 @@ fn execute_revoke_admin_roles<
     check_roles_supported(kernel, &operation.roles)?;
     let account = kernel.account_by_address(&operation.account.address)?;
     let account_index = kernel.account_index(&account);
-    if account_index == kernel.account_index(&transaction_execution.sender_account())
+    if account_index == kernel.account_index(transaction_execution.sender_account())
         && operation.roles.contains(&TokenAdminRole::UpdateAdminRoles)
     {
         return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -762,7 +770,7 @@ fn execute_revoke_admin_roles<
 
 fn execute_update_metadata<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,

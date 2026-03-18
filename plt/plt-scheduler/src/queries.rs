@@ -72,7 +72,6 @@ pub fn query_token_account_infos<BSQ>(
 ) -> Vec<TokenAccountInfo>
 where
     BSQ: BlockStateQuery,
-    BSQ::Account: Clone,
 {
     block_state
         .token_account_states(&account)

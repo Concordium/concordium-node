@@ -20,7 +20,7 @@ fn test_mint() {
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First mint
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -37,7 +37,7 @@ fn test_mint() {
     );
 
     // Second mint
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(4000, 2),
     })];
@@ -63,7 +63,7 @@ fn test_unauthorized_mint() {
     let non_governance_account = stub.create_account();
 
     // Attempt to mint as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
+    let mut execution = stub.execution_with_sender(non_governance_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -86,7 +86,7 @@ fn test_unauthorized_mint() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_address(&non_governance_account)
+                    stub.account_canonical_address(&non_governance_account)
                 ))
             );
         }
@@ -113,14 +113,14 @@ fn test_unauthorized_mint_using_alias() {
     stub.init_token(TokenInitTestParams::default().mintable());
     let non_gov_account = stub.create_account();
 
-    let non_gov_account_address_alias =
-        stub.account_address(&non_gov_account).get_alias(5).unwrap();
-    let non_gov_account_alias = stub
-        .account_by_address(&non_gov_account_address_alias)
+    let non_gov_account_address_alias = stub
+        .account_canonical_address(&non_gov_account)
+        .get_alias(5)
         .unwrap();
 
     // Attempt to mint as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_gov_account_alias);
+    let mut execution =
+        TransactionExecutionTestImpl::with_sender(non_gov_account, non_gov_account_address_alias);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -141,7 +141,7 @@ fn test_unauthorized_mint_using_alias() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_address(&non_gov_account_alias)
+                    non_gov_account_address_alias
                 ))
             );
         }
@@ -155,7 +155,7 @@ fn test_mint_overflow() {
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
     })];
@@ -185,7 +185,7 @@ fn test_mint_decimals_mismatch() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
     })];
@@ -211,7 +211,7 @@ fn test_mint_paused() {
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     stub.set_paused(true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -238,7 +238,7 @@ fn test_not_mintable() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
     })];
@@ -267,11 +267,11 @@ fn test_reject_without_role() {
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // 1st transaction: removing mint role from governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RevokeAdminRoles(
         TokenUpdateAdminRolesDetails {
             roles: vec![TokenAdminRole::Mint],
-            account: CborHolderAccount::from(gov_account.1),
+            account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
         },
     )];
     token_module::execute_token_update_transaction(
@@ -282,7 +282,7 @@ fn test_reject_without_role() {
     .expect("execute");
 
     // 2nd transaction: attempting to mint as governance account
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(200, 2),
     })];
@@ -301,7 +301,7 @@ fn test_reject_without_role() {
             reason: Some(reason)
         }) => {
             assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
-            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
         }
     );
 }
@@ -314,11 +314,11 @@ fn test_new_account_with_role_succeeds_mint() {
     let account2 = stub.create_account();
 
     // 1st transaction: Assign the mint role to an account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AssignAdminRoles(
         TokenUpdateAdminRolesDetails {
             roles: vec![TokenAdminRole::Mint],
-            account: CborHolderAccount::from(account2.1),
+            account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
         },
     )];
     let res = token_module::execute_token_update_transaction(
@@ -329,7 +329,7 @@ fn test_new_account_with_role_succeeds_mint() {
     assert!(res.is_ok());
 
     // 2nd transaction: Mint as account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let mut execution = stub.execution_with_sender(account2);
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(200, 2),
     })];

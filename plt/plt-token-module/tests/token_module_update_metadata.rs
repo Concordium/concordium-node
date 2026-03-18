@@ -7,7 +7,7 @@ use concordium_base::protocol_level_tokens::{
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
-use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
+use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
 mod utils;
 
@@ -30,7 +30,7 @@ fn test_token_metadata_updates() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::UpdateMetadata(new_metadata_url.clone())];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -53,11 +53,11 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let account2 = stub.create_account();
 
     // 1st transaction: Assign the updateMetadata role to an account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AssignAdminRoles(
         TokenUpdateAdminRolesDetails {
             roles: vec![TokenAdminRole::UpdateMetadata],
-            account: CborHolderAccount::from(account2.1),
+            account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
         },
     )];
     token_module::execute_token_update_transaction(
@@ -73,7 +73,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let mut execution = stub.execution_with_sender(account2);
     let operations = vec![TokenOperation::UpdateMetadata(new_metadata_url.clone())];
     token_module::execute_token_update_transaction(
         &mut execution,
@@ -95,11 +95,11 @@ fn test_role_authorization_update_metadata() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // 1st transaction: removing pause role from governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RevokeAdminRoles(
         TokenUpdateAdminRolesDetails {
             roles: vec![TokenAdminRole::UpdateMetadata],
-            account: CborHolderAccount::from(gov_account.1),
+            account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
         },
     )];
     let res = token_module::execute_token_update_transaction(
@@ -115,7 +115,7 @@ fn test_role_authorization_update_metadata() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::UpdateMetadata(new_metadata_url)];
     let res = token_module::execute_token_update_transaction(
         &mut execution,
@@ -131,7 +131,7 @@ fn test_role_authorization_update_metadata() {
             reason: Some(reason)
         }) => {
             assert_eq!(&reason, "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
         }
     );
 }
@@ -152,7 +152,7 @@ fn test_update_metadata_rejects_with_additional_data() {
         )]
         .into(),
     };
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::UpdateMetadata(new_metadata_url)];
     let res = token_module::execute_token_update_transaction(
         &mut execution,

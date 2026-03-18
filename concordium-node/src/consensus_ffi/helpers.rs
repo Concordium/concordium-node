@@ -437,6 +437,7 @@ pub enum ConsensusQueryResponse {
     FutureEpoch,
 }
 
+#[expect(clippy::result_large_err)]
 impl ConsensusQueryResponse {
     /// Convert the response to a [Result]. The concrete type makes it
     /// convenient to use in the implementations of the different queries.

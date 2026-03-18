@@ -10,9 +10,12 @@ use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use low_level::ConnectionLowLevel;
 use mio::{net::TcpStream, Interest, Token};
+use tokio::sync::OwnedSemaphorePermit;
 
+use crate::consensus_ffi::helpers::PacketType;
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
+use crate::network::serialization::fbs::PEER_LIST_LIMIT;
 use crate::{
     common::{
         get_current_stamp,
@@ -30,8 +33,6 @@ use crate::{
     read_or_die, write_or_die,
 };
 
-use crate::consensus_ffi::helpers::PacketType;
-
 use std::{
     collections::VecDeque,
     convert::TryFrom,
@@ -45,14 +46,21 @@ use std::{
     },
 };
 
+/// Size of low priority outbound queue.
+/// Connected peers are dropped when the outbound queue to the peer has pilled up messages beyond that size.
+const LOW_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 2500;
+/// Size of high priority outbound queue.
+/// Connected peers are dropped when the outbound queue to the peer has pilled up messages beyond that size.
+const HIGH_PRIORITY_OUT_BOUND_QUEUE_SIZE: usize = 1000;
+
 /// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back.
 #[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum MessageSendingPriority {
     /// Queued FIFO-style.
-    Normal,
-    /// Sent before all `Normal` messages.
+    Low,
+    /// Sent before all `Low` messages.
     High,
 }
 
@@ -320,18 +328,49 @@ pub enum ConnChange {
     RemoveAllByTokens(Vec<Token>),
 }
 
+/// A fixed in capacity double-ended queue implemented with a ring buffer.
+/// The capacity is set at construction time and will never grow/shrink.
+/// Attempts to push elements beyond the configured capacity will return an error.
+pub struct FixedCapacityDeque<T> {
+    inner: VecDeque<T>,
+}
+
+impl<T> FixedCapacityDeque<T> {
+    /// Creates the queue with the specified capacity.
+    pub fn new(size: usize) -> Self {
+        Self {
+            inner: VecDeque::with_capacity(size),
+        }
+    }
+    pub fn pop_front(&mut self) -> Option<T> {
+        self.inner.pop_front()
+    }
+
+    /// Attempts to push elements beyond the configured capacity will return an error.
+    pub fn push_back(&mut self, value: T) -> Result<(), anyhow::Error> {
+        if self.inner.len() == self.inner.capacity() {
+            Err(anyhow::anyhow!("FixedCapacityDeque has reached its capacity limit and cannot push another element to the back of the deque"))
+        } else {
+            self.inner.push_back(value);
+            Ok(())
+        }
+    }
+}
+
 /// Message queues, indexed by priority.
 pub struct MessageQueues {
-    pub low: VecDeque<Arc<[u8]>>,
-    pub high: VecDeque<Arc<[u8]>>,
+    // A fixed in capacity double-ended queue for low priority messages.
+    pub low: FixedCapacityDeque<Arc<[u8]>>,
+    // A fixed in capacity double-ended queue for high priority messages.
+    pub high: FixedCapacityDeque<Arc<[u8]>>,
 }
 
 impl Index<MessageSendingPriority> for MessageQueues {
-    type Output = VecDeque<Arc<[u8]>>;
+    type Output = FixedCapacityDeque<Arc<[u8]>>;
 
     fn index(&self, priority: MessageSendingPriority) -> &Self::Output {
         match priority {
-            MessageSendingPriority::Normal => &self.low,
+            MessageSendingPriority::Low => &self.low,
             MessageSendingPriority::High => &self.high,
         }
     }
@@ -340,24 +379,34 @@ impl Index<MessageSendingPriority> for MessageQueues {
 impl IndexMut<MessageSendingPriority> for MessageQueues {
     fn index_mut(&mut self, priority: MessageSendingPriority) -> &mut Self::Output {
         match priority {
-            MessageSendingPriority::Normal => &mut self.low,
+            MessageSendingPriority::Low => &mut self.low,
             MessageSendingPriority::High => &mut self.high,
         }
     }
 }
 
+impl Default for MessageQueues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessageQueues {
-    /// Create queues with the specified initial capacities.
-    pub fn new(low_capacity: usize, high_capacity: usize) -> Self {
+    /// Create queues with fixed capacity.
+    pub fn new() -> Self {
         Self {
-            low: VecDeque::with_capacity(low_capacity),
-            high: VecDeque::with_capacity(high_capacity),
+            low: FixedCapacityDeque::new(LOW_PRIORITY_OUT_BOUND_QUEUE_SIZE),
+            high: FixedCapacityDeque::new(HIGH_PRIORITY_OUT_BOUND_QUEUE_SIZE),
         }
     }
 
     /// Add a message to the queue with the appropriate priority.
-    pub fn enqueue(&mut self, priority: MessageSendingPriority, message: Arc<[u8]>) {
-        self[priority].push_back(message);
+    pub fn enqueue(
+        &mut self,
+        priority: MessageSendingPriority,
+        message: Arc<[u8]>,
+    ) -> Result<(), anyhow::Error> {
+        self[priority].push_back(message)
     }
 
     /// Dequeue a message, taking from the high priority queue first.
@@ -384,6 +433,18 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
+    /// Semaphore for pending messages across all incoming messages processing queues.
+    /// When this semaphore reaches 0, new messages from this peer
+    /// will not be read until the pending messages have been dequeued.
+    /// This prevents a single peer from disproportionately filling up the queue.
+    pub pending_messages_semaphore: Arc<tokio::sync::Semaphore>,
+    /// The value will be set to `true` when above semaphore reaches 0,
+    /// allowing the node to re-check at every read polling cycle
+    /// if a semaphore permit got released so remaining incoming messages
+    /// can be read from the peer's socket.
+    pub pending_messages_semaphore_reached: bool,
+    /// Semaphore to limit concurrent processing of GetPeers requests.
+    pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl PartialEq for Connection {
@@ -440,10 +501,16 @@ impl Connection {
             low_level,
             remote_end_networks: Default::default(),
             stats,
-            pending_messages: MessageQueues::new(1024, 128),
+            pending_messages: MessageQueues::new(),
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
+            pending_messages_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                handler.config.max_queued_messages_per_peer,
+            )),
+            pending_messages_semaphore_reached: false,
+            // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
+            get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 
@@ -521,14 +588,43 @@ impl Connection {
         Ok(is_duplicate)
     }
 
-    /// Keeps reading from the socket as long as there is data to be read
-    /// and the operation is not blocking.
+    /// Keeps reading from the socket as long as there is data to be read, the operation is not blocking
+    /// and the sending peer's `pending_messages_semaphore` value hasn't be exhausted.
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
+        // Acquire an owned permit
+        let mut permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                trace!(
+            "Delaying read from peer `{:?}` as it reached its `pending_messages_semaphore` limit",
+            self.remote_peer
+        );
+                self.pending_messages_semaphore_reached = true;
+                return Ok(true);
+            }
+        };
+        self.pending_messages_semaphore_reached = false;
+
         loop {
             match self.low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
+                ReadResult::Complete(msg) => {
+                    self.process_message(Arc::from(msg), permit, conn_stats)?;
+
+                    // Acquire an owned permit again for the next loop cycle
+                    permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            trace!(
+            "Delaying read from peer `{:?}` as it reached its `pending_messages_semaphore` limit",
+            self.remote_peer
+        );
+                            self.pending_messages_semaphore_reached = true;
+                            return Ok(true);
+                        }
+                    };
+                }
                 ReadResult::Incomplete => {}
                 ReadResult::WouldBlock => return Ok(true),
                 ReadResult::Closed => return Ok(false),
@@ -540,6 +636,7 @@ impl Connection {
     fn process_message(
         &mut self,
         bytes: Arc<[u8]>,
+        permit: OwnedSemaphorePermit,
         conn_stats: &[PeerStats],
     ) -> anyhow::Result<()> {
         self.update_last_seen();
@@ -573,7 +670,7 @@ impl Connection {
         }
 
         // process the incoming message
-        self.handle_incoming_message(message, conn_stats)
+        self.handle_incoming_message(message, permit, conn_stats)
     }
 
     /// Concludes the connection's handshake process.
@@ -599,12 +696,6 @@ impl Connection {
             "Concluded handshake with peer {} (their id {}); wire protocol version {}",
             self.remote_peer.local_id, id, wire_version
         );
-    }
-
-    /// Queues a message to be sent to the connection.
-    #[inline]
-    pub fn async_send(&mut self, message: Arc<[u8]>, priority: MessageSendingPriority) {
-        self.pending_messages.enqueue(priority, message);
     }
 
     /// Update the timestamp of when the connection was seen last.
@@ -677,9 +768,8 @@ impl Connection {
         ping.serialize(&mut serialized)?;
         self.stats.notify_ping();
 
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
-
-        Ok(())
+        self.pending_messages
+            .enqueue(MessageSendingPriority::High, Arc::from(serialized))
     }
 
     /// Send a pong to the connection.
@@ -689,7 +779,16 @@ impl Connection {
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
         let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
+
+        if self
+            .pending_messages
+            .enqueue(MessageSendingPriority::High, Arc::from(serialized))
+            .is_err()
+        {
+            self.handler
+                .register_conn_change(ConnChange::RemovalByToken(self.token()));
+            warn!("Dropping connection to peer {self}: high-priority outbound message queue full");
+        }
 
         Ok(())
     }
@@ -713,6 +812,7 @@ impl Connection {
                     )
                     .iter()
                     .filter_map(RemotePeer::peer)
+                    .take(PEER_LIST_LIMIT)
                     .collect::<Vec<_>>();
 
                 if !random_nodes.is_empty()
@@ -736,6 +836,7 @@ impl Connection {
                         addr: stat.external_address(),
                         peer_type: stat.peer_type,
                     })
+                    .take(PEER_LIST_LIMIT)
                     .collect::<Vec<_>>();
 
                 if !nodes.is_empty() {
@@ -751,7 +852,18 @@ impl Connection {
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
-            self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
+
+            if self
+                .pending_messages
+                .enqueue(MessageSendingPriority::Low, Arc::from(serialized))
+                .is_err()
+            {
+                self.handler
+                    .register_conn_change(ConnChange::RemovalByToken(self.token()));
+                warn!(
+                    "Dropping connection to peer {self}: low-priority outbound message queue full"
+                );
+            };
 
             Ok(())
         } else {
@@ -770,7 +882,7 @@ impl Connection {
                 self
             );
 
-            self.low_level.write_to_socket(msg.clone())?;
+            self.low_level.write_to_socket(&msg)?;
 
             self.handler
                 .connection_handler

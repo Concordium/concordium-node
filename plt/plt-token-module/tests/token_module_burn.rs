@@ -9,7 +9,7 @@ use concordium_base::protocol_level_tokens::{
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::token_module;
-use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
+use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
 mod utils;
 
@@ -21,7 +21,7 @@ fn test_burn() {
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
     // First burn
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -38,7 +38,7 @@ fn test_burn() {
     );
 
     // Second burn
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(2000, 2),
     })];
@@ -65,7 +65,7 @@ fn test_unauthorized_burn() {
     stub.set_account_balance(non_governance_account, RawTokenAmount(5000));
 
     // Attempt to burn as a non-governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
+    let mut execution = stub.execution_with_sender(non_governance_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -88,7 +88,7 @@ fn test_unauthorized_burn() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_address(&non_governance_account)
+                    stub.account_canonical_address(&non_governance_account)
                 ))
             );
         }
@@ -111,7 +111,7 @@ fn test_burn_insufficient_balance() {
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(2000, 2),
     })];
@@ -139,7 +139,7 @@ fn test_burn_decimals_mismatch() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
     })];
@@ -166,7 +166,7 @@ fn test_burn_paused() {
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
     stub.set_paused(true);
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
     })];
@@ -193,7 +193,7 @@ fn test_not_burnable() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
     })];
@@ -223,11 +223,11 @@ fn test_role_authorization_burn() {
     let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
 
     // 1st transaction: removing burn role from governance account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::RevokeAdminRoles(
         TokenUpdateAdminRolesDetails {
             roles: vec![TokenAdminRole::Burn],
-            account: CborHolderAccount::from(gov_account.1),
+            account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
         },
     )];
     let res = token_module::execute_token_update_transaction(
@@ -238,7 +238,7 @@ fn test_role_authorization_burn() {
     assert!(res.is_ok());
 
     // 2nd transaction: attempting to burn as governance account
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(200, 2),
     })];
@@ -257,7 +257,7 @@ fn test_role_authorization_burn() {
             reason: Some(reason)
         }) => {
             assert_eq!(reason.as_str(), "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(gov_account.1));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
         }
     );
 }
@@ -272,11 +272,11 @@ fn test_new_account_with_role_succeeds_burn() {
     stub.set_account_balance(account2, RawTokenAmount(5000));
 
     // 1st transaction: Assign the burn role to an account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let mut execution = stub.execution_with_sender(gov_account);
     let operations = vec![TokenOperation::AssignAdminRoles(
         TokenUpdateAdminRolesDetails {
             roles: vec![TokenAdminRole::Burn],
-            account: CborHolderAccount::from(account2.1),
+            account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
         },
     )];
     token_module::execute_token_update_transaction(
@@ -287,7 +287,7 @@ fn test_new_account_with_role_succeeds_burn() {
     .expect("execute");
 
     // 2nd transaction: Burn as account.
-    let mut execution = TransactionExecutionTestImpl::with_sender(account2);
+    let mut execution = stub.execution_with_sender(account2);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(200, 2),
     })];

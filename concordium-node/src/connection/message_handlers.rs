@@ -15,12 +15,14 @@ use crate::{
     read_or_die,
 };
 use anyhow::{bail, ensure};
+use tokio::sync::OwnedSemaphorePermit;
 
 impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(
         &mut self,
         msg: NetworkMessage,
+        permit: OwnedSemaphorePermit,
         conn_stats: &[PeerStats],
     ) -> anyhow::Result<()> {
         // the handshake should be the first incoming network message
@@ -61,6 +63,14 @@ impl Connection {
                     peers.len(),
                     peer_id
                 );
+
+                // semaphore acquired, process the peer list
+                // and decrement the semaphore by one,
+                // if it reaches 0 then we don't want a peer list
+                // until we send another GetPeers request drop(permit);
+                let permit = self.get_peers_list_semaphore.try_acquire()?;
+                permit.forget();
+
                 self.handler
                     .register_conn_change(ConnChange::NewPeers(peers));
                 Ok(())
@@ -75,7 +85,7 @@ impl Connection {
             }
             NetworkPayload::NetworkPacket(pac, ..) => {
                 // packet receipt is logged later, along with its contents
-                self.handle_incoming_packet(pac, peer_id)
+                self.handle_incoming_packet(pac, permit, peer_id)
             }
         }
     }
@@ -158,6 +168,7 @@ impl Connection {
     fn handle_incoming_packet(
         &self,
         pac: NetworkPacket,
+        permit: OwnedSemaphorePermit,
         peer_id: RemotePeerId,
     ) -> anyhow::Result<()> {
         let is_broadcast = matches!(pac.destination, PacketDestination::Broadcast(..));
@@ -168,6 +179,7 @@ impl Connection {
             vec![peer_id],
             peer_id,
             pac.message,
+            permit,
             is_broadcast,
         )
     }
