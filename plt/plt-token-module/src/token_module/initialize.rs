@@ -64,7 +64,7 @@ fn initialize_token_impl(
             "Token metadata is missing".to_string(),
         )
     })?;
-    let governance_account = init_params.governance_account.ok_or_else(|| {
+    let cbor_governance_account = init_params.governance_account.ok_or_else(|| {
         TokenInitializationError::InvalidInitializationParameters(
             "Token governance account is missing".to_string(),
         )
@@ -85,7 +85,7 @@ fn initialize_token_impl(
         kernel.set_module_state(STATE_KEY_BURNABLE, Some(vec![]));
     }
 
-    let governance_account = kernel.account_by_address(&governance_account.address)?;
+    let governance_account = kernel.account_by_address(&cbor_governance_account.address)?;
     let governance_account_index = kernel.account_index(&governance_account);
     kernel.set_module_state(
         STATE_KEY_GOVERNANCE_ACCOUNT,
@@ -93,7 +93,11 @@ fn initialize_token_impl(
     );
     if let Some(initial_supply) = init_params.initial_supply {
         let mint_amount = util::to_raw_token_amount(kernel, initial_supply)?;
-        kernel.mint(&governance_account, mint_amount)?;
+        kernel.mint(
+            &governance_account,
+            cbor_governance_account.address,
+            mint_amount,
+        )?;
     }
     Ok(())
 }

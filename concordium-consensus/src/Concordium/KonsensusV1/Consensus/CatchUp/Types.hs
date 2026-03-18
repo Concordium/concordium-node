@@ -183,6 +183,8 @@ data CatchUpMessage
         }
     deriving (Show)
 
+-- Note: Ensure the serialization is kept in sync with the `is_catch_up_response_message` function in the P2P layer
+-- in `concordium-node/src/plugins/consensus.rs`.
 instance Serialize CatchUpMessage where
     put CatchUpStatusMessage{..} = do
         putWord8 0

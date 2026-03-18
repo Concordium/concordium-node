@@ -21,8 +21,8 @@ on:
 
 env:
   UBUNTU_VERSION: '22.04'
-  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.82_ghc-9.10.2'
-  RUST_VERSION: '1.86'
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.94_ghc-9.10.2'
+  RUST_VERSION: '1.94'
   STACK_VERSION: '3.7.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.10.2'
@@ -497,7 +497,7 @@ jobs:
             {
               "env": "flynet",
               "tld": "com",
-              "genesis_path": "flynet/2023-02-01/genesis_data",
+              "genesis_path": "flynet/2024-09-18/genesis_data",
               "grpc_port": 20002,
               "listen_port": 8890
             }

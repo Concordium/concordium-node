@@ -410,47 +410,50 @@ getWinningBakersForEpoch ::
     Epoch ->
     SkovData (MPV m) ->
     m (Maybe [WinningBaker])
-getWinningBakersForEpoch targetEpoch sd = do
-    -- We start with the first finalized block of the next epoch.
-    -- If there is no such block, then we don't consider the target epoch finalized, so return no
-    -- result.
-    mFirstBlockNextEpoch <- getFirstFinalizedBlockOfEpoch (Left $ targetEpoch + 1) sd
-    forM mFirstBlockNextEpoch $ \startBlock -> do
-        -- The start block will be a finalized block and not the genesis block (its epoch is > 1).
-        -- Its parent will be in the target epoch. (There are no empty epochs.)
-        lastOfEpoch <- parentOfFinalized startBlock
-        bakers <- BS.getCurrentEpochBakers (bpState lastOfEpoch)
-        seedState <- BS.getSeedState (bpState lastOfEpoch)
-        let leNonce = seedState ^. currentLeadershipElectionNonce
-        let roundWinner = getLeaderFullBakers bakers leNonce
-        let roundWB rnd present =
-                WinningBaker
-                    { wbWinner = roundWinner rnd ^. Accounts.bakerIdentity,
-                      wbRound = rnd,
-                      wbPresent = present
-                    }
-        -- We construct the list of rounds starting from the round before @startBlock@ and moving
-        -- backwards to the round after the first ancestor of @startBlock@ that is in an earlier
-        -- epoch than @targetEpoch@.
-        let go ::
-                BlockPointer (MPV m) -> -- Block in at most round @rnd@
-                Round -> -- Next round to include in list
-                [WinningBaker] -> -- Currently accumulated list
-                m [WinningBaker]
-            go prevBaked rnd l
-                | rnd == 0 = do
-                    -- The genesis block (i.e. in round 0) has no baker, so stop.
-                    return l
-                | blockRound prevBaked /= rnd = do
-                    -- prevBaked is the block in the highest round <= rnd, so the round must have
-                    -- timed out.
-                    go prevBaked (rnd - 1) (roundWB rnd False : l)
-                | blockEpoch prevBaked == targetEpoch = do
-                    -- blockRound prevBaked == rnd, so a block in the round is present.
-                    newPrevBaked <- parentOfFinalized prevBaked
-                    go newPrevBaked (rnd - 1) (roundWB rnd True : l)
-                | otherwise = do
-                    -- Here prevBaked must be in a previous epoch, and blockRound prevBaked == rnd,
-                    -- so we stop.
-                    return l
-        go lastOfEpoch (blockRound startBlock - 1) []
+getWinningBakersForEpoch targetEpoch sd
+    -- Check if `targetEpoch + 1` overflows.
+    | targetEpoch == maxBound = return Nothing
+    | otherwise = do
+        -- We start with the first finalized block of the next epoch.
+        -- If there is no such block, then we don't consider the target epoch finalized, so return no
+        -- result.
+        mFirstBlockNextEpoch <- getFirstFinalizedBlockOfEpoch (Left $ targetEpoch + 1) sd
+        forM mFirstBlockNextEpoch $ \startBlock -> do
+            -- The start block will be a finalized block and not the genesis block (its epoch is > 1).
+            -- Its parent will be in the target epoch. (There are no empty epochs.)
+            lastOfEpoch <- parentOfFinalized startBlock
+            bakers <- BS.getCurrentEpochBakers (bpState lastOfEpoch)
+            seedState <- BS.getSeedState (bpState lastOfEpoch)
+            let leNonce = seedState ^. currentLeadershipElectionNonce
+            let roundWinner = getLeaderFullBakers bakers leNonce
+            let roundWB rnd present =
+                    WinningBaker
+                        { wbWinner = roundWinner rnd ^. Accounts.bakerIdentity,
+                          wbRound = rnd,
+                          wbPresent = present
+                        }
+            -- We construct the list of rounds starting from the round before @startBlock@ and moving
+            -- backwards to the round after the first ancestor of @startBlock@ that is in an earlier
+            -- epoch than @targetEpoch@.
+            let go ::
+                    BlockPointer (MPV m) -> -- Block in at most round @rnd@
+                    Round -> -- Next round to include in list
+                    [WinningBaker] -> -- Currently accumulated list
+                    m [WinningBaker]
+                go prevBaked rnd l
+                    | rnd == 0 = do
+                        -- The genesis block (i.e. in round 0) has no baker, so stop.
+                        return l
+                    | blockRound prevBaked /= rnd = do
+                        -- prevBaked is the block in the highest round <= rnd, so the round must have
+                        -- timed out.
+                        go prevBaked (rnd - 1) (roundWB rnd False : l)
+                    | blockEpoch prevBaked == targetEpoch = do
+                        -- blockRound prevBaked == rnd, so a block in the round is present.
+                        newPrevBaked <- parentOfFinalized prevBaked
+                        go newPrevBaked (rnd - 1) (roundWB rnd True : l)
+                    | otherwise = do
+                        -- Here prevBaked must be in a previous epoch, and blockRound prevBaked == rnd,
+                        -- so we stop.
+                        return l
+            go lastOfEpoch (blockRound startBlock - 1) []

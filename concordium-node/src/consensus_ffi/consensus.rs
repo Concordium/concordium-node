@@ -3,10 +3,11 @@ use crate::consensus_ffi::{
         consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus,
         StartConsensusConfig,
     },
-    helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
+    helpers::{QueueMsg, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
 use concordium_base::hashes::BlockHash;
+use crossbeam_channel::TrySendError;
 use std::{
     convert::TryFrom,
     path::Path,
@@ -15,6 +16,7 @@ use std::{
         Arc, Mutex, RwLock,
     },
 };
+use tokio::sync::OwnedSemaphorePermit;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {
@@ -43,12 +45,44 @@ pub const CONSENSUS_QUEUE_DEPTH_OUT_HI: usize = 8 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_OUT_LO: usize = 16 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
+pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
+
+/// A message with a semaphore permit attached to it that will be released once the `SemaphoredMessage` is dropped.
+pub struct SemaphoredMessage {
+    /// The consensus message.
+    pub message: ConsensusMessage,
+    /// Permit of the semaphore tracking the pending messages of the peer that sent this message.
+    /// The semaphore should track how many of the `max_queued_messages_per_peer`
+    /// slots are currently still available for a given sending peer.
+    /// When the struct is dropped, the semaphore is incremented to signal that a slot is freed,
+    /// and the sending peer of the message is allowed to send another message to this node.
+    /// This is used to share queue capacity fairly among connected peers.
+    permit: OwnedSemaphorePermit,
+}
+
+impl SemaphoredMessage {
+    pub fn new(message: ConsensusMessage, permit: OwnedSemaphorePermit) -> Self {
+        Self { message, permit }
+    }
+
+    pub fn into_consensus_message(self) -> ConsensusMessage {
+        // When this message is processed, the permit is released to signal that a slot is freed for the sending peer.
+        drop(self.permit);
+        self.message
+    }
+}
 
 pub struct ConsensusInboundQueues {
-    pub receiver_high_priority: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_high_priority: QueueSyncSender<ConsensusMessage>,
-    pub receiver_low_priority: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_low_priority: QueueSyncSender<ConsensusMessage>,
+    pub receiver_high_priority: Mutex<QueueReceiver<SemaphoredMessage>>,
+    pub sender_high_priority: QueueSyncSender<SemaphoredMessage>,
+    pub receiver_low_priority: Mutex<QueueReceiver<SemaphoredMessage>>,
+    pub sender_low_priority: QueueSyncSender<SemaphoredMessage>,
+    /// Receiver for background message processing queue.
+    /// This queue is for consensus messages that can be processed without
+    /// blocking (as they don't require the global block state lock)- specifically catch-up messages.
+    pub receiver_background: Mutex<QueueReceiver<SemaphoredMessage>>,
+    /// Sender for background message processing queue.
+    pub sender_background: QueueSyncSender<SemaphoredMessage>,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -57,11 +91,15 @@ impl Default for ConsensusInboundQueues {
             crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_HI);
         let (sender_low_priority, receiver_low_priority) =
             crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_LO);
+        let (sender_background, receiver_background) =
+            crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_BG);
         Self {
             receiver_high_priority: Mutex::new(receiver_high_priority),
             sender_high_priority,
             receiver_low_priority: Mutex::new(receiver_low_priority),
             sender_low_priority,
+            receiver_background: Mutex::new(receiver_background),
+            sender_background,
         }
     }
 }
@@ -95,18 +133,25 @@ pub struct ConsensusQueues {
 }
 
 impl ConsensusQueues {
-    pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.inbound
-            .sender_high_priority
-            .send_msg(message)
-            .map_err(|e| e.into())
+    pub fn send_in_high_priority_message(
+        &self,
+        message: SemaphoredMessage,
+    ) -> Result<(), TrySendError<QueueMsg<SemaphoredMessage>>> {
+        self.inbound.sender_high_priority.send_msg(message)
     }
 
-    pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.inbound
-            .sender_low_priority
-            .send_msg(message)
-            .map_err(|e| e.into())
+    pub fn send_in_low_priority_message(
+        &self,
+        message: SemaphoredMessage,
+    ) -> Result<(), TrySendError<QueueMsg<SemaphoredMessage>>> {
+        self.inbound.sender_low_priority.send_msg(message)
+    }
+
+    pub fn send_in_background_message(
+        &self,
+        message: SemaphoredMessage,
+    ) -> Result<(), TrySendError<QueueMsg<SemaphoredMessage>>> {
+        self.inbound.sender_background.send_msg(message)
     }
 
     pub fn send_out_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
@@ -148,6 +193,12 @@ impl ConsensusQueues {
                 q.try_iter().count()
             );
         }
+        if let Ok(ref mut q) = self.inbound.receiver_background.try_lock() {
+            debug!(
+                "Drained the Consensus inbound background queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
     }
 
     pub fn stop(&self) -> anyhow::Result<()> {
@@ -155,6 +206,7 @@ impl ConsensusQueues {
         self.outbound.sender_high_priority.send_stop()?;
         self.inbound.sender_low_priority.send_stop()?;
         self.inbound.sender_high_priority.send_stop()?;
+        self.inbound.sender_background.send_stop()?;
         Ok(())
     }
 }
