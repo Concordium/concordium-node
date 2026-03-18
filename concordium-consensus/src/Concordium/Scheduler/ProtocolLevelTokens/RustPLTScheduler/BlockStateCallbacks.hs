@@ -43,6 +43,7 @@ import qualified Concordium.Utils.Serialization as CS
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import qualified Concordium.GlobalState.ContractStateFFIHelpers as ContractStateFFI
 
 -- | Block state query callbacks. These are used by the Rust PLT Scheduler library to
 -- query the part of the block state that is maintained by Haskell.
@@ -336,7 +337,7 @@ wrapGetTokenAccountStates func =
         let putStates = CS.putListOf S.put tokenAccountStates
         let bytes = S.runPut putStates
         BS.unsafeUseAsCStringLen bytes $ \(sourcePtr, len) ->
-            Memory.copyToRustVec2 (FFI.castPtr sourcePtr) (fromIntegral len)
+            ContractStateFFI.copyToRustVec (FFI.castPtr sourcePtr) (fromIntegral len)
 
 -- | Callback function for getting token account states for an account.
 --
@@ -345,9 +346,9 @@ wrapGetTokenAccountStates func =
 type GetTokenAccountStatesCallbackFFI =
     -- | The account index of the account.
     Word.Word64 ->
-    -- | Pointer to a Rust `Vec` allocated with `copy_to_vec_ffi_2` and which contains the
+    -- | Pointer to a Rust `Vec` allocated with `copy_to_vec_ffi` and which contains the
     -- list of token index and token account state pairs in binary serialization.
-    IO (FFI.Ptr Memory.RustVec)
+    IO (FFI.Ptr ContractStateFFI.Vec)
 
 -- | The callback function pointer type for getting account address by index.
 type GetTokenAccountStatesCallbackPtr = FFI.FunPtr GetTokenAccountStatesCallbackFFI
