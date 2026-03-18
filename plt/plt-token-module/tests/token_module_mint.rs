@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
@@ -13,10 +14,10 @@ use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTe
 
 mod utils;
 
-/// Test successful mints.
+/// Test successful mints on protocol version 10.
 #[test]
-fn test_mint() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+fn test_mint_p10() {
+    let mut stub = KernelStub::with_decimals(2, ProtocolVersion::P10);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First mint
@@ -54,11 +55,11 @@ fn test_mint() {
     );
 }
 
-/// Rejects mint operations from non-governance accounts.
+/// Rejects mint operations from non-governance accounts on protocol version 10.
 #[test]
-fn test_unauthorized_mint() {
+fn test_unauthorized_mint_p10() {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let mut stub = KernelStub::with_decimals(2, ProtocolVersion::P10);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     let non_governance_account = stub.create_account();
 
@@ -101,6 +102,47 @@ fn test_unauthorized_mint() {
 
     // and that no events have been logged
     assert_eq!(stub.events().len(), 0);
+}
+
+/// Test successful mints.
+#[test]
+fn test_mint() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
+
+    // First mint
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    assert_eq!(
+        stub.account_token_balance(&gov_account),
+        RawTokenAmount(1000)
+    );
+
+    // Second mint
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(4000, 2),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    assert_eq!(
+        stub.account_token_balance(&gov_account),
+        RawTokenAmount(5000)
+    );
 }
 
 /// Rejects mint operations from non-governance accounts. Test
