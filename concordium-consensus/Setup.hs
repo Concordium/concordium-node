@@ -36,13 +36,13 @@ postConfHook args flags _ _ = do
     withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "cargo build --release --locked -p node-rust-library"
     case buildOS of
         Windows -> do
-            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.dll " ++ libraryDestination
+            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.dll " ++ libraryDestination
         OSX -> do
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.dylib " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.dylib " ++ libraryDestination
         _ -> do
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.so " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.so " ++ libraryDestination
     return ()
 
 -- | On Windows, copy the DLL files to the binary install directory. This is to ensure that they
