@@ -43,7 +43,6 @@ import qualified Concordium.Utils.Serialization as CS
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as ContractStateFFI
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
-import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 
 -- | Block state query callbacks. These are used by the Rust PLT Scheduler library to
 -- query the part of the block state that is maintained by Haskell.
