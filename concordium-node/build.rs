@@ -895,9 +895,7 @@ fn link_static_libs() -> std::io::Result<()> {
     );
     println!("cargo:rustc-link-lib=static=Rcrypto");
 
-    println!("cargo:rustc-link-lib=static=plt_scheduler");
-
-    println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
+    println!("cargo:rustc-link-lib=static=node_rust_library");
 
     println!("cargo:rustc-link-lib=dylib=gmp");
 
