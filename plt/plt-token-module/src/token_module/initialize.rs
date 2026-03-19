@@ -1,13 +1,14 @@
 use crate::key_value_state::{
-    KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
-    STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME,
+    self, KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
+    STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_MINTABLE, STATE_KEY_NAME,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
-use crate::util;
+use crate::{roles, util};
 use concordium_base::common;
-use concordium_base::common::cbor;
 use concordium_base::common::cbor::CborSerializationError;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleInitializationParameters};
+use concordium_base::protocol_level_tokens::{
+    RawCbor, TokenAdminRole, TokenModuleInitializationParameters,
+};
 use plt_block_state::block_state::AccountNotFoundByAddressError;
 use plt_scheduler_interface::token_kernel_interface::{
     MintWouldOverflowError, TokenKernelOperations, TokenMintError, TokenStateInvariantError,
@@ -70,19 +71,27 @@ fn initialize_token_impl(
         )
     })?;
     kernel.set_module_state(STATE_KEY_NAME, Some(name.into()));
-    let encoded_metadata = cbor::cbor_encode(&metadata);
-    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata));
+    key_value_state::set_metadata_url(kernel, &metadata);
+
+    // The governance account should hold every role, except for disabled features, so we build a
+    // list of every enabled role and the mandatory roles.
+    let mut enabled_roles = Vec::from(roles::MANDATORY_ROLES);
+
     if init_params.allow_list == Some(true) {
         kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]));
+        enabled_roles.push(TokenAdminRole::UpdateAllowList);
     }
     if init_params.deny_list == Some(true) {
         kernel.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]));
+        enabled_roles.push(TokenAdminRole::UpdateDenyList);
     }
     if init_params.mintable == Some(true) {
         kernel.set_module_state(STATE_KEY_MINTABLE, Some(vec![]));
+        enabled_roles.push(TokenAdminRole::Mint);
     }
     if init_params.burnable == Some(true) {
         kernel.set_module_state(STATE_KEY_BURNABLE, Some(vec![]));
+        enabled_roles.push(TokenAdminRole::Burn);
     }
 
     let governance_account = kernel.account_by_address(&cbor_governance_account.address)?;
@@ -91,6 +100,9 @@ fn initialize_token_impl(
         STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(common::to_bytes(&governance_account_index.index)),
     );
+    if kernel.support_rbac() {
+        key_value_state::assign_account_roles(kernel, governance_account_index, &enabled_roles)?;
+    }
     if let Some(initial_supply) = init_params.initial_supply {
         let mint_amount = util::to_raw_token_amount(kernel, initial_supply)?;
         kernel.mint(

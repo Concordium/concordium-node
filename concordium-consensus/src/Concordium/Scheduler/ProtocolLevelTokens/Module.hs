@@ -219,6 +219,7 @@ preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
         return PTOTokenRemoveDenyList{ptgoTarget = receiver}
     preproc TokenPause = return PTOTokenPause
     preproc TokenUnpause = return PTOTokenUnpause
+    preproc _ = pltError . encodeTokenRejectReason $ DeserializationFailure $ Just "token-operation: unsupported operation type"
 
 -- | Encode and log a 'TokenEvent'.
 logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
