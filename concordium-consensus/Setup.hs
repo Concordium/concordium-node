@@ -36,7 +36,7 @@ postConfHook args flags _ _ = do
     withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "cargo build --release --locked -p node-rust-library"
     case buildOS of
         Windows -> do
-            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.dll " ++ libraryDestination
+            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.a.dll " ++ libraryDestination
         OSX -> do
             runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.a " ++ libraryDestination
             runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.dylib " ++ libraryDestination
@@ -53,7 +53,7 @@ postCopyHook _ flags pkgDescr lbi = case buildOS of
         let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest        
         -- Copy DLL for PLT scheduler
         nodeRustLibraryWorkspace <- canonicalizePath nodeRustLibraryWorkspaceRelative
-        runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.dll " ++ bindir installDirs
+        runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.dll " ++ bindir installDirs
     _ -> return ()
   where
     distPref = fromFlag (copyDistPref flags)
