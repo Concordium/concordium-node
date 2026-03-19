@@ -18,7 +18,6 @@ runCmd verbosity cmd = do
     let command : args = words cmd
     rawSystemExit verbosity command $ args
 
-
 -- | Path to the Rust node library workspace relative to this file.
 nodeRustLibraryWorkspaceRelative = "../plt"
 
@@ -36,13 +35,13 @@ postConfHook args flags _ _ = do
     withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "cargo build --release --locked -p node-rust-library"
     case buildOS of
         Windows -> do
-            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.a.dll " ++ libraryDestination
+            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.dll " ++ libraryDestination
         OSX -> do
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.dylib " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.dylib " ++ libraryDestination
         _ -> do
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a.so " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.so " ++ libraryDestination
     return ()
 
 -- | On Windows, copy the DLL files to the binary install directory. This is to ensure that they
@@ -50,7 +49,7 @@ postConfHook args flags _ _ = do
 postCopyHook :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
 postCopyHook _ flags pkgDescr lbi = case buildOS of
     Windows -> do
-        let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest        
+        let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest
         -- Copy DLL for PLT scheduler
         nodeRustLibraryWorkspace <- canonicalizePath nodeRustLibraryWorkspaceRelative
         runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.dll " ++ bindir installDirs
