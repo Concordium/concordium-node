@@ -18,7 +18,6 @@ runCmd verbosity cmd = do
     let command : args = words cmd
     rawSystemExit verbosity command $ args
 
-
 -- | Path to the Rust node library workspace relative to this file.
 nodeRustLibraryWorkspaceRelative = "../plt"
 
@@ -50,7 +49,7 @@ postConfHook args flags _ _ = do
 postCopyHook :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
 postCopyHook _ flags pkgDescr lbi = case buildOS of
     Windows -> do
-        let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest        
+        let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest
         -- Copy DLL for PLT scheduler
         nodeRustLibraryWorkspace <- canonicalizePath nodeRustLibraryWorkspaceRelative
         runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.dll " ++ bindir installDirs
