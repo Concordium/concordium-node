@@ -309,6 +309,11 @@ jobs:
         run: |
           echo "RUST_VERSION=$(cargo --version | awk '{print $2}')" >> $GITHUB_OUTPUT
 
+      - name: Print Rust version
+        id: print-rust-version
+        run: |
+          echo "Rust version: ${{ steps.read-rust-version.outputs.RUST_VERSION }}"
+
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
