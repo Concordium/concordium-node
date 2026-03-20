@@ -51,6 +51,30 @@ fn main() -> std::io::Result<()> {
             let stack_install_root = Path::new(&stack_install_root_command);
             let dll_location = stack_install_root.join("lib");
 
+            #[cfg(target_env = "msvc")]
+            {
+                // On Windows with MSVC we need to generate an import library for the consensus DLL.
+                // We do this using the `lib` tool, which is part of the MSVC build tools.
+                // The `lib.def` file is used by the Haskell build to specify which symbols are
+                // exported from the DLL. We use the same file here to generate the import library.
+                let def_file = Path::new(cargo_dir).join("../concordium-consensus/lib.def");
+                // We put the generated import library in the same directory as the DLL, so that
+                // the Rust code can link to it.
+                let output_lib = dll_location.join("concordium-consensus.lib");
+                let status = Command::new("lib")
+                    .args([
+                        format!("/DEF:{}", def_file.to_string_lossy()),
+                        format!("/OUT:{}", output_lib.to_string_lossy()),
+                        "/MACHINE:X64".to_string(),
+                        "/NAME:concordium-consensus".to_string(),
+                    ])
+                    .status()
+                    .expect("Failed to run lib tool");
+                if !status.success() {
+                    panic!("lib tool failed to generate concordium-consensus.lib");
+                }
+            }
+
             println!(
                 "cargo:rustc-link-search=native={}",
                 dll_location.to_string_lossy()
