@@ -307,6 +307,20 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     fn protocol_version(&self) -> ProtocolVersion {
         self.protocol_version
     }
+
+    fn iter_token_state_prefix(
+        &self,
+        token_key_value_state: &Self::TokenKeyValueState,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+        let mut out = Vec::new();
+        for (key, value) in token_key_value_state.state.iter() {
+            if let Some(rest) = key.strip_prefix(prefix.as_slice()) {
+                out.push((rest.to_vec(), value.clone()));
+            }
+        }
+        out.into_iter()
+    }
 }
 
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations

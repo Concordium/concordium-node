@@ -67,6 +67,14 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn protocol_version(&self) -> ProtocolVersion {
         self.block_state.protocol_version()
     }
+
+    fn iter_token_state_prefix(
+        &self,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+        self.block_state
+            .iter_token_state_prefix(self.token_module_state, prefix)
+    }
 }
 
 /// Implementation of token kernel operations with a specific token in context.
@@ -273,5 +281,13 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
 
     fn protocol_version(&self) -> ProtocolVersion {
         self.block_state.protocol_version()
+    }
+
+    fn iter_token_state_prefix(
+        &self,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+        self.block_state
+            .iter_token_state_prefix(self.token_module_state, prefix)
     }
 }

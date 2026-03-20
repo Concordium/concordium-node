@@ -11,6 +11,19 @@ pub const MANDATORY_ROLES: &[TokenAdminRole] = &[
     TokenAdminRole::UpdateMetadata,
 ];
 
+/// List all roles.
+const ALL_ROLES: &[TokenAdminRole] = &[
+    TokenAdminRole::UpdateAdminRoles,
+    TokenAdminRole::Pause,
+    TokenAdminRole::UpdateMetadata,
+    TokenAdminRole::Mint,
+    TokenAdminRole::Burn,
+    TokenAdminRole::UpdateAllowList,
+    TokenAdminRole::UpdateDenyList,
+    TokenAdminRole::Pause,
+    TokenAdminRole::UpdateMetadata,
+];
+
 /// Convert a role into the bitmask with 1 in the position of the specific role and zero every else.
 const fn role_bitmask(role: TokenAdminRole) -> u16 {
     let bitshift = match role {
@@ -82,6 +95,11 @@ impl Roles {
             return Ok(Roles::none());
         };
         common::from_bytes_complete(value)
+    }
+
+    /// Iterate the roles assigned.
+    pub fn iter_assigned(&self) -> impl Iterator<Item = TokenAdminRole> {
+        ALL_ROLES.iter().filter(|&role| self.has(*role)).copied()
     }
 }
 

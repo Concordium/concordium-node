@@ -3,7 +3,7 @@
 use crate::roles::Roles;
 use crate::util;
 use concordium_base::common;
-use concordium_base::protocol_level_tokens::{MetadataUrl, TokenAdminRole};
+use concordium_base::protocol_level_tokens::{MetadataUrl, TokenAdminRole, TokenAuthorizations};
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_interface::token_kernel_interface::{
@@ -219,6 +219,51 @@ pub fn revoke_account_roles(
     }
     kernel.set_account_roles_state(account, roles);
     Ok(())
+}
+
+/// Get authorization roles and assigned accounts for the token.
+pub fn get_token_authorizations<TK: TokenKernelQueries>(
+    kernel: &TK,
+) -> Result<TokenAuthorizations, TokenStateInvariantError> {
+    let mut authorizations = TokenAuthorizations::default();
+    for (account_index_bytes, roles) in
+        kernel.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into())
+    {
+        let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
+            .map_err(|err| {
+                TokenStateInvariantError(format!(
+                    "Stored account index in authorizations cannot be decoded: {}",
+                    err
+                ))
+            })?;
+        let account = kernel
+            .account_by_index(account_index)
+            .map_err(|err| {
+                TokenStateInvariantError(format!(
+                    "Stored account index in authorizations cannot be found: {}",
+                    err
+                ))
+            })?
+            .canonical_account_address;
+        let roles = Roles::try_from_state_value(Some(roles)).map_err(|err| {
+            TokenStateInvariantError(format!(
+                "Stored account authorization roles cannot be decoded: {}",
+                err
+            ))
+        })?;
+        for role in roles.iter_assigned() {
+            match role {
+                TokenAdminRole::UpdateAdminRoles => authorizations.update_admin_roles.push(account),
+                TokenAdminRole::Mint => authorizations.mint.push(account),
+                TokenAdminRole::Burn => authorizations.burn.push(account),
+                TokenAdminRole::UpdateAllowList => authorizations.update_allow_list.push(account),
+                TokenAdminRole::UpdateDenyList => authorizations.update_deny_list.push(account),
+                TokenAdminRole::Pause => authorizations.pause.push(account),
+                TokenAdminRole::UpdateMetadata => authorizations.update_metadata.push(account),
+            }
+        }
+    }
+    Ok(authorizations)
 }
 
 /// Sets the puased state of the token module.

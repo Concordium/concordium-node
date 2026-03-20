@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::iter::FilterMap;
 
 use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy, ProtocolVersion};
 use concordium_base::common::{Serial, cbor};
@@ -320,6 +321,19 @@ impl TokenKernelQueries for KernelStub {
 
     fn protocol_version(&self) -> ProtocolVersion {
         self.protocol_version
+    }
+
+    fn iter_token_state_prefix(
+        &self,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+        let mut out = Vec::new();
+        for (key, value) in self.state.iter() {
+            if let Some(rest) = key.strip_prefix(prefix.as_slice()) {
+                out.push((rest.to_vec(), value.clone()));
+            }
+        }
+        out.into_iter()
     }
 }
 
