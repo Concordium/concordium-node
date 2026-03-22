@@ -29,6 +29,7 @@ import qualified GHC.IORef as IORef
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
 import qualified Text.Pretty.Simple as Pretty
+import Control.Monad.RWS
 
 throwUserError :: (MonadIO m) => String -> m a
 throwUserError = liftIO . ioError . userError
@@ -53,10 +54,30 @@ runBSO ::
     LogIO a
 runBSO pbsc = flip runReaderT pbsc . BS.runPersistentBlockStateMonad
 
+type StateDumpMonad m a = RWST OutputFilesPaths () StateDumpBuilderState m a
+
 newtype NodeId = NodeId Word64
 
 instance Show NodeId where
     show (NodeId w) = show w
+
+
+
+data OutputFilesPaths = OutputFilesPaths
+    { 
+      ofpStateGraphFilePath :: FilePath,
+      ofpStateFilePath :: FilePath,
+      ofpBlocksFilePath :: FilePath
+    }
+
+data StateDumpBuilderState = StateDumpBuilderState
+    { sdbsNextNodeId :: NodeId,
+      sdbsBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Maybe Hash.Hash),
+      sdbsStateGraph :: IO.Handle,
+      sdbsBlocks :: IO.Handle,
+      sdbsState :: IO.Handle
+    }
+
 
 data OutputFiles = OutputFiles
     { ofMutable :: IO.IORef OutputFilesMutable,
@@ -116,16 +137,6 @@ reopenOutputFiles OutputFiles{..} = do
     ofState <- IO.openFile ofStateFilePath IO.AppendMode
     liftIO $ IO.writeIORef ofMutable outputMutable{ofStateGraph = ofStateGraph, ofBlocks = ofBlocks, ofState = ofState}
     return ()
-
--- ofStateGraph <- IO.openFile (ofStateGraphFilePath output) IO.WriteMode
--- ofBlocks <- IO.openFile (ofBlocksFilePath output) IO.WriteMode
--- ofState <- IO.openFile (ofStateFilePath output) IO.WriteMode
--- return
---     output
---         { ofStateGraph = ofStateGraph,
---           ofBlocks = ofBlocks,
---           ofState = ofState
---         }
 
 hashDisplayLength :: Int
 hashDisplayLength = 6
