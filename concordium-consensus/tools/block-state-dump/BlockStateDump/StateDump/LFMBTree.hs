@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -6,7 +7,7 @@
 module BlockStateDump.StateDump.LFMBTree where
 
 import Control.Monad
-import Control.Monad.IO.Class
+import Control.Monad.RWS
 import qualified Data.Bits as Bits
 import Data.Word
 
@@ -25,37 +26,36 @@ dumpLFMBTree ::
       Hash.MHashableTo m Hash.Hash v,
       Blob.BlobStorable m v
     ) =>
-    OutputFiles ->
     String ->
     NodeId ->
     LFMB.LFMBTree' k Blob.HashedBufferedRef v ->
-    (NodeId -> v -> m ()) ->
-    m ()
-dumpLFMBTree output name rootParentNode tree dumpLeaf = do
+    (NodeId -> v -> StateDumpMonad m ()) ->
+    StateDumpMonad m ()
+dumpLFMBTree name rootParentNode tree dumpLeaf = do
     -- (treeHash :: h) <- Hash.getHashM tree
     case tree of
         LFMB.Empty -> do
-            _rootNode <- liftIO $ buildCompNode output (name ++ "{size=0}") rootParentNode Nothing
+            _rootNode <- buildCompNode (name ++ "{size=0}") rootParentNode Nothing
             return ()
         LFMB.NonEmpty size t -> do
-            rootNode <- liftIO $ buildCompNode output (name ++ "{size=" ++ show size ++ "}") rootParentNode Nothing
-            dumpLFMBT (compNodeBuilder output rootNode) 0 t
+            rootNode <- buildCompNode (name ++ "{size=" ++ show size ++ "}") rootParentNode Nothing
+            dumpLFMBT (compNodeBuilder rootNode) 0 t
   where
-    dumpLFMBT :: BuildNode -> Word64 -> LFMB.T Blob.HashedBufferedRef v -> m ()
+    dumpLFMBT :: BuildNode m -> Word64 -> LFMB.T Blob.HashedBufferedRef v -> StateDumpMonad m ()
     dumpLFMBT nodeBuilder index = \case
         LFMB.Leaf v -> do
-            maybeNode <- liftIO $ nodeBuilder (name ++ "[" ++ show index ++ "]")
+            maybeNode <- nodeBuilder (name ++ "[" ++ show index ++ "]")
             forM_ maybeNode $ \node -> do
                 dumpLeaf node v
                 return ()
         LFMB.Node height leftRef rightRef -> do
-            maybeNode <- liftIO $ nodeBuilder (name ++ "{height=" ++ show height ++ "}")
+            maybeNode <- nodeBuilder (name ++ "{height=" ++ show height ++ "}")
             forM_ maybeNode $ \node -> do
-                (leftBlobRef, leftHash) <- getHBRRefAndHash leftRef
-                left <- Blob.refLoad leftRef
-                dumpLFMBT (blobRefNodeBuilder output node "left" leftBlobRef (Just leftHash)) index left
-                (rightBlobRef, rightHash) <- getHBRRefAndHash rightRef
-                right <- Blob.refLoad rightRef
+                (leftBlobRef, leftHash) <- lift $ getHBRRefAndHash leftRef
+                left <- lift $ Blob.refLoad leftRef
+                dumpLFMBT (blobRefNodeBuilder node "left" leftBlobRef (Just leftHash)) index left
+                (rightBlobRef, rightHash) <- lift $ getHBRRefAndHash rightRef
+                right <- lift $ Blob.refLoad rightRef
                 let rightIndex = index `Bits.setBit` (fromIntegral height)
-                dumpLFMBT (blobRefNodeBuilder output node "right" rightBlobRef (Just rightHash)) rightIndex right
+                dumpLFMBT (blobRefNodeBuilder node "right" rightBlobRef (Just rightHash)) rightIndex right
                 return ()

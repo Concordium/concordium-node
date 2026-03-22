@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -32,7 +33,7 @@ import qualified Concordium.KonsensusV1.TreeState.Types as TreeState
 import BlockStateDump.Shared
 import qualified BlockStateDump.StateDump.Accounts as AccountsDump
 import qualified BlockStateDump.StateDump.ProtocolLevelTokens as PLTDump
-import qualified GHC.IORef as IO
+import qualified Control.Monad.RWS as RWST
 
 -- | Dump block state from the node database.
 dumpState ::
@@ -56,6 +57,7 @@ dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockHeight
 
     (treeStateDb :: TreeState.DatabaseHandlers pv) <- liftIO $ TreeState.openDatabase treeStateDbPath
     TreeState.checkDatabaseVersion treeStateDb
+        >>= flip unless (throwUserError "tree data database does not have right protocol version")
 
     blocks <- forM blockHeights $ \blockHeight ->
         runTreeState treeStateDb $ do
@@ -81,53 +83,30 @@ dumpState spv treeStateDbPath accountMapDbPath blockStatePath outDir blockHeight
     pbscModuleCache <- liftIO $ Modules.newModuleCache 1000
     let (pbsc :: BS.PersistentBlockStateContext pv) = BS.PersistentBlockStateContext{..}
 
-    outputFiles <- liftIO $ openOutputFiles outDir
-    writeGraphStateRaw outputFiles "digraph G {"
-    writeGraphStateRaw outputFiles "    ordering=\"out\""
-    -- writeGraphStateRaw outputFiles "    root [style=invis]"
+    (outputFilePaths, builderState) <- liftIO $ createBuilderState outDir
 
-    blockNodes <- runBSO pbsc $ forM blocks $ \block@BlockEntry{..} -> do
-        bs <- BS.loadBlockState Nothing (TreeState.stbStatePointer beBlock)
-        BS.cacheBlockState bs
-        dumpBlockState outputFiles block bs
+    _ <-
+        runBSO pbsc $
+            RWST.runRWST
+                ( do
+                    writeGraphStateRaw "digraph G {"
+                    writeGraphStateRaw "    ordering=\"out\""
+                    -- writeGraphStateRaw "    root [style=invis]"
 
-    writeGraphStateRaw outputFiles $ "    { rank=source; " ++ intercalate "" (flip fmap blockNodes $ \nodeId -> show nodeId ++ ";") ++ " }"
+                    blockNodes <- forM blocks $ \block@BlockEntry{..} -> do
+                        bs <- lift $ BS.loadBlockState Nothing (TreeState.stbStatePointer beBlock)
+                        lift $ BS.cacheBlockState bs
+                        dumpBlockState block bs
 
-    writeGraphStateRaw outputFiles "}"
-    liftIO $ closeOutputFiles outputFiles
+                    writeGraphStateRaw $ "    { rank=source; " ++ intercalate "" (flip fmap blockNodes $ \nodeId -> show nodeId ++ ";") ++ " }"
+
+                    writeGraphStateRaw "}"
+                    closeOutputFiles
+                )
+                outputFilePaths
+                builderState
 
     return ()
-
--- class DumpBuilder where
---     buildNode:: String -> Hash.Hash -> IO NodeId
---     buildEdge:: NodeId -> NodeId -> Blob.BlobRef a -> IO ()
---     buildStateData::(Show a) => Blob.BlobRef a -> Hash.Hash -> a -> IO ()
-
--- data GraphDumpBuilder = GraphDumpBuilder {
---     gdbNextNodeId:: Word64,
---     gdbFiles::OutputFiles
--- }
-
--- instance DumpBuilder GraphDumpBuilder where
---     buildNode label hash =
---     buildEdge:: NodeId -> NodeId -> Blob.BlobRef a -> IO ()
---     buildStateData::(Show a) => Blob.BlobRef a -> Hash.Hash
-
--- data StateNode = StateNode {
---     snLabel:: String,
---     snHash:: Hash.Hash
--- }
-
--- data StateEdge = forall a. StateEdge {
---     seBlobRef:: Blob.BlobRef a
--- }
-
--- liftBSOIO ::
---     (BS.BlockStateOperations m) =>
---     IO a ->
---     m a
--- liftBSOIO m = do
---     BS.liftBlobStore $ liftIO m
 
 data BlockEntry pv = BlockEntry
     { beBlock :: TreeState.StoredBlock pv
@@ -136,30 +115,29 @@ data BlockEntry pv = BlockEntry
 dumpBlockState ::
     forall pv m.
     (BS.SupportsPersistentState pv m) =>
-    OutputFiles ->
     BlockEntry (MPV m) ->
     BS.HashedPersistentBlockState (MPV m) ->
-    m NodeId
-dumpBlockState output BlockEntry{..} bs = do
-    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
-    liftBSOIO $ Pretty.pHPrintNoColor ofBlocks beBlock
-    liftBSOIO $ IO.hPutStrLn ofBlocks ""
+    StateDumpMonad m NodeId
+dumpBlockState BlockEntry{..} bs = do
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $ Pretty.pHPrintNoColor sdbsBlocks beBlock
+    liftBSDIO $ IO.hPutStrLn sdbsBlocks ""
 
     let BlockHash blockHash = Hash.getHash $ TreeState.stbBlock beBlock
     let blockHeight = TreeState.bmHeight $ TreeState.stbInfo beBlock
-    blockNode <- liftBSOIO $ buildCompNodeNoEdge output ("block[" ++ show blockHeight ++ "]") (Just blockHash)
-    maybeStateNode <- liftBSOIO $ buildBlobRefNode output blockNode "state" "state" (TreeState.stbStatePointer beBlock) (Just (v0StateHash $ BS.hpbsHash bs))
+    blockNode <- buildCompNodeNoEdge ("block[" ++ show blockHeight ++ "]") (Just blockHash)
+    maybeStateNode <- buildBlobRefNode blockNode "state" "state" (TreeState.stbStatePointer beBlock) (Just (v0StateHash $ BS.hpbsHash bs))
     let stateNode = maybe (error "state node should always be created") id maybeStateNode
 
     -- writeGraphStateRaw output $ "    root -> " ++ show blockNode ++ " [style=invis]"
 
-    bsp <- BS.loadPBS (BS.hpbsPointers bs)
+    bsp <- lift $ BS.loadPBS (BS.hpbsPointers bs)
     dumpBlockStatePointers stateNode bsp
 
     return blockNode
   where
-    dumpBlockStatePointers :: NodeId -> BS.BlockStatePointers pv -> m ()
+    dumpBlockStatePointers :: NodeId -> BS.BlockStatePointers pv -> StateDumpMonad m ()
     dumpBlockStatePointers parentNode BS.BlockStatePointers{..} = do
-        PLTDump.dumpProtocolLevelTokens output parentNode bspProtocolLevelTokens
-        AccountsDump.dumpAccounts output parentNode bspAccounts
+        PLTDump.dumpProtocolLevelTokens parentNode bspProtocolLevelTokens
+        AccountsDump.dumpAccounts parentNode bspAccounts
         return ()
