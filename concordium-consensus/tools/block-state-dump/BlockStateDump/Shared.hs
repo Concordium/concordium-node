@@ -41,6 +41,13 @@ liftBSOIO ::
 liftBSOIO m = do
     liftIO m
 
+liftBSOIO_2 ::    
+    IO a ->
+    StateDumpMonad pv m a
+liftBSOIO_2 m = do
+    liftIO m    
+
+
 runTreeState ::
     (MonadIO m) =>
     TreeState.DatabaseHandlers pv ->
@@ -54,7 +61,11 @@ runBSO ::
     LogIO a
 runBSO pbsc = flip runReaderT pbsc . BS.runPersistentBlockStateMonad
 
-type StateDumpMonad m a = RWST OutputFilesPaths () StateDumpBuilderState m a
+type StateDumpMonad2 m = RWST OutputFilesPaths () StateDumpBuilderState m 
+type StateDumpMonad pv m a = (BS.SupportsPersistentState pv m) => RWST OutputFilesPaths () StateDumpBuilderState m a
+
+
+
 
 newtype NodeId = NodeId Word64
 
