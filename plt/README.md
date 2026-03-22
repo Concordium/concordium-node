@@ -11,6 +11,7 @@ The PLT Scheduler is compiled as a native library and is used within the Haskell
 See [PLT Scheduler Component View](docs/component_view.md).
 
 The crates in the project are:
+* `node-rust-library`: Crate build to a library for dynamic or static linking into the `concordium-concensus` Haskell project.
 * `plt-scheduler-types`: Externally facing scheduler and query types. These types correspond to identical types on the Haskell side.
 * `plt-scheduler-interface`: The internally facing scheduler interface seen by the token module, e.g. the token kernel.
 * `plt-token-module`: The Token Module implementation.

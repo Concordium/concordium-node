@@ -1,12 +1,12 @@
 use crate::block_state::blob_store;
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
 use libc::size_t;
-use std::mem;
 
 /// A [loader](BackingStoreLoad) implemented by an external function.
 /// This is the dual to [`StoreCallback`].
 ///
-/// Returns pointer to a uniquely owned [`Vec`].
+/// Returns pointer to a uniquely owned [`Vec`]. The `Vec` should be allocated
+/// by the callee using `copy_to_vec_ffi` in `wasm-chain-integration`.
 /// The returned `Vec` must be deallocated by the caller.
 pub type LoadCallback = extern "C" fn(blob_store::Reference) -> *mut Vec<u8>;
 
@@ -24,14 +24,6 @@ impl BackingStoreStore for StoreCallback {
 
 impl BackingStoreLoad for LoadCallback {
     fn load_raw(&mut self, location: blob_store::Reference) -> Vec<u8> {
-        let vec_from_different_allocator = unsafe { Box::from_raw(self(location)) };
-
-        let vec = vec_from_different_allocator.as_ref().clone();
-
-        // todo free memory as part of https://linear.app/concordium/issue/COR-2113/fix-rust-allocator-issue-related-to-multiple-rust-cdylibs
-        // vec_from_different_allocator is allocated in a different Rust allocator context (wasm-chain-integration), hence we cannot deallocate it here
-        mem::forget(vec_from_different_allocator);
-
-        vec
+        *unsafe { Box::from_raw(self(location)) }
     }
 }

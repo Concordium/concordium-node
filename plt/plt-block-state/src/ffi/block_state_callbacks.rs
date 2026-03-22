@@ -240,7 +240,8 @@ pub type GetAccountIndexByAddressCallback =
 /// External function for getting token account states for an account.
 /// The bytes in the returned `Vec<u8>` contains binary serialized list of token indexes and token account states.
 ///
-/// Returns pointer to a uniquely owned [`Vec`].
+/// Returns pointer to a uniquely owned [`Vec`]. The `Vec` should be allocated
+/// by the callee using `copy_to_vec_ffi` in `wasm-chain-integration`.
 /// The returned `Vec` must be deallocated by the caller.
 ///
 /// # Arguments

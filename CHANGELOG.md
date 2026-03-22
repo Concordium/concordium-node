@@ -6,6 +6,27 @@
 
 - Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
  
+# 10.0.7
+
+- Enhance node performance by limiting outbound queue saturation to peers that are slow in processing messages.
+- Fix a bug where incorrect data could be read from a peer when backpressure is applied, resulting in a ban.
+
+# 10.0.6
+
+- Prohibit peers from sending unsolicited PeerList messages
+- Enhance node performance by limiting inbound queue saturation from peers that send messages aggressively by using backpressure.
+- Introduce a background queue for processing messages that don't require the global block state lock. 
+
+# 10.0.5
+
+- Disable administrative gRPC endpoints by default. These can be enabled by specifying a
+  `CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG` that enables them explicitly.
+
+# 10.0.4
+
+- Add recovery from corrupted databases that may be created when protocol updates are executed
+  twice (due to bugs in 8.1.0 - 10.0.1 versions).
+ 
 # 10.0.3
 
 - Fix another bug in protocol update state migration that incorrectly migrated PLT state.
@@ -358,7 +379,7 @@
   earliest time at which the node projects that the baker could be required to bake a block.
 - Add endpoint `GetFirstBlockEpoch` to GRPCV2 API. It returns the block hash of the first block in
   a given epoch.
-- Add endpoint `GitWinningBakersEpoch` to GRPCV2 API. It returns a list of the bakers that won
+- Add endpoint `GetWinningBakersEpoch` to GRPCV2 API. It returns a list of the bakers that won
   rounds in a specified (finalized) epoch. This only supports consensus version 1.
 - Fix a bug in how the last timeout certificate is recovered at start-up.
 - Fix the behaviour of the block last finalized pointer in the `GetBlockInfo` so that it

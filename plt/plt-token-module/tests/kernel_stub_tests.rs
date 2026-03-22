@@ -15,7 +15,7 @@ fn test_account_lookup_address() {
     let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
 
-    let address = stub.account_address(&account);
+    let address = stub.account_canonical_address(&account);
     stub.account_by_address(&address)
         .expect("Account is expected to exist");
     assert!(
@@ -60,7 +60,7 @@ fn test_account_by_alias() {
     let mut stub = KernelStub::with_decimals(0, utils::LATEST_PROTOCOL_VERSION);
 
     let account = stub.create_account();
-    let account_address = stub.account_address(&account);
+    let account_address = stub.account_canonical_address(&account);
     let account_by_alias = stub
         .account_by_address(&account_address.get_alias(0).unwrap())
         .unwrap();
