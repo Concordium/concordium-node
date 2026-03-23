@@ -307,7 +307,8 @@ jobs:
       - name: Read Rust version
         id: read-rust-version
         run: |
-          echo "RUST_VERSION=$(cargo --version | awk '{print $2}')" >> $GITHUB_OUTPUT
+          $rustVersion = (cargo --version).Split(" ")[1]
+          echo "RUST_VERSION=$rustVersion" >> $env:GITHUB_OUTPUT
 
       - name: Print Rust version
         id: print-rust-version
