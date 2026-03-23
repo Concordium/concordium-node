@@ -3,7 +3,9 @@
 use crate::roles::Roles;
 use crate::util;
 use concordium_base::common;
-use concordium_base::protocol_level_tokens::{MetadataUrl, TokenAdminRole, TokenAuthorizations};
+use concordium_base::protocol_level_tokens::{
+    MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
+};
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_interface::token_kernel_interface::{
@@ -225,7 +227,14 @@ pub fn revoke_account_roles(
 pub fn get_token_authorizations<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenAuthorizations, TokenStateInvariantError> {
-    let mut authorizations = TokenAuthorizations::default();
+    let mut update_admin_roles = TokenRoleAuthorizations::default();
+    let mut mint = TokenRoleAuthorizations::default();
+    let mut burn = TokenRoleAuthorizations::default();
+    let mut update_allow_list = TokenRoleAuthorizations::default();
+    let mut update_deny_list = TokenRoleAuthorizations::default();
+    let mut pause = TokenRoleAuthorizations::default();
+    let mut update_metadata = TokenRoleAuthorizations::default();
+
     for (account_index_bytes, roles) in
         kernel.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into())
     {
@@ -253,17 +262,27 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
         })?;
         for role in roles.iter_assigned() {
             match role {
-                TokenAdminRole::UpdateAdminRoles => authorizations.update_admin_roles.push(account),
-                TokenAdminRole::Mint => authorizations.mint.push(account),
-                TokenAdminRole::Burn => authorizations.burn.push(account),
-                TokenAdminRole::UpdateAllowList => authorizations.update_allow_list.push(account),
-                TokenAdminRole::UpdateDenyList => authorizations.update_deny_list.push(account),
-                TokenAdminRole::Pause => authorizations.pause.push(account),
-                TokenAdminRole::UpdateMetadata => authorizations.update_metadata.push(account),
+                TokenAdminRole::UpdateAdminRoles => {
+                    update_admin_roles.accounts.push(account.into())
+                }
+                TokenAdminRole::Mint => mint.accounts.push(account.into()),
+                TokenAdminRole::Burn => burn.accounts.push(account.into()),
+                TokenAdminRole::UpdateAllowList => update_allow_list.accounts.push(account.into()),
+                TokenAdminRole::UpdateDenyList => update_deny_list.accounts.push(account.into()),
+                TokenAdminRole::Pause => pause.accounts.push(account.into()),
+                TokenAdminRole::UpdateMetadata => update_metadata.accounts.push(account.into()),
             }
         }
     }
-    Ok(authorizations)
+    Ok(TokenAuthorizations {
+        update_admin_roles: Some(update_admin_roles),
+        mint: is_mintable(kernel).then_some(mint),
+        burn: is_burnable(kernel).then_some(burn),
+        update_allow_list: has_allow_list(kernel).then_some(update_allow_list),
+        update_deny_list: has_deny_list(kernel).then_some(update_deny_list),
+        pause: Some(pause),
+        update_metadata: Some(update_metadata),
+    })
 }
 
 /// Sets the puased state of the token module.

@@ -19,13 +19,23 @@ fn test_rbac_initial_governance_account_have_every_role() {
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
     let gov = stub.account_canonical_address(&gov_account);
-    assert!(auth.update_admin_roles.contains(&gov));
-    assert!(auth.mint.contains(&gov));
-    assert!(!auth.burn.contains(&gov));
-    assert!(!auth.update_allow_list.contains(&gov));
-    assert!(auth.update_deny_list.contains(&gov));
-    assert!(auth.pause.contains(&gov));
-    assert!(auth.update_metadata.contains(&gov));
+    assert!(
+        auth.update_admin_roles
+            .unwrap()
+            .accounts
+            .contains(&gov.into())
+    );
+    assert!(auth.mint.unwrap().accounts.contains(&gov.into()));
+    assert!(auth.burn.is_none());
+    assert!(auth.update_allow_list.is_none());
+    assert!(
+        auth.update_deny_list
+            .unwrap()
+            .accounts
+            .contains(&gov.into())
+    );
+    assert!(auth.pause.unwrap().accounts.contains(&gov.into()));
+    assert!(auth.update_metadata.unwrap().accounts.contains(&gov.into()));
 }
 
 /// Assign multiple roles to a new account succeeds.
@@ -54,22 +64,49 @@ fn test_rbac_assign_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
     let gov = stub.account_canonical_address(&gov_account);
-    assert!(auth.update_admin_roles.contains(&gov));
-    assert!(auth.mint.contains(&gov));
-    assert!(auth.burn.contains(&gov));
-    assert!(!auth.update_allow_list.contains(&gov)); // Not enabled.
-    assert!(!auth.update_deny_list.contains(&gov)); // Not enabled.
-    assert!(auth.pause.contains(&gov));
-    assert!(auth.update_metadata.contains(&gov));
+    assert!(
+        auth.update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov.into())
+    );
+    assert!(auth.mint.as_ref().unwrap().accounts.contains(&gov.into()));
+    assert!(auth.burn.as_ref().unwrap().accounts.contains(&gov.into()));
+    assert!(auth.update_allow_list.is_none());
+    assert!(auth.update_deny_list.is_none());
+    assert!(auth.pause.as_ref().unwrap().accounts.contains(&gov.into()));
+    assert!(
+        auth.update_metadata
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov.into())
+    );
 
-    let acc = stub.account_canonical_address(&account2);
-    assert!(!auth.update_admin_roles.contains(&acc));
-    assert!(auth.mint.contains(&acc));
-    assert!(auth.burn.contains(&acc));
-    assert!(!auth.update_allow_list.contains(&acc));
-    assert!(!auth.update_deny_list.contains(&acc));
-    assert!(!auth.pause.contains(&acc));
-    assert!(!auth.update_metadata.contains(&acc));
+    let acc = stub.account_canonical_address(&account2).into();
+    assert!(
+        !auth
+            .update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
+    assert!(auth.mint.as_ref().unwrap().accounts.contains(&acc));
+    assert!(auth.burn.as_ref().unwrap().accounts.contains(&acc));
+    assert!(auth.update_allow_list.is_none());
+    assert!(auth.update_deny_list.is_none());
+    assert!(!auth.pause.as_ref().unwrap().accounts.contains(&acc));
+    assert!(
+        !auth
+            .update_metadata
+            .as_ref()
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
 }
 
 /// Assign the same role to the same account twice succeeds.
@@ -112,14 +149,26 @@ fn test_rbac_assign_same_roles() {
     let auth = token_module::query_token_authorizations(&stub).unwrap();
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
-    let acc = stub.account_canonical_address(&account2);
-    assert!(!auth.update_admin_roles.contains(&acc));
-    assert!(auth.mint.contains(&acc));
-    assert!(auth.burn.contains(&acc));
-    assert!(!auth.update_allow_list.contains(&acc));
-    assert!(!auth.update_deny_list.contains(&acc));
-    assert!(!auth.pause.contains(&acc));
-    assert!(!auth.update_metadata.contains(&acc));
+    let acc = stub.account_canonical_address(&account2).into();
+    assert!(
+        !auth
+            .update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
+    assert!(auth.mint.as_ref().unwrap().accounts.contains(&acc));
+    assert!(auth.burn.as_ref().unwrap().accounts.contains(&acc));
+    assert!(!auth.pause.as_ref().unwrap().accounts.contains(&acc));
+    assert!(
+        !auth
+            .update_metadata
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
 }
 
 /// Assign rejects when not holding the admin role.
@@ -203,14 +252,18 @@ fn test_rbac_assign_role_works_when_paused() {
     let auth = token_module::query_token_authorizations(&stub).unwrap();
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
-    let acc = stub.account_canonical_address(&account2);
-    assert!(!auth.update_admin_roles.contains(&acc));
-    assert!(auth.mint.contains(&acc));
-    assert!(auth.burn.contains(&acc));
-    assert!(!auth.update_allow_list.contains(&acc));
-    assert!(!auth.update_deny_list.contains(&acc));
-    assert!(!auth.pause.contains(&acc));
-    assert!(!auth.update_metadata.contains(&acc));
+    let acc = stub.account_canonical_address(&account2).into();
+    assert!(
+        !auth
+            .update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
+    assert!(auth.mint.as_ref().unwrap().accounts.contains(&acc));
+    assert!(auth.burn.as_ref().unwrap().accounts.contains(&acc));
+    assert!(!auth.pause.as_ref().unwrap().accounts.contains(&acc));
 }
 
 /// Assign rejects when using role for a feature which is not enabled.
@@ -265,14 +318,20 @@ fn test_rbac_revoke_roles() {
     let auth = token_module::query_token_authorizations(&stub).unwrap();
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
-    let gov = stub.account_canonical_address(&gov_account);
-    assert!(auth.update_admin_roles.contains(&gov));
-    assert!(!auth.mint.contains(&gov));
-    assert!(!auth.burn.contains(&gov));
-    assert!(auth.update_allow_list.contains(&gov)); // Not enabled.
-    assert!(!auth.update_deny_list.contains(&gov)); // Not enabled.
-    assert!(auth.pause.contains(&gov));
-    assert!(auth.update_metadata.contains(&gov));
+    let gov = stub.account_canonical_address(&gov_account).into();
+    assert!(auth.update_admin_roles.unwrap().accounts.contains(&gov));
+    assert!(!auth.mint.as_ref().unwrap().accounts.contains(&gov));
+    assert!(!auth.burn.as_ref().unwrap().accounts.contains(&gov));
+    assert!(auth.update_allow_list.unwrap().accounts.contains(&gov));
+    assert!(auth.update_deny_list.is_none()); // Not enabled.
+    assert!(auth.pause.as_ref().unwrap().accounts.contains(&gov));
+    assert!(
+        auth.update_metadata
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov)
+    );
 }
 
 /// Revoke the same role from the same account twice succeeds.
@@ -319,14 +378,31 @@ fn test_rbac_revoke_same_roles() {
     let auth = token_module::query_token_authorizations(&stub).unwrap();
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
-    let gov = stub.account_canonical_address(&gov_account);
-    assert!(auth.update_admin_roles.contains(&gov));
-    assert!(!auth.mint.contains(&gov));
-    assert!(!auth.burn.contains(&gov));
-    assert!(auth.update_allow_list.contains(&gov));
-    assert!(!auth.update_deny_list.contains(&gov));
-    assert!(auth.pause.contains(&gov));
-    assert!(auth.update_metadata.contains(&gov));
+    let gov = stub.account_canonical_address(&gov_account).into();
+    assert!(
+        auth.update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov)
+    );
+    assert!(!auth.mint.as_ref().unwrap().accounts.contains(&gov));
+    assert!(!auth.burn.as_ref().unwrap().accounts.contains(&gov));
+    assert!(
+        auth.update_allow_list
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov)
+    );
+    assert!(auth.pause.as_ref().unwrap().accounts.contains(&gov));
+    assert!(
+        auth.update_metadata
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov)
+    );
 }
 
 /// Revoke rejects when not holding the admin role.
@@ -408,14 +484,24 @@ fn test_rbac_revoke_role_works_when_paused() {
     let auth = token_module::query_token_authorizations(&stub).unwrap();
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
 
-    let acc = stub.account_canonical_address(&gov_account);
-    assert!(auth.update_admin_roles.contains(&acc));
-    assert!(!auth.mint.contains(&acc));
-    assert!(!auth.burn.contains(&acc));
-    assert!(!auth.update_allow_list.contains(&acc));
-    assert!(!auth.update_deny_list.contains(&acc));
-    assert!(auth.pause.contains(&acc));
-    assert!(auth.update_metadata.contains(&acc));
+    let acc = stub.account_canonical_address(&gov_account).into();
+    assert!(
+        auth.update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
+    assert!(!auth.mint.as_ref().unwrap().accounts.contains(&acc));
+    assert!(!auth.burn.as_ref().unwrap().accounts.contains(&acc));
+    assert!(auth.pause.as_ref().unwrap().accounts.contains(&acc));
+    assert!(
+        auth.update_metadata
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
 }
 
 /// Revoke rejects when revoking admin role from sender.
@@ -501,8 +587,21 @@ fn test_rbac_admin_role_rotation_succeeds() {
 
     let auth = token_module::query_token_authorizations(&stub).unwrap();
     let auth: TokenAuthorizations = cbor::cbor_decode(auth).unwrap();
-    let gov_acc = stub.account_canonical_address(&gov_account);
-    assert!(!auth.update_admin_roles.contains(&gov_acc));
-    let acc = stub.account_canonical_address(&account2);
-    assert!(auth.update_admin_roles.contains(&acc));
+    let gov_acc = stub.account_canonical_address(&gov_account).into();
+    assert!(
+        !auth
+            .update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&gov_acc)
+    );
+    let acc = stub.account_canonical_address(&account2).into();
+    assert!(
+        auth.update_admin_roles
+            .as_ref()
+            .unwrap()
+            .accounts
+            .contains(&acc)
+    );
 }

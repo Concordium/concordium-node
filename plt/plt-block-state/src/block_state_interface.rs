@@ -90,6 +90,7 @@ pub trait BlockStateQuery {
     ) -> Option<TokenStateValue>;
 
     /// Get iterator over key-value pairs with a shared prefix.
+    /// Returned keys have the prefix stripped.
     ///
     /// # Arguments
     ///
