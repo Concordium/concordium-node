@@ -304,16 +304,6 @@ jobs:
           smctl healthcheck --all
         shell: cmd
 
-      - name: Read Rust version
-        id: read-rust-version
-        run: |
-          echo "RUST_VERSION=$(cargo --version | awk '{print $2}')" >> $GITHUB_OUTPUT
-
-      - name: Print Rust version
-        id: print-rust-version
-        run: |
-          echo "Rust version: ${{ steps.read-rust-version.outputs.RUST_VERSION }}"
-
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
@@ -360,7 +350,7 @@ jobs:
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
           SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
         run: |
-          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ steps.read-rust-version.outputs.RUST_VERSION }}
+          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }}
 
       - name: Sign installer with smctl
         working-directory: ${{steps.build.outputs.bin_dir}}
