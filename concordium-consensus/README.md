@@ -20,14 +20,6 @@ The global state depends on the lmdb library, which you may need to install usin
 
 ### Troubleshooting on Windows
 
-### `error: linking with link.exe failed`
-This might happen if Rust is installed with the MSVC [ABI](https://en.wikipedia.org/wiki/Application_binary_interface).
-You can check this by running `rustup show`.
-If Rust is using the MSVC toolchain you can switch to GNU instead by running
-```
-rustup override set 1.94-x86_64-pc-windows-gnu
-```
-
 ### `user specified .o/.so/.DLL could not be loaded (addDLL: pthread or dependencies not loaded. (Win32 error 5)) whilst trying to load:  (dynamic) pthread`
 Copy `%LOCALAPPDATA%\Programs\stack\x86_64-windows\ghc-9.10.2\mingw\bin\libwinpthread-1.dll` to `%LOCALAPPDATA%\Programs\stack\x86_64-windows\ghc-9.10.2\mingw\bin\pthread.dll`.
 
