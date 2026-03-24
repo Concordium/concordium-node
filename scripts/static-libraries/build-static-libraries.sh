@@ -28,7 +28,7 @@ find /build/concordium-consensus/.stack-work -type f -name "*_p.a" -exec cp {} /
 LOCAL_INSTALL_ROOT=$(stack --stack-yaml /build/concordium-consensus/stack.static.yaml path --profile --local-install-root)
 cp "$LOCAL_INSTALL_ROOT"/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
 cp /build/concordium-base/rust-src/target/release/*.so /binaries/lib/
-cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
+cp /build/concordium-consensus/lib/*.so /binaries/lib/
 
 #############################################################################################################################
 ## Copy dependencies
@@ -73,32 +73,10 @@ find /target /binaries -type f -exec strip --strip-debug {} \;
     ar rcs libRcrypto.a *.o
     rm *.o
 
-    ## copy smart contract engine static library and repeat the process to remove ruststd symbols from it as well, as it is linked into the consensus node and must not contain ruststd symbols
-    cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/libconcordium_smart_contract_engine.a /target/rust/libconcordium_smart_contract_engine.a
+    ## copy Rust node library and repeat the process to remove ruststd symbols from it as well, as it is linked into the consensus node and must not contain ruststd symbols
+    cp /build/concordium-consensus/lib/libnode_rust_library.a /target/rust/libnode_rust_library.a
 
-    ar x libconcordium_smart_contract_engine.a
-
-    set +e
-
-    for file in $(find . -type f -name "*.o"); do
-        nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)\|\(T __clzsi2\)\|\(T rust_eh_personality\)" >> /dev/null;
-        if [ $? -eq 0 ]; then
-            echo "Removing file:"
-            echo $file
-            rm $file;
-        fi
-    done
-
-    set -e
-
-    rm libconcordium_smart_contract_engine.a
-    ar rcs libconcordium_smart_contract_engine.a *.o
-    rm *.o
-
-    #### PLT release handling - copy the static library, unpack it, remove ruststd symbols, and repack it as a static library again
-    cp /build/plt/target/release/libplt_scheduler.a /target/rust/libplt_scheduler.a
-
-    ar x libplt_scheduler.a
+    ar x libnode_rust_library.a
 
     set +e
 
@@ -113,8 +91,8 @@ find /target /binaries -type f -exec strip --strip-debug {} \;
 
     set -e
 
-    rm libplt_scheduler.a
-    ar rcs libplt_scheduler.a *.o
+    rm libnode_rust_library.a
+    ar rcs libnode_rust_library.a *.o
     rm *.o
 )
 
