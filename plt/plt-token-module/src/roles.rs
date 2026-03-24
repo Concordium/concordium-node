@@ -5,8 +5,19 @@ use concordium_base::protocol_level_tokens::TokenAdminRole;
 use plt_block_state::block_state::types::TokenStateValue;
 
 /// List roles which are unaffected by which features are enabled.
-pub const MANDATORY_ROLES: &[TokenAdminRole] = &[
+pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
     TokenAdminRole::UpdateAdminRoles,
+    TokenAdminRole::Pause,
+    TokenAdminRole::UpdateMetadata,
+];
+
+/// List all roles.
+const ALL_ROLES: &[TokenAdminRole] = &[
+    TokenAdminRole::UpdateAdminRoles,
+    TokenAdminRole::Mint,
+    TokenAdminRole::Burn,
+    TokenAdminRole::UpdateAllowList,
+    TokenAdminRole::UpdateDenyList,
     TokenAdminRole::Pause,
     TokenAdminRole::UpdateMetadata,
 ];
@@ -82,6 +93,11 @@ impl Roles {
             return Ok(Roles::none());
         };
         common::from_bytes_complete(value)
+    }
+
+    /// Iterate the roles assigned.
+    pub fn iter_assigned(&self) -> impl Iterator<Item = TokenAdminRole> {
+        ALL_ROLES.iter().filter(|&role| self.has(*role)).copied()
     }
 }
 

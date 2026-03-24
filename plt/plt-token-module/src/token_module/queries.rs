@@ -92,3 +92,12 @@ fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
         deny_list,
     }
 }
+
+/// Get authorization roles and assigned accounts for the token.
+pub fn query_token_authorizations<TK: TokenKernelQueries>(
+    kernel: &TK,
+) -> Result<RawCbor, QueryTokenModuleError> {
+    Ok(RawCbor::from(cbor::cbor_encode(
+        &key_value_state::get_token_authorizations(kernel)?,
+    )))
+}

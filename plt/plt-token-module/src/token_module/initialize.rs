@@ -75,7 +75,7 @@ fn initialize_token_impl(
 
     // The governance account should hold every role, except for disabled features, so we build a
     // list of every enabled role and the mandatory roles.
-    let mut enabled_roles = Vec::from(roles::MANDATORY_ROLES);
+    let mut enabled_roles = Vec::from(roles::UNIVERSAL_ROLES);
 
     if init_params.allow_list == Some(true) {
         kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]));

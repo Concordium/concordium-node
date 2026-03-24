@@ -3,7 +3,9 @@
 use crate::roles::Roles;
 use crate::util;
 use concordium_base::common;
-use concordium_base::protocol_level_tokens::{MetadataUrl, TokenAdminRole};
+use concordium_base::protocol_level_tokens::{
+    MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
+};
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_interface::token_kernel_interface::{
@@ -219,6 +221,73 @@ pub fn revoke_account_roles(
     }
     kernel.set_account_roles_state(account, roles);
     Ok(())
+}
+
+/// Get authorization roles and assigned accounts for the token.
+pub fn get_token_authorizations<TK: TokenKernelQueries>(
+    kernel: &TK,
+) -> Result<TokenAuthorizations, TokenStateInvariantError> {
+    let mut update_admin_roles = TokenRoleAuthorizations::default();
+    let mut mint = TokenRoleAuthorizations::default();
+    let mut burn = TokenRoleAuthorizations::default();
+    let mut update_allow_list = TokenRoleAuthorizations::default();
+    let mut update_deny_list = TokenRoleAuthorizations::default();
+    let mut pause = TokenRoleAuthorizations::default();
+    let mut update_metadata = TokenRoleAuthorizations::default();
+
+    for (key, roles) in kernel.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into()) {
+        let account_index_bytes =
+            key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
+                .ok_or_else(|| {
+                    TokenStateInvariantError(
+                        "Iterator over account roles state produced invalid key".to_string(),
+                    )
+                })?;
+        let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
+            .map_err(|err| {
+                TokenStateInvariantError(format!(
+                    "Stored account index in authorizations cannot be decoded: {}",
+                    err
+                ))
+            })?;
+        let account = kernel
+            .account_by_index(account_index)
+            .map_err(|err| {
+                TokenStateInvariantError(format!(
+                    "Stored account index in authorizations cannot be found: {}",
+                    err
+                ))
+            })?
+            .canonical_account_address;
+        let roles = Roles::try_from_state_value(Some(roles.clone())).map_err(|err| {
+            TokenStateInvariantError(format!(
+                "Stored account authorization roles cannot be decoded: {}",
+                err
+            ))
+        })?;
+        for role in roles.iter_assigned() {
+            match role {
+                TokenAdminRole::UpdateAdminRoles => {
+                    update_admin_roles.accounts.push(account.into())
+                }
+                TokenAdminRole::Mint => mint.accounts.push(account.into()),
+                TokenAdminRole::Burn => burn.accounts.push(account.into()),
+                TokenAdminRole::UpdateAllowList => update_allow_list.accounts.push(account.into()),
+                TokenAdminRole::UpdateDenyList => update_deny_list.accounts.push(account.into()),
+                TokenAdminRole::Pause => pause.accounts.push(account.into()),
+                TokenAdminRole::UpdateMetadata => update_metadata.accounts.push(account.into()),
+            }
+        }
+    }
+    Ok(TokenAuthorizations {
+        update_admin_roles: Some(update_admin_roles),
+        mint: is_mintable(kernel).then_some(mint),
+        burn: is_burnable(kernel).then_some(burn),
+        update_allow_list: has_allow_list(kernel).then_some(update_allow_list),
+        update_deny_list: has_deny_list(kernel).then_some(update_deny_list),
+        pause: Some(pause),
+        update_metadata: Some(update_metadata),
+    })
 }
 
 /// Sets the puased state of the token module.
