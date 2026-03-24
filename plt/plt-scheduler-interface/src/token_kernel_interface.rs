@@ -101,11 +101,10 @@ pub trait TokenKernelQueries {
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
 
     /// Get iterator over key-value pairs with a shared prefix.
-    /// Returned keys have the prefix stripped.
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)>;
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
 
     /// Query the protocol version for this block.
     fn protocol_version(&self) -> ProtocolVersion;

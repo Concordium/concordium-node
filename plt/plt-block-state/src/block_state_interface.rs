@@ -90,17 +90,16 @@ pub trait BlockStateQuery {
     ) -> Option<TokenStateValue>;
 
     /// Get iterator over key-value pairs with a shared prefix.
-    /// Returned keys have the prefix stripped.
     ///
     /// # Arguments
     ///
     /// - `token_key_value` The token module state to look up the value in.
     /// - `prefix` The token state key prefix to iterate over.
-    fn iter_token_state_prefix(
+    fn iter_token_state_prefix<'a>(
         &self,
-        token_key_value: &Self::TokenKeyValueState,
+        token_key_value: &'a Self::TokenKeyValueState,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)>;
+    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)>;
 
     /// Update the value for the given key in the given token key-value state. If `None` is
     /// specified as value, the entry is removed.

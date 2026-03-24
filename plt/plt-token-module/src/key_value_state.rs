@@ -235,9 +235,14 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
     let mut pause = TokenRoleAuthorizations::default();
     let mut update_metadata = TokenRoleAuthorizations::default();
 
-    for (account_index_bytes, roles) in
-        kernel.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into())
-    {
+    for (key, roles) in kernel.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into()) {
+        let account_index_bytes =
+            key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
+                .ok_or_else(|| {
+                    TokenStateInvariantError(
+                        "Iterator over account roles state produced invalid key".to_string(),
+                    )
+                })?;
         let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
             .map_err(|err| {
                 TokenStateInvariantError(format!(
@@ -254,7 +259,7 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
                 ))
             })?
             .canonical_account_address;
-        let roles = Roles::try_from_state_value(Some(roles)).map_err(|err| {
+        let roles = Roles::try_from_state_value(Some(roles.clone())).map_err(|err| {
             TokenStateInvariantError(format!(
                 "Stored account authorization roles cannot be decoded: {}",
                 err

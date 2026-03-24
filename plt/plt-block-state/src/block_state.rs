@@ -308,11 +308,11 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
         self.protocol_version
     }
 
-    fn iter_token_state_prefix(
+    fn iter_token_state_prefix<'a>(
         &self,
-        token_key_value_state: &Self::TokenKeyValueState,
+        token_key_value_state: &'a Self::TokenKeyValueState,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
         token_key_value_state.iter_prefix(prefix)
     }
 }
@@ -393,13 +393,13 @@ impl SimplisticTokenKeyValueState {
     fn iter_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
         // This is just a temporary implementation and will not scale.
         // However implementation should be trivial once using the actual trie.
         let mut out = Vec::new();
         for (key, value) in self.state.iter() {
-            if let Some(rest) = key.strip_prefix(prefix.as_slice()) {
-                out.push((rest.to_vec(), value.clone()));
+            if key.starts_with(prefix.as_slice()) {
+                out.push((key, value));
             }
         }
         out.into_iter()

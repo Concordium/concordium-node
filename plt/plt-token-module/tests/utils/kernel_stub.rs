@@ -326,11 +326,11 @@ impl TokenKernelQueries for KernelStub {
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
         let mut out = Vec::new();
         for (key, value) in self.state.iter() {
-            if let Some(rest) = key.strip_prefix(prefix.as_slice()) {
-                out.push((rest.to_vec(), value.clone()));
+            if key.starts_with(prefix.as_slice()) {
+                out.push((key, value));
             }
         }
         out.into_iter()

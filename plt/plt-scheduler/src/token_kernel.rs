@@ -71,7 +71,7 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
         self.block_state
             .iter_token_state_prefix(self.token_module_state, prefix)
     }
@@ -286,7 +286,7 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
         self.block_state
             .iter_token_state_prefix(self.token_module_state, prefix)
     }
