@@ -31,13 +31,15 @@ pub fn alloc_array_from_vec(mut bytes: Vec<u8>) -> ArrayWithLength {
     // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
     bytes.shrink_to_fit();
 
-    let (array, length, capacity) = bytes.into_raw_parts();
+    todo!()
+    // let (array, length, capacity) = bytes.into_raw_parts();
 
-    // todo for now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/PSR-61/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(
-        capacity, length,
-        "vec capacity not equal to length after call to shrink_to_fit"
-    );
 
-    ArrayWithLength { array, length }
+    // // todo for now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/PSR-61/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
+    // assert_eq!(
+    //     capacity, length,
+    //     "vec capacity not equal to length after call to shrink_to_fit"
+    // );
+    //
+    // ArrayWithLength { array, length }
 }
