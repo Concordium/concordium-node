@@ -540,7 +540,7 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get information about a specific account in a given block.
+    /// Get information about a specific token in a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
@@ -550,7 +550,7 @@ extern "C" {
     /// * `token_id_len` - Length of the token identifier.
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
-    /// * `copier` - Callback for writting the output.
+    /// * `copier` - Callback for writing the output.
     pub fn getTokenInfoV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
@@ -2435,6 +2435,12 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get the authorizations for a protocol-level token in a block, introduced as part of P11.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the token cannot be found then a [tonic::Status::not_found] is
+    /// returned.
     pub fn get_token_authorizations_v2(
         &self,
         block_hash: &crate::grpc2::types::BlockHashInput,

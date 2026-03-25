@@ -121,8 +121,9 @@ pub fn query_token_authorizations(
         token_module_state: &token_module_state,
     };
     let details = token_module::query_token_authorizations(&kernel)?;
+    let token_configuration = block_state.token_configuration(&token);
     Ok(TokenAuthorizations {
-        token_id: token_id.clone(),
+        token_id: token_configuration.token_id,
         details,
     })
 }

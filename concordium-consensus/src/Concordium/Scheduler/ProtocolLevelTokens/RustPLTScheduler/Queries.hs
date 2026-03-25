@@ -338,12 +338,12 @@ queryTokenAuthorizations bs tokenId = do
                         case statusCode of
                             0 -> do
                                 let getTokenAuthorizations = S.isolate (BS.length returnData) S.get
-                                let tokenInfo =
+                                let tokenAuthorizations =
                                         either
                                             (\message -> error $ "Token authorizations from Rust PLT Scheduler could not be deserialized: " ++ message)
                                             id
                                             $ S.runGet getTokenAuthorizations returnData
-                                return $ Just tokenInfo
+                                return $ Just tokenAuthorizations
                             1 -> do
                                 return Nothing
                             _ -> error ("Unexpected status code from calling 'ffiQueryTokenAuthorizations': " ++ show statusCode)
@@ -376,8 +376,8 @@ foreign import ccall "ffi_query_token_authorizations"
         FFI.Ptr Word.Word8 ->
         -- | Byte length of token id UTF-8.
         FFI.CSize ->
-        -- | Output location for array containing return data, which is the token info.
-        -- If the return value is `0`, the data is the serialized token info.
+        -- | Output location for array containing return data, which is the token authorizations.
+        -- If the return value is `0`, the data is the serialized token authorizations.
         -- If the return value is `1`, the data is empty (zero bytes).
         FFI.Ptr (FFI.Ptr Word.Word8) ->
         -- | Output location for writing the length of the return data.
