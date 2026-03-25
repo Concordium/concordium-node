@@ -102,12 +102,12 @@ module Concordium.GlobalState.Persistent.BlobStore (
     HashedBufferedRefO,
 
     -- ** 'EagerlyHashedBufferedRef'
-    EagerlyHashedBufferedRef'(..),
+    EagerlyHashedBufferedRef' (..),
     EagerlyHashedBufferedRef,
     migrateEagerlyHashedBufferedRefKeepHash,
 
     -- ** 'UnbufferedRef'
-    UnbufferedRef(..),
+    UnbufferedRef (..),
     makeUnbufferedRef,
     makeFlushedUnbufferedRef,
     blobRefToUnbufferedRef,

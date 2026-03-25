@@ -6,11 +6,19 @@
 
 module BlockStateDump.Shared where
 
+import Control.Monad
 import Control.Monad.IO.Class
+import qualified Control.Monad.RWS as RWST
 import Control.Monad.Reader
-import qualified Data.IORef as IO
+import Data.Coerce
+import qualified Data.Map.Lazy as Map
+import qualified Data.Text.Lazy as Text
 import Data.Word
+import qualified GHC.IORef as IORef
+import qualified System.Directory as Dir
+import qualified System.FilePath as FP
 import qualified System.IO as IO
+import qualified Text.Pretty.Simple as Pretty
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
@@ -21,14 +29,6 @@ import Concordium.GlobalState.Persistent.CachedRef
 import qualified Concordium.GlobalState.Persistent.CachedRef as Blob
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as TreeState
 import qualified Concordium.Types.HashableTo as Hash
-import Control.Monad
-import Data.Coerce
-import qualified Data.Map.Lazy as Map
-import qualified Data.Text.Lazy as Text
-import qualified GHC.IORef as IORef
-import qualified System.Directory as Dir
-import qualified System.FilePath as FP
-import qualified Text.Pretty.Simple as Pretty
 
 throwUserError :: (MonadIO m) => String -> m a
 throwUserError = liftIO . ioError . userError
@@ -39,6 +39,12 @@ liftBSOIO ::
     m a
 liftBSOIO m = do
     liftIO m
+
+liftBSDIO ::
+    IO a ->
+    StateDumpMonad m a
+liftBSDIO m = do
+    lift $ liftIO m
 
 runTreeState ::
     (MonadIO m) =>
@@ -53,79 +59,71 @@ runBSO ::
     LogIO a
 runBSO pbsc = flip runReaderT pbsc . BS.runPersistentBlockStateMonad
 
+type StateDumpMonad m a = (MonadIO m) => RWST.RWST OutputFilesPaths () StateDumpBuilderState m a
+
 newtype NodeId = NodeId Word64
 
 instance Show NodeId where
     show (NodeId w) = show w
 
-data OutputFiles = OutputFiles
-    { ofMutable :: IO.IORef OutputFilesMutable,
-      ofStateGraphFilePath :: FilePath,
-      ofStateFilePath :: FilePath,
-      ofBlocksFilePath :: FilePath
+data OutputFilesPaths = OutputFilesPaths
+    { ofpStateGraphFilePath :: FilePath,
+      ofpStateFilePath :: FilePath,
+      ofpBlocksFilePath :: FilePath
     }
 
-data OutputFilesMutable = OutputFilesMutable
-    { ofNextNodeId :: NodeId,
-      ofBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Maybe Hash.Hash),
-      ofStateGraph :: IO.Handle,
-      ofBlocks :: IO.Handle,
-      ofState :: IO.Handle
+data StateDumpBuilderState = StateDumpBuilderState
+    { sdbsNextNodeId :: NodeId,
+      sdbsBlobRefToNodeId :: Map.Map (Blob.BlobRef ()) (NodeId, Maybe Hash.Hash),
+      sdbsStateGraph :: IO.Handle,
+      sdbsBlocks :: IO.Handle,
+      sdbsState :: IO.Handle
     }
 
-openOutputFiles :: FilePath -> IO OutputFiles
-openOutputFiles outDir = do
+createBuilderState :: FilePath -> IO (OutputFilesPaths, StateDumpBuilderState)
+createBuilderState outDir = do
     Dir.createDirectoryIfMissing True outDir
-    let ofStateGraphFilePath = outDir FP.</> "graph.dot"
-    let ofBlocksFilePath = outDir FP.</> "blocks.txt"
-    let ofStateFilePath = outDir FP.</> "state.txt"
-    ofStateGraph <- IO.openFile ofStateGraphFilePath IO.WriteMode
-    ofBlocks <- IO.openFile ofBlocksFilePath IO.WriteMode
-    ofState <- IO.openFile ofStateFilePath IO.WriteMode
-    ofMutable <-
-        IORef.newIORef
-            OutputFilesMutable
-                { ofNextNodeId = NodeId 0,
-                  ofBlobRefToNodeId = Map.empty,
-                  ..
-                }
+    let ofpStateGraphFilePath = outDir FP.</> "graph.dot"
+    let ofpBlocksFilePath = outDir FP.</> "blocks.txt"
+    let ofpStateFilePath = outDir FP.</> "state.txt"
+    sdbsStateGraph <- IO.openFile ofpStateGraphFilePath IO.WriteMode
+    sdbsBlocks <- IO.openFile ofpBlocksFilePath IO.WriteMode
+    sdbsState <- IO.openFile ofpStateFilePath IO.WriteMode
 
-    return OutputFiles{..}
+    return
+        ( OutputFilesPaths{..},
+          StateDumpBuilderState
+            { sdbsNextNodeId = NodeId 0,
+              sdbsBlobRefToNodeId = Map.empty,
+              ..
+            }
+        )
 
-flushOutputFiles :: OutputFiles -> IO ()
-flushOutputFiles output = do
-    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
-    IO.hFlush ofStateGraph
-    IO.hFlush ofBlocks
-    IO.hFlush ofState
+flushOutputFiles :: StateDumpMonad m ()
+flushOutputFiles = do
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $ IO.hFlush sdbsStateGraph
+    liftBSDIO $ IO.hFlush sdbsBlocks
+    liftBSDIO $ IO.hFlush sdbsState
     return ()
 
-closeOutputFiles :: OutputFiles -> IO ()
-closeOutputFiles output = do
-    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
-    IO.hClose ofStateGraph
-    IO.hClose ofBlocks
-    IO.hClose ofState
+closeOutputFiles :: StateDumpMonad m ()
+closeOutputFiles = do
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $ IO.hClose sdbsStateGraph
+    liftBSDIO $ IO.hClose sdbsBlocks
+    liftBSDIO $ IO.hClose sdbsState
     return ()
 
-reopenOutputFiles :: OutputFiles -> IO ()
-reopenOutputFiles OutputFiles{..} = do
-    outputMutable <- liftIO $ IO.readIORef ofMutable
-    ofStateGraph <- IO.openFile ofStateGraphFilePath IO.AppendMode
-    ofBlocks <- IO.openFile ofBlocksFilePath IO.AppendMode
-    ofState <- IO.openFile ofStateFilePath IO.AppendMode
-    liftIO $ IO.writeIORef ofMutable outputMutable{ofStateGraph = ofStateGraph, ofBlocks = ofBlocks, ofState = ofState}
+reopenOutputFiles :: StateDumpMonad m ()
+reopenOutputFiles = do
+    OutputFilesPaths{..} <- RWST.ask
+    s <- RWST.get
+    sdbsStateGraph <- liftBSDIO $ IO.openFile ofpStateGraphFilePath IO.AppendMode
+    sdbsBlocks <- liftBSDIO $ IO.openFile ofpBlocksFilePath IO.AppendMode
+    sdbsState <- liftBSDIO $ IO.openFile ofpStateFilePath IO.AppendMode
+    RWST.put s{sdbsStateGraph = sdbsStateGraph, sdbsBlocks = sdbsBlocks, sdbsState = sdbsState}
     return ()
-
--- ofStateGraph <- IO.openFile (ofStateGraphFilePath output) IO.WriteMode
--- ofBlocks <- IO.openFile (ofBlocksFilePath output) IO.WriteMode
--- ofState <- IO.openFile (ofStateFilePath output) IO.WriteMode
--- return
---     output
---         { ofStateGraph = ofStateGraph,
---           ofBlocks = ofBlocks,
---           ofState = ofState
---         }
 
 hashDisplayLength :: Int
 hashDisplayLength = 6
@@ -133,11 +131,11 @@ hashDisplayLength = 6
 -- Build node if a node with the given blob ref does not already exist.
 -- Returns the (possibly existing) node id, regardless of whether a new node was build,
 -- and a boolean indicating if a new node was build.
-buildBlobRefNodeNoEdge :: OutputFiles -> String -> Blob.BlobRef a -> Maybe Hash.Hash -> IO (NodeId, Bool)
-buildBlobRefNodeNoEdge output label blobRef maybeHash = do
-    outputMutable@OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
+buildBlobRefNodeNoEdge :: String -> Blob.BlobRef a -> Maybe Hash.Hash -> StateDumpMonad m (NodeId, Bool)
+buildBlobRefNodeNoEdge label blobRef maybeHash = do
+    s@StateDumpBuilderState{..} <- RWST.get
 
-    case Map.lookup (coerce blobRef) ofBlobRefToNodeId of
+    case Map.lookup (coerce blobRef) sdbsBlobRefToNodeId of
         Nothing -> do
             let nodeLabel = case maybeHash of
                     Just hash ->
@@ -145,30 +143,29 @@ buildBlobRefNodeNoEdge output label blobRef maybeHash = do
                             ++ "/"
                             ++ take hashDisplayLength (show hash)
                     Nothing -> (escapeQuotes label)
+            liftBSDIO $
+                IO.hPutStrLn sdbsStateGraph $
+                    "    "
+                        ++ show sdbsNextNodeId
+                        ++ " [label=\""
+                        ++ nodeLabel
+                        ++ "\" ];"
+            let updatedNextNodeId = (NodeId $ coerce sdbsNextNodeId + 1)
+            let updatedBlobRefToNodeId = Map.insert (coerce blobRef) (sdbsNextNodeId, maybeHash) sdbsBlobRefToNodeId
 
-            IO.hPutStrLn ofStateGraph $
-                "    "
-                    ++ show ofNextNodeId
-                    ++ " [label=\""
-                    ++ nodeLabel
-                    ++ "\" ];"
-
-            let updatedNextNodeId = (NodeId $ coerce ofNextNodeId + 1)
-            let updatedBlobRefToNodeId = Map.insert (coerce blobRef) (ofNextNodeId, maybeHash) ofBlobRefToNodeId
-            IO.writeIORef
-                (ofMutable output)
-                outputMutable
-                    { ofNextNodeId = updatedNextNodeId,
-                      ofBlobRefToNodeId = updatedBlobRefToNodeId
+            RWST.put
+                s
+                    { sdbsNextNodeId = updatedNextNodeId,
+                      sdbsBlobRefToNodeId = updatedBlobRefToNodeId
                     }
 
-            return (ofNextNodeId, True)
+            return (sdbsNextNodeId, True)
         Just (existingNodeId, existingHash) -> do
             unless (maybeHash == existingHash) $ error $ "hash does not match for blob ref " ++ show blobRef ++ ", existing: " ++ show existingHash ++ ", new hash: " ++ show maybeHash
             return (existingNodeId, False)
 
-buildCompNodeNoEdge :: OutputFiles -> String -> Maybe Hash.Hash -> IO NodeId
-buildCompNodeNoEdge output label maybeHash = do
+buildCompNodeNoEdge :: String -> Maybe Hash.Hash -> StateDumpMonad m NodeId
+buildCompNodeNoEdge label maybeHash = do
     let nodeLabel = case maybeHash of
             Just hash ->
                 (escapeQuotes label)
@@ -176,23 +173,21 @@ buildCompNodeNoEdge output label maybeHash = do
                     ++ take hashDisplayLength (show hash)
             Nothing -> (escapeQuotes label)
 
-    outputFilesMutable@OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
-    let updatedNextNodeId = (NodeId $ coerce ofNextNodeId + 1)
+    s@StateDumpBuilderState{..} <- RWST.get
 
-    IO.writeIORef
-        (ofMutable output)
-        outputFilesMutable
-            { ofNextNodeId = updatedNextNodeId
-            }
+    let updatedNextNodeId = (NodeId $ coerce sdbsNextNodeId + 1)
 
-    IO.hPutStrLn ofStateGraph $
-        "    "
-            ++ show ofNextNodeId
-            ++ " [label=\""
-            ++ nodeLabel
-            ++ "\" ];"
+    liftBSDIO $
+        IO.hPutStrLn sdbsStateGraph $
+            "    "
+                ++ show sdbsNextNodeId
+                ++ " [label=\""
+                ++ nodeLabel
+                ++ "\" ];"
 
-    return ofNextNodeId
+    RWST.put s{sdbsNextNodeId = updatedNextNodeId}
+
+    return sdbsNextNodeId
 
 escapeQuotes :: String -> String
 escapeQuotes =
@@ -203,55 +198,59 @@ escapeQuotes =
         )
 
 -- Build edge between two nodes.
-buildBlobRefEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> Blob.BlobRef a -> IO ()
-buildBlobRefEdge_ output label source target blobRef = do
+buildBlobRefEdge_ :: String -> NodeId -> NodeId -> Blob.BlobRef a -> StateDumpMonad m ()
+buildBlobRefEdge_ label source target blobRef = do
     let edgeLabel = (escapeQuotes label) ++ show blobRef
-    OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
-    IO.hPutStrLn ofStateGraph $
-        "    "
-            ++ show source
-            ++ " -> "
-            ++ show target
-            ++ " [label=\""
-            ++ edgeLabel
-            ++ "\"];"
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $
+        IO.hPutStrLn sdbsStateGraph $
+            "    "
+                ++ show source
+                ++ " -> "
+                ++ show target
+                ++ " [label=\""
+                ++ edgeLabel
+                ++ "\"];"
     return ()
 
-buildCompEdge_ :: OutputFiles -> String -> NodeId -> NodeId -> IO ()
-buildCompEdge_ output label source target = do
+buildCompEdge_ :: String -> NodeId -> NodeId -> StateDumpMonad m ()
+buildCompEdge_ label source target = do
     let edgeLabel = label
-    OutputFilesMutable{..} <- IO.readIORef (ofMutable output)
-    IO.hPutStrLn ofStateGraph $
-        "    "
-            ++ show source
-            ++ " -> "
-            ++ show target
-            ++ " [arrowhead=\"none\" label=\""
-            ++ edgeLabel
-            ++ "\"];"
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $
+        IO.hPutStrLn sdbsStateGraph $
+            "    "
+                ++ show source
+                ++ " -> "
+                ++ show target
+                ++ " [arrowhead=\"none\" label=\""
+                ++ edgeLabel
+                ++ "\"];"
     return ()
 
 -- Build node and edge to it from the parent. The new node is only build, if no existing node exists with the given
 -- blob reference. The edge is build in any case. Returns the node id if a node if a new node was build.
-buildBlobRefNode :: (Coercible h Hash.Hash) => OutputFiles -> NodeId -> String -> String -> Blob.BlobRef a -> Maybe h -> IO (Maybe NodeId)
-buildBlobRefNode output parent refLabel label blobRef hash = do
-    (nodeId, nodeCreated) <- buildBlobRefNodeNoEdge output label blobRef (coerce <$> hash)
-    buildBlobRefEdge_ output refLabel parent nodeId blobRef
+buildBlobRefNode :: (Coercible h Hash.Hash) => NodeId -> String -> String -> Blob.BlobRef a -> Maybe h -> StateDumpMonad m (Maybe NodeId)
+buildBlobRefNode parent refLabel label blobRef hash = do
+    (nodeId, nodeCreated) <- buildBlobRefNodeNoEdge label blobRef (coerce <$> hash)
+    buildBlobRefEdge_ refLabel parent nodeId blobRef
     return $ if nodeCreated then Just nodeId else Nothing
 
-buildCompNode :: OutputFiles -> String -> NodeId -> Maybe Hash.Hash -> IO NodeId
-buildCompNode output label parent hash = do
-    nodeId <- buildCompNodeNoEdge output label hash
-    buildCompEdge_ output label parent nodeId
+buildCompNode :: String -> NodeId -> Maybe Hash.Hash -> StateDumpMonad m NodeId
+buildCompNode label parent hash = do
+    nodeId <- buildCompNodeNoEdge label hash
+    buildCompEdge_ label parent nodeId
     return nodeId
 
-blobRefNodeBuilder :: OutputFiles -> NodeId -> String -> Blob.BlobRef a -> Maybe Hash.Hash -> BuildNode
-blobRefNodeBuilder output parent refLabel blobRef hash = \label ->
-    buildBlobRefNode output parent refLabel label blobRef hash
+blobRefNodeBuilder :: NodeId -> String -> Blob.BlobRef a -> Maybe Hash.Hash -> BuildNode m
+blobRefNodeBuilder parent refLabel blobRef hash = \label ->
+    buildBlobRefNode parent refLabel label blobRef hash
 
-compNodeBuilder :: OutputFiles -> NodeId -> BuildNode
-compNodeBuilder output parent = \label ->
-    Just <$> buildCompNode output label parent Nothing
+compNodeBuilder :: NodeId -> BuildNode m
+compNodeBuilder parent = \label ->
+    Just <$> buildCompNode label parent Nothing
+
+type BuildNode m = String -> StateDumpMonad m (Maybe NodeId)
 
 visitHBRNode ::
     forall pv m h a.
@@ -259,10 +258,10 @@ visitHBRNode ::
       Hash.MHashableTo m h (Blob.HashedBufferedRef' h a),
       (Coercible h Hash.Hash)
     ) =>
-    OutputFiles -> NodeId -> String -> String -> Blob.HashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
-visitHBRNode output parent refLabel label hbr build = do
-    (blobRef, hash) <- getHBRRefAndHash hbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
+    NodeId -> String -> String -> Blob.HashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> StateDumpMonad m ()) -> StateDumpMonad m ()
+visitHBRNode parent refLabel label hbr build = do
+    (blobRef, hash) <- lift $ getHBRRefAndHash hbr
+    maybeNode <- buildBlobRefNode parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitHCRNode ::
@@ -271,10 +270,10 @@ visitHCRNode ::
       Hash.MHashableTo m h (Blob.HashedCachedRef' h c a),
       Coercible h Hash.Hash
     ) =>
-    OutputFiles -> NodeId -> String -> String -> Blob.HashedCachedRef' h c a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
-visitHCRNode output parent refLabel label hbr build = do
-    (blobRef, hash) <- getHCRRefAndHash hbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
+    NodeId -> String -> String -> Blob.HashedCachedRef' h c a -> (NodeId -> Blob.BlobRef a -> h -> StateDumpMonad m ()) -> StateDumpMonad m ()
+visitHCRNode parent refLabel label hbr build = do
+    (blobRef, hash) <- lift $ getHCRRefAndHash hbr
+    maybeNode <- buildBlobRefNode parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitEBRNode ::
@@ -284,11 +283,11 @@ visitEBRNode ::
       Blob.DirectBlobStorable m a,
       Coercible h Hash.Hash
     ) =>
-    OutputFiles -> NodeId -> String -> String -> Blob.EagerBufferedRef a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
-visitEBRNode output parent refLabel label ebr build = do
-    blobRef <- getEBRRef ebr
-    hash <- Hash.getHash <$> Blob.refLoad ebr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
+    NodeId -> String -> String -> Blob.EagerBufferedRef a -> (NodeId -> Blob.BlobRef a -> h -> StateDumpMonad m ()) -> StateDumpMonad m ()
+visitEBRNode parent refLabel label ebr build = do
+    blobRef <- lift $ getEBRRef ebr
+    hash <- Hash.getHash <$> (lift $ Blob.refLoad ebr)
+    maybeNode <- buildBlobRefNode parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
 visitEHBRNode ::
@@ -296,31 +295,29 @@ visitEHBRNode ::
     ( BS.SupportsPersistentState pv m,
       Coercible h Hash.Hash
     ) =>
-    OutputFiles -> NodeId -> String -> String -> Blob.EagerlyHashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> m ()) -> m ()
-visitEHBRNode output parent refLabel label ehbr build = do
-    (blobRef, hash) <- getHEBRRefAndHash ehbr
-    maybeNode <- liftBSOIO $ buildBlobRefNode output parent refLabel label blobRef (Just hash)
+    NodeId -> String -> String -> Blob.EagerlyHashedBufferedRef' h a -> (NodeId -> Blob.BlobRef a -> h -> StateDumpMonad m ()) -> StateDumpMonad m ()
+visitEHBRNode parent refLabel label ehbr build = do
+    (blobRef, hash) <- lift $ getHEBRRefAndHash ehbr
+    maybeNode <- buildBlobRefNode parent refLabel label blobRef (Just hash)
     forM_ maybeNode $ \node -> build node blobRef hash
 
-type BuildNode = String -> IO (Maybe NodeId)
-
-buildStateData :: (Show a, Coercible h Hash.Hash, MonadIO m) => OutputFiles -> Blob.BlobRef a -> h -> a -> m ()
-buildStateData output blobRef hash stateData = do
-    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
-    liftIO $
-        IO.hPutStrLn ofState $
+buildStateData :: (Show a, Coercible h Hash.Hash, MonadIO m) => Blob.BlobRef a -> h -> a -> StateDumpMonad m ()
+buildStateData blobRef hash stateData = do
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $
+        IO.hPutStrLn sdbsState $
             show blobRef
                 ++ "/"
                 ++ show (coerce hash :: Hash.Hash)
                 ++ ":\n"
                 ++ Text.unpack (Pretty.pShowNoColor stateData)
-    liftIO $ IO.hPutStrLn ofState ""
+    liftBSDIO $ IO.hPutStrLn sdbsState ""
     return ()
 
-writeGraphStateRaw :: (MonadIO m) => OutputFiles -> String -> m ()
-writeGraphStateRaw output raw = do
-    OutputFilesMutable{..} <- liftIO $ IO.readIORef (ofMutable output)
-    liftIO $ IO.hPutStrLn ofStateGraph raw
+writeGraphStateRaw :: (MonadIO m) => String -> StateDumpMonad m ()
+writeGraphStateRaw raw = do
+    StateDumpBuilderState{..} <- RWST.get
+    liftBSDIO $ IO.hPutStrLn sdbsStateGraph raw
 
 getHBRRefAndHash ::
     forall pv m a h.

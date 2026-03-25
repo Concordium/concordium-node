@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -9,8 +10,10 @@ import Data.Coerce
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
+import qualified Control.Monad.RWS as RWST
 
 import qualified BlockStateDump.StateDump.LFMBTree as LFMBDump
+import qualified Concordium.GlobalState.ContractStateV1 as PST
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
@@ -18,44 +21,43 @@ import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelToken
 import qualified Concordium.Types.Tokens as PLT
 
 import BlockStateDump.Shared
-import Control.Monad.IO.Class
-import qualified Concordium.GlobalState.ContractStateV1 as PST
-
+import Control.Monad.State (lift)
 
 dumpProtocolLevelTokens ::
     forall pv m.
     (BS.SupportsPersistentState pv m) =>
-    OutputFiles ->
     NodeId ->
     PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv) ->
-    m ()
-dumpProtocolLevelTokens output parentNode pltsForSV = do
+    StateDumpMonad m ()
+dumpProtocolLevelTokens parentNode pltsForSV = do
     case pltsForSV of
         PLT.ProtocolLevelTokensNone -> return ()
         PLT.ProtocolLevelTokensV0 pltsStateRef -> do
-            visitHBRNode output parentNode "plts" "plts" pltsStateRef $ \pltsStateNode _ _ -> do
-                pltsState <- Blob.refLoad pltsStateRef
-                LFMBDump.dumpLFMBTree output "plttbl" pltsStateNode (PLT._pltTable pltsState) $ \pltLeafNode pltRef -> do
+            visitHBRNode parentNode "plts" "plts" pltsStateRef $ \pltsStateNode _ _ -> do
+                pltsState <- lift $ Blob.refLoad pltsStateRef
+                LFMBDump.dumpLFMBTree "plttbl" pltsStateNode (PLT._pltTable pltsState) $ \pltLeafNode pltRef -> do
                     -- todo ar key value state
-                    plt <- Blob.refLoad pltRef
+                    plt <- lift $ Blob.refLoad pltRef
                     let pltConfRef = PLT._pltConfiguration plt
-                    pltConf <- Blob.refLoad pltConfRef
+                    pltConf <- lift $ Blob.refLoad pltConfRef
 
-                    visitHBRNode output pltLeafNode "" (show $ show $ PLT._pltTokenId pltConf) pltRef $ \pltNode pltBlobRef pltHash -> do
+                    visitHBRNode pltLeafNode "" (show $ show $ PLT._pltTokenId pltConf) pltRef $ \pltNode pltBlobRef pltHash -> do
                         let plt' =
                                 PLT'
                                     { _pltCirculatingSupply = PLT._pltCirculatingSupply plt
                                     }
-                        buildStateData output (coerce pltBlobRef) pltHash plt'
-                        visitHBRNode output pltNode "" "pltconf" pltConfRef $ \_pltConfNode pltConfBlobRef pltConfHash -> do
-                            buildStateData output pltConfBlobRef pltConfHash pltConf
-                        let NodeId pltNodeWord = pltNode                            
-                        PST.dumpPersistentState (PLT._pltState plt) pltNodeWord (ofStateGraphFilePath output) (ofStateFilePath output)   
+                        buildStateData (coerce pltBlobRef) pltHash plt'
+                        visitHBRNode pltNode "" "pltconf" pltConfRef $ \_pltConfNode pltConfBlobRef pltConfHash -> do
+                            buildStateData pltConfBlobRef pltConfHash pltConf
+                        let NodeId pltNodeWord = pltNode
+                        OutputFilesPaths{..} <- RWST.ask
+                        lift $ PST.dumpPersistentState (PLT._pltState plt) pltNodeWord ofpStateGraphFilePath ofpStateFilePath
         PLT.ProtocolLevelTokensV1 pltsState -> do
-            liftIO $ closeOutputFiles output
+            closeOutputFiles
             let NodeId parentNodeWord = parentNode
-            PLT.dumpPLTBlockState pltsState parentNodeWord (ofStateGraphFilePath output) (ofStateFilePath output)
-            liftIO $ reopenOutputFiles output
+            OutputFilesPaths{..} <- RWST.ask
+            lift $ PLT.dumpPLTBlockState pltsState parentNodeWord ofpStateGraphFilePath ofpStateFilePath
+            reopenOutputFiles
 
 data PLT' = PLT'
     { _pltCirculatingSupply :: !PLT.TokenRawAmount

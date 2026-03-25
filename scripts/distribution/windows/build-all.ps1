@@ -60,8 +60,7 @@ try {
         "$StackInstallRoot\lib\concordium-consensus.dll",
         "..\..\..\concordium-base\lib\concordium_base.dll",
         "..\..\..\concordium-base\lib\sha_2.dll",
-        "..\..\..\concordium-consensus\lib\concordium_smart_contract_engine.dll",
-        "..\..\..\concordium-consensus\lib\plt_scheduler.dll",
+        "..\..\..\concordium-consensus\lib\node_rust_library.dll",
         "..\..\..\service\windows\target\x86_64-pc-windows-msvc\release\node-runner-service.exe",
         "..\..\..\collector\target\release\node-collector.exe",
         "..\..\..\concordium-node\target\release\concordium-node.exe"
