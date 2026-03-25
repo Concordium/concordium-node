@@ -17,6 +17,7 @@ stack build
 if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
 
 Write-Output "Building node..."
+stack exec -- rustup show active-toolchain
 stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --locked
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
