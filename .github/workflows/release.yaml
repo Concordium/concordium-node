@@ -241,7 +241,7 @@ jobs:
 
   node-windows:
     runs-on: windows-latest  
-    # environment: release # This step needs to use the release context to access credentials for code signing.
+    environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
     defaults:

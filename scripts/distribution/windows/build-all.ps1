@@ -8,7 +8,11 @@ Write-Output "protoc version: $(protoc --version)"
 # Override the rust toolchain so that consensus rust dependencies use it.
 rustup override set $rustVersion-x86_64-pc-windows-gnu
 
+# Sometimes it causes errors to build the Rust library indirectly 
+# via the Haskell concordium-consensus. Hence, we start by building it directly.
+Write-Output "Prebuilding node Rust library..."
 Push-Location plt
+rustup show active-toolchain
 cargo build --release --locked -p node-rust-library
 Pop-Location
 
