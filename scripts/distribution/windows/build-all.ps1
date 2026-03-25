@@ -8,6 +8,10 @@ Write-Output "protoc version: $(protoc --version)"
 # Override the rust toolchain so that consensus rust dependencies use it.
 rustup override set $rustVersion-x86_64-pc-windows-gnu
 
+Push-Location plt
+cargo build --release --locked -p node-rust-library
+Pop-Location
+
 Write-Output "Building consensus..."
 stack build
 if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
