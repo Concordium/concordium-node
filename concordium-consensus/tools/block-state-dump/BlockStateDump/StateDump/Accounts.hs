@@ -1,0 +1,111 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
+module BlockStateDump.StateDump.Accounts where
+
+import Control.Monad
+import Data.Coerce
+import qualified Data.Map as Map
+
+import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
+
+import qualified BlockStateDump.StateDump.LFMBTree as LFMBDump
+import qualified Concordium.GlobalState.Account as Account
+import qualified Concordium.GlobalState.Persistent.Account as Account
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountToken
+import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as AccountV0
+import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as AccountV1
+import qualified Concordium.GlobalState.Persistent.Accounts as Account
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+
+import BlockStateDump.Shared
+import qualified BlockStateDump.StateDump.Trie as TrieDump
+import Control.Monad.Trans (lift)
+
+dumpAccounts ::
+    forall pv m.
+    (BS.SupportsPersistentState pv m) =>
+    NodeId ->
+    Account.Accounts pv ->
+    StateDumpMonad m ()
+dumpAccounts parentNode accounts = do
+    LFMBDump.dumpLFMBTree "acctbl" parentNode (Account.accountTable accounts) $ \accountLeafNode accountRef -> do
+        accountForAV <- lift $ Blob.refLoad accountRef
+        accountAddress <- lift $ Account.accountCanonicalAddress accountForAV
+
+        visitHCRNode
+            accountLeafNode
+            ""
+            (show $ take 6 $ show accountAddress)
+            accountRef
+            $ \accountNode accountBlobRef accountHash -> do
+                account' <-
+                    PersistentAccount'
+                        <$> (lift $ Account.accountNonce accountForAV)
+                        <*> (lift $ Account.accountAmount accountForAV)
+                buildStateData (coerce accountBlobRef) accountHash account'
+
+                case accountStructure accountForAV of
+                    AccountStructureV0 _account -> error "AccountStructureV0 not implemented"
+                    AccountStructureV1 account -> do
+                        let accountEnduringRef = AccountV1.accountEnduringData account
+                        accountEnduring <- lift $ Blob.refLoad accountEnduringRef
+                        visitEBRNode @(Account.AccountMerkleHash (AccountVersionFor pv))
+                            accountNode
+                            ""
+                            "enduring"
+                            accountEnduringRef
+                            $ \enduringNode _enduringBlobRef _enduringHash -> do
+                                let accountPersistingRef = AccountV1.paedPersistingData accountEnduring
+                                accountPersisting <- lift $ Blob.refLoad accountPersistingRef
+                                visitEBRNode @Account.PersistingAccountDataHash
+                                    enduringNode
+                                    ""
+                                    "persisting"
+                                    accountPersistingRef
+                                    $ \_persistentNode persistentBlobRef persistentHash -> do
+                                        buildStateData (coerce persistentBlobRef) persistentHash accountPersisting
+
+                        case (AccountV1.accountTokenStateTable account) of
+                            Cond.CTrue (Blob.Some pltTableRef) -> do
+                                pltTable <- lift $ Blob.refLoad pltTableRef
+                                visitEHBRNode
+                                    accountNode
+                                    ""
+                                    "accplts"
+                                    pltTableRef
+                                    $ \pltTableNode _ _ -> do
+                                        forM_ (Map.toAscList (AccountToken.tokenAccountStateTable pltTable)) $ \(tokenIndex, tokenAccountStateRef) -> do
+                                            tokenAccountState <- lift $ Blob.refLoad tokenAccountStateRef
+                                            visitHBRNode pltTableNode (show tokenIndex) ("accplts[" ++ show tokenIndex ++ "]") tokenAccountStateRef $ \_ tokenAccountStateBlobRef tokenAccountStateHash -> do
+                                                buildStateData (coerce tokenAccountStateBlobRef) tokenAccountStateHash tokenAccountState
+                            _ -> return ()
+                        return ()
+    TrieDump.dumpTrie "regidtrie" parentNode (Account.accountRegIdHistory accounts) $ \buildNode accountIndex -> do
+        _ <- buildNode $ show accountIndex
+        return ()
+
+data PersistentAccount' av = PersistentAccount'
+    { accountNonce :: !Nonce,
+      accountAmount :: !Amount
+    }
+    deriving (Show)
+
+data PersistentAccountStructure (av :: AccountVersion) where
+    AccountStructureV0 :: !(AccountV0.PersistentAccount av) -> PersistentAccountStructure av
+    AccountStructureV1 :: !(AccountV1.PersistentAccount av) -> PersistentAccountStructure av
+
+accountStructure :: Account.PersistentAccount av -> PersistentAccountStructure av
+accountStructure = \case
+    Account.PAV0 account -> AccountStructureV0 account
+    Account.PAV1 account -> AccountStructureV0 account
+    Account.PAV2 account -> AccountStructureV1 account
+    Account.PAV3 account -> AccountStructureV1 account
+    Account.PAV4 account -> AccountStructureV1 account
+    Account.PAV5 account -> AccountStructureV1 account

@@ -20,7 +20,13 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account (newAccountCache)
 import Concordium.GlobalState.Persistent.BlobStore (BlobStoreT (runBlobStoreT), closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore)
-import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.BlockState (
+    HashedPersistentBlockState (hpbsPointers),
+    PersistentBlockStateContext (..),
+    PersistentBlockStateMonad (runPersistentBlockStateMonad),
+    hashBlockState,
+    migratePersistentBlockState,
+ )
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import Concordium.GlobalState.Persistent.Genesis
 import Concordium.GlobalState.Persistent.TreeState

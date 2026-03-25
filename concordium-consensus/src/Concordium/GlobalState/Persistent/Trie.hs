@@ -166,7 +166,7 @@ pairBranch (k1, v1) (k2, v2)
 -- | Trie with keys all of same fixed length treated as lists of bytes.
 --  The first parameter of 'TrieF' is the type of keys, which should
 --  by an instance of 'FixedTrieKey'.
---  The second parameter is the type of values.
+--  The second paraDmeter is the type of values.
 --  The third parameter is the recursive type argument: a type for Tries
 --  is obtained by applying a fixed-point combinator to @TrieF k v@.
 data TrieF k v r

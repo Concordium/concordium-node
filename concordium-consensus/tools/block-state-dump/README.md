@@ -1,0 +1,1 @@
+This tool is used to visualize and inspect data in the blob store.

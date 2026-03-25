@@ -75,7 +75,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     migrateReference,
 
     -- ** 'BufferedRef'
-    BufferedRef,
+    BufferedRef (..),
     makeBufferedRef,
     blobRefToBufferedRef,
     loadBufferedRef,
@@ -84,7 +84,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     uncacheBufferedRef,
 
     -- ** 'EagerBufferedRef'
-    EagerBufferedRef,
+    EagerBufferedRef (..),
     eagerBufferedDeref,
     eagerBufferedRefFromBufferedRef,
     migrateEagerBufferedRef,
@@ -93,7 +93,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     LazyBufferedRef,
 
     -- ** 'HashedBufferedRef'
-    HashedBufferedRef',
+    HashedBufferedRef' (..),
     HashedBufferedRef,
     bufferHashed,
     makeHashedBufferedRef,
@@ -102,12 +102,12 @@ module Concordium.GlobalState.Persistent.BlobStore (
     HashedBufferedRefO,
 
     -- ** 'EagerlyHashedBufferedRef'
-    EagerlyHashedBufferedRef',
+    EagerlyHashedBufferedRef' (..),
     EagerlyHashedBufferedRef,
     migrateEagerlyHashedBufferedRefKeepHash,
 
     -- ** 'UnbufferedRef'
-    UnbufferedRef,
+    UnbufferedRef (..),
     makeUnbufferedRef,
     makeFlushedUnbufferedRef,
     blobRefToUnbufferedRef,
@@ -1686,7 +1686,7 @@ makeHashedBufferedRef val = do
     return $ HashedBufferedRef br hashRef
 
 instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
-    getHashM HashedBufferedRef{..} =
+    getHashM HashedBufferedRef{..} = do
         liftIO (readIORef bufferedHash) >>= \case
             Null -> do
                 !h <- getHashM bufferedReference

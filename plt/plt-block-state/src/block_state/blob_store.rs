@@ -1,7 +1,15 @@
+use std::fmt::{Display, Formatter};
+
 /// Reference to a storage location where an item may be retrieved.
-#[derive(Default, Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[repr(transparent)]
 pub struct Reference(pub u64);
+
+impl Display for Reference {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "@{}", self.0)
+    }
+}
 
 /// Trait implemented by types that can be used to store binary data, and return
 /// a handle for loading data. Dual to [`BackingStoreLoad`].
