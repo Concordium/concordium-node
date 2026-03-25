@@ -4,7 +4,7 @@ use crate::token_kernel::TokenKernelQueriesImpl;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use plt_scheduler_types::types::queries::{
-    TokenAccountInfo, TokenAccountState, TokenInfo, TokenState,
+    TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
 use plt_token_module::token_module;
@@ -106,4 +106,23 @@ where
             }
         })
         .collect()
+}
+
+/// Get the authorizations of a token.
+pub fn query_token_authorizations(
+    block_state: &impl BlockStateQuery,
+    token_id: &TokenId,
+) -> Result<TokenAuthorizations, QueryTokenInfoError> {
+    let token = block_state.token_by_id(token_id)?;
+    let token_module_state = block_state.mutable_token_key_value_state(&token);
+    let kernel = TokenKernelQueriesImpl {
+        block_state,
+        token: &token,
+        token_module_state: &token_module_state,
+    };
+    let details = token_module::query_token_authorizations(&kernel)?;
+    Ok(TokenAuthorizations {
+        token_id: token_id.clone(),
+        details,
+    })
 }
