@@ -32,6 +32,7 @@ postConfHook args flags _ _ = do
 
     -- Build and copy/symlink PLT scheduler project
     nodeRustLibraryWorkspace <- canonicalizePath nodeRustLibraryWorkspaceRelative
+    withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "rustup show active-toolchain"
     withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "cargo build --release --locked -p node-rust-library"
     case buildOS of
         Windows -> do

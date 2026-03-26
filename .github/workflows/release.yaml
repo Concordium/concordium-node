@@ -22,7 +22,6 @@ on:
 env:
   UBUNTU_VERSION: '22.04'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.94_ghc-9.10.2'
-  RUST_VERSION: '1.94'
   STACK_VERSION: '3.7.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.10.2'
@@ -119,7 +118,6 @@ jobs:
             ghc_version=${{ env.GHC_VERSION }}
             protoc_version=${{ env.PROTOC_VERSION }}
             flatbuffers_version=${{ env.FLATBUFFERS_VERSION }}
-            rust_toolchain_version=${{ env.RUST_VERSION }}
           labels: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
@@ -306,15 +304,16 @@ jobs:
           smctl healthcheck --all
         shell: cmd
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-msvc
+      - name: Read Rust version
+        id: read-rust-version
+        run: |
+          $rustVersion = (cargo --version).Split(" ")[1]
+          echo "RUST_VERSION=$rustVersion" >> $env:GITHUB_OUTPUT
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-gnu
+      - name: Print Rust version
+        id: print-rust-version
+        run: |
+          echo "Rust version: ${{ steps.read-rust-version.outputs.RUST_VERSION }}"
 
       - name: Setup node folder
         run: |
@@ -362,7 +361,7 @@ jobs:
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
           SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
         run: |
-          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
+          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ steps.read-rust-version.outputs.RUST_VERSION }}
 
       - name: Sign installer with smctl
         working-directory: ${{steps.build.outputs.bin_dir}}
@@ -434,10 +433,6 @@ jobs:
           security import $INSTALLER_CERTIFICATE_PATH -P "$BUILD_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
 
       - uses: haskell-actions/setup@v2
         with:
