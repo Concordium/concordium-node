@@ -6,8 +6,8 @@ use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
-    TokenModuleInitializationParameters, TokenModuleState,
+    CborHolderAccount, MetadataUrl, TokenAmount, TokenId, TokenModuleInitializationParameters,
+    TokenModuleState,
 };
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::block_state_interface::BlockStateQuery;
@@ -20,19 +20,6 @@ mod block_state_external_stubbed;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
-fn make_create_plt_payload(
-    token_id: TokenId,
-    decimals: u8,
-    initialization_parameters: RawCbor,
-) -> UpdatePayload {
-    UpdatePayload::CreatePlt(CreatePlt {
-        token_id,
-        token_module: TOKEN_MODULE_REF,
-        decimals,
-        initialization_parameters,
-    })
-}
-
 /// In this example, the parameters are not a valid encoding.
 #[test]
 fn test_initialize_token_parameters_decode_failure() {
@@ -40,7 +27,12 @@ fn test_initialize_token_parameters_decode_failure() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id, 0, vec![].into()),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id,
+            token_module: TOKEN_MODULE_REF,
+            decimals: 0,
+            initialization_parameters: vec![].into(),
+        }),
     )
     .unwrap();
     let failure_kind =
@@ -72,7 +64,12 @@ fn test_initialize_token_parameters_missing() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id, 0, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id,
+            token_module: TOKEN_MODULE_REF,
+            decimals: 0,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
     let failure_kind =
@@ -110,7 +107,12 @@ fn test_initialize_token_additional_parameter() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id, 0, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id,
+            token_module: TOKEN_MODULE_REF,
+            decimals: 0,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
     let failure_kind =
@@ -144,7 +146,12 @@ fn test_initialize_token_default_values() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id.clone(), 0, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id.clone(),
+            token_module: TOKEN_MODULE_REF,
+            decimals: 0,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
 
@@ -189,7 +196,12 @@ fn test_initialize_token_no_minting() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id.clone(), 0, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id.clone(),
+            token_module: TOKEN_MODULE_REF,
+            decimals: 0,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
 
@@ -234,7 +246,12 @@ fn test_initialize_token_with_minting() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id.clone(), 2, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id.clone(),
+            token_module: TOKEN_MODULE_REF,
+            decimals: 2,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
 
@@ -282,7 +299,12 @@ fn test_initialize_token_excessive_mint_decimals() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id, 2, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id,
+            token_module: TOKEN_MODULE_REF,
+            decimals: 2,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
     let failure_kind =
@@ -315,7 +337,12 @@ fn test_initialize_token_insufficient_mint_decimals() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id, 6, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id,
+            token_module: TOKEN_MODULE_REF,
+            decimals: 6,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
     let failure_kind =
@@ -346,7 +373,12 @@ fn test_initialize_token_non_existing_governance_account() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
-        make_create_plt_payload(token_id, 0, encoded_parameters),
+        UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id,
+            token_module: TOKEN_MODULE_REF,
+            decimals: 0,
+            initialization_parameters: encoded_parameters,
+        }),
     )
     .unwrap();
     let failure_kind =
