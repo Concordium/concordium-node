@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
+use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::common::{self, cbor};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole,
@@ -17,26 +17,6 @@ use plt_scheduler_types::types::execution::TransactionOutcome;
 
 mod block_state_external_stubbed;
 mod utils;
-
-fn exec_tx(
-    stub: &mut BlockStateWithExternalStateStubbed,
-    token_id: &TokenId,
-    sender: AccountIndex,
-    operations: Vec<TokenOperation>,
-) -> plt_scheduler_types::types::execution::TransactionExecutionSummary {
-    let payload = TokenOperationsPayload {
-        token_id: token_id.clone(),
-        operations: RawCbor::from(cbor::cbor_encode(&operations)),
-    };
-    scheduler::execute_transaction(
-        sender,
-        stub.account_canonical_address(&sender),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error")
-}
 
 /// Succeeds in setting the token metadata.
 #[test]
@@ -60,12 +40,20 @@ fn test_token_metadata_updates() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let result = exec_tx(
-        &mut stub,
-        &token_id,
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
+            new_metadata_url.clone(),
+        )])),
+    };
+    let result = scheduler::execute_transaction(
         gov_account,
-        vec![TokenOperation::UpdateMetadata(new_metadata_url.clone())],
-    );
+        stub.account_canonical_address(&gov_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     let token_info = queries::query_token_info(stub.state(), &token_id).unwrap();
@@ -84,17 +72,23 @@ fn test_new_account_with_role_succeeds_update_metadata() {
 
     // Assign the updateMetadata role to account2.
     let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let result = exec_tx(
-        &mut stub,
-        &token_id,
-        gov_account,
-        vec![TokenOperation::AssignAdminRoles(
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::UpdateMetadata],
                 account: account2_addr,
             },
-        )],
-    );
+        )])),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     let new_metadata_url = MetadataUrl {
@@ -102,12 +96,21 @@ fn test_new_account_with_role_succeeds_update_metadata() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let result = exec_tx(
-        &mut stub,
-        &token_id,
+    let account2_addr = stub.account_canonical_address(&account2);
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
+            new_metadata_url.clone(),
+        )])),
+    };
+    let result = scheduler::execute_transaction(
         account2,
-        vec![TokenOperation::UpdateMetadata(new_metadata_url.clone())],
-    );
+        account2_addr,
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     let token_info = queries::query_token_info(stub.state(), &token_id).unwrap();
@@ -125,17 +128,23 @@ fn test_role_authorization_update_metadata() {
 
     // Remove updateMetadata role from governance account.
     let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let result = exec_tx(
-        &mut stub,
-        &token_id,
-        gov_account,
-        vec![TokenOperation::RevokeAdminRoles(
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::UpdateMetadata],
                 account: gov_addr,
             },
-        )],
-    );
+        )])),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     let new_metadata_url = MetadataUrl {
@@ -143,12 +152,21 @@ fn test_role_authorization_update_metadata() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let result = exec_tx(
-        &mut stub,
-        &token_id,
+    let gov_addr = stub.account_canonical_address(&gov_account);
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
+            new_metadata_url,
+        )])),
+    };
+    let result = scheduler::execute_transaction(
         gov_account,
-        vec![TokenOperation::UpdateMetadata(new_metadata_url)],
-    );
+        gov_addr,
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
@@ -181,12 +199,21 @@ fn test_update_metadata_rejects_with_additional_data() {
         )]
         .into(),
     };
-    let result = exec_tx(
-        &mut stub,
-        &token_id,
+    let gov_addr = stub.account_canonical_address(&gov_account);
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
+            new_metadata_url,
+        )])),
+    };
+    let result = scheduler::execute_transaction(
         gov_account,
-        vec![TokenOperation::UpdateMetadata(new_metadata_url)],
-    );
+        gov_addr,
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
