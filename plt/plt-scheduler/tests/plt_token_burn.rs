@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
@@ -25,7 +25,7 @@ mod utils;
 /// Test successful burns.
 #[test]
 fn test_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -134,7 +134,7 @@ fn test_unauthorized_burn() {
 /// Test burn amount that exceeds account balance.
 #[test]
 fn test_burn_insufficient_balance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -175,7 +175,7 @@ fn test_burn_insufficient_balance() {
 /// Test burn with amount specified with wrong number of decimals.
 #[test]
 fn test_burn_decimals_mismatch() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
@@ -266,7 +266,7 @@ fn test_burn_paused() {
 /// Reject "burn" operation if the feature is not enabled.
 #[test]
 fn test_not_burnable() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
@@ -302,7 +302,7 @@ fn test_not_burnable() {
 /// Test that burn events contain expected data.
 #[test]
 fn test_burn_event() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
@@ -25,7 +25,7 @@ mod utils;
 /// Test successful mints.
 #[test]
 fn test_mint() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -195,7 +195,7 @@ fn test_unauthorized_mint_using_alias() {
 /// Test mint that would overflow circulating supply.
 #[test]
 fn test_mint_overflow() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -244,7 +244,7 @@ fn test_mint_overflow() {
 /// Test mint with initial supply specified with wrong number of decimals.
 #[test]
 fn test_mint_decimals_mismatch() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
@@ -335,7 +335,7 @@ fn test_mint_paused() {
 /// Reject "mint" operation if the feature is not enabled.
 #[test]
 fn test_not_mintable() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
@@ -371,7 +371,7 @@ fn test_not_mintable() {
 /// Test that mint events contain expected data.
 #[test]
 fn test_mint_event() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

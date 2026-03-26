@@ -6,7 +6,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
@@ -30,7 +30,7 @@ mod utils;
 /// a second transfer from the destination of the first transfer.
 #[test]
 fn test_plt_transfer() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -144,7 +144,7 @@ fn test_plt_transfer() {
 /// Test protocol-level token transfer using address aliases for sender and receiver.
 #[test]
 fn test_plt_transfer_using_aliases() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -210,7 +210,7 @@ fn test_plt_transfer_using_aliases() {
 /// Test protocol-level token transfer that is rejected.
 #[test]
 fn test_plt_transfer_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -267,7 +267,7 @@ fn test_plt_transfer_reject() {
 /// * transfer (successful)
 #[test]
 fn test_plt_transfer_allow_list_flow() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -422,7 +422,7 @@ fn test_plt_transfer_allow_list_flow() {
 /// Test add account to allow list for a token where allow lists are not enabled.
 #[test]
 fn test_plt_allow_list_disabled() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -461,7 +461,7 @@ fn test_plt_allow_list_disabled() {
 /// Test protocol-level token mint.
 #[test]
 fn test_plt_mint() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -513,7 +513,7 @@ fn test_plt_mint() {
 /// Test protocol-level token mint using account address alias.
 #[test]
 fn test_plt_mint_using_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -570,7 +570,7 @@ fn test_plt_mint_using_alias() {
 /// Test protocol-level token mint that is rejected.
 #[test]
 fn test_plt_mint_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -614,7 +614,7 @@ fn test_plt_mint_reject() {
 /// Test protocol-level token mint from unauthorized sender.
 #[test]
 fn test_plt_mint_unauthorized() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -668,7 +668,7 @@ fn test_plt_mint_unauthorized() {
                     stub.account_canonical_address(&non_governance_account)
                 ))
             );
-            assert_eq!(reason.as_deref(), Some("sender is not the token governance account"));
+            assert_eq!(reason.as_deref(), Some("sender is not authorized to perform the operation for this token"));
         }
     );
 }
@@ -676,7 +676,7 @@ fn test_plt_mint_unauthorized() {
 /// Test protocol-level token burn.
 #[test]
 fn test_plt_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -728,7 +728,7 @@ fn test_plt_burn() {
 /// Test protocol-level token burn using address alias for governance account
 #[test]
 fn test_plt_burn_using_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -785,7 +785,7 @@ fn test_plt_burn_using_alias() {
 /// Test protocol-level token burn rejection.
 #[test]
 fn test_plt_burn_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -832,7 +832,7 @@ fn test_plt_burn_reject() {
 /// Test multiple protocol-level token update operations in one transaction.
 #[test]
 fn test_plt_multiple_operations() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -904,7 +904,7 @@ fn test_plt_multiple_operations() {
 /// Test protocol-level token "pause" operation.
 #[test]
 fn test_plt_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -974,7 +974,7 @@ fn test_plt_pause() {
 /// Test protocol-level token "unpause" operation.
 #[test]
 fn test_plt_unpause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -1008,7 +1008,7 @@ fn test_plt_unpause() {
 /// Test protocol-level token transfer that is rejected because token does not exist.
 #[test]
 fn test_non_existing_token_id() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
 
@@ -1044,7 +1044,7 @@ fn test_non_existing_token_id() {
 /// Test that energy is charged during execution and the correct amount of used energy returned.
 #[test]
 fn test_energy_charge() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -1083,7 +1083,7 @@ fn test_energy_charge() {
 /// also if the transaction is rejected.
 #[test]
 fn test_energy_charge_at_reject() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -1126,7 +1126,7 @@ fn test_energy_charge_at_reject() {
 /// Test that an out of energy reject reason is returned if we run out of energy.
 #[test]
 fn test_out_of_energy_error() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

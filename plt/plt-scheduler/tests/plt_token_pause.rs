@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenAmount,
@@ -54,7 +54,7 @@ fn get_paused_state(stub: &BlockStateWithExternalStateStubbed, token_id: &TokenI
 /// Test that pause/unpause operations modify the token module state as expected.
 #[test]
 fn test_token_pause_state() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -97,7 +97,7 @@ fn test_token_pause_state() {
 /// Performing a double pause within one transaction and then again in another is permitted.
 #[test]
 fn test_double_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -140,7 +140,7 @@ fn test_double_pause() {
 /// Performing an unpause when the token is not paused is permitted.
 #[test]
 fn test_redundant_unpause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -171,7 +171,7 @@ fn test_redundant_unpause() {
 /// Rejects pause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -217,7 +217,7 @@ fn test_unauthorized_pause() {
 /// Rejects unpause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_unpause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -324,7 +324,7 @@ fn test_pause_multiple_ops() {
 /// A transaction [Unpause, Mint] succeeds: unpause takes effect first, then mint proceeds.
 #[test]
 fn test_unpause_multiple_ops() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

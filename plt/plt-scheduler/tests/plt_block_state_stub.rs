@@ -3,17 +3,18 @@
 use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
-use concordium_base::base::{AccountIndex, ProtocolVersion};
+use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 mod block_state_external_stubbed;
+mod utils;
 
 /// Test lookup account address and account from address.
 #[test]
 fn test_account_lookup_address() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
 
     let address = stub.account_canonical_address(&account);
@@ -31,7 +32,7 @@ fn test_account_lookup_address() {
 /// Test lookup account index and account from index.
 #[test]
 fn test_account_lookup_index() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
 
     stub.state()
@@ -48,7 +49,7 @@ fn test_account_lookup_index() {
 /// Test get account token balance.
 #[test]
 fn test_account_balance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id = "TokenId1".parse().unwrap();
     let (token, _gov_account) =
         stub.create_and_init_token(token_id, TokenInitTestParams::default().mintable(), 2, None);

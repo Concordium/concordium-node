@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenId,
@@ -64,7 +64,7 @@ fn decode_account_state(
 /// Test allow list add then remove.
 #[test]
 fn test_allow_list_updates() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -121,7 +121,7 @@ fn test_allow_list_updates() {
 /// Test deny list add then remove.
 #[test]
 fn test_deny_list_updates() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -178,7 +178,7 @@ fn test_deny_list_updates() {
 /// Non-governance account cannot add to allow list.
 #[test]
 fn test_add_allow_list_reject_non_governance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -218,7 +218,7 @@ fn test_add_allow_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(sender_addr));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -229,7 +229,7 @@ fn test_add_allow_list_reject_non_governance() {
 /// Non-governance account cannot remove from allow list.
 #[test]
 fn test_remove_allow_list_reject_non_governance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -269,7 +269,7 @@ fn test_remove_allow_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(sender_addr));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -279,7 +279,7 @@ fn test_remove_allow_list_reject_non_governance() {
 /// Non-governance account cannot add to deny list.
 #[test]
 fn test_add_deny_list_reject_non_governance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -319,7 +319,7 @@ fn test_add_deny_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(sender_addr));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -329,7 +329,7 @@ fn test_add_deny_list_reject_non_governance() {
 /// Non-governance account cannot remove from deny list.
 #[test]
 fn test_remove_deny_list_reject_non_governance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -369,7 +369,7 @@ fn test_remove_deny_list_reject_non_governance() {
             ..
         }) => {
             assert_eq!(address, CborHolderAccount::from(sender_addr));
-            assert_eq!(reason, "sender is not the token governance account");
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token");
         }
     );
 
@@ -379,7 +379,7 @@ fn test_remove_deny_list_reject_non_governance() {
 /// AddAllowList touches the target account.
 #[test]
 fn test_add_allow_list_touches_account() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -407,7 +407,7 @@ fn test_add_allow_list_touches_account() {
 /// RemoveAllowList touches the target account.
 #[test]
 fn test_remove_allow_list_touches_account() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -435,7 +435,7 @@ fn test_remove_allow_list_touches_account() {
 /// AddDenyList touches the target account.
 #[test]
 fn test_add_deny_list_touches_account() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -463,7 +463,7 @@ fn test_add_deny_list_touches_account() {
 /// RemoveDenyList touches the target account.
 #[test]
 fn test_remove_deny_list_touches_account() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -491,7 +491,7 @@ fn test_remove_deny_list_touches_account() {
 /// Adding to allow list fails when the allow list feature is not enabled.
 #[test]
 fn test_add_to_not_enabled_allow_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -534,7 +534,7 @@ fn test_add_to_not_enabled_allow_list() {
 /// Removing from allow list fails when the allow list feature is not enabled.
 #[test]
 fn test_remove_from_not_enabled_allow_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -577,7 +577,7 @@ fn test_remove_from_not_enabled_allow_list() {
 /// Adding to deny list fails when the deny list feature is not enabled.
 #[test]
 fn test_add_to_not_enabled_deny_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -620,7 +620,7 @@ fn test_add_to_not_enabled_deny_list() {
 /// Removing from deny list fails when the deny list feature is not enabled.
 #[test]
 fn test_remove_from_not_enabled_deny_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

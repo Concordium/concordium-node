@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -27,7 +27,7 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 /// Test failure to decode token operations.
 #[test]
 fn test_update_token_decode_failure() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -56,7 +56,7 @@ fn test_update_token_decode_failure() {
 /// Test additional fields specified in token update operation.
 #[test]
 fn test_update_token_additional_fields() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -105,7 +105,7 @@ fn test_update_token_additional_fields() {
 /// Test transaction with multiple operations.
 #[test]
 fn test_multiple_operations() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -159,7 +159,7 @@ fn test_multiple_operations() {
 /// The failing operation is placed first so no state changes occur on rejection.
 #[test]
 fn test_single_failing_operation() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -208,7 +208,7 @@ fn test_single_failing_operation() {
 /// Test that energy is charged for execution of operations.
 #[test]
 fn test_energy_charge() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -246,7 +246,7 @@ fn test_energy_charge() {
 /// Test hitting out of energy error.
 #[test]
 fn test_out_of_energy_error() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),

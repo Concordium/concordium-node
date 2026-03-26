@@ -375,7 +375,7 @@ fn test_rbac_assign_role_works_when_paused() {
 /// Assign rejects when using a role for a feature which is not enabled.
 #[test]
 fn test_rbac_assign_rejects_for_unabled_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -562,7 +562,7 @@ fn test_rbac_revoke_same_roles() {
 /// Revoke rejects when not holding the admin role.
 #[test]
 fn test_rbac_revoke_rejects_without_admin_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -741,7 +741,7 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
 /// Revoke rejects when using a role for a feature which is not enabled.
 #[test]
 fn test_rbac_revoke_rejects_for_unabled_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

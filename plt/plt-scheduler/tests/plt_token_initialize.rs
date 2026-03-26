@@ -2,7 +2,6 @@
 
 use crate::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 use assert_matches::assert_matches;
-use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -17,18 +16,19 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
 
 mod block_state_external_stubbed;
+mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
 /// In this example, the parameters are not a valid encoding.
 #[test]
 fn test_initialize_token_parameters_decode_failure() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
         UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id,
+            token_id,
             token_module: TOKEN_MODULE_REF,
             decimals: 0,
             initialization_parameters: vec![].into(),
@@ -48,7 +48,7 @@ fn test_initialize_token_parameters_decode_failure() {
 /// In this example, a parameter is missing from the required initialization parameters.
 #[test]
 fn test_initialize_token_parameters_missing() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: None,
@@ -65,7 +65,7 @@ fn test_initialize_token_parameters_missing() {
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
         UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id,
+            token_id,
             token_module: TOKEN_MODULE_REF,
             decimals: 0,
             initialization_parameters: encoded_parameters,
@@ -84,7 +84,7 @@ fn test_initialize_token_parameters_missing() {
 /// parameters.
 #[test]
 fn test_initialize_token_additional_parameter() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -108,7 +108,7 @@ fn test_initialize_token_additional_parameter() {
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
         UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id,
+            token_id,
             token_module: TOKEN_MODULE_REF,
             decimals: 0,
             initialization_parameters: encoded_parameters,
@@ -128,7 +128,7 @@ fn test_initialize_token_additional_parameter() {
 /// In this example, minimal parameters are specified to check defaulting behaviour.
 #[test]
 fn test_initialize_token_default_values() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -178,7 +178,7 @@ fn test_initialize_token_default_values() {
 /// In this example, the parameters are valid, no minting.
 #[test]
 fn test_initialize_token_no_minting() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -228,7 +228,7 @@ fn test_initialize_token_no_minting() {
 /// In this example, the parameters are valid, with minting.
 #[test]
 fn test_initialize_token_with_minting() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -283,7 +283,7 @@ fn test_initialize_token_with_minting() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_excessive_mint_decimals() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -300,7 +300,7 @@ fn test_initialize_token_excessive_mint_decimals() {
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
         UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id,
+            token_id,
             token_module: TOKEN_MODULE_REF,
             decimals: 2,
             initialization_parameters: encoded_parameters,
@@ -321,7 +321,7 @@ fn test_initialize_token_excessive_mint_decimals() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_insufficient_mint_decimals() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -338,7 +338,7 @@ fn test_initialize_token_insufficient_mint_decimals() {
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
         UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id,
+            token_id,
             token_module: TOKEN_MODULE_REF,
             decimals: 6,
             initialization_parameters: encoded_parameters,
@@ -358,7 +358,7 @@ fn test_initialize_token_insufficient_mint_decimals() {
 /// In this example, the parameters specify a non-existing governance account.
 #[test]
 fn test_initialize_token_non_existing_governance_account() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
@@ -374,7 +374,7 @@ fn test_initialize_token_non_existing_governance_account() {
     let outcome = scheduler::execute_chain_update(
         stub.state_mut(),
         UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id,
+            token_id,
             token_module: TOKEN_MODULE_REF,
             decimals: 0,
             initialization_parameters: encoded_parameters,

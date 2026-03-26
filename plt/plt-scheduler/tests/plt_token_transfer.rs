@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -82,7 +82,7 @@ fn execute_list_op(
 
 #[test]
 fn test_transfer() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -120,7 +120,7 @@ fn test_transfer() {
 
 #[test]
 fn test_transfer_with_memo() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -158,7 +158,7 @@ fn test_transfer_with_memo() {
 
 #[test]
 fn test_transfer_self() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -189,7 +189,7 @@ fn test_transfer_self() {
 
 #[test]
 fn test_transfer_insufficient_balance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -224,7 +224,7 @@ fn test_transfer_insufficient_balance() {
 
 #[test]
 fn test_transfer_decimals_mismatch() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -258,7 +258,7 @@ fn test_transfer_decimals_mismatch() {
 
 #[test]
 fn test_transfer_to_non_existing_receiver() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -290,7 +290,7 @@ fn test_transfer_to_non_existing_receiver() {
 
 #[test]
 fn test_transfer_allow_list_success() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -343,7 +343,7 @@ fn test_transfer_allow_list_success() {
 
 #[test]
 fn test_transfer_deny_list_success() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -392,7 +392,7 @@ fn test_transfer_deny_list_success() {
 
 #[test]
 fn test_transfer_sender_not_in_allow_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -439,7 +439,7 @@ fn test_transfer_sender_not_in_allow_list() {
 
 #[test]
 fn test_transfer_recipient_not_in_allow_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -495,7 +495,7 @@ fn test_transfer_recipient_not_in_allow_list() {
 
 #[test]
 fn test_transfer_sender_in_deny_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -552,7 +552,7 @@ fn test_transfer_sender_in_deny_list() {
 
 #[test]
 fn test_transfer_recipient_in_deny_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -609,7 +609,7 @@ fn test_transfer_recipient_in_deny_list() {
 
 #[test]
 fn test_transfer_paused() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

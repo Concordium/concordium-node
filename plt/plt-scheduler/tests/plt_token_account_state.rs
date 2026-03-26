@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
@@ -15,11 +15,12 @@ use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 
 mod block_state_external_stubbed;
+mod utils;
 
 /// Test token module account state without lists enabled.
 #[test]
 fn test_query_token_module_account_state_default() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) =
         stub.create_and_init_token(token_id, TokenInitTestParams::default(), 0, None);
@@ -33,7 +34,7 @@ fn test_query_token_module_account_state_default() {
 /// Test token module account state with lists.
 #[test]
 fn test_query_token_module_account_state_lists() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
