@@ -663,7 +663,7 @@ fn test_remove_from_not_enabled_deny_list() {
 /// Rejects AddDenyList when governance account does not hold the updateDenyList role.
 #[test]
 fn test_reject_add_denylist_without_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -729,7 +729,7 @@ fn test_reject_add_denylist_without_role() {
 /// Rejects AddAllowList when governance account does not hold the updateAllowList role.
 #[test]
 fn test_reject_add_allowlist_without_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -795,7 +795,7 @@ fn test_reject_add_allowlist_without_role() {
 /// Rejects RemoveDenyList when governance account does not hold the updateDenyList role.
 #[test]
 fn test_reject_remove_denylist_without_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -870,7 +870,7 @@ fn test_reject_remove_denylist_without_role() {
 /// Rejects RemoveAllowList when governance account does not hold the updateAllowList role.
 #[test]
 fn test_reject_remove_allowlist_without_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -945,7 +945,7 @@ fn test_reject_remove_allowlist_without_role() {
 /// Succeeds for another account holding the updateDenyList role.
 #[test]
 fn test_succeeds_add_deny_list_new_account_with_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -1004,7 +1004,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
 /// Succeeds for another account holding the updateAllowList role.
 #[test]
 fn test_succeeds_add_allow_list_new_account_with_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

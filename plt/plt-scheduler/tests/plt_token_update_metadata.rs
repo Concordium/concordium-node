@@ -4,7 +4,7 @@ use crate::block_state_external_stubbed::{
     BlockStateWithExternalStateStubbed, TokenInitTestParams,
 };
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::{self, cbor};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole,
@@ -21,7 +21,7 @@ mod utils;
 /// Succeeds in setting the token metadata.
 #[test]
 fn test_token_metadata_updates() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -64,7 +64,7 @@ fn test_token_metadata_updates() {
 /// Succeeds for another account holding the updateMetadata role.
 #[test]
 fn test_new_account_with_role_succeeds_update_metadata() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
@@ -121,7 +121,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
 /// Reject when governance account is not holding the updateMetadata role.
 #[test]
 fn test_role_authorization_update_metadata() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
@@ -185,7 +185,7 @@ fn test_role_authorization_update_metadata() {
 /// Reject when additional metadata fields are provided.
 #[test]
 fn test_update_metadata_rejects_with_additional_data() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);

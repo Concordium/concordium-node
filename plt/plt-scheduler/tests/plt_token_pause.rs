@@ -273,7 +273,7 @@ fn test_unauthorized_unpause() {
 /// state is discarded. The token is NOT paused and NO events are emitted after this rejection.
 #[test]
 fn test_pause_multiple_ops() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -375,7 +375,7 @@ fn test_unpause_multiple_ops() {
 /// Rejects pause when governance account does not hold the pause role.
 #[test]
 fn test_role_authorization_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
@@ -436,7 +436,7 @@ fn test_role_authorization_pause() {
 /// Succeeds for another account holding the pause role.
 #[test]
 fn test_new_account_with_role_succeeds_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);

@@ -85,7 +85,7 @@ fn test_burn() {
 /// The governance check is performed before the burnable feature check.
 #[test]
 fn test_unauthorized_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -209,7 +209,7 @@ fn test_burn_decimals_mismatch() {
 /// Reject "burn" operations while token is paused.
 #[test]
 fn test_burn_paused() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -340,7 +340,7 @@ fn test_burn_event() {
 /// Rejects burn when governance account does not hold the burn role.
 #[test]
 fn test_role_authorization_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -405,7 +405,7 @@ fn test_role_authorization_burn() {
 /// Succeeds for another account holding the burn role.
 #[test]
 fn test_new_account_with_role_succeeds_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),

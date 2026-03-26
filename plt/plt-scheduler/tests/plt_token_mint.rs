@@ -84,7 +84,7 @@ fn test_mint() {
 /// Rejects mint operations from non-governance accounts.
 #[test]
 fn test_unauthorized_mint() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -145,7 +145,7 @@ fn test_unauthorized_mint() {
 /// Check that address in reject reason is the alias and not the canonical address.
 #[test]
 fn test_unauthorized_mint_using_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -278,7 +278,7 @@ fn test_mint_decimals_mismatch() {
 /// Reject "mint" operations while token is paused.
 #[test]
 fn test_mint_paused() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -409,7 +409,7 @@ fn test_mint_event() {
 /// Rejects mint when governance account does not hold the mint role.
 #[test]
 fn test_reject_without_role() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
@@ -474,7 +474,7 @@ fn test_reject_without_role() {
 /// Succeeds when another account holds the mint role.
 #[test]
 fn test_new_account_with_role_succeeds_mint() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P11);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
