@@ -1,461 +1,658 @@
+//! Tests for token transfer operations via the scheduler.
+
+use crate::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 use assert_matches::assert_matches;
+use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
-    TokenModuleRejectReason, TokenOperation, TokenTransfer,
+    TokenId, TokenListUpdateDetails, TokenModuleRejectReason, TokenOperation,
+    TokenOperationsPayload, TokenPauseDetails, TokenTransfer,
 };
-use concordium_base::transactions::Memo;
-use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use concordium_base::transactions::{Memo, Payload};
+use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_scheduler::scheduler;
+use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use plt_token_module::token_module;
-use utils::kernel_stub::{KernelStub, TokenInitTestParams};
 
+mod block_state_external_stubbed;
 mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
-/// Test successful transfer.
+#[allow(clippy::too_many_arguments)]
+fn transfer_tx(
+    stub: &mut BlockStateWithExternalStateStubbed,
+    token_id: &TokenId,
+    sender: AccountIndex,
+    sender_address: AccountAddress,
+    recipient: CborHolderAccount,
+    amount: u64,
+    decimals: u8,
+    memo: Option<CborMemo>,
+) -> plt_scheduler_types::types::execution::TransactionExecutionSummary {
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(amount, decimals),
+        recipient,
+        memo,
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    scheduler::execute_transaction(
+        sender,
+        sender_address,
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+}
+
+fn execute_list_op(
+    stub: &mut BlockStateWithExternalStateStubbed,
+    token_id: &TokenId,
+    gov_account: AccountIndex,
+    operation: TokenOperation,
+) {
+    let gov_addr = stub.account_canonical_address(&gov_account);
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        gov_addr,
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    assert_matches!(
+        result.outcome,
+        TransactionOutcome::Success(_),
+        "list operation failed"
+    );
+}
+
 #[test]
 fn test_transfer() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("execute");
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(4000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(3000));
-    let transfer = stub.pop_transfer().expect("transfer");
-    assert_eq!(transfer.3, None);
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    assert_eq!(
+        stub.state().account_token_balance(&sender, &token),
+        RawTokenAmount(4000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(3000)
+    );
 }
 
-/// Test successful transfer with memo.
 #[test]
 fn test_transfer_with_memo() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let mut execution = stub.execution_with_sender(sender);
-    let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: Some(CborMemo::Cbor(memo.clone())),
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
+    let memo = CborMemo::Cbor(Memo::try_from(cbor::cbor_encode("testvalue")).unwrap());
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("execute");
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(4000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(1000));
-    let transfer = stub.pop_transfer().expect("transfer");
-    assert_eq!(transfer.3, Some(memo));
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        Some(memo),
+    );
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    assert_eq!(
+        stub.state().account_token_balance(&sender, &token),
+        RawTokenAmount(4000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(1000)
+    );
 }
 
-/// Test transfer to sending account
 #[test]
 fn test_transfer_self() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&sender)),
-        memo: None,
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("execute");
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(5000));
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(sender_addr),
+        1000,
+        2,
+        None,
+    );
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    assert_eq!(
+        stub.state().account_token_balance(&sender, &token),
+        RawTokenAmount(5000)
+    );
 }
 
-/// Test transfer with unsufficient funds
 #[test]
 fn test_transfer_insufficient_balance() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(10000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        10000,
+        2,
+        None,
     );
-
-    let reject_reason = utils::assert_reject_reason(&res);
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
-        TokenBalanceInsufficientRejectReason {
-            available_balance,
-            required_balance,
-            ..
-        }) => {
+        TokenBalanceInsufficientRejectReason { available_balance, required_balance, .. }) => {
         assert_eq!(available_balance, TokenAmount::from_raw(5000, 2));
         assert_eq!(required_balance, TokenAmount::from_raw(10000, 2));
     });
 }
 
-/// Test transfer with amount specified with wrong number of decimals
 #[test]
 fn test_transfer_decimals_mismatch() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        4,
+        None,
     );
-
-    let reject_reason = utils::assert_reject_reason(&res);
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
-        DeserializationFailureRejectReason {
-            cause: Some(cause)
-        }) => {
+        DeserializationFailureRejectReason { cause: Some(cause) }) => {
         assert!(cause.contains("decimals mismatch"), "cause: {}", cause);
     });
 }
 
-/// Test transfer where receiving account does not exist
 #[test]
 fn test_transfer_to_non_existing_receiver() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
-    let sender = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
-        memo: None,
-    })];
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
     );
+    let sender = stub.create_account();
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let reject_reason = utils::assert_reject_reason(&res);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(NON_EXISTING_ACCOUNT),
+        1000,
+        2,
+        None,
+    );
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::AddressNotFound(
-        AddressNotFoundRejectReason {
-            address,
-            ..
-        }) => {
+        AddressNotFoundRejectReason { address, .. }) => {
         assert_eq!(address.address, NON_EXISTING_ACCOUNT);
     });
 }
 
-/// Test transfer succeeds when both accounts are on allow list.
 #[test]
 fn test_transfer_allow_list_success() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
-    let sender = stub.create_account();
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().allow_list(),
+        2,
+        Some(RawTokenAmount(5000)),
+    );
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    // Set up both accounts on the allow list.
-    stub.set_allow_list(sender, true);
-    stub.set_allow_list(receiver, true);
-
-    // Transfer succeeds when both accounts are allow-listed.
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
+    // Gov is NOT auto-added to allow list — must add explicitly.
+    let gov_addr = stub.account_canonical_address(&gov_account);
+    execute_list_op(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+        &token_id,
+        gov_account,
+        TokenOperation::AddAllowList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(gov_addr),
+        }),
+    );
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    execute_list_op(
+        &mut stub,
+        &token_id,
+        gov_account,
+        TokenOperation::AddAllowList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(receiver_addr),
+        }),
+    );
 
-    // Verify balances reflect the successful transfer.
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(4000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(3000));
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        gov_account,
+        gov_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(4000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(1000)
+    );
 }
 
-/// Test transfer succeeds when accounts are not on deny list.
 #[test]
 fn test_transfer_deny_list_success() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().deny_list().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
     let denied = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    // Put another account on the deny list to prove non-denied transfers work.
-    stub.set_deny_list(denied, true);
-
-    // Transfer succeeds when neither sender nor recipient is denied.
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
+    let denied_addr = stub.account_canonical_address(&denied);
+    execute_list_op(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
-
-    // Verify balances reflect the successful transfer.
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(4000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(3000));
-}
-
-/// Reject "transfer" operations when sender is not in allow list.
-#[test]
-fn test_transfer_sender_not_in_allow_list() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
-
-    stub.set_allow_list(receiver, true);
-
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+        &token_id,
+        gov_account,
+        TokenOperation::AddDenyList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(denied_addr),
+        }),
     );
 
-    let reject_reason = utils::assert_reject_reason(&res);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    assert_eq!(
+        stub.state().account_token_balance(&sender, &token),
+        RawTokenAmount(4000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(3000)
+    );
+}
+
+#[test]
+fn test_transfer_sender_not_in_allow_list() {
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (_token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().allow_list(),
+        2,
+        Some(RawTokenAmount(5000)),
+    );
+    let sender = stub.create_account();
+    let receiver = stub.create_account();
+
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    execute_list_op(
+        &mut stub,
+        &token_id,
+        gov_account,
+        TokenOperation::AddAllowList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(receiver_addr),
+        }),
+    );
+
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: 0,
-            address: Some(address),
-            reason: Some(reason),
+            index: 0, address: Some(address), reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&sender)));
+            assert_eq!(address, CborHolderAccount::from(sender_addr));
             assert_eq!(reason, "sender not in allow list");
         }
     );
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(5000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(2000));
 }
 
-/// Reject "transfer" operations when recipient is not in allow list.
 #[test]
 fn test_transfer_recipient_not_in_allow_list() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
-    let sender = stub.create_account();
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().allow_list(),
+        2,
+        Some(RawTokenAmount(5000)),
+    );
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    stub.set_allow_list(sender, true);
-
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
+    // Gov is NOT auto-added to allow list — add gov so it can transfer,
+    // but do NOT add receiver — transfer should fail with "recipient not in allow list".
+    let gov_addr = stub.account_canonical_address(&gov_account);
+    execute_list_op(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+        &token_id,
+        gov_account,
+        TokenOperation::AddAllowList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(gov_addr),
+        }),
     );
 
-    let reject_reason = utils::assert_reject_reason(&res);
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        gov_account,
+        gov_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: 0,
-            address: Some(address),
-            reason: Some(reason),
+            index: 0, address: Some(address), reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
+            assert_eq!(address, CborHolderAccount::from(receiver_addr));
             assert_eq!(reason, "recipient not in allow list");
         }
     );
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(5000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(2000));
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(0)
+    );
 }
 
-/// Reject "transfer" operations when sender is in deny list.
 #[test]
 fn test_transfer_sender_in_deny_list() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().deny_list().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    stub.set_deny_list(sender, true);
-
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
+    let sender_addr = stub.account_canonical_address(&sender);
+    execute_list_op(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+        &token_id,
+        gov_account,
+        TokenOperation::AddDenyList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(sender_addr),
+        }),
     );
 
-    let reject_reason = utils::assert_reject_reason(&res);
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: 0,
-            address: Some(address),
-            reason: Some(reason),
+            index: 0, address: Some(address), reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&sender)));
+            assert_eq!(address, CborHolderAccount::from(sender_addr));
             assert_eq!(reason, "sender in deny list");
         }
     );
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(5000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(2000));
+    assert_eq!(
+        stub.state().account_token_balance(&sender, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(2000)
+    );
 }
 
-/// Reject "transfer" operations when recipient is in deny list.
 #[test]
 fn test_transfer_recipient_in_deny_list() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().deny_list().mintable(),
+        2,
+        None,
+    );
     let sender = stub.create_account();
     let receiver = stub.create_account();
-    stub.set_account_balance(sender, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
+    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    stub.set_deny_list(receiver, true);
-
-    let mut execution = stub.execution_with_sender(sender);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    execute_list_op(
         &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+        &token_id,
+        gov_account,
+        TokenOperation::AddDenyList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(receiver_addr),
+        }),
     );
 
-    let reject_reason = utils::assert_reject_reason(&res);
+    let sender_addr = stub.account_canonical_address(&sender);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        sender,
+        sender_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: 0,
-            address: Some(address),
-            reason: Some(reason),
+            index: 0, address: Some(address), reason: Some(reason),
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
+            assert_eq!(address, CborHolderAccount::from(receiver_addr));
             assert_eq!(reason, "recipient in deny list");
         }
     );
-
-    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(5000));
-    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(2000));
+    assert_eq!(
+        stub.state().account_token_balance(&sender, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.state().account_token_balance(&receiver, &token),
+        RawTokenAmount(2000)
+    );
 }
 
-/// Reject "transfer" operations while token is paused
 #[test]
 fn test_transfer_paused() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
-    let receiver = stub.create_account();
-    stub.set_account_balance(gov_account, RawTokenAmount(5000));
-    stub.set_account_balance(receiver, RawTokenAmount(2000));
-
-    stub.set_paused(true);
-
-    let mut execution = stub.execution_with_sender(gov_account);
-    let operations = vec![TokenOperation::Transfer(TokenTransfer {
-        amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-        memo: None,
-    })];
-
-    let res = token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
     );
+    let receiver = stub.create_account();
+    stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
 
-    let reject_reason = utils::assert_reject_reason(&res);
+    let gov_addr = stub.account_canonical_address(&gov_account);
+    let pause_ops = vec![TokenOperation::Pause(TokenPauseDetails {})];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&pause_ops)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        gov_addr,
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("pause");
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+
+    let receiver_addr = stub.account_canonical_address(&receiver);
+    let result = transfer_tx(
+        &mut stub,
+        &token_id,
+        gov_account,
+        gov_addr,
+        CborHolderAccount::from(receiver_addr),
+        1000,
+        2,
+        None,
+    );
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: 0,
-            address: None,
-            reason: Some(reason),
+            index: 0, address: None, reason: Some(reason),
         }) if reason == "token operation transfer is paused"
     );
 }
