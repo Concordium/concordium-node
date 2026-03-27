@@ -1,9 +1,11 @@
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
-    OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleRejectReason,
-    TokenOperation, TokenSupplyUpdateDetails, UnsupportedOperationRejectReason,
+    OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenAmount,
+    TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails,
+    TokenUpdateAdminRolesDetails, UnsupportedOperationRejectReason,
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -12,10 +14,10 @@ use utils::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTe
 
 mod utils;
 
-/// Test successful mints.
+/// Test successful mints on protocol version 10.
 #[test]
-fn test_mint() {
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+fn test_mint_p10() {
+    let mut stub = KernelStub::with_decimals(2, ProtocolVersion::P10);
     let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
 
     // First mint
@@ -53,12 +55,12 @@ fn test_mint() {
     );
 }
 
-/// Rejects mint operations from non-governance accounts.
+/// Rejects mint operations from non-governance accounts on protocol version 10.
 #[test]
-fn test_unauthorized_mint() {
+fn test_unauthorized_mint_p10() {
     // Arrange a token and an unauthorized sender.
-    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let mut stub = KernelStub::with_decimals(2, ProtocolVersion::P10);
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     let non_governance_account = stub.create_account();
 
     // Attempt to mint as a non-governance account.
@@ -102,6 +104,47 @@ fn test_unauthorized_mint() {
     assert_eq!(stub.events().len(), 0);
 }
 
+/// Test successful mints.
+#[test]
+fn test_mint() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
+
+    // First mint
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    assert_eq!(
+        stub.account_token_balance(&gov_account),
+        RawTokenAmount(1000)
+    );
+
+    // Second mint
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(4000, 2),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    assert_eq!(
+        stub.account_token_balance(&gov_account),
+        RawTokenAmount(5000)
+    );
+}
+
 /// Rejects mint operations from non-governance accounts. Test
 /// send operation using alias account address. Check that
 /// address in reject reason is the alias and not the canonical address.
@@ -109,7 +152,7 @@ fn test_unauthorized_mint() {
 fn test_unauthorized_mint_using_alias() {
     // Arrange a token and an unauthorized sender.
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    stub.init_token(TokenInitTestParams::default());
+    stub.init_token(TokenInitTestParams::default().mintable());
     let non_gov_account = stub.create_account();
 
     let non_gov_account_address_alias = stub
@@ -207,7 +250,7 @@ fn test_mint_decimals_mismatch() {
 #[test]
 fn test_mint_paused() {
     let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
     stub.set_paused(true);
 
     let mut execution = stub.execution_with_sender(gov_account);
@@ -257,4 +300,88 @@ fn test_not_mintable() {
             reason: Some(reason)
         }) if reason == "feature not enabled" && operation_type == "mint"
     );
+}
+
+/// Reject when governance account is not holding the mint role.
+#[test]
+fn test_reject_without_role() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
+
+    // 1st transaction: removing mint role from governance account.
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::RevokeAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::Mint],
+            account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+        },
+    )];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    // 2nd transaction: attempting to mint as governance account
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(200, 2),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: Some(address),
+            reason: Some(reason)
+        }) => {
+            assert_eq!(reason, "sender is not authorized to perform the operation for this token".to_string());
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+        }
+    );
+}
+
+/// Succeeds when another account holds the mint role.
+#[test]
+fn test_new_account_with_role_succeeds_mint() {
+    let mut stub = KernelStub::with_decimals(2, utils::LATEST_PROTOCOL_VERSION);
+    let gov_account = stub.init_token(TokenInitTestParams::default().mintable());
+    let account2 = stub.create_account();
+
+    // 1st transaction: Assign the mint role to an account.
+    let mut execution = stub.execution_with_sender(gov_account);
+    let operations = vec![TokenOperation::AssignAdminRoles(
+        TokenUpdateAdminRolesDetails {
+            roles: vec![TokenAdminRole::Mint],
+            account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        },
+    )];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+    assert!(res.is_ok());
+
+    // 2nd transaction: Mint as account.
+    let mut execution = stub.execution_with_sender(account2);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(200, 2),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("execute");
+
+    assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
+    assert_eq!(stub.account_token_balance(&account2), RawTokenAmount(200));
 }
