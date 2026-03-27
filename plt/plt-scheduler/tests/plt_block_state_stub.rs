@@ -1,14 +1,13 @@
 //! Tests for the block state stub infrastructure used in the plt-scheduler integration tests.
 
-use crate::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use utils::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 
-mod block_state_external_stubbed;
 mod utils;
 
 /// Test lookup account address and account from address.
@@ -65,5 +64,23 @@ fn test_account_balance() {
     assert_eq!(
         stub.state().account_token_balance(&account1, &token),
         RawTokenAmount(0)
+    );
+}
+
+/// Test looking up account by alias.
+#[test]
+fn test_account_by_alias() {
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+
+    let account = stub.create_account();
+    let account_address = stub.account_canonical_address(&account);
+    let account_by_alias = stub
+        .state()
+        .account_by_address(&account_address.get_alias(0).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        stub.state().account_index(&account),
+        stub.state().account_index(&account_by_alias)
     );
 }

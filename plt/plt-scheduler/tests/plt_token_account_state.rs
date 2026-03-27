@@ -1,8 +1,5 @@
 //! Tests for token module account state queries via the scheduler.
 
-use crate::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -13,8 +10,10 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::TransactionOutcome;
+use utils::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 
-mod block_state_external_stubbed;
 mod utils;
 
 /// Test token module account state without lists enabled.

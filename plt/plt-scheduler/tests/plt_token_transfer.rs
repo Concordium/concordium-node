@@ -1,8 +1,5 @@
 //! Tests for token transfer operations via the scheduler.
 
-use crate::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
@@ -18,8 +15,10 @@ use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use utils::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 
-mod block_state_external_stubbed;
 mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);

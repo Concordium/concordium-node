@@ -361,21 +361,3 @@ impl ExternalBlockStateOperations for ExternalBlockStateStub {
         self.plt_update_instruction_sequence_number += 1;
     }
 }
-
-/// Test looking up account by alias.
-#[test]
-fn test_account_by_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
-
-    let account = stub.create_account();
-    let account_address = stub.account_canonical_address(&account);
-    let account_by_alias = stub
-        .state()
-        .account_by_address(&account_address.get_alias(0).unwrap())
-        .unwrap();
-
-    assert_eq!(
-        stub.state().account_index(&account),
-        stub.state().account_index(&account_by_alias)
-    );
-}

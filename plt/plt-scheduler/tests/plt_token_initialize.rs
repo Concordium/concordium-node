@@ -1,6 +1,5 @@
 //! Tests for token initialization via the scheduler.
 
-use crate::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -14,8 +13,8 @@ use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
+use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
-mod block_state_external_stubbed;
 mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);

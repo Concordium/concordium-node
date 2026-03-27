@@ -2,7 +2,6 @@
 //! the tests of the token module in the `plt-token-module` crate. In the present file,
 //! higher level tests are implemented.
 
-use crate::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -16,8 +15,8 @@ use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 use plt_token_module::TOKEN_MODULE_REF;
+use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
-mod block_state_external_stubbed;
 mod utils;
 
 /// Test create protocol-level token.

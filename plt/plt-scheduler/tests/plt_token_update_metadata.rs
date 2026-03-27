@@ -1,8 +1,5 @@
 //! Tests for token metadata update operations via the scheduler.
 
-use crate::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::{self, cbor};
@@ -14,8 +11,10 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::TransactionOutcome;
+use utils::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 
-mod block_state_external_stubbed;
 mod utils;
 
 /// Succeeds in setting the token metadata.
