@@ -396,6 +396,7 @@ pub struct SimplisticTokenKeyValueState {
 struct Lock {
     /// The balances locked per account, mapping each account index to its
     /// locked token and amount.
+    #[map_size_length = 4]
     locked_balances: BTreeMap<AccountIndex, TokenAndAmount>,
     /// The configuration parameters for the lock.
     configuration: LockConfiguration,

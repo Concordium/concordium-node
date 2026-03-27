@@ -310,6 +310,24 @@ mod test {
     }
 
     #[test]
+    fn test_token_and_amount_serial() {
+        use crate::types::tokens::TokenAndAmount;
+        use concordium_base::protocol_level_tokens::TokenId;
+
+        let token_and_amount = TokenAndAmount {
+            token_id: "token1".parse::<TokenId>().unwrap(),
+            amount: RawTokenAmount(1000),
+        };
+
+        let bytes = common::to_bytes(&token_and_amount);
+        assert_eq!(hex::encode(&bytes), "06746f6b656e318768");
+
+        let token_and_amount_deserialized: TokenAndAmount =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_and_amount_deserialized, token_and_amount);
+    }
+
+    #[test]
     fn test_token_holder() {
         let token_holder = TokenHolder::Account(AccountAddress([5; 32]));
 

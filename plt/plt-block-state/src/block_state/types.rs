@@ -45,6 +45,7 @@ pub type TokenStateValue = Vec<u8>;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct LockConfiguration {
     /// Accounts that can receive funds from this lock.
+    #[size_length = 2]
     pub recipients: Vec<AccountIndex>,
     /// Expiry time of the lock (seconds since epoch).
     pub expiry: TransactionTime,
@@ -101,5 +102,63 @@ mod test {
         let state_deserialized: TokenAccountState =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(state_deserialized, state);
+    }
+
+    #[test]
+    fn test_lock_configuration_serial() {
+        use concordium_base::common::types::TransactionTime;
+        use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
+        use plt_scheduler_types::types::locks::{
+            LockControllerSimpleV0, LockControllerSimpleV0Grant,
+        };
+
+        let lock_config = LockConfiguration {
+            recipients: vec![AccountIndex::from(1u64), AccountIndex::from(2u64)],
+            expiry: TransactionTime::from(1000u64),
+            controller: LockController::SimpleV0(LockControllerSimpleV0 {
+                grants: vec![LockControllerSimpleV0Grant {
+                    account: AccountIndex::from(1u64),
+                    roles: vec![LockControllerSimpleV0Capability::Fund],
+                }],
+                tokens: vec!["token1".parse().unwrap()],
+                keep_alive: true,
+                memo: None,
+            }),
+        };
+
+        let bytes = common::to_bytes(&lock_config);
+        assert_eq!(
+            hex::encode(&bytes),
+            "00020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e310100"
+        );
+
+        let deserialized: LockConfiguration =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(deserialized, lock_config);
+    }
+
+    #[test]
+    fn test_lock_configuration_serial_empty_recipients() {
+        use concordium_base::common::types::TransactionTime;
+
+        let lock_config = LockConfiguration {
+            recipients: vec![],
+            expiry: TransactionTime::from(500u64),
+            controller: LockController::SimpleV0(
+                plt_scheduler_types::types::locks::LockControllerSimpleV0 {
+                    grants: vec![],
+                    tokens: vec![],
+                    keep_alive: false,
+                    memo: None,
+                },
+            ),
+        };
+
+        let bytes = common::to_bytes(&lock_config);
+        assert_eq!(hex::encode(&bytes), "000000000000000001f400000000000000");
+
+        let deserialized: LockConfiguration =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(deserialized, lock_config);
     }
 }
