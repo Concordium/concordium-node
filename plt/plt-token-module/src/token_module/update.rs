@@ -755,7 +755,7 @@ fn execute_revoke_admin_roles<
     {
         return Err(TokenUpdateErrorInternal::OperationNotPermitted {
             account_address: Some(operation.account.address),
-            reason: "Sender not allowed to remove own admin role",
+            reason: "Sender not allowed to remove own update-admin-role role",
         });
     }
     key_value_state::revoke_account_roles(kernel, account_index, &operation.roles)?;

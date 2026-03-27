@@ -104,11 +104,14 @@ data QueryTokenModuleError
       QTMEUnknownToken
     | -- | An error occurred in the token module.
       QTMEInternal !QueryTokenError
+    | -- | The protocol version does not support the query.
+      QTMEUnavailable
     deriving (Eq)
 
 instance Show QueryTokenModuleError where
     show QTMEUnknownToken = "unknown token"
     show (QTMEInternal e) = show e
+    show QTMEUnavailable = "The information is not available for this block"
 
 -- | Get the 'TokenInfo' associated with a 'TokenId' in the given 'BlockState'.
 queryTokenInfo ::
@@ -153,7 +156,7 @@ queryTokenAuthorizations ::
     m (Either QueryTokenModuleError TokenAuthorizations)
 queryTokenAuthorizations tokenId bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateNone -> return (Left QTMEUnknownToken)
-    SPLTStateV0 -> return (Left QTMEUnknownToken)
+    SPLTStateV0 -> return (Left QTMEUnavailable)
     SPLTStateV1 ->
         RustQ.queryTokenAuthorizations bs tokenId <&> \case
             Just out -> Right out

@@ -165,6 +165,9 @@ getTokenInfoV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec 
                     mvLog mvr Logger.External Logger.LLError $
                         "Internal error processing GetTokenInfo: " ++ show e
                     return $ queryResultCode QRInternalError
+                Q.BQRBlock _ (Left QTMEUnavailable) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRUnavailable
                 Q.BQRBlock _ (Right r) ->
                     returnMessageWithBlock (copier outVec) outHash (res $> r)
                 Q.BQRNoBlock ->
@@ -202,6 +205,9 @@ getTokenAuthorizationsV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHa
                     mvLog mvr Logger.External Logger.LLError $
                         "Internal error processing GetTokenAuthorizations: " ++ show e
                     return $ queryResultCode QRInternalError
+                Q.BQRBlock _ (Left QTMEUnavailable) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRUnavailable
                 Q.BQRBlock _ (Right r) ->
                     returnMessageWithBlock (copier outVec) outHash (res $> r)
                 Q.BQRNoBlock ->

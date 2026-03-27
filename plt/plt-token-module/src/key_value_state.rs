@@ -209,7 +209,7 @@ pub fn assign_account_roles(
     Ok(())
 }
 
-/// Revoke roles to an account in the state.
+/// Revoke roles of an account in the state.
 pub fn revoke_account_roles(
     kernel: &mut impl TokenKernelOperations,
     account: AccountIndex,
