@@ -114,94 +114,164 @@ pub fn execute_token_update_transaction<
     })?;
 
     for (index, operation) in operations.into_iter().enumerate() {
-        execute_token_update_operation(transaction_execution, kernel, &operation).map_err(
-            |err| match err {
-                TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
+        execute_token_update_operation_at_index(transaction_execution, kernel, index, &operation)?;
+    }
+    Ok(())
+}
+
+/// Execute a token update operation using the [`TokenKernelOperations`] to
+/// update state and produce events.
+///
+/// The caller must ensure to rollback state changes in case of
+/// an error is returned.
+///
+/// The following checks and operations are performed:
+///
+/// - For a transfer operation:
+///
+///    - Check that the transfer amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
+///    - Check that the module is not paused.
+///    - Check that the recipient is valid.
+///    - Check allow and deny list restrictions.
+///    - Transfer the amount from the sender to the recipient, if the sender's balance is
+///      sufficient (checked by the kernel).
+///
+/// - For a list update operation:
+///
+///    - Tick energy required for the operation.
+///    - Check that the governance account is the sender.
+///    - Check that the module configuration allows the list operation.
+///    - Check that the account to add/remove exists on-chain.
+///    - Add or remove the account to/from the list.
+///
+/// - For a mint operation:
+///
+///    - Check that the mint amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
+///    - Check that the governance account is the sender.
+///    - Check that the module is not paused.
+///    - Check that the module configuration allows minting.
+///    - Mint the amount to the sender, if the resulting circulating supply is
+///      within representable range (checked by the kernel).
+///
+/// - For a burn operation:
+///
+///    - Check that the burn amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
+///    - Check that the governance account is the sender.
+///    - Check that the module is not paused.
+///    - Check that the module configuration allows burning.
+///    - Burn the amount from the sender, if the sender's balance is
+///      sufficient (checked by the kernel).
+///
+/// - For a pause/unpause operation:
+///
+///    - Tick energy required for the operation
+///    - Check that the governance account is the sender.
+///    - Pause/unpause the token.
+///
+/// If the state stored in the token module contains data that breaks the invariants
+/// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
+/// is returned. This is an unrecoverable error and should never happen.
+///
+///
+/// # Arguments
+///
+/// - `transaction_execution`: the transaction execution context
+/// - `kernel`: the token kernel operations interface
+/// - `index`: the index of the operation in the transaction, used for error reporting
+/// - `operation`: the token operation to execute
+pub fn execute_token_update_operation_at_index<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    index: usize,
+    operation: &TokenOperation,
+) -> Result<(), TokenUpdateError> {
+    execute_token_update_operation(transaction_execution, kernel, operation).map_err(
+        |err| match err {
+            TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
+                TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
+                        index: index as u64,
+                        address: CborHolderAccount::from(err.0),
+                    }),
+                ))
+            }
+            TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
+                TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::DeserializationFailure(
+                        DeserializationFailureRejectReason {
+                            cause: Some(err.to_string()),
+                        },
+                    ),
+                ))
+            }
+            TokenUpdateErrorInternal::InsufficientBalance(err) => {
+                TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::TokenBalanceInsufficient(
+                        TokenBalanceInsufficientRejectReason {
                             index: index as u64,
-                            address: CborHolderAccount::from(err.0),
-                        }),
-                    ))
-                }
-                TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::DeserializationFailure(
-                            DeserializationFailureRejectReason {
-                                cause: Some(err.to_string()),
-                            },
+                            available_balance: util::to_token_amount(kernel, err.available),
+                            required_balance: util::to_token_amount(kernel, err.required),
+                        },
+                    ),
+                ))
+            }
+            TokenUpdateErrorInternal::MintWouldOverflow(err) => {
+                TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
+                        index: index as u64,
+                        requested_amount: util::to_token_amount(kernel, err.requested_amount),
+                        current_supply: util::to_token_amount(kernel, err.current_supply),
+                        max_representable_amount: util::to_token_amount(
+                            kernel,
+                            err.max_representable_amount,
                         ),
-                    ))
-                }
-                TokenUpdateErrorInternal::InsufficientBalance(err) => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::TokenBalanceInsufficient(
-                            TokenBalanceInsufficientRejectReason {
-                                index: index as u64,
-                                available_balance: util::to_token_amount(kernel, err.available),
-                                required_balance: util::to_token_amount(kernel, err.required),
-                            },
-                        ),
-                    ))
-                }
-                TokenUpdateErrorInternal::MintWouldOverflow(err) => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
-                            index: index as u64,
-                            requested_amount: util::to_token_amount(kernel, err.requested_amount),
-                            current_supply: util::to_token_amount(kernel, err.current_supply),
-                            max_representable_amount: util::to_token_amount(
-                                kernel,
-                                err.max_representable_amount,
-                            ),
-                        }),
-                    ))
-                }
-                TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
-                TokenUpdateErrorInternal::StateInvariantViolation(err) => {
-                    TokenUpdateError::StateInvariantViolation(err)
-                }
-                TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
-                    make_reject_reason(TokenModuleRejectReason::OperationNotPermitted(
-                        OperationNotPermittedRejectReason {
-                            index: index as u64,
-                            address: None,
-                            reason: format!(
-                                "token operation {} is paused",
-                                operation_name(&operation)
-                            )
+                    }),
+                ))
+            }
+            TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
+            TokenUpdateErrorInternal::StateInvariantViolation(err) => {
+                TokenUpdateError::StateInvariantViolation(err)
+            }
+            TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
+                make_reject_reason(TokenModuleRejectReason::OperationNotPermitted(
+                    OperationNotPermittedRejectReason {
+                        index: index as u64,
+                        address: None,
+                        reason: format!("token operation {} is paused", operation_name(operation))
                             .to_string()
                             .into(),
-                        },
-                    )),
-                ),
-                TokenUpdateErrorInternal::OperationNotPermitted {
-                    account_address,
-                    reason,
-                } => TokenUpdateError::TokenModuleReject(make_reject_reason(
-                    TokenModuleRejectReason::OperationNotPermitted(
-                        OperationNotPermittedRejectReason {
+                    },
+                )),
+            ),
+            TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address,
+                reason,
+            } => TokenUpdateError::TokenModuleReject(make_reject_reason(
+                TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+                    index: index as u64,
+                    address: account_address.map(Into::into),
+                    reason: reason.to_string().into(),
+                }),
+            )),
+            TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
+                TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::UnsupportedOperation(
+                        UnsupportedOperationRejectReason {
                             index: index as u64,
-                            address: account_address.map(Into::into),
+                            operation_type: operation_name(operation).to_string(),
                             reason: reason.to_string().into(),
                         },
                     ),
-                )),
-                TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::UnsupportedOperation(
-                            UnsupportedOperationRejectReason {
-                                index: index as u64,
-                                operation_type: operation_name(&operation).to_string(),
-                                reason: reason.to_string().into(),
-                            },
-                        ),
-                    ))
-                }
-            },
-        )?;
-    }
-    Ok(())
+                ))
+            }
+        },
+    )
 }
 
 fn operation_name(operation: &TokenOperation) -> &'static str {
