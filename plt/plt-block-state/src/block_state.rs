@@ -3,8 +3,8 @@
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
-    TokenStateValue,
+    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
+    TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -15,8 +15,9 @@ use concordium_base::common;
 use concordium_base::common::Serialize;
 use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_scheduler_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAndAmount};
 use sha2::Digest;
 use std::collections::BTreeMap;
 
@@ -366,17 +367,38 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
 // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
 #[derive(Debug, Default, Clone, Serialize)]
 struct SimplisticPltBlockState {
+    /// The block state for protocol-level tokens.
     tokens: Vec<Token>,
+    /// The block state for protocol-level locks.
+    locks: BTreeMap<LockId, Lock>,
 }
 
+/// The block state for a single protocol-level token.
 #[derive(Debug, Clone, Serialize)]
 struct Token {
+    /// The key-value state associated with the token defined by its `configuration`.
     key_value_state: SimplisticTokenKeyValueState,
+    /// The configuration parameters for this token.
     configuration: TokenConfiguration,
+    /// The current circulating supply of this token.
     circulating_supply: RawTokenAmount,
 }
 
+/// A simplistic key-value store for token state, backed by a [`BTreeMap`].
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SimplisticTokenKeyValueState {
+    /// The underlying map from state keys to state values.
     state: BTreeMap<TokenStateKey, TokenStateValue>,
+}
+
+/// The block state for a single protocol-level lock.
+#[derive(Debug, Clone, Serialize)]
+struct Lock {
+    /// The balances locked per account, mapping each account index to its
+    /// locked token and amount.
+    locked_balances: BTreeMap<AccountIndex, TokenAndAmount>,
+    /// The configuration parameters for the lock.
+    configuration: LockConfiguration,
+    /// The key-value state associated with the lock.
+    key_value_state: SimplisticTokenKeyValueState,
 }

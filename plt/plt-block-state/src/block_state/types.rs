@@ -1,8 +1,11 @@
 //! Types used specifically in the block state.
 
+use concordium_base::base::AccountIndex;
 use concordium_base::common::Serialize;
+use concordium_base::common::types::TransactionTime;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
+use plt_scheduler_types::types::locks::LockController;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Index of the protocol-level token in the block state map of tokens.
@@ -37,6 +40,17 @@ pub struct TokenAccountState {
 
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;
+
+/// Lock configuration at the block state level.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct LockConfiguration {
+    /// Accounts that can receive funds from this lock.
+    pub recipients: Vec<AccountIndex>,
+    /// Expiry time of the lock (seconds since epoch).
+    pub expiry: TransactionTime,
+    /// Controller configuration for the lock.
+    pub controller: LockController,
+}
 
 /// Account representing (read-only) account state.
 ///
