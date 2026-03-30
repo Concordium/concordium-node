@@ -1,7 +1,7 @@
 //! Tests for token mint operations via the scheduler.
 
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
+use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
@@ -20,6 +20,125 @@ use utils::block_state_external_stubbed::{
 };
 
 mod utils;
+
+/// Test successful mints on P10.
+#[test]
+fn test_mint_p10() {
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
+
+    // First mint
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(1000)
+    );
+
+    // Second mint
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(4000, 2),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(5000)
+    );
+}
+
+/// Rejects mint operations from non-governance accounts on protocol version 10.
+#[test]
+fn test_unauthorized_mint_p10() {
+    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
+    let non_governance_account = stub.create_account();
+
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        non_governance_account,
+        stub.account_canonical_address(&non_governance_account),
+        stub.state_mut(),
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index,
+            address,
+            ..
+        }) => {
+            assert_eq!(index, 0);
+            assert_eq!(
+                address,
+                Some(CborHolderAccount::from(
+                    stub.account_canonical_address(&non_governance_account)
+                ))
+            );
+        }
+    );
+
+    // Assert balances remain unchanged.
+    assert_eq!(
+        stub.state().account_token_balance(&gov_account, &token),
+        RawTokenAmount(0)
+    );
+    assert_eq!(
+        stub.state()
+            .account_token_balance(&non_governance_account, &token),
+        RawTokenAmount(0)
+    );
+}
 
 /// Test successful mints.
 #[test]
