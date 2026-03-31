@@ -2,6 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use crate::ffi::status;
 use crate::queries;
 use crate::queries::QueryTokenInfoError;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
@@ -55,46 +56,42 @@ extern "C" fn ffi_query_plt_list(
     protocol_version: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
-) -> u8 {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(
-        !return_data_len_out.is_null(),
-        "return_data_len_out is a null pointer."
-    );
-    assert!(
-        !return_data_out.is_null(),
-        "return_data_out is a null pointer."
-    );
-
-    let external_callbacks = ExternalBlockStateQueryCallbacks {
-        read_token_account_balance_ptr: read_token_account_balance_callback,
-        get_account_address_by_index_ptr: get_account_address_by_index_callback,
-        get_account_index_by_address_ptr: get_account_index_by_address_callback,
-        get_token_account_states_ptr: get_token_account_states_callback,
-    };
-
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { &*block_state };
-    let block_state = ExecutionTimePltBlockState {
-        protocol_version,
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
-    let token_ids = queries::query_plt_list(&block_state);
-
-    let return_data = common::to_bytes(&token_ids);
-
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        let external_callbacks = ExternalBlockStateQueryCallbacks {
+            read_token_account_balance_ptr: read_token_account_balance_callback,
+            get_account_address_by_index_ptr: get_account_address_by_index_callback,
+            get_account_index_by_address_ptr: get_account_index_by_address_callback,
+            get_token_account_states_ptr: get_token_account_states_callback,
+        };
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let internal_block_state = unsafe { &*block_state };
+        let block_state = ExecutionTimePltBlockState {
+            protocol_version,
+            internal_block_state,
+            backing_store_load: load_callback,
+            external_block_state: external_callbacks,
+        };
+        let token_ids = queries::query_plt_list(&block_state);
+        let return_data = common::to_bytes(&token_ids);
+        (status::FfiStatusCode::Success, return_data)
+    });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }
-
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    0
+    return_status
 }
 
 /// C-binding for calling [`queries::query_token_info`].
@@ -143,58 +140,56 @@ extern "C" fn ffi_query_token_info(
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
-) -> u8 {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(
-        !return_data_len_out.is_null(),
-        "return_data_len_out is a null pointer."
-    );
-    assert!(
-        !return_data_out.is_null(),
-        "return_data_out is a null pointer."
-    );
-
-    let external_callbacks = ExternalBlockStateQueryCallbacks {
-        read_token_account_balance_ptr: read_token_account_balance_callback,
-        get_account_address_by_index_ptr: get_account_address_by_index_callback,
-        get_account_index_by_address_ptr: get_account_index_by_address_callback,
-        get_token_account_states_ptr: get_token_account_states_callback,
-    };
-
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { &*block_state };
-    let block_state = ExecutionTimePltBlockState {
-        protocol_version,
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
-    let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code instead of calling unwrap
-    let token_id = String::from_utf8(token_id_bytes.to_vec())
-        .unwrap()
-        .try_into()
-        .unwrap();
-
-    let token_info = queries::query_token_info(&block_state, &token_id);
-
-    let (return_status, return_data) = match token_info {
-        Ok(token_info) => (0, common::to_bytes(&token_info)),
-        Err(QueryTokenInfoError::TokenDoesNotExist(_)) => (1, Vec::new()),
-        Err(_) => {
-            todo!()
-            // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        let external_callbacks = ExternalBlockStateQueryCallbacks {
+            read_token_account_balance_ptr: read_token_account_balance_callback,
+            get_account_address_by_index_ptr: get_account_address_by_index_callback,
+            get_account_index_by_address_ptr: get_account_index_by_address_callback,
+            get_token_account_states_ptr: get_token_account_states_callback,
+        };
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let internal_block_state = unsafe { &*block_state };
+        let block_state = ExecutionTimePltBlockState {
+            protocol_version,
+            internal_block_state,
+            backing_store_load: load_callback,
+            external_block_state: external_callbacks,
+        };
+        let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
+        let token_id = String::from_utf8(token_id_bytes.to_vec())
+            .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
+            .try_into()
+            .expect("Invalid Token ID provided");
+        let token_info = queries::query_token_info(&block_state, &token_id);
+        match token_info {
+            Ok(token_info) => (
+                status::FfiStatusCode::Success,
+                common::to_bytes(&token_info),
+            ),
+            Err(QueryTokenInfoError::TokenDoesNotExist(_)) => {
+                (status::FfiStatusCode::Failed, Vec::new())
+            }
+            Err(QueryTokenInfoError::QueryTokenModule(err)) => {
+                (status::FfiStatusCode::Panic, err.to_string().into_bytes())
+            }
         }
-    };
-
+    });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }
-
     return_status
 }
 
@@ -244,58 +239,56 @@ extern "C" fn ffi_query_token_authorizations(
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
-) -> u8 {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(
-        !return_data_len_out.is_null(),
-        "return_data_len_out is a null pointer."
-    );
-    assert!(
-        !return_data_out.is_null(),
-        "return_data_out is a null pointer."
-    );
-
-    let external_callbacks = ExternalBlockStateQueryCallbacks {
-        read_token_account_balance_ptr: read_token_account_balance_callback,
-        get_account_address_by_index_ptr: get_account_address_by_index_callback,
-        get_account_index_by_address_ptr: get_account_index_by_address_callback,
-        get_token_account_states_ptr: get_token_account_states_callback,
-    };
-
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { &*block_state };
-    let block_state = ExecutionTimePltBlockState {
-        protocol_version,
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
-    let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code instead of calling unwrap
-    let token_id = String::from_utf8(token_id_bytes.to_vec())
-        .unwrap()
-        .try_into()
-        .unwrap();
-
-    let token_info = queries::query_token_authorizations(&block_state, &token_id);
-
-    let (return_status, return_data) = match token_info {
-        Ok(token_info) => (0, common::to_bytes(&token_info)),
-        Err(QueryTokenInfoError::TokenDoesNotExist(_)) => (1, Vec::new()),
-        Err(_) => {
-            todo!()
-            // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        let external_callbacks = ExternalBlockStateQueryCallbacks {
+            read_token_account_balance_ptr: read_token_account_balance_callback,
+            get_account_address_by_index_ptr: get_account_address_by_index_callback,
+            get_account_index_by_address_ptr: get_account_index_by_address_callback,
+            get_token_account_states_ptr: get_token_account_states_callback,
+        };
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let internal_block_state = unsafe { &*block_state };
+        let block_state = ExecutionTimePltBlockState {
+            protocol_version,
+            internal_block_state,
+            backing_store_load: load_callback,
+            external_block_state: external_callbacks,
+        };
+        let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
+        let token_id = String::from_utf8(token_id_bytes.to_vec())
+            .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
+            .try_into()
+            .expect("Invalid Token ID provided");
+        let token_info = queries::query_token_authorizations(&block_state, &token_id);
+        match token_info {
+            Ok(token_info) => (
+                status::FfiStatusCode::Success,
+                common::to_bytes(&token_info),
+            ),
+            Err(QueryTokenInfoError::TokenDoesNotExist(_)) => {
+                (status::FfiStatusCode::Failed, Vec::new())
+            }
+            Err(QueryTokenInfoError::QueryTokenModule(err)) => {
+                (status::FfiStatusCode::Panic, err.to_string().into_bytes())
+            }
         }
-    };
-
+    });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }
-
     return_status
 }
 
@@ -340,45 +333,41 @@ extern "C" fn ffi_query_token_account_infos(
     account_index: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
-) -> u8 {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(
-        !return_data_len_out.is_null(),
-        "return_data_len_out is a null pointer."
-    );
-    assert!(
-        !return_data_out.is_null(),
-        "return_data_out is a null pointer."
-    );
-
-    let external_callbacks = ExternalBlockStateQueryCallbacks {
-        read_token_account_balance_ptr: read_token_account_balance_callback,
-        get_account_address_by_index_ptr: get_account_address_by_index_callback,
-        get_account_index_by_address_ptr: get_account_index_by_address_callback,
-        get_token_account_states_ptr: get_token_account_states_callback,
-    };
-
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { &*block_state };
-    let block_state = ExecutionTimePltBlockState {
-        protocol_version,
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
-    let token_account_infos =
-        queries::query_token_account_infos(&block_state, AccountIndex::from(account_index));
-
-    let return_data = common::to_bytes(&token_account_infos);
-
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        let external_callbacks = ExternalBlockStateQueryCallbacks {
+            read_token_account_balance_ptr: read_token_account_balance_callback,
+            get_account_address_by_index_ptr: get_account_address_by_index_callback,
+            get_account_index_by_address_ptr: get_account_index_by_address_callback,
+            get_token_account_states_ptr: get_token_account_states_callback,
+        };
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let internal_block_state = unsafe { &*block_state };
+        let block_state = ExecutionTimePltBlockState {
+            protocol_version,
+            internal_block_state,
+            backing_store_load: load_callback,
+            external_block_state: external_callbacks,
+        };
+        let token_account_infos =
+            queries::query_token_account_infos(&block_state, AccountIndex::from(account_index));
+        let return_data = common::to_bytes(&token_account_infos);
+        (status::FfiStatusCode::Success, return_data)
+    });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }
-
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    0
+    return_status
 }
