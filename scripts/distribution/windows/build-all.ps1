@@ -8,8 +8,11 @@ Write-Output "protoc version: $(protoc --version)"
 # Override the rust toolchain so that consensus rust dependencies use it.
 rustup override set $rustVersion-x86_64-pc-windows-gnu
 
-# Sometimes it causes errors to build the Rust library indirectly 
-# via the Haskell concordium-consensus. Hence, we start by building it directly.
+# The reason we "prebuild" the node Rust library dependency:
+# When Setup.hs is run (which invokes the cargo build), stack puts 
+# the LLVM version of dlltool on the path, which is not compatible with the gnu dlltool. 
+# It thus does not generate the expected import lib. By the rust upfront, when it is 
+# subsequently built in Setup.hs it will already be built and so does not get rebuilt.
 Write-Output "Prebuilding node Rust library..."
 Push-Location plt
 rustup show active-toolchain

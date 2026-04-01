@@ -96,7 +96,7 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `token_module_map` The token module state to look up the value in.
+    /// - `token_key_value` The token module state to look up the value in.
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
@@ -104,12 +104,24 @@ pub trait BlockStateQuery {
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
+    /// Get iterator over key-value pairs with a shared prefix.
+    ///
+    /// # Arguments
+    ///
+    /// - `token_key_value` The token module state to look up the value in.
+    /// - `prefix` The token state key prefix to iterate over.
+    fn iter_token_state_prefix<'a>(
+        &self,
+        token_key_value: &'a Self::TokenKeyValueState,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)>;
+
     /// Update the value for the given key in the given token key-value state. If `None` is
     /// specified as value, the entry is removed.
     ///
     /// # Arguments
     ///
-    /// - `token_module_map` The token module state to update the value in.
+    /// - `token_key_value` The token module state to update the value in.
     /// - `key` The token state key.
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_state_value(

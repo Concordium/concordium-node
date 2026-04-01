@@ -36,6 +36,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Data.String
+import Data.Text (Text)
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
@@ -857,7 +858,7 @@ testPauseUnpause ::
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
     SProtocolVersion pv ->
     Assertion
-testPauseUnpause _ = do
+testPauseUnpause spv = do
     Helpers.runSchedulerTestAssertIntermediateStates
         @pv
         Helpers.defaultTestConfig
@@ -1001,7 +1002,7 @@ testPauseUnpause _ = do
                     CBOR.OperationNotPermitted
                         { trrOperationIndex = 0,
                           trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
+                          trrReason = Just $ notAuthorizedReason spv
                         }
             },
           -- Pause and transfer from gov account (fails: transfer not permitted while paused).
@@ -1063,13 +1064,19 @@ testPauseUnpause _ = do
                     CBOR.OperationNotPermitted
                         { trrOperationIndex = 0,
                           trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
+                          trrReason = Just $ notAuthorizedReason spv
                         }
             }
         ]
 
+notAuthorizedReason :: (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> Text
+notAuthorizedReason spv = case spv of
+    SP9 -> "sender is not the token governance account"
+    SP10 -> "sender is not the token governance account"
+    _ -> "sender is not authorized to perform the operation for this token"
+
 testMintBurn :: forall pv. (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> Bool -> Bool -> Assertion
-testMintBurn _ mintEnabled burnEnabled = do
+testMintBurn spv mintEnabled burnEnabled = do
     Helpers.runSchedulerTestAssertIntermediateStates
         @pv
         Helpers.defaultTestConfig
@@ -1242,11 +1249,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenMint (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
-                        }
+                    if mintEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
+                                  trrReason = Just $ notAuthorizedReason spv
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "mint",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             },
           -- Burn 50 from non-gov acct (fails: not permitted)
           Helpers.BlockItemAndAssertion
@@ -1255,11 +1270,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenBurn (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
-                        }
+                    if burnEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
+                                  trrReason = Just $ notAuthorizedReason spv
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "burn",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             },
           -- Mint too much from gov acct (fails: would overflow, or not enabled)
           Helpers.BlockItemAndAssertion
@@ -1325,11 +1348,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenMint (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Nothing,
-                          trrReason = Just "token operation mint is paused"
-                        }
+                    if mintEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation mint is paused"
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "mint",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             },
           -- Burn from gov acct while paused (fails: operation not permitted)
           Helpers.BlockItemAndAssertion
@@ -1338,11 +1369,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenBurn (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Nothing,
-                          trrReason = Just "token operation burn is paused"
-                        }
+                    if burnEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation burn is paused"
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "burn",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             }
         ]
 

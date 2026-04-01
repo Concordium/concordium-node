@@ -616,8 +616,12 @@ fn test_plt_mint_reject() {
 fn test_plt_mint_unauthorized() {
     let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, _gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let non_governance_account = stub.create_account();
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {

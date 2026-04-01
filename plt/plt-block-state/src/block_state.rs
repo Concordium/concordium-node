@@ -310,6 +310,14 @@ impl<IntState: HasQueryableBlockState, Load: BlobStoreLoad, ExtState: ExternalBl
     fn protocol_version(&self) -> ProtocolVersion {
         self.protocol_version
     }
+
+    fn iter_token_state_prefix<'a>(
+        &self,
+        token_key_value_state: &'a Self::TokenKeyValueState,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
+        token_key_value_state.iter_prefix(prefix)
+    }
 }
 
 impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -382,4 +390,21 @@ struct Token {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SimplisticTokenKeyValueState {
     state: BTreeMap<TokenStateKey, TokenStateValue>,
+}
+
+impl SimplisticTokenKeyValueState {
+    fn iter_prefix(
+        &self,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+        // This is just a temporary implementation and will not scale.
+        // However implementation should be trivial once using the actual trie.
+        let mut out = Vec::new();
+        for (key, value) in self.state.iter() {
+            if key.starts_with(prefix.as_slice()) {
+                out.push((key, value));
+            }
+        }
+        out.into_iter()
+    }
 }

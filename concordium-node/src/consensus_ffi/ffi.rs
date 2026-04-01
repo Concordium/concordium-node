@@ -540,7 +540,29 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get information about a specific account in a given block.
+    /// Get information about a specific token in a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `token_id` - Pointer to the token identifier.
+    /// * `token_id_len` - Length of the token identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writing the output.
+    pub fn getTokenInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        token_id: *const u8,
+        token_id_len: u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get information about the token authorizations in a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
@@ -551,7 +573,7 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
-    pub fn getTokenInfoV2(
+    pub fn getTokenAuthorizationsV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
@@ -2398,6 +2420,48 @@ impl ConsensusContainer {
         let mut out_hash = [0u8; 32];
         let response: ConsensusQueryResponse = unsafe {
             getTokenInfoV2(
+                consensus,
+                block_id_type,
+                block_hash.as_ptr(),
+                token_id_ptr,
+                token_id_len,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("tokenId or block")?;
+        Ok((out_hash, out_data))
+    }
+
+    /// Get the authorizations for a protocol-level token in a block, introduced as part of P11.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the token cannot be found then a [tonic::Status::not_found] is
+    /// returned.
+    pub fn get_token_authorizations_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        token_id: &crate::grpc2::types::plt::TokenId,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let token_id_len = token_id.value.len();
+        if token_id_len > 255 {
+            return Err(tonic::Status::invalid_argument(
+                "TokenId: length must be at most 255 bytes",
+            ));
+        }
+        let token_id_len = token_id_len as u8;
+        let token_id_ptr = token_id.value.as_ptr();
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getTokenAuthorizationsV2(
                 consensus,
                 block_id_type,
                 block_hash.as_ptr(),

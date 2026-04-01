@@ -248,7 +248,7 @@ testCreatePLT _ pvString = describe pvString $ do
                                 pltList
                             assertEqual
                                 "Token info"
-                                (Left QTIEUnknownToken)
+                                (Left QTMEUnknownToken)
                                 tokenInfo
                     }
                 ]
@@ -294,7 +294,7 @@ testCreatePLT _ pvString = describe pvString $ do
                                 pltList
                             assertEqual
                                 "Token info"
-                                (Left QTIEUnknownToken)
+                                (Left QTMEUnknownToken)
                                 tokenInfo
                     }
                 ]
@@ -342,7 +342,7 @@ testCreatePLT _ pvString = describe pvString $ do
                                 pltList
                             assertEqual
                                 "Token info"
-                                (Left QTIEUnknownToken)
+                                (Left QTMEUnknownToken)
                                 tokenInfo
                     }
                 ]
@@ -567,7 +567,7 @@ testCreatePLT _ pvString = describe pvString $ do
                                 pltList
                             assertEqual
                                 "Token info"
-                                (Left QTIEUnknownToken)
+                                (Left QTMEUnknownToken)
                                 tokenInfo
                     }
                 ]
