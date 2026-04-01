@@ -24,7 +24,7 @@ mod utils;
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
 #[allow(clippy::too_many_arguments)]
-fn transfer_tx(
+fn execute_transfer_tx(
     stub: &mut BlockStateWithExternalStateStubbed,
     token_id: &TokenId,
     sender: AccountIndex,
@@ -96,7 +96,7 @@ fn test_transfer() {
 
     let receiver_addr = stub.account_canonical_address(&receiver);
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -134,7 +134,7 @@ fn test_transfer_with_memo() {
     let memo = CborMemo::Cbor(Memo::try_from(cbor::cbor_encode("testvalue")).unwrap());
     let receiver_addr = stub.account_canonical_address(&receiver);
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -169,7 +169,7 @@ fn test_transfer_self() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -202,7 +202,7 @@ fn test_transfer_insufficient_balance() {
 
     let receiver_addr = stub.account_canonical_address(&receiver);
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -237,7 +237,7 @@ fn test_transfer_decimals_mismatch() {
 
     let receiver_addr = stub.account_canonical_address(&receiver);
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -269,7 +269,7 @@ fn test_transfer_to_non_existing_receiver() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -319,7 +319,7 @@ fn test_transfer_allow_list_success() {
         }),
     );
 
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         gov_account,
@@ -368,7 +368,7 @@ fn test_transfer_deny_list_success() {
 
     let sender_addr = stub.account_canonical_address(&sender);
     let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -413,7 +413,7 @@ fn test_transfer_sender_not_in_allow_list() {
     );
 
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -461,7 +461,7 @@ fn test_transfer_recipient_not_in_allow_list() {
     );
 
     let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         gov_account,
@@ -518,7 +518,7 @@ fn test_transfer_sender_in_deny_list() {
     );
 
     let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -575,7 +575,7 @@ fn test_transfer_recipient_in_deny_list() {
     );
 
     let sender_addr = stub.account_canonical_address(&sender);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         sender,
@@ -636,7 +636,7 @@ fn test_transfer_paused() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = transfer_tx(
+    let result = execute_transfer_tx(
         &mut stub,
         &token_id,
         gov_account,

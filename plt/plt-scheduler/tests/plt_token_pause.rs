@@ -43,11 +43,13 @@ fn execute_pause(
     assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
 }
 
-/// Helper to get the current token module paused state.
-fn get_paused_state(stub: &BlockStateWithExternalStateStubbed, token_id: &TokenId) -> bool {
+/// Helper to get the current decoded token module state.
+fn get_decoded_token_state(
+    stub: &BlockStateWithExternalStateStubbed,
+    token_id: &TokenId,
+) -> TokenModuleState {
     let info = queries::query_token_info(stub.state(), token_id).unwrap();
-    let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
-    state.paused.unwrap_or(false)
+    cbor::cbor_decode(&info.state.module_state).unwrap()
 }
 
 /// Test that pause/unpause operations modify the token module state as expected.
@@ -58,7 +60,11 @@ fn test_token_pause_state() {
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
 
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 
     // Pause the token
     let events = execute_pause(&mut stub, &token_id, gov_account);
@@ -67,7 +73,11 @@ fn test_token_pause_state() {
         assert_eq!(event.event_type, TokenModuleEventType::Pause.to_type_discriminator());
         let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
-    assert!(get_paused_state(&stub, &token_id));
+    assert!(
+        get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 
     // Unpause the token
     let unpause_ops = vec![TokenOperation::Unpause(TokenPauseDetails {})];
@@ -90,7 +100,11 @@ fn test_token_pause_state() {
         assert_eq!(event.event_type, TokenModuleEventType::Unpause.to_type_discriminator());
         let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// Performing a double pause within one transaction and then again in another is permitted.
@@ -133,7 +147,11 @@ fn test_double_pause() {
         assert_eq!(e.event_type, TokenModuleEventType::Pause.to_type_discriminator());
     });
 
-    assert!(get_paused_state(&stub, &token_id));
+    assert!(
+        get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// Performing an unpause when the token is not paused is permitted.
@@ -164,7 +182,11 @@ fn test_redundant_unpause() {
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
         assert_eq!(event.event_type, TokenModuleEventType::Unpause.to_type_discriminator());
     });
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// Rejects pause operations from non-governance accounts.
@@ -210,7 +232,11 @@ fn test_unauthorized_pause() {
     );
 
     // Token must remain unpaused
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// Rejects unpause operations from non-governance accounts.
@@ -224,7 +250,11 @@ fn test_unauthorized_unpause() {
 
     // Gov pauses the token first
     execute_pause(&mut stub, &token_id, gov_account);
-    assert!(get_paused_state(&stub, &token_id));
+    assert!(
+        get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 
     // Non-gov attempts to unpause
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
@@ -261,7 +291,11 @@ fn test_unauthorized_unpause() {
     );
 
     // Token must remain paused
-    assert!(get_paused_state(&stub, &token_id));
+    assert!(
+        get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// A transaction [Pause, Mint] is rejected because Mint is not permitted while paused.
@@ -317,7 +351,11 @@ fn test_pause_multiple_ops() {
         RawTokenAmount(0)
     );
     // Token is NOT paused (local state was discarded on rejection)
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// A transaction [Unpause, Mint] succeeds: unpause takes effect first, then mint proceeds.
@@ -334,7 +372,11 @@ fn test_unpause_multiple_ops() {
 
     // Pause the token first
     execute_pause(&mut stub, &token_id, gov_account);
-    assert!(get_paused_state(&stub, &token_id));
+    assert!(
+        get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 
     // [Unpause, Mint] in one transaction
     let operations = vec![
@@ -364,7 +406,11 @@ fn test_unpause_multiple_ops() {
     });
     assert_matches!(&events[1], BlockItemEvent::TokenMint(_));
 
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
     assert_eq!(
         stub.state().token_circulating_supply(&token),
         RawTokenAmount(1000)
@@ -429,7 +475,11 @@ fn test_role_authorization_pause() {
         }
     );
     // Token must remain unpaused.
-    assert!(!get_paused_state(&stub, &token_id));
+    assert!(
+        !get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }
 
 /// Succeeds for another account holding the pause role.
@@ -478,5 +528,9 @@ fn test_new_account_with_role_succeeds_pause() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    assert!(get_paused_state(&stub, &token_id));
+    assert!(
+        get_decoded_token_state(&stub, &token_id)
+            .paused
+            .unwrap_or(false)
+    );
 }

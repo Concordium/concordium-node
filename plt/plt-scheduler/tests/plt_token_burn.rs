@@ -6,8 +6,8 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
     RawCbor, TokenAdminRole, TokenAmount, TokenBalanceInsufficientRejectReason, TokenId,
-    TokenModuleRejectReason, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
-    TokenSupplyUpdateDetails, TokenUpdateAdminRolesDetails, UnsupportedOperationRejectReason,
+    TokenModuleRejectReason, TokenOperation, TokenOperationsPayload, TokenSupplyUpdateDetails,
+    TokenUpdateAdminRolesDetails, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Payload;
 use plt_block_state::block_state_interface::BlockStateQuery;
@@ -217,21 +217,7 @@ fn test_burn_paused() {
         Some(RawTokenAmount(5000)),
     );
 
-    // Pause the token first via scheduler transaction
-    let pause_ops = vec![TokenOperation::Pause(TokenPauseDetails {})];
-    let payload = TokenOperationsPayload {
-        token_id: token_id.clone(),
-        operations: RawCbor::from(cbor::cbor_encode(&pause_ops)),
-    };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
-    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    stub.pause_token(&token_id, gov_account);
 
     // Now attempt to burn while paused
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {

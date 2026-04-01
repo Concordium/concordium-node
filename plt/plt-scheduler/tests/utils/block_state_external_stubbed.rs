@@ -10,7 +10,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
     TokenModuleInitializationParameters, TokenModuleState, TokenOperation, TokenOperationsPayload,
-    TokenSupplyUpdateDetails, TokenTransfer,
+    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
@@ -220,6 +220,42 @@ impl BlockStateWithExternalStateStubbed {
         )
         .expect("transaction internal error");
         assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
+    }
+
+    pub fn pause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
+        let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+        let payload = TokenOperationsPayload {
+            token_id: token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+        let gov_addr = self.account_canonical_address(&gov_account);
+        let result = scheduler::execute_transaction(
+            gov_account,
+            gov_addr,
+            self.state_mut(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    }
+
+    pub fn unpause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
+        let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
+        let payload = TokenOperationsPayload {
+            token_id: token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+        let gov_addr = self.account_canonical_address(&gov_account);
+        let result = scheduler::execute_transaction(
+            gov_account,
+            gov_addr,
+            self.state_mut(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(result.outcome, TransactionOutcome::Success(_));
     }
 
     /// Return protocol-level token update instruction sequence number
