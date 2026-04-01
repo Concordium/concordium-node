@@ -1,13 +1,14 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
+use crate::block_state::blob_reference::BlobStoreLocation;
+use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, ParseResultExt};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
     AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
     TokenStateValue,
 };
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    BlockStateOperations, BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
@@ -19,10 +20,15 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
 use std::collections::BTreeMap;
+use std::io::Read;
 
+pub mod blob_reference;
 pub mod blob_store;
+pub mod cacheable;
 pub mod external;
+pub mod hash;
 pub mod types;
+mod utils;
 
 /// Account with given address does not exist
 #[derive(Debug, thiserror::Error)]
@@ -58,7 +64,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Compute the hash.
-    pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
+    pub fn hash(&self, _loader: &mut impl BlobStoreLoad) -> PltBlockStateHash {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         if self.block_state.state.tokens.is_empty() {
             // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
@@ -79,7 +85,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Store a PLT block state in a blob store.
-    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
+    pub fn store_update(&self, storer: &mut impl BlobStoreStore) -> BlobStoreLocation {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let block_state_bytes = common::to_bytes(&self.block_state.state);
         storer.store_raw(&block_state_bytes)
@@ -88,15 +94,15 @@ impl PltBlockStateSavepoint {
     /// Migrate the PLT block state from one blob store to another.
     pub fn migrate(
         &self,
-        _loader: &mut impl BackingStoreLoad,
-        _storer: &mut impl BackingStoreStore,
+        _loader: &mut impl BlobStoreLoad,
+        _storer: &mut impl BlobStoreStore,
     ) -> Self {
         // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         todo!()
     }
 
     /// Cache the block state in memory.
-    pub fn cache(&self, _loader: &mut impl BackingStoreLoad) {
+    pub fn cache(&self, _loader: &mut impl BlobStoreLoad) {
         // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
     }
 
@@ -108,13 +114,10 @@ impl PltBlockStateSavepoint {
 }
 
 impl blob_store::Loadable for PltBlockStateSavepoint {
-    fn load(
-        _loader: &mut impl BackingStoreLoad,
-        source: impl AsRef<[u8]>,
-    ) -> Result<Self, DecodeError> {
+    fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state: SimplisticPltBlockState = common::from_bytes_complete(source)
-            .map_err(|err| DecodeError::Decode(err.to_string()))?;
+        let state: SimplisticPltBlockState =
+            common::from_bytes(&mut buffer).map_parse_err_to_block_state_err()?;
 
         Ok(Self {
             block_state: PltBlockState { state },
@@ -178,7 +181,7 @@ impl HasQueryableBlockState for &PltBlockStateSavepoint {
     }
 }
 
-impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
+impl<IntState: HasQueryableBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimePltBlockState<IntState, Load, ExtState>
 {
     type TokenKeyValueState = SimplisticTokenKeyValueState;
@@ -309,7 +312,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     }
 }
 
-impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
+impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
     for ExecutionTimePltBlockState<PltBlockState, Load, ExtState>
 {
     fn set_token_circulating_supply(

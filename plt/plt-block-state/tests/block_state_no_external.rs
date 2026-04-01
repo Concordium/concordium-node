@@ -14,7 +14,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::blob_store::{BackingStoreLoad, Reference};
+use plt_block_state::block_state::blob_reference::BlobStoreLocation;
+use plt_block_state::block_state::blob_store::BlobStoreLoad;
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
@@ -35,8 +36,8 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub struct BlobStoreLoadStub;
 
-impl BackingStoreLoad for BlobStoreLoadStub {
-    fn load_raw(&mut self, location: Reference) -> Vec<u8> {
+impl BlobStoreLoad for BlobStoreLoadStub {
+    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
         unimplemented!("should not be called")
     }
 }

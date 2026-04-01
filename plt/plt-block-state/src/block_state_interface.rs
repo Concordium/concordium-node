@@ -25,6 +25,21 @@ pub enum RawTokenAmountDelta {
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
 
+/// Unrecoverable error accessing the block state. This is generally an error that
+/// should never happen and is unrecoverable.
+#[derive(Debug, thiserror::Error)]
+pub enum BlockStateError {
+    /// An error happened when decoding a block state value from the blob store.
+    #[error("Error decoding state from blob store: {0}")]
+    BlobStoreDecode(String),
+    /// An invariant that must be true is broken. The invariant can either be in the
+    /// stored block state or a runtime logical invariant related to the in-memory block state.
+    #[error("State invariant broken: {0}")]
+    Invariant(String),
+}
+
+pub type BlockStateResult<T> = Result<T, BlockStateError>;
+
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the module managed key-value map.

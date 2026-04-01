@@ -2,6 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use crate::block_state::blob_reference::BlobStoreLocation;
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
@@ -77,12 +78,11 @@ extern "C" fn ffi_hash_plt_block_state(
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
 #[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
-    mut load_callback: LoadCallback,
-    blob_ref: blob_store::Reference,
+    load_callback: LoadCallback,
+    blob_ref: BlobStoreLocation,
 ) -> *mut PltBlockStateSavepoint {
     // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state =
-        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
+    let block_state = blob_store::load_from_store(&load_callback, blob_ref).unwrap();
     Box::into_raw(Box::new(block_state))
 }
 
@@ -103,7 +103,7 @@ extern "C" fn ffi_load_plt_block_state(
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
     block_state: *const PltBlockStateSavepoint,
-) -> blob_store::Reference {
+) -> BlobStoreLocation {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     let block_state = unsafe { &*block_state };
     block_state.store_update(&mut store_callback)
