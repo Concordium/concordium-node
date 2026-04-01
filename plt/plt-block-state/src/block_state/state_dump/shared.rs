@@ -110,7 +110,7 @@ impl StateDumpBuilder {
             } else {
                 escape_quotes(label)
             };
-            write!(
+            writeln!(
                 self.files.state_graph_file,
                 "    {}  [label=\"{}\"]",
                 node_id, node_label
@@ -131,7 +131,7 @@ impl StateDumpBuilder {
         } else {
             escape_quotes(label)
         };
-        write!(
+        writeln!(
             self.files.state_graph_file,
             "    {}  [label=\"{}\"]",
             node_id, node_label
@@ -149,7 +149,7 @@ impl StateDumpBuilder {
         blob_ref: blob_store::Reference,
     ) {
         let edge_label = format_args!("{}{}", label, blob_ref);
-        write!(
+        writeln!(
             self.files.state_graph_file,
             "    {} -> {} [label=\"{}\"]",
             source, target, edge_label
@@ -159,7 +159,7 @@ impl StateDumpBuilder {
 
     pub fn build_comp_edge(&mut self, label: &str, source: NodeId, target: NodeId) {
         let edge_label = label;
-        write!(
+        writeln!(
             self.files.state_graph_file,
             "    {} -> {} [arrowhead=\"none\" label=\"{}\"]",
             source, target, edge_label
@@ -170,8 +170,8 @@ impl StateDumpBuilder {
     pub fn build_blob_ref_node(
         &mut self,
         parent: NodeId,
-        node_label: &str,
         edge_label: &str,
+        node_label: &str,
         blob_ref: blob_store::Reference,
         hash: Option<Hash>,
     ) -> Option<NodeId> {
@@ -183,8 +183,8 @@ impl StateDumpBuilder {
     pub fn build_comp_node(
         &mut self,
         parent: NodeId,
-        node_label: &str,
         edge_label: &str,
+        node_label: &str,
         hash: Option<Hash>,
     ) -> NodeId {
         let node_id = self.build_comp_node_no_edge(node_label, hash);

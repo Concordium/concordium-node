@@ -51,11 +51,13 @@ dumpProtocolLevelTokens parentNode pltsForSV = do
                             buildStateData pltConfBlobRef pltConfHash pltConf
                         let NodeId pltNodeWord = pltNode
                         OutputFilesPaths{..} <- RWST.ask
+                        closeOutputFiles
                         lift $ PST.dumpPersistentState (PLT._pltState plt) pltNodeWord ofpStateGraphFilePath ofpStateFilePath
+                        reopenOutputFiles                        
         PLT.ProtocolLevelTokensV1 pltsState -> do
-            closeOutputFiles
             let NodeId parentNodeWord = parentNode
             OutputFilesPaths{..} <- RWST.ask
+            closeOutputFiles
             lift $ PLT.dumpPLTBlockState pltsState parentNodeWord ofpStateGraphFilePath ofpStateFilePath
             reopenOutputFiles
 
