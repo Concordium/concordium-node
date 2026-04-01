@@ -28,6 +28,7 @@ use plt_block_state::block_state_interface::{
     TokenNotFoundByIdError,
 };
 use plt_scheduler::{queries, scheduler};
+use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
@@ -256,6 +257,30 @@ impl BlockStateWithExternalStateStubbed {
         )
         .expect("transaction internal error");
         assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    }
+
+    /// Execute token operations as the given sender account. Returns the block item events on
+    /// success, panics if the transaction fails.
+    pub fn execute_token_operations(
+        &mut self,
+        token_id: &TokenId,
+        sender: AccountIndex,
+        operations: Vec<TokenOperation>,
+    ) -> Vec<BlockItemEvent> {
+        let payload = TokenOperationsPayload {
+            token_id: token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+        let sender_addr = self.account_canonical_address(&sender);
+        let result = scheduler::execute_transaction(
+            sender,
+            sender_addr,
+            self.state_mut(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
     }
 
     /// Return protocol-level token update instruction sequence number

@@ -19,28 +19,6 @@ use utils::block_state_external_stubbed::{
 
 mod utils;
 
-/// Helper to execute a list operation as governance and return events.
-fn execute_list_op_with_events(
-    stub: &mut BlockStateWithExternalStateStubbed,
-    token_id: &TokenId,
-    gov_account: AccountIndex,
-    operation: TokenOperation,
-) -> Vec<BlockItemEvent> {
-    let payload = TokenOperationsPayload {
-        token_id: token_id.clone(),
-        operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
-    };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
-    assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
-}
-
 /// Test allow list add then remove.
 #[test]
 fn test_allow_list_updates() {
@@ -60,13 +38,12 @@ fn test_allow_list_updates() {
     let target_addr = stub.account_canonical_address(&target_account);
 
     // Add to allow list
-    let events = execute_list_op_with_events(
-        &mut stub,
+    let events = stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::AddAllowList(TokenListUpdateDetails {
+        vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
@@ -81,13 +58,12 @@ fn test_allow_list_updates() {
     assert_eq!(state.deny_list, None);
 
     // Remove from allow list
-    let events = execute_list_op_with_events(
-        &mut stub,
+    let events = stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::RemoveAllowList(TokenListUpdateDetails {
+        vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
@@ -121,13 +97,12 @@ fn test_deny_list_updates() {
     let target_addr = stub.account_canonical_address(&target_account);
 
     // Add to deny list
-    let events = execute_list_op_with_events(
-        &mut stub,
+    let events = stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::AddDenyList(TokenListUpdateDetails {
+        vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
@@ -142,13 +117,12 @@ fn test_deny_list_updates() {
     assert_eq!(state.deny_list, Some(true));
 
     // Remove from deny list
-    let events = execute_list_op_with_events(
-        &mut stub,
+    let events = stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::RemoveDenyList(TokenListUpdateDetails {
+        vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
@@ -380,13 +354,12 @@ fn test_add_allow_list_touches_account() {
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
     let target_addr = stub.account_canonical_address(&target_account);
-    execute_list_op_with_events(
-        &mut stub,
+    stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::AddAllowList(TokenListUpdateDetails {
+        vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
 
     assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
@@ -408,13 +381,12 @@ fn test_remove_allow_list_touches_account() {
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
     let target_addr = stub.account_canonical_address(&target_account);
-    execute_list_op_with_events(
-        &mut stub,
+    stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::RemoveAllowList(TokenListUpdateDetails {
+        vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
 
     assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
@@ -436,13 +408,12 @@ fn test_add_deny_list_touches_account() {
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
     let target_addr = stub.account_canonical_address(&target_account);
-    execute_list_op_with_events(
-        &mut stub,
+    stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::AddDenyList(TokenListUpdateDetails {
+        vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
 
     assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
@@ -464,13 +435,12 @@ fn test_remove_deny_list_touches_account() {
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
     let target_addr = stub.account_canonical_address(&target_account);
-    execute_list_op_with_events(
-        &mut stub,
+    stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::RemoveDenyList(TokenListUpdateDetails {
+        vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
-        }),
+        })],
     );
 
     assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
@@ -794,13 +764,12 @@ fn test_reject_remove_denylist_without_role() {
 
     let gov_addr = stub.account_canonical_address(&gov_account);
     // First add gov to deny list, then revoke the role.
-    execute_list_op_with_events(
-        &mut stub,
+    stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::AddDenyList(TokenListUpdateDetails {
+        vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_addr),
-        }),
+        })],
     );
 
     let payload = TokenOperationsPayload {
@@ -869,13 +838,12 @@ fn test_reject_remove_allowlist_without_role() {
 
     let gov_addr = stub.account_canonical_address(&gov_account);
     // First add gov to allow list, then revoke the role.
-    execute_list_op_with_events(
-        &mut stub,
+    stub.execute_token_operations(
         &token_id,
         gov_account,
-        TokenOperation::AddAllowList(TokenListUpdateDetails {
+        vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_addr),
-        }),
+        })],
     );
 
     let payload = TokenOperationsPayload {

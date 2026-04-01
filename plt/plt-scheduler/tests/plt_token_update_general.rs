@@ -106,7 +106,7 @@ fn test_update_token_additional_fields() {
 fn test_multiple_operations() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (token, _) = stub.create_and_init_token(
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
@@ -151,7 +151,6 @@ fn test_multiple_operations() {
         stub.state().account_token_balance(&receiver, &token),
         RawTokenAmount(5000)
     );
-    let _ = gov_account;
 }
 
 /// Test transaction with multiple operations where one of them fails.
