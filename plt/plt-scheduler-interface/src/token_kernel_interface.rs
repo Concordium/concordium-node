@@ -6,10 +6,11 @@ use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{
-    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
+use plt_block_state::block_state::types::AccountWithCanonicalAddress;
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenStateKey, TokenStateValue};
+use plt_block_state::block_state_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError,
 };
-use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// The account has insufficient balance.
