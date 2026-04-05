@@ -27,8 +27,8 @@ pub mod blob_store;
 pub mod cacheable;
 pub mod external;
 pub mod hash;
-pub mod types;
 pub mod lfmb_tree;
+pub mod types;
 mod utils;
 
 /// Account with given address does not exist
