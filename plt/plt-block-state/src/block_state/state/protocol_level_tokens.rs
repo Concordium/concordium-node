@@ -146,6 +146,7 @@ impl ProtocolLevelTokens {
         };
 
         let (token_index, tokens) = self.tokens.insert_value(loader, token)?;
+        // Do a "lazy" clone of the map, see https://docs.rs/im/latest/im/#when-does-cloning-happen
         let mut token_id_map = self.token_id_map.clone();
         token_id_map.insert(normalized_token_id, token_index);
 

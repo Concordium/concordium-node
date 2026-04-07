@@ -241,7 +241,7 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
     /// # Arguments
     ///
     /// - `loader`: Loader for the blob store the tree is stored in.
-    /// - `read`: Closure that is given each value, either as owned or borrowed,
+    /// - `read`: Closure that is given each key-value pair, either as owned or borrowed,
     ///   and returns the value of type `T` that will be the item in the iterator.
     ///
     /// # Errors
