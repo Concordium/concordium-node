@@ -27,3 +27,14 @@ impl BackingStoreLoad for LoadCallback {
         *unsafe { Box::from_raw(self(location)) }
     }
 }
+
+pub mod tests_helpers {
+    use super::*;
+
+    pub const UNIMPLEMENTED_LOAD_CALLBACK: LoadCallback = {
+        extern "C" fn fun(_: blob_store::Reference) -> *mut Vec<u8> {
+            unimplemented!()
+        }
+        fun
+    };
+}
