@@ -1,7 +1,7 @@
 //! Tests for token allow/deny list update operations via the scheduler.
 
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenId,

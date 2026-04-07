@@ -1,7 +1,7 @@
 //! Tests for token transfer operations via the scheduler.
 
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
