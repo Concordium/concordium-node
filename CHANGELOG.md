@@ -4,7 +4,7 @@
 
 # 11.1.0 (Devnet)
 
-- Support token operations:
+- Support token operations in P11:
   - `assignAdminRoles` and `revokeAdminRoles` for managing admin roles for a protocol-level token.
   - `updateMetadata` for setting the metadata URL and checksum of a protocol-level token.
 - Extend gRPC API with `getTokenAuthorizations` query for listing accounts holding roles for a given protocol-level token.
