@@ -32,7 +32,13 @@ pub trait Loadable: Sized {
     /// If the value is composed of [blob references](super::blob_reference), these references should not
     /// have their values loaded into memory as a result of the [`Self::load_from_buffer`] operation.
     /// As such, [`Self::load_from_buffer`] is a "shallow" operation.
-    fn load_from_buffer(buffer: impl Read) -> Result<Self, BlockStateError>;
+    ///
+    /// The given `loader` should generally not be used. If it is needed, it is generally a warning
+    /// sign that the state might not have the right model.
+    fn load_from_buffer(
+        buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> Result<Self, BlockStateError>;
 }
 
 /// A trait implemented by types that can be stored to a [blob store](BlobStoreStore).
@@ -63,7 +69,10 @@ impl<T: Storable> Storable for &mut T {
 pub struct StoreSerialized<T>(pub T);
 
 impl<T: Deserial> Loadable for StoreSerialized<T> {
-    fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        _loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
         Ok(StoreSerialized(
             buffer.get().map_parse_err_to_block_state_err()?,
         ))
@@ -85,7 +94,7 @@ pub fn load_from_store<T: Loadable>(
 ) -> BlockStateResult<T> {
     let bytes = loader.load_raw(location);
     let mut bytes_slice = bytes.as_slice();
-    let value = T::load_from_buffer(&mut bytes_slice)?;
+    let value = T::load_from_buffer(&mut bytes_slice, loader)?;
     if !bytes_slice.is_empty() {
         return Err(BlockStateError::BlobStoreDecode(format!(
             "Bytes remaining after loading value of type {} from blob store",
@@ -127,7 +136,7 @@ impl<T> ParseResultExt<T> for common::ParseResult<T> {
     }
 }
 
-#[cfg(test)]
+/// Blob store stubs to be used in tests.
 pub mod test_stub {
     use super::*;
 

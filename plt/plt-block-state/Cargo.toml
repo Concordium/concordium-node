@@ -17,6 +17,7 @@ concordium_base.workspace = true
 # Third party dependencies
 assert_matches.workspace = true
 either.workspace = true
+im.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 libc = { workspace = true, optional = true }
