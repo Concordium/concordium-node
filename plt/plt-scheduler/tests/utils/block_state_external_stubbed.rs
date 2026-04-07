@@ -223,6 +223,7 @@ impl BlockStateWithExternalStateStubbed {
         assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
     }
 
+    /// Pause the given token as the governance account. Panics if the operation fails.
     pub fn pause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
         let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
         let payload = TokenOperationsPayload {
@@ -241,6 +242,7 @@ impl BlockStateWithExternalStateStubbed {
         assert_matches!(result.outcome, TransactionOutcome::Success(_));
     }
 
+    /// Unpause the given token as the governance account. Panics if the operation fails.
     pub fn unpause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
         let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
         let payload = TokenOperationsPayload {
