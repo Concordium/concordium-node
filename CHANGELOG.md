@@ -2,10 +2,17 @@
 
 ## Unreleased changes
 
+# 11.1.0 (Devnet)
+
+- Support token operations:
+  - `assignAdminRoles` and `revokeAdminRoles` for managing admin roles for a protocol-level token.
+  - `updateMetadata` for setting the metadata URL and checksum of a protocol-level token.
+- Extend gRPC API with `getTokenAuthorizations` query for listing accounts holding roles for a given protocol-level token.
+
 # 11.0.0 (DevNet)
 
 - Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
- 
+
 # 10.0.7
 
 - Enhance node performance by limiting outbound queue saturation to peers that are slow in processing messages.
@@ -15,7 +22,7 @@
 
 - Prohibit peers from sending unsolicited PeerList messages
 - Enhance node performance by limiting inbound queue saturation from peers that send messages aggressively by using backpressure.
-- Introduce a background queue for processing messages that don't require the global block state lock. 
+- Introduce a background queue for processing messages that don't require the global block state lock.
 
 # 10.0.5
 
