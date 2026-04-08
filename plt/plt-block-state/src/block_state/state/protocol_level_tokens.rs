@@ -14,7 +14,6 @@ use crate::block_state_interface::{BlockStateError, BlockStateResult};
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
-use concordium_smart_contract_engine::v1::trie;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
 
