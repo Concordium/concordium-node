@@ -53,6 +53,15 @@ pub struct LockConfiguration {
     pub controller: LockController,
 }
 
+/// A token amount and the associated token ID as a pair.
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize)]
+pub struct TokenAndAmount {
+    /// The token ID corresponding to the `amount`.
+    pub token_id: TokenIndex,
+    /// The amount of tokens as an unscaled integer value.
+    pub amount: RawTokenAmount,
+}
+
 /// Account representing (read-only) account state.
 ///
 /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -160,5 +169,20 @@ mod test {
         let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
+    }
+
+    #[test]
+    fn test_token_and_amount_serial() {
+        let token_and_amount = TokenAndAmount {
+            token_id: TokenIndex(2),
+            amount: RawTokenAmount(1000),
+        };
+
+        let bytes = common::to_bytes(&token_and_amount);
+        assert_eq!(hex::encode(&bytes), "00000000000000028768");
+
+        let token_and_amount_deserialized: TokenAndAmount =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_and_amount_deserialized, token_and_amount);
     }
 }

@@ -3,7 +3,6 @@ use concordium_base::common::{
     Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial, Serialize,
 };
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenId;
 
 /// Token amount without decimals specified. The token amount represented by
 /// this type must always be represented with the number of decimals
@@ -111,15 +110,6 @@ pub struct TokenAmount {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize)]
 pub enum TokenHolder {
     Account(AccountAddress),
-}
-
-/// A token amount and the associated token ID as a pair.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize)]
-pub struct TokenAndAmount {
-    /// The token ID corresponding to the `amount`.
-    pub token_id: TokenId,
-    /// The amount of tokens as an unscaled integer value.
-    pub amount: RawTokenAmount,
 }
 
 #[cfg(test)]
@@ -307,24 +297,6 @@ mod test {
         let token_amount_deserialized: TokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
-    }
-
-    #[test]
-    fn test_token_and_amount_serial() {
-        use crate::types::tokens::TokenAndAmount;
-        use concordium_base::protocol_level_tokens::TokenId;
-
-        let token_and_amount = TokenAndAmount {
-            token_id: "token1".parse::<TokenId>().unwrap(),
-            amount: RawTokenAmount(1000),
-        };
-
-        let bytes = common::to_bytes(&token_and_amount);
-        assert_eq!(hex::encode(&bytes), "06746f6b656e318768");
-
-        let token_and_amount_deserialized: TokenAndAmount =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(token_and_amount_deserialized, token_and_amount);
     }
 
     #[test]
