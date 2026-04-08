@@ -1,6 +1,8 @@
-//! Definition of the blob store interface via
-//! [`BlobStoreLoad`] and [`BlobStoreStore`]. And definition of
-//! the traits [`Loadable`] and [`Storable`] that block state components
+//! Definition of the blob store interface via [`BlobStoreLoad`] and [`BlobStoreStore`].
+//! The blob store is a file system based storage, that stores the state to a flat
+//! binary file (per protocol version) that is only appended to.
+//!
+//! The module also defines the traits [`Loadable`] and [`Storable`] that block state components
 //! must implement to be storable in the blob store.
 
 use crate::block_state::blob_reference::BlobStoreLocation;

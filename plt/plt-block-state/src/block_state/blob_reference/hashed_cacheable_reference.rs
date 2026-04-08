@@ -1,4 +1,4 @@
-/// Representation of an immutable, cachable and lazily hashed value of type `V`.
+/// Representation of an immutable, cacheable and lazily hashed value of type `V`.
 ///
 /// See [`HashedCacheableRef`].
 use crate::block_state::blob_reference::BlobStoreLocation;

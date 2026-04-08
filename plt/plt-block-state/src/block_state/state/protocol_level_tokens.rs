@@ -1,4 +1,4 @@
-//! Persistent and in-memory model for protocol-level tokens in the block state.
+//! Persistent model for protocol-level tokens in the block state.
 
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::block_state::blob_store::{
