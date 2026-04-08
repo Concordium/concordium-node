@@ -28,7 +28,7 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     /// Token in context
     pub token: &'a BSQ::Token,
     /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::TokenKeyValueState,
+    pub token_module_state: &'a BSQ::MutableTokenKeyValueState,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -87,7 +87,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSQ::TokenKeyValueState,
+    pub token_module_state: &'a mut BSQ::MutableTokenKeyValueState,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far

@@ -53,7 +53,7 @@ pub type BlockStateResult<T> = Result<T, BlockStateError>;
 pub trait BlockStateQuery {
     /// Opaque type that represents the module managed key-value map.
     /// It defines a dynamic data model defined by the module.
-    type TokenKeyValueState;
+    type MutableTokenKeyValueState;
 
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -84,7 +84,8 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `token` The token to get the token key-value state for.
-    fn mutable_token_key_value_state(&self, token: &Self::Token) -> Self::TokenKeyValueState;
+    fn mutable_token_key_value_state(&self, token: &Self::Token)
+    -> Self::MutableTokenKeyValueState;
 
     /// Get the configuration of a protocol-level token.
     ///
@@ -109,7 +110,7 @@ pub trait BlockStateQuery {
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
-        token_key_value: &Self::TokenKeyValueState,
+        token_key_value: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
@@ -121,7 +122,7 @@ pub trait BlockStateQuery {
     /// - `prefix` The token state key prefix to iterate over.
     fn iter_token_state_prefix<'a>(
         &self,
-        token_key_value: &'a Self::TokenKeyValueState,
+        token_key_value: &'a Self::MutableTokenKeyValueState,
         prefix: TokenStateKey,
     ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)>;
 
@@ -135,7 +136,7 @@ pub trait BlockStateQuery {
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_state_value(
         &self,
-        token_key_value: &mut Self::TokenKeyValueState,
+        token_key_value: &mut Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     );
@@ -251,7 +252,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
+        token_key_value_state: Self::MutableTokenKeyValueState,
     );
 }
 

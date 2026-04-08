@@ -1245,6 +1245,7 @@ name = "plt-block-state"
 version = "0.1.0"
 dependencies = [
  "assert_matches",
+ "concordium-smart-contract-engine",
  "concordium_base",
  "either",
  "hex",
