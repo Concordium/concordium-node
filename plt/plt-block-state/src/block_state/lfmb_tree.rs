@@ -846,8 +846,8 @@ impl<V: Cacheable + Loadable> Cacheable for Subtree<V> {
 mod tests {
     use super::*;
     use crate::block_state::blob_store;
-    use crate::block_state::blob_store::{BlobStoreLocation, StoreSerialized};
     use crate::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use crate::block_state::blob_store::{BlobStoreLocation, StoreSerialized};
     use assert_matches::assert_matches;
     use std::fmt::Debug;
 
