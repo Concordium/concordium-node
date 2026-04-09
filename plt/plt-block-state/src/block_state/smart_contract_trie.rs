@@ -1,6 +1,8 @@
-//! Adapter for the trie in the `concordium-smart-contract-engine` crate. The traits
-//! and methodology does not match 1-1, hence this adapter is needed to use it in the
-//! block state.
+//! Adapter for the trie in the `concordium-smart-contract-engine` crate. There is an
+//! impedance mismatch the Rust block state and the smart contract trie, on how
+//! mutability (thawing/freezing) is handled, how interior mutability (via locks) is implemented,
+//! and the specific definitions of the blob store traits. Hence, this adapter is needed to use
+//! the smart contract trie in the Rust block state.
 
 use crate::block_state::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
