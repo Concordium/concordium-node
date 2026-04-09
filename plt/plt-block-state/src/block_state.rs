@@ -21,7 +21,6 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
 use std::mem;
-use std::vec::IntoIter;
 
 pub mod blob_reference;
 pub mod blob_store;

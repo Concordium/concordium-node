@@ -87,6 +87,7 @@ pub trait BlockStateQuery {
     /// - `token` The token to get the circulating supply.
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount;
 
+    // todo ar in the m
     /// Lookup the value for the given key in the given token key-value state. Returns `None` if
     /// no value exists for the given key.
     ///
@@ -94,6 +95,7 @@ pub trait BlockStateQuery {
     ///
     /// - `token` The token key-value state to look up the value in.
     /// - `key` The token state key.
+    // todo ar make changes to mutable key-value state have effect on lookup_token_state_value and iter_token_state_prefix
     fn lookup_token_state_value(
         &self,
         token: &Self::Token,
@@ -101,8 +103,8 @@ pub trait BlockStateQuery {
     ) -> Option<TokenStateValue>;
 
     /// Get iterator over key-value pairs with the given prefix in the
-    /// token key-value state..
-    ///´
+    /// token key-value state.
+    ///
     /// # Arguments
     ///
     /// - `token` The token key-value state to iterate values in.

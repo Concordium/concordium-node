@@ -24,7 +24,7 @@ impl PersistentState {
 
     pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
         let mut loader = LoaderAdapter(loader);
-        let mut persistent_state = self.lock_read();
+        let persistent_state = self.lock_read();
         persistent_state.lookup(&mut loader, key)
     }
 
@@ -48,7 +48,7 @@ impl PersistentState {
     }
 
     pub fn thaw(&self) -> MutableState {
-        let mut persistent_state = self.lock_read();
+        let persistent_state = self.lock_read();
         MutableState(persistent_state.thaw())
     }
 
