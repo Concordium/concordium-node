@@ -11,7 +11,6 @@ use crate::block_state_interface::{BlockStateError, BlockStateResult};
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
-use concordium_smart_contract_engine::v1::trie::{EntryId, NoError};
 use std::io::Read;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -198,5 +197,140 @@ impl Hashable for PersistentState {
         Ok(Hash::from(
             self.lock_write().hash(&mut LoaderAdapter(loader)).hash,
         ))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::block_state::blob_store;
+    use crate::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use crate::block_state::cacheable::Cacheable;
+    use crate::block_state::smart_contract_trie::PersistentState;
+
+    #[test]
+    fn test_insert_delete_and_lookup() {
+        let state = PersistentState::empty();
+
+        // Insert entries
+        let mut mutable_state = state.thaw();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[0, 1], vec![1, 1])
+            .unwrap();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[0, 2], vec![2, 2])
+            .unwrap();
+        let state = mutable_state.freeze(&UnreachableBlobStore);
+
+        // Lookup values
+        assert_eq!(
+            state.lookup_value(&UnreachableBlobStore, &[0, 1]),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            state.lookup_value(&UnreachableBlobStore, &[0, 2]),
+            Some(vec![2, 2])
+        );
+        assert_eq!(state.lookup_value(&UnreachableBlobStore, &[0, 3]), None);
+
+        // Update and delete entries
+        let mut mutable_state = state.thaw();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[0, 1], vec![4, 4])
+            .unwrap();
+        mutable_state
+            .delete_value(&UnreachableBlobStore, &[0, 2])
+            .unwrap();
+        let state = mutable_state.freeze(&UnreachableBlobStore);
+
+        // Lookup values
+        assert_eq!(
+            state.lookup_value(&UnreachableBlobStore, &[0, 1]),
+            Some(vec![4, 4])
+        );
+        assert_eq!(state.lookup_value(&UnreachableBlobStore, &[0, 2]), None);
+    }
+
+    #[test]
+    fn test_iter_prefix() {
+        let state = PersistentState::empty();
+
+        // Insert entries
+        let mut mutable_state = state.thaw();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[0, 1], vec![1, 1])
+            .unwrap();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[0, 2], vec![2, 2])
+            .unwrap();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[1, 1], vec![3, 3])
+            .unwrap();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[1, 2], vec![4, 4])
+            .unwrap();
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[2, 1], vec![5, 5])
+            .unwrap();
+        let state = mutable_state.freeze(&UnreachableBlobStore);
+
+        // Iterate values
+        let values: Vec<_> = state
+            .iter_prefix(&UnreachableBlobStore, &[0, 2])
+            .unwrap()
+            .collect();
+        assert_eq!(values, vec![(vec![0, 2], vec![2, 2])]);
+        let values: Vec<_> = state
+            .iter_prefix(&UnreachableBlobStore, &[1])
+            .unwrap()
+            .collect();
+        assert_eq!(
+            values,
+            vec![(vec![1, 1], vec![3, 3]), (vec![1, 2], vec![4, 4])]
+        );
+        let values: Vec<_> = state
+            .iter_prefix(&UnreachableBlobStore, &[3])
+            .unwrap()
+            .collect();
+        assert_eq!(values, vec![]);
+    }
+
+    #[test]
+    fn test_store_load_and_cache() {
+        let mut store = BlobStoreStub::default();
+        let state = PersistentState::empty();
+
+        // Insert entries
+        let mut mutable_state = state.thaw();
+        mutable_state
+            .insert_value(&store, &[0, 1], vec![1, 1])
+            .unwrap();
+        mutable_state
+            .insert_value(&store, &[0, 2], vec![2, 2])
+            .unwrap();
+        let state = mutable_state.freeze(&store);
+
+        // Store trie
+        let blob_ref = blob_store::store_to_store(&mut store, state);
+
+        // Load trie
+        let state: PersistentState = blob_store::load_from_store(&store, blob_ref).unwrap();
+
+        // Lookup values
+        assert_eq!(state.lookup_value(&store, &[0, 1]), Some(vec![1, 1]));
+        assert_eq!(state.lookup_value(&store, &[0, 2]), Some(vec![2, 2]));
+
+        // Cache trie
+        state.cache_reference_values(&store).unwrap();
+
+        // Lookup values using "unreachable" blob store since entries
+        // should be in memory now.
+        assert_eq!(
+            state.lookup_value(&UnreachableBlobStore, &[0, 1]),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            state.lookup_value(&UnreachableBlobStore, &[0, 2]),
+            Some(vec![2, 2])
+        );
     }
 }
