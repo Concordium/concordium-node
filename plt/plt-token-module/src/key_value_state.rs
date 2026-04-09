@@ -344,13 +344,13 @@ mod test {
     #[test]
     fn test_module_state_key() {
         let key = module_state_key(&[1, 2, 3]);
-        assert_eq!(key, vec![0, 0, 1, 2, 3]);
+        assert_eq!(key, TokenStateKey(vec![0, 0, 1, 2, 3]));
     }
 
     /// Test that the account state key is formed correctly
     #[test]
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
-        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+        assert_eq!(key, TokenStateKey(vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]));
     }
 }

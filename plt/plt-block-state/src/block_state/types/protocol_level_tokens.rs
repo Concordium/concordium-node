@@ -11,11 +11,11 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 pub struct TokenIndex(pub u64);
 
 /// Key in the key-value state.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct TokenStateKey(pub Vec<u8>);
 
 /// Value in the key-value state.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct TokenStateValue(pub Vec<u8>);
 
 /// Static configuration for a protocol-level token.

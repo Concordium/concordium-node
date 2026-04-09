@@ -3,7 +3,7 @@
 use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_block_state::block_state::hash::Hashable;
-use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenConfiguration, TokenStateKey, TokenStateValue};
 use plt_block_state::block_state::{BlockState, blob_store};
 use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -133,8 +133,8 @@ fn test_key_value_state() {
     let mut key_value_state = block_state.mutable_token_key_value_state(&token);
 
     // Set entries
-    block_state.update_token_state_value(&mut key_value_state, &vec![0, 1], Some(vec![0, 0]));
-    block_state.update_token_state_value(&mut key_value_state, &vec![0, 2], Some(vec![1, 1]));
+    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![0, 0])));
+    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 2]), Some(TokenStateValue(vec![1, 1])));
 
     // Set key/value state
     block_state.set_token_key_value_state(&token, key_value_state);
@@ -143,18 +143,18 @@ fn test_key_value_state() {
     let mut key_value_state = block_state.mutable_token_key_value_state(&token);
 
     // Read entries
-    let value = block_state.lookup_token_state_value(&key_value_state, &vec![0, 1]);
-    assert_eq!(value, Some(vec![0, 0]));
-    let value = block_state.lookup_token_state_value(&key_value_state, &vec![0, 2]);
-    assert_eq!(value, Some(vec![1, 1]));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 1]));
+    assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 2]));
+    assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
 
     // Read non-existing entry
-    let value = block_state.lookup_token_state_value(&key_value_state, &vec![0, 3]);
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 3]));
     assert_eq!(value, None);
 
     // Update entries
-    block_state.update_token_state_value(&mut key_value_state, &vec![0, 1], Some(vec![2, 2]));
-    block_state.update_token_state_value(&mut key_value_state, &vec![0, 2], None);
+    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![2, 2])));
+    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 2]), None);
 
     // Set key/value state
     block_state.set_token_key_value_state(&token, key_value_state);
@@ -163,9 +163,9 @@ fn test_key_value_state() {
     let key_value_state = block_state.mutable_token_key_value_state(&token);
 
     // Read entries
-    let value = block_state.lookup_token_state_value(&key_value_state, &vec![0, 1]);
-    assert_eq!(value, Some(vec![2, 2]));
-    let value = block_state.lookup_token_state_value(&key_value_state, &vec![0, 2]);
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 1]));
+    assert_eq!(value, Some(TokenStateValue(vec![2, 2])));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, None);
 }
 
@@ -185,8 +185,8 @@ fn test_store_and_load_plts() {
     let token1 = block_state.create_token(configuration1.clone());
     block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
     let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-    block_state.update_token_state_value(&mut key_value_state1, &vec![0, 1], Some(vec![0, 0]));
-    block_state.update_token_state_value(&mut key_value_state1, &vec![0, 2], Some(vec![1, 1]));
+    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![0, 0])));
+    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 2]), Some(TokenStateValue(vec![1, 1])));
     block_state.set_token_key_value_state(&token1, key_value_state1);
     let configuration2 = TokenConfiguration {
         token_id: "token2".parse().unwrap(),
@@ -219,10 +219,10 @@ fn test_store_and_load_plts() {
     );
     assert_eq!(block_state.token_configuration(&token1), configuration1);
     let key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-    let value = block_state.lookup_token_state_value(&key_value_state1, &vec![0, 1]);
-    assert_eq!(value, Some(vec![0, 0]));
-    let value = block_state.lookup_token_state_value(&key_value_state1, &vec![0, 2]);
-    assert_eq!(value, Some(vec![1, 1]));
+    let value = block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
+    assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
+    let value = block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
+    assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
     assert_eq!(
         block_state.token_circulating_supply(&token2),
         RawTokenAmount(0)
@@ -247,8 +247,8 @@ fn snapshot_test_hash_plts() {
     let token1 = block_state.create_token(configuration1.clone());
     block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
     let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-    block_state.update_token_state_value(&mut key_value_state1, &vec![0, 1], Some(vec![0, 0]));
-    block_state.update_token_state_value(&mut key_value_state1, &vec![0, 2], Some(vec![1, 1]));
+    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![0, 0])));
+    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 2]), Some(TokenStateValue(vec![1, 1])));
     block_state.set_token_key_value_state(&token1, key_value_state1);
     let configuration2 = TokenConfiguration {
         token_id: "token2".parse().unwrap(),
