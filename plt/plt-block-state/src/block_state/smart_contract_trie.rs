@@ -2,8 +2,7 @@
 //! and methodology does not match 1-1, hence this adapter is needed to use it in the
 //! block state.
 
-use crate::block_state::blob_reference::BlobStoreLocation;
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable};
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state_interface::{BlockStateError, BlockStateResult};
