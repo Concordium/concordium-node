@@ -5,12 +5,16 @@
 //! The module also defines the traits [`Loadable`] and [`Storable`] that block state components
 //! must implement to be storable in the blob store.
 
-use crate::block_state::blob_reference::BlobStoreLocation;
 use crate::block_state_interface::{BlockStateError, BlockStateResult};
 use concordium_base::common;
-use concordium_base::common::{Buffer, Deserial, Get, Put, Serial};
+use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};
 use std::any;
 use std::io::Read;
+
+/// Location of a value in the blob store.
+#[derive(Default, Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[repr(transparent)]
+pub struct BlobStoreLocation(pub u64);
 
 /// Trait implemented by types that can be used to store binary data, and return
 /// a handle for loading data. Dual to [`BlobStoreLoad`].

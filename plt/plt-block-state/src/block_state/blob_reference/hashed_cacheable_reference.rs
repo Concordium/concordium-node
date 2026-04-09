@@ -1,10 +1,9 @@
 /// Representation of an immutable, cacheable and lazily hashed value of type `V`.
 ///
 /// See [`HashedCacheableRef`].
-use crate::block_state::blob_reference::BlobStoreLocation;
 use crate::block_state::blob_store;
 use crate::block_state::blob_store::{
-    BlobStoreLoad, BlobStoreStore, Loadable, ParseResultExt, Storable,
+    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, ParseResultExt, Storable,
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
