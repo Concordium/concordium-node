@@ -2,7 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::blob_reference::BlobStoreLocation;
+use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 

@@ -13,8 +13,3 @@
 use concordium_base::common::Serialize;
 
 pub mod hashed_cacheable_reference;
-
-/// Location of a value in the blob store.
-#[derive(Default, Debug, Clone, Copy, Eq, PartialEq, Serialize)]
-#[repr(transparent)]
-pub struct BlobStoreLocation(pub u64);
