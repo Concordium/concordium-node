@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -34,6 +35,8 @@ import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelToken
 import qualified Concordium.GlobalState.Types as BS
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Status as Status
+import qualified Data.Text.Encoding as Text
 
 -- | Get the list of all tokens, for protocol version where the PLT state is managed in Rust.
 queryPLTList ::
@@ -100,8 +103,8 @@ queryPLTList bs = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenIdList = S.isolate (BS.length returnData) $ CS.getListOf S.get
                                 let tokenIdList =
                                         either
@@ -109,6 +112,11 @@ queryPLTList bs = do
                                             id
                                             $ S.runGet getTokenIdList returnData
                                 return tokenIdList
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryPLTList' resulted in panic with message: " ++ show message)
                             _ -> error ("Unexpected status code from calling 'ffiQueryPLTList': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_plt_list`.
@@ -213,8 +221,8 @@ queryTokenInfo bs tokenId = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenInfo = S.isolate (BS.length returnData) S.get
                                 let tokenInfo =
                                         either
@@ -222,9 +230,14 @@ queryTokenInfo bs tokenId = do
                                             id
                                             $ S.runGet getTokenInfo returnData
                                 return $ Just tokenInfo
-                            1 -> do
+                            Just Status.FSCFailed -> do
                                 return Nothing
-                            _ -> error ("Unexpected status code from calling 'ffiQueryTokenInfo': " ++ show statusCode)
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryTokenInfo' resulted in panic with message: " ++ show message)
+                            Nothing -> error ("Unexpected status code from calling 'ffiQueryTokenInfo': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_info`.
 --
@@ -335,8 +348,8 @@ queryTokenAuthorizations bs tokenId = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenAuthorizations = S.isolate (BS.length returnData) S.get
                                 let tokenAuthorizations =
                                         either
@@ -344,9 +357,14 @@ queryTokenAuthorizations bs tokenId = do
                                             id
                                             $ S.runGet getTokenAuthorizations returnData
                                 return $ Just tokenAuthorizations
-                            1 -> do
+                            Just Status.FSCFailed -> do
                                 return Nothing
-                            _ -> error ("Unexpected status code from calling 'ffiQueryTokenAuthorizations': " ++ show statusCode)
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryTokenAuthorizations' resulted in panic with message: " ++ show message)
+                            Nothing -> error ("Unexpected status code from calling 'ffiQueryTokenAuthorizations': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_authorizations`.
 --
@@ -455,8 +473,8 @@ queryTokenAccountInfos bs accountIndex = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenAccountInfos = S.isolate (BS.length returnData) $ CS.getListOf S.get
                                 let tokenAccountInfos =
                                         either
@@ -464,6 +482,11 @@ queryTokenAccountInfos bs accountIndex = do
                                             id
                                             $ S.runGet getTokenAccountInfos returnData
                                 return tokenAccountInfos
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryTokenAccountInfos' resulted in panic with message: " ++ show message)
                             _ -> error ("Unexpected status code from calling 'ffiQueryTokenAccountInfos': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_account_infos`.
