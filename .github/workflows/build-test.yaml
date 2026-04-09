@@ -139,7 +139,6 @@ jobs:
     # but also before building the Haskell sources because the Haskell
     # build kicks of a Rust build.
     - name: Install Rust tools
-      working-directory: plt
       run: |
         rustup component add clippy llvm-tools
         rustup target add x86_64-pc-windows-gnu

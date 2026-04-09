@@ -18,11 +18,8 @@ runCmd verbosity cmd = do
     let command : args = words cmd
     rawSystemExit verbosity command $ args
 
--- | Path to Concordium Smart Contract Engine rust crate relative to this file.
-smartContractEngineCrateRelative = "../concordium-base/smart-contracts/wasm-chain-integration"
-
--- | Path to plt rust workspace relative to this file.
-pltWorkspaceRelative = "../plt"
+-- | Path to the Rust node library workspace relative to this file.
+nodeRustLibraryWorkspaceRelative = "../plt"
 
 postConfHook :: Args -> ConfigFlags -> PackageDescription -> LocalBuildInfo -> IO ()
 postConfHook args flags _ _ = do
@@ -33,31 +30,19 @@ postConfHook args flags _ _ = do
     -- Ensure destination directory exists.
     runCmd verbosity $ "mkdir -p " ++ libraryDestination
 
-    -- Build and copy/symlink Concordium Smart contract Engine library.
-    smartContractEngineCrate <- canonicalizePath smartContractEngineCrateRelative
-    runCmd verbosity $ "cargo build --release --locked --features=enable-ffi --manifest-path=" ++ smartContractEngineCrate ++ "/Cargo.toml"
-    case buildOS of
-        Windows -> do
-            runCmd verbosity $ "cp -u " ++ smartContractEngineCrate ++ "/target/release/concordium_smart_contract_engine.dll " ++ libraryDestination
-        OSX -> do
-            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.dylib " ++ libraryDestination
-        _ -> do
-            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.so " ++ libraryDestination
-
     -- Build and copy/symlink PLT scheduler project
-    pltWorkspace <- canonicalizePath pltWorkspaceRelative
-    withCurrentDirectory pltWorkspace $ runCmd verbosity $ "cargo build --release --locked --features ffi -p plt-scheduler"
+    nodeRustLibraryWorkspace <- canonicalizePath nodeRustLibraryWorkspaceRelative
+    withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "rustup show active-toolchain"
+    withCurrentDirectory nodeRustLibraryWorkspace $ runCmd verbosity $ "cargo build --release --locked -p node-rust-library"
     case buildOS of
         Windows -> do
-            runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ libraryDestination
+            runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.dll " ++ libraryDestination
         OSX -> do
-            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.dylib " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.dylib " ++ libraryDestination
         _ -> do
-            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.so " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ nodeRustLibraryWorkspace ++ "/target/release/libnode_rust_library.so " ++ libraryDestination
     return ()
 
 -- | On Windows, copy the DLL files to the binary install directory. This is to ensure that they
@@ -66,12 +51,9 @@ postCopyHook :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO 
 postCopyHook _ flags pkgDescr lbi = case buildOS of
     Windows -> do
         let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest
-        -- Copy DLL for Concordium Smart Contract Engine
-        smartContractEngineCrate <- canonicalizePath smartContractEngineCrateRelative
-        runCmd verbosity $ "cp -u " ++ smartContractEngineCrate ++ "/target/release/concordium_smart_contract_engine.dll " ++ bindir installDirs
         -- Copy DLL for PLT scheduler
-        pltWorkspace <- canonicalizePath pltWorkspaceRelative
-        runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ bindir installDirs
+        nodeRustLibraryWorkspace <- canonicalizePath nodeRustLibraryWorkspaceRelative
+        runCmd verbosity $ "cp -u " ++ nodeRustLibraryWorkspace ++ "/target/release/node_rust_library.dll " ++ bindir installDirs
     _ -> return ()
   where
     distPref = fromFlag (copyDistPref flags)

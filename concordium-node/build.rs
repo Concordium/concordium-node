@@ -220,6 +220,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_token_authorizations")
+                .route_name("GetTokenAuthorizations")
+                .input_type("crate::grpc2::types::TokenAuthorizationsRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_account_list")
                 .route_name("GetAccountList")
                 .input_type("crate::grpc2::types::BlockHashInput")
@@ -895,9 +904,7 @@ fn link_static_libs() -> std::io::Result<()> {
     );
     println!("cargo:rustc-link-lib=static=Rcrypto");
 
-    println!("cargo:rustc-link-lib=static=plt_scheduler");
-
-    println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
+    println!("cargo:rustc-link-lib=static=node_rust_library");
 
     println!("cargo:rustc-link-lib=dylib=gmp");
 

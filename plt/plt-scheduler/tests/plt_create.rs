@@ -2,9 +2,7 @@
 //! the tests of the token module in the `plt-token-module` crate. In the present file,
 //! higher level tests are implemented.
 
-use crate::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 use assert_matches::assert_matches;
-use concordium_base::base::ProtocolVersion;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
@@ -17,13 +15,14 @@ use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 use plt_token_module::TOKEN_MODULE_REF;
+use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
-mod block_state_external_stubbed;
+mod utils;
 
 /// Test create protocol-level token.
 #[test]
 fn test_plt_create() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     assert_eq!(stub.plt_update_instruction_sequence_number(), 0);
 
     let token_id: TokenId = "testtokenid".parse().unwrap();
@@ -85,7 +84,7 @@ fn test_plt_create() {
 /// Test create protocol-level token.
 #[test]
 fn test_plt_create_with_minting() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     assert_eq!(stub.plt_update_instruction_sequence_number(), 0);
 
     let token_id: TokenId = "testtokenid".parse().unwrap();
@@ -146,7 +145,7 @@ fn test_plt_create_with_minting() {
 /// ids which only differ in casing are considered equal.
 #[test]
 fn test_plt_create_duplicate_id() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
@@ -200,7 +199,7 @@ fn test_plt_create_duplicate_id() {
 /// Test create protocol-level token where the token module reference is to an unknown token module.
 #[test]
 fn test_plt_create_unknown_token_module_reference() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
@@ -241,7 +240,7 @@ fn test_plt_create_unknown_token_module_reference() {
 /// Test create protocol-level token where the token module returns an error.
 #[test]
 fn test_plt_create_token_module_initialization_error() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));

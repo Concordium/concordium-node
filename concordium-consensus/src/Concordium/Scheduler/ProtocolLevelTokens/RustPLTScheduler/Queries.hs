@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -9,6 +10,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryPLTList,
     queryTokenInfo,
     queryTokenAccountInfos,
+    queryTokenAuthorizations,
 ) where
 
 import Control.Monad
@@ -33,6 +35,8 @@ import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelToken
 import qualified Concordium.GlobalState.Types as BS
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Status as Status
+import qualified Data.Text.Encoding as Text
 
 -- | Get the list of all tokens, for protocol version where the PLT state is managed in Rust.
 queryPLTList ::
@@ -91,7 +95,7 @@ queryPLTList bs = do
                         FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                         FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
                         FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                        -- Process the returned status and values returend via out pointers
+                        -- Process the returned status and values returned via out pointers
                         returnDataLen <- FFI.peek returnDataLenOutPtr
                         returnDataPtr <- FFI.peek returnDataPtrOutPtr
                         returnData <-
@@ -99,8 +103,8 @@ queryPLTList bs = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenIdList = S.isolate (BS.length returnData) $ CS.getListOf S.get
                                 let tokenIdList =
                                         either
@@ -108,6 +112,11 @@ queryPLTList bs = do
                                             id
                                             $ S.runGet getTokenIdList returnData
                                 return tokenIdList
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryPLTList' resulted in panic with message: " ++ show message)
                             _ -> error ("Unexpected status code from calling 'ffiQueryPLTList': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_plt_list`.
@@ -204,7 +213,7 @@ queryTokenInfo bs tokenId = do
                         FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                         FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
                         FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                        -- Process the returned status and values returend via out pointers
+                        -- Process the returned status and values returned via out pointers
                         returnDataLen <- FFI.peek returnDataLenOutPtr
                         returnDataPtr <- FFI.peek returnDataPtrOutPtr
                         returnData <-
@@ -212,8 +221,8 @@ queryTokenInfo bs tokenId = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenInfo = S.isolate (BS.length returnData) S.get
                                 let tokenInfo =
                                         either
@@ -221,9 +230,14 @@ queryTokenInfo bs tokenId = do
                                             id
                                             $ S.runGet getTokenInfo returnData
                                 return $ Just tokenInfo
-                            1 -> do
+                            Just Status.FSCFailed -> do
                                 return Nothing
-                            _ -> error ("Unexpected status code from calling 'ffiQueryTokenInfo': " ++ show statusCode)
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryTokenInfo' resulted in panic with message: " ++ show message)
+                            Nothing -> error ("Unexpected status code from calling 'ffiQueryTokenInfo': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_info`.
 --
@@ -255,6 +269,133 @@ foreign import ccall "ffi_query_token_info"
         FFI.CSize ->
         -- | Output location for array containing return data, which is the token info.
         -- If the return value is `0`, the data is the serialized token info.
+        -- If the return value is `1`, the data is empty (zero bytes).
+        FFI.Ptr (FFI.Ptr Word.Word8) ->
+        -- | Output location for writing the length of the return data.
+        FFI.Ptr FFI.CSize ->
+        -- | Status code:
+        -- * `0`: the query was successful.
+        -- * `1`: token does not exist
+        IO Word.Word8
+
+-- | Get token authorizations for a given token, for protocol version where the PLT state is managed in Rust.
+queryTokenAuthorizations ::
+    forall m.
+    (Types.PVSupportsRustManagedPLT (Types.MPV m), BS.BlockStateQuery m) =>
+    -- | Block state to query.
+    BS.BlockState m ->
+    -- | Token to find token info for.
+    Types.TokenId ->
+    -- | The token info.
+    m (Maybe QueriesTypes.TokenAuthorizations)
+queryTokenAuthorizations bs tokenId = do
+    queryCallbacks <- unliftBlockStateQueryCallbacks bs
+    pltState <- BS.getRustPLTBlockState bs
+    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
+    BS.liftBlobStore $ queryTokenAuthorizationsInBlobStoreMonad pltState queryCallbacks protocolVersion
+  where
+    -- Get token Authorizations for the given token in the given block state. The function is a wrapper around an FFI call
+    -- to the Rust PLT Scheduler library.
+    queryTokenAuthorizationsInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m') =>
+        -- Block state to query.
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        -- Callback need for queries.
+        BlockStateQueryCallbacks ->
+        -- The protocol version of the block.
+        Types.ProtocolVersion ->
+        -- The token info.
+        m' (Maybe QueriesTypes.TokenAuthorizations)
+    queryTokenAuthorizationsInBlobStoreMonad
+        pltBlockState
+        queryCallbacks
+        protocolVersion =
+            do
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        -- Invoke the ffi call
+                        statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
+                            BSS.useAsCStringLen (Types.tokenId tokenId) $ \(tokenIdPtr, tokenIdLen) ->
+                                ffiQueryTokenAuthorizations
+                                    loadCallbackPtr
+                                    readTokenAccountBalanceCallbackPtr
+                                    getAccountIndexByAddressCallbackPtr
+                                    getAccountAddressByIndexCallbackPtr
+                                    getTokenAccountStatesCallbackPtr
+                                    pltBlockStatePtr
+                                    (Types.protocolVersionToWord64 protocolVersion)
+                                    (FFI.castPtr tokenIdPtr)
+                                    (fromIntegral tokenIdLen)
+                                    returnDataPtrOutPtr
+                                    returnDataLenOutPtr
+                        -- Free the function pointers we have just created
+                        -- (loadCallbackPtr is created in another context,
+                        -- so we should not free it)
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        -- Process the returned status and values returned via out pointers
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
+                                let getTokenAuthorizations = S.isolate (BS.length returnData) S.get
+                                let tokenAuthorizations =
+                                        either
+                                            (\message -> error $ "Token authorizations from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getTokenAuthorizations returnData
+                                return $ Just tokenAuthorizations
+                            Just Status.FSCFailed -> do
+                                return Nothing
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryTokenAuthorizations' resulted in panic with message: " ++ show message)
+                            Nothing -> error ("Unexpected status code from calling 'ffiQueryTokenAuthorizations': " ++ show statusCode)
+
+-- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_authorizations`.
+--
+-- Returns a byte representing the result:
+--
+-- - `0`: The query was successful
+-- - `1`: The token does not exist
+--
+-- See the exported function in the Rust code for documentation of safety.
+foreign import ccall "ffi_query_token_authorizations"
+    ffiQueryTokenAuthorizations ::
+        -- | Called to read data from blob store.
+        FFI.LoadCallback ->
+        -- | Called to get the token account balance in the haskell-managed block state.
+        ReadTokenAccountBalanceCallbackPtr ->
+        -- | Called to get account index by account address.
+        GetAccountIndexByAddressCallbackPtr ->
+        -- | Called to get account address by account index.
+        GetAccountAddressByIndexCallbackPtr ->
+        -- | Called to get token account states for account.
+        GetTokenAccountStatesCallbackPtr ->
+        -- | Pointer to the input PLT block state.
+        FFI.Ptr PLTBlockState.RustPLTBlockState ->
+        -- | Protocol version of the block.
+        Word.Word64 ->
+        -- | Pointer to token id UTF-8 bytes.
+        FFI.Ptr Word.Word8 ->
+        -- | Byte length of token id UTF-8.
+        FFI.CSize ->
+        -- | Output location for array containing return data, which is the token authorizations.
+        -- If the return value is `0`, the data is the serialized token authorizations.
         -- If the return value is `1`, the data is empty (zero bytes).
         FFI.Ptr (FFI.Ptr Word.Word8) ->
         -- | Output location for writing the length of the return data.
@@ -324,7 +465,7 @@ queryTokenAccountInfos bs accountIndex = do
                         FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                         FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
                         FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                        -- Process the returned status and values returend via out pointers
+                        -- Process the returned status and values returned via out pointers
                         returnDataLen <- FFI.peek returnDataLenOutPtr
                         returnDataPtr <- FFI.peek returnDataPtrOutPtr
                         returnData <-
@@ -332,8 +473,8 @@ queryTokenAccountInfos bs accountIndex = do
                                 returnDataPtr
                                 (fromIntegral returnDataLen)
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                        case statusCode of
-                            0 -> do
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
                                 let getTokenAccountInfos = S.isolate (BS.length returnData) $ CS.getListOf S.get
                                 let tokenAccountInfos =
                                         either
@@ -341,6 +482,11 @@ queryTokenAccountInfos bs accountIndex = do
                                             id
                                             $ S.runGet getTokenAccountInfos returnData
                                 return tokenAccountInfos
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryTokenAccountInfos' resulted in panic with message: " ++ show message)
                             _ -> error ("Unexpected status code from calling 'ffiQueryTokenAccountInfos': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::queries::query_token_account_infos`.

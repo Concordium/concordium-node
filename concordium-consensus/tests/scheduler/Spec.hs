@@ -18,6 +18,7 @@ import qualified SchedulerTests.RandomBakerTransactions (tests)
 import qualified SchedulerTests.ReceiveContextTest (tests)
 import qualified SchedulerTests.RejectReasons (tests)
 import qualified SchedulerTests.RejectReasonsRustContract (tests)
+import qualified SchedulerTests.RustScheduler (tests)
 import qualified SchedulerTests.SimpleTransferSpec (tests)
 import qualified SchedulerTests.SimpleTransfersTest (tests)
 import qualified SchedulerTests.SponsoredTransactions (tests)
@@ -122,3 +123,4 @@ main = hspec $ do
     SchedulerTests.TokenCreation.tests
     SchedulerTests.TokenHolderTransactions.tests
     SchedulerTests.MetaUpdateTransactions.tests
+    SchedulerTests.RustScheduler.tests

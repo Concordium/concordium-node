@@ -240,7 +240,8 @@ pub type GetAccountIndexByAddressCallback =
 /// External function for getting token account states for an account.
 /// The bytes in the returned `Vec<u8>` contains binary serialized list of token indexes and token account states.
 ///
-/// Returns pointer to a uniquely owned [`Vec`].
+/// Returns pointer to a uniquely owned [`Vec`]. The `Vec` should be allocated
+/// by the callee using `copy_to_vec_ffi` in `wasm-chain-integration`.
 /// The returned `Vec` must be deallocated by the caller.
 ///
 /// # Arguments
@@ -248,3 +249,58 @@ pub type GetAccountIndexByAddressCallback =
 /// - `account_index` The index of the account to update a token balance for. Must be a valid
 ///   account index of an existing account.
 pub type GetTokenAccountStatesCallback = extern "C" fn(account_index: u64) -> *mut Vec<u8>;
+
+pub mod tests_helpers {
+    use super::*;
+
+    pub const UNIMPLEMENTED_UPDATE_TOKEN_ACCOUNT_BALANCE: UpdateTokenAccountBalanceCallback = {
+        extern "C" fn fun(_: u64, _: u64, _: u64, _: u8) -> u8 {
+            unimplemented!()
+        }
+        fun
+    };
+
+    pub const UNIMPLEMENTED_TOUCH_TOKEN_ACCOUNT: TouchTokenAccountCallback = {
+        extern "C" fn fun(_: u64, _: u64) {
+            unimplemented!()
+        }
+        fun
+    };
+
+    pub const UNIMPLEMENTED_READ_TOKEN_ACCOUNT_BALANCE: ReadTokenAccountBalanceCallback = {
+        extern "C" fn fun(_: u64, _: u64) -> u64 {
+            unimplemented!()
+        }
+        fun
+    };
+
+    pub const UNIMPLEMENTED_INCREMENT_PLT_UPDATE_SEQUENCE_NUMBER:
+        IncrementPltUpdateSequenceNumberCallback = {
+        extern "C" fn fun() {
+            unimplemented!()
+        }
+        fun
+    };
+
+    pub const UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX:
+        GetCanonicalAddressByAccountIndexCallback = {
+        extern "C" fn fun(_: u64, _: *mut u8) -> u8 {
+            unimplemented!()
+        }
+        fun
+    };
+
+    pub const UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS: GetAccountIndexByAddressCallback = {
+        extern "C" fn fun(_: *const u8, _: *mut u64) -> u8 {
+            unimplemented!()
+        }
+        fun
+    };
+
+    pub const UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES: GetTokenAccountStatesCallback = {
+        extern "C" fn fun(_: u64) -> *mut Vec<u8> {
+            unimplemented!()
+        }
+        fun
+    };
+}

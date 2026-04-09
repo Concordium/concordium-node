@@ -36,6 +36,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Data.String
+import Data.Text (Text)
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
@@ -857,7 +858,7 @@ testPauseUnpause ::
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
     SProtocolVersion pv ->
     Assertion
-testPauseUnpause _ = do
+testPauseUnpause spv = do
     Helpers.runSchedulerTestAssertIntermediateStates
         @pv
         Helpers.defaultTestConfig
@@ -1001,7 +1002,7 @@ testPauseUnpause _ = do
                     CBOR.OperationNotPermitted
                         { trrOperationIndex = 0,
                           trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
+                          trrReason = Just $ notAuthorizedReason spv
                         }
             },
           -- Pause and transfer from gov account (fails: transfer not permitted while paused).
@@ -1063,13 +1064,19 @@ testPauseUnpause _ = do
                     CBOR.OperationNotPermitted
                         { trrOperationIndex = 0,
                           trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
+                          trrReason = Just $ notAuthorizedReason spv
                         }
             }
         ]
 
+notAuthorizedReason :: (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> Text
+notAuthorizedReason spv = case spv of
+    SP9 -> "sender is not the token governance account"
+    SP10 -> "sender is not the token governance account"
+    _ -> "sender is not authorized to perform the operation for this token"
+
 testMintBurn :: forall pv. (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> Bool -> Bool -> Assertion
-testMintBurn _ mintEnabled burnEnabled = do
+testMintBurn spv mintEnabled burnEnabled = do
     Helpers.runSchedulerTestAssertIntermediateStates
         @pv
         Helpers.defaultTestConfig
@@ -1242,11 +1249,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenMint (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
-                        }
+                    if mintEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
+                                  trrReason = Just $ notAuthorizedReason spv
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "mint",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             },
           -- Burn 50 from non-gov acct (fails: not permitted)
           Helpers.BlockItemAndAssertion
@@ -1255,11 +1270,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenBurn (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
-                          trrReason = Just "sender is not the token governance account"
-                        }
+                    if burnEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress2),
+                                  trrReason = Just $ notAuthorizedReason spv
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "burn",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             },
           -- Mint too much from gov acct (fails: would overflow, or not enabled)
           Helpers.BlockItemAndAssertion
@@ -1325,11 +1348,19 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenMint (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Nothing,
-                          trrReason = Just "token operation mint is paused"
-                        }
+                    if mintEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation mint is paused"
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "mint",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             },
           -- Burn from gov acct while paused (fails: operation not permitted)
           Helpers.BlockItemAndAssertion
@@ -1338,13 +1369,326 @@ testMintBurn _ mintEnabled burnEnabled = do
                     [CBOR.TokenBurn (TokenAmount 50 0)],
               biaaAssertion =
                 checkEnergyStateReason 539 100 100 $
-                    CBOR.OperationNotPermitted
-                        { trrOperationIndex = 0,
-                          trrAddressNotPermitted = Nothing,
-                          trrReason = Just "token operation burn is paused"
-                        }
+                    if burnEnabled || demoteProtocolVersion spv < Types.P11
+                        then
+                            CBOR.OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation burn is paused"
+                                }
+                        else
+                            CBOR.UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "burn",
+                                  trrReason = Just $ "feature not enabled"
+                                }
             }
         ]
+
+-- | Test that a token transfer is accepted when the recipient address has no coin info.
+--  Verifies that the resulting balances are correct after the transfer.
+testNoCoinInfoTransfer ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testNoCoinInfoTransfer _ pvString =
+    specify (pvString ++ ": Token transfer with no coin info in recipient address") $ do
+        let govAcct = CBOR.accountTokenHolder dummyAddress
+            -- Recipient address without coin info (the "short" / untagged form).
+            recptShort = CBOR.accountTokenHolderShort dummyAddress2
+            mintAmt = TokenAmount 100 0
+            transferAmt = TokenAmount 40 0
+            remainderAmt = TokenAmount 60 0
+            pltName = Types.TokenId $ fromString "PLT"
+            params =
+                CBOR.TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+                      tipGovernanceAccount = Just govAcct,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
+                      tipInitialSupply = Just mintAmt,
+                      tipMintable = Nothing,
+                      tipBurnable = Nothing,
+                      tipAdditional = Map.empty
+                    }
+            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
+            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+            transferOps =
+                mkOps $
+                    CBOR.TokenUpdateTransaction $
+                        Seq.singleton $
+                            CBOR.TokenTransfer $
+                                CBOR.TokenTransferBody
+                                    { ttAmount = transferAmt,
+                                      ttRecipient = recptShort,
+                                      ttMemo = Nothing
+                                    }
+            transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.ChainUpdateTx $
+                            Runner.ChainUpdateTransaction
+                                { ctSeqNumber = 1,
+                                  ctEffectiveTime = 0,
+                                  ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
+                                  ctPayload = Types.CreatePLTUpdatePayload createPLT,
+                                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
+                                },
+                      biaaAssertion = \result _ ->
+                        return $
+                            Helpers.assertSuccessWithEvents
+                                [ TokenCreated{etcPayload = createPLT},
+                                  TokenMint
+                                    { etmTokenId = pltName,
+                                      etmTarget = HolderAccount dummyAddress,
+                                      etmAmount = mintAmt
+                                    }
+                                ]
+                                result
+                    },
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TokenUpdate
+                                        { tuTokenId = pltName,
+                                          tuOperations = transferOps
+                                        },
+                                  metadata = makeDummyHeader dummyAddress 1 10_000,
+                                  keys = [(0, [(0, dummyKP)])]
+                                },
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        senderIndex <- fromJust <$> BS.getAccount st dummyAddress
+                        destIndex <- fromJust <$> BS.getAccount st dummyAddress2
+                        senderTokens <- queryAccountTokens senderIndex st
+                        destTokens <- queryAccountTokens destIndex st
+                        return $ do
+                            -- Transfer to a short-form (no coin info) address is accepted.
+                            Helpers.assertSuccessWithEvents
+                                [ TokenTransfer
+                                    { ettTokenId = pltName,
+                                      ettFrom = HolderAccount dummyAddress,
+                                      ettTo = HolderAccount dummyAddress2,
+                                      ettAmount = transferAmt,
+                                      ettMemo = Nothing
+                                    }
+                                ]
+                                result
+                            -- Resulting balances are correct.
+                            assertEqual
+                                "Sender balance after transfer"
+                                [Token{tokenId = pltName, tokenAccountState = TokenAccountState{balance = remainderAmt, moduleAccountState = Just emptyModuleAccountState}}]
+                                senderTokens
+                            assertEqual
+                                "Recipient balance after transfer"
+                                [Token{tokenId = pltName, tokenAccountState = TokenAccountState{balance = transferAmt, moduleAccountState = Just emptyModuleAccountState}}]
+                                destTokens
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+  where
+    emptyModuleAccountState =
+        CBOR.tokenModuleAccountStateToBytes $
+            CBOR.TokenModuleAccountState
+                { tmasDenyList = Nothing,
+                  tmasAllowList = Nothing,
+                  tmasAdditional = mempty
+                }
+
+-- | Test that allow/deny list operations are accepted when the target address has no coin info.
+--  Verifies that:
+--  - Operations with no-coin-info addresses are accepted.
+--  - Output events carry coin info exactly as specified in the operation (i.e. absent if absent).
+--  - Reject reasons always report addresses with coin info set.
+--  - The resulting account state correctly reflects list membership.
+testNoCoinInfoAllowDenyList ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testNoCoinInfoAllowDenyList _ pvString =
+    specify (pvString ++ ": Allow/deny list operations with no coin info in target address") $ do
+        let govAcct = CBOR.accountTokenHolder dummyAddress
+            -- Target address without coin info (the "short" / untagged form).
+            targetShort = CBOR.accountTokenHolderShort dummyAddress2
+            mintAmt = TokenAmount 100 0
+            pltName = Types.TokenId $ fromString "PLT"
+            params =
+                CBOR.TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+                      tipGovernanceAccount = Just govAcct,
+                      tipAllowList = Just True,
+                      tipDenyList = Just True,
+                      tipInitialSupply = Just mintAmt,
+                      tipMintable = Nothing,
+                      tipBurnable = Nothing,
+                      tipAdditional = Map.empty
+                    }
+            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
+            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+            -- Helper to build a TokenModuleEvent for a list update.
+            listEvent evtType target =
+                TokenModuleEvent
+                    { etmeTokenId = pltName,
+                      etmeType = TokenEventType evtType,
+                      etmeDetails = CBOR.encodeTargetDetails target
+                    }
+            assertTokenReject trr =
+                Helpers.assertRejectWithReason
+                    . TokenUpdateTransactionFailed
+                    . makeTokenModuleRejectReason pltName
+                    . CBOR.encodeTokenRejectReason
+                    $ trr
+            -- Expected account state for dummyAddress2 after being added to both lists.
+            expectTargetAccountState onAllow onDeny =
+                Just $
+                    CBOR.tokenModuleAccountStateToBytes $
+                        CBOR.TokenModuleAccountState
+                            { tmasDenyList = Just onDeny,
+                              tmasAllowList = Just onAllow,
+                              tmasAdditional = mempty
+                            }
+            transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ -- Create the PLT.
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.ChainUpdateTx $
+                            Runner.ChainUpdateTransaction
+                                { ctSeqNumber = 1,
+                                  ctEffectiveTime = 0,
+                                  ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
+                                  ctPayload = Types.CreatePLTUpdatePayload createPLT,
+                                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
+                                },
+                      biaaAssertion = \result _ ->
+                        return $
+                            Helpers.assertSuccessWithEvents
+                                [ TokenCreated{etcPayload = createPLT},
+                                  TokenMint
+                                    { etmTokenId = pltName,
+                                      etmTarget = HolderAccount dummyAddress,
+                                      etmAmount = mintAmt
+                                    }
+                                ]
+                                result
+                    },
+                  -- Add dummyAddress2 to the allow list using a short-form (no coin info) address.
+                  -- The operation is accepted and the output event target has no coin info.
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TokenUpdate
+                                        { tuTokenId = pltName,
+                                          tuOperations = mkOps [CBOR.TokenAddAllowList targetShort]
+                                        },
+                                  metadata = makeDummyHeader dummyAddress 1 10_000,
+                                  keys = [(0, [(0, dummyKP)])]
+                                },
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        destIndex <- fromJust <$> BS.getAccount st dummyAddress2
+                        destTokens <- queryAccountTokens destIndex st
+                        return $ do
+                            -- Accepted; event carries the target address exactly as in the
+                            -- operation (no coin info, since the operation had none).
+                            Helpers.assertSuccessWithEvents
+                                [listEvent "addAllowList" targetShort]
+                                result
+                            -- The resulting account state shows the account is on the allow list.
+                            assertEqual
+                                "Target account state after addAllowList"
+                                [Token{tokenId = pltName, tokenAccountState = TokenAccountState{balance = TokenAmount 0 0, moduleAccountState = expectTargetAccountState True False}}]
+                                destTokens
+                    },
+                  -- Attempt a transfer from dummyAddress (not on the allow list) to
+                  -- dummyAddress2 (which is on the allow list), using the short-form recipient
+                  -- address to also exercise no-coin-info in a rejected operation.
+                  -- This is rejected; the reject reason reports the sender address with coin info set.
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TokenUpdate
+                                        { tuTokenId = pltName,
+                                          tuOperations =
+                                            mkOps
+                                                [ CBOR.TokenTransfer $
+                                                    CBOR.TokenTransferBody
+                                                        { ttAmount = TokenAmount 10 0,
+                                                          ttRecipient = targetShort,
+                                                          ttMemo = Nothing
+                                                        }
+                                                ]
+                                        },
+                                  metadata = makeDummyHeader dummyAddress 2 10_000,
+                                  keys = [(0, [(0, dummyKP)])]
+                                },
+                      biaaAssertion = \result _ ->
+                        return $
+                            -- Rejected: sender (dummyAddress) is not on the allow list.
+                            -- The reject reason uses the full-form address (coin info set).
+                            assertTokenReject
+                                CBOR.OperationNotPermitted
+                                    { trrOperationIndex = 0,
+                                      trrAddressNotPermitted = Just (CBOR.accountTokenHolder dummyAddress),
+                                      trrReason = Just "sender not in allow list"
+                                    }
+                                result
+                    },
+                  -- Add dummyAddress2 to the deny list using a short-form (no coin info) address.
+                  -- The operation is accepted and the output event target has no coin info.
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TokenUpdate
+                                        { tuTokenId = pltName,
+                                          tuOperations = mkOps [CBOR.TokenAddDenyList targetShort]
+                                        },
+                                  metadata = makeDummyHeader dummyAddress 3 10_000,
+                                  keys = [(0, [(0, dummyKP)])]
+                                },
+                      biaaAssertion = \result ust -> do
+                        st <- BS.freezeBlockState ust
+                        destIndex <- fromJust <$> BS.getAccount st dummyAddress2
+                        destTokens <- queryAccountTokens destIndex st
+                        return $ do
+                            -- Accepted; event carries the target address exactly as in the
+                            -- operation (no coin info, since the operation had none).
+                            Helpers.assertSuccessWithEvents
+                                [listEvent "addDenyList" targetShort]
+                                result
+                            -- The resulting account state shows the account is on both lists.
+                            assertEqual
+                                "Target account state after addDenyList"
+                                [Token{tokenId = pltName, tokenAccountState = TokenAccountState{balance = TokenAmount 0 0, moduleAccountState = expectTargetAccountState True True}}]
+                                destTokens
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
 
 tests :: Spec
 tests =
@@ -1368,4 +1712,6 @@ tests =
                     it "mint enabled, burn disabled" $ testMintBurn spv True False
                     it "mint disabled, burn enabled" $ testMintBurn spv False True
                     it "mint disabled, burn disabled" $ testMintBurn spv False False
+                testNoCoinInfoTransfer spv pvString
+                testNoCoinInfoAllowDenyList spv pvString
             SFalse -> return ()

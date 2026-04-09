@@ -53,6 +53,17 @@ pub struct TokenAccountInfo {
     pub account_state: TokenAccountState,
 }
 
+/// The token authorizations returned for a `TokenAuthorizationQuery`.
+///
+/// Corresponding Haskell type: `Concordium.Types.Queries.Tokens.TokenAuthorzations`
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct TokenAuthorizations {
+    /// The canonical identifier/symbol for the protocol level token.
+    pub token_id: TokenId,
+    /// The CBOR encoding of `token-authorizations` found in `concordium-base/cddl/cis-7.cddl`.
+    pub details: RawCbor,
+}
+
 #[cfg(test)]
 mod test {
     use concordium_base::{

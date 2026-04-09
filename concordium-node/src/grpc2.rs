@@ -923,6 +923,8 @@ struct ServiceConfig {
     #[serde(default)]
     get_token_info: bool,
     #[serde(default)]
+    get_token_authorizations: bool,
+    #[serde(default)]
     get_module_list: bool,
     #[serde(default)]
     get_module_source: bool,
@@ -1050,6 +1052,7 @@ impl ServiceConfig {
             get_token_list: true,
             get_account_info: true,
             get_token_info: true,
+            get_token_authorizations: true,
             get_module_list: true,
             get_module_source: true,
             get_instance_list: true,
@@ -1817,6 +1820,29 @@ pub mod server {
                     let block_hash = request.block_hash.as_ref().require()?;
                     let token_identifier = request.token_id.as_ref().require()?;
                     consensus.get_token_info_v2(block_hash, token_identifier)
+                })
+                .await?;
+
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_token_authorizations(
+            &self,
+            request: tonic::Request<crate::grpc2::types::TokenAuthorizationsRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_token_authorizations {
+                return Err(tonic::Status::unimplemented(
+                    "`GetTokenAuthorizations` is not enabled.",
+                ));
+            }
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let token_identifier = request.token_id.as_ref().require()?;
+                    consensus.get_token_authorizations_v2(block_hash, token_identifier)
                 })
                 .await?;
 
