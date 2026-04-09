@@ -1,5 +1,4 @@
-use crate::block_state::blob_reference::BlobStoreLocation;
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore};
+use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation, BlobStoreStore};
 use libc::size_t;
 
 /// A [loader](BlobStoreLoad) implemented by an external function.
@@ -33,7 +32,7 @@ pub mod tests_helpers {
     use super::*;
 
     pub const UNIMPLEMENTED_LOAD_CALLBACK: LoadCallback = {
-        extern "C" fn fun(_: blob_store::Reference) -> *mut Vec<u8> {
+        extern "C" fn fun(_: BlobStoreLocation) -> *mut Vec<u8> {
             unimplemented!()
         }
         fun

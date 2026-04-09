@@ -1,7 +1,8 @@
 //! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_reference::BlobStoreLocation;
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, ParseResultExt};
+use crate::block_state::blob_store::{
+    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, ParseResultExt,
+};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
     AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
