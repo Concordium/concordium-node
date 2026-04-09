@@ -231,8 +231,9 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
         token_key_value_state: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
-        todo!() // todo ar
-        // token_key_value_state.lookup_value(key)
+        token_key_value_state
+            .lookup_value(&self.blob_store_load, &key.0)
+            .map(TokenStateValue)
     }
 
     fn update_token_state_value(
