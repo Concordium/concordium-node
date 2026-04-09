@@ -17,9 +17,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::blob_reference::BlobStoreLocation;
-use plt_block_state::block_state::blob_store::BlobStoreLoad;
 use plt_block_state::block_state::blob_store::test_stub::BlobStoreStub;
+use plt_block_state::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation};
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };

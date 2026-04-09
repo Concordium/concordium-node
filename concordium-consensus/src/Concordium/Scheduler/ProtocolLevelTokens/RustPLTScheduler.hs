@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -23,6 +24,7 @@ import Data.Functor
 import qualified Data.IORef as IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
+import qualified Data.Text.Encoding as Text
 import qualified Data.Word as Word
 import qualified Foreign as FFI
 import qualified Foreign.C.Types as FFI
@@ -42,6 +44,7 @@ import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Status as Status
 
 -- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The transaction
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
@@ -217,8 +220,8 @@ executeTransaction depositContext tokenUpdate =
                                     returnDataPtr
                                     (fromIntegral returnDataLen)
                                     (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                            oucome <- case statusCode of
-                                0 -> do
+                            oucome <- case Status.parseStatusCode statusCode of
+                                Just Status.FSCSuccess -> do
                                     updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
                                     let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
                                     let events =
@@ -232,7 +235,7 @@ executeTransaction depositContext tokenUpdate =
                                                 { tesUpdatedBlockState = updatedBlockState,
                                                   tesEvents = events
                                                 }
-                                1 -> do
+                                Just Status.FSCFailed -> do
                                     let getRejectReason = S.isolate (BS.length returnData) S.get
                                     let rejectReason =
                                             either
@@ -244,7 +247,12 @@ executeTransaction depositContext tokenUpdate =
                                             TransactionExecutionReject
                                                 { terRejectReason = rejectReason
                                                 }
-                                _ -> error ("Unexpected status code from calling 'ffiExecuteTransaction': " ++ show statusCode)
+                                Just Status.FSCPanic -> do
+                                    let message = case Text.decodeUtf8' returnData of
+                                            Right decoded -> decoded
+                                            Left _ -> "<panic message was invalid UTF-8>"
+                                    error ("Call to 'ffiExecuteTransaction' resulted in panic with message: " ++ show message)
+                                Nothing -> error ("Unexpected status code from calling 'ffiExecuteTransaction': " ++ show statusCode)
                             return
                                 TransactionExecutionSummary
                                     { tesUsedEnergy = usedEnergy,
@@ -442,8 +450,8 @@ executeChainUpdate updateHeader createPLT =
                                     returnDataPtr
                                     (fromIntegral returnDataLen)
                                     (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                            case statusCode of
-                                0 -> do
+                            case Status.parseStatusCode statusCode of
+                                Just Status.FSCSuccess -> do
                                     updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
                                     let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
                                     let events =
@@ -457,7 +465,7 @@ executeChainUpdate updateHeader createPLT =
                                                 { cuesUpdatedBlockState = updatedBlockState,
                                                   cuesEvents = events
                                                 }
-                                1 -> do
+                                Just Status.FSCFailed -> do
                                     let getFailureKind = S.isolate (BS.length returnData) S.get
                                     let failureKind =
                                             either
@@ -469,7 +477,12 @@ executeChainUpdate updateHeader createPLT =
                                             ChainUpdateExecutionFailed
                                                 { cuefFailureKind = failureKind
                                                 }
-                                _ -> error ("Unexpected status code from calling 'ffiExecuteChainUpdate': " ++ show statusCode)
+                                Just Status.FSCPanic -> do
+                                    let message = case Text.decodeUtf8' returnData of
+                                            Right decoded -> decoded
+                                            Left _ -> "<panic message was invalid UTF-8>"
+                                    error ("Call to 'ffiExecuteChainUpdate' resulted in panic with message: " ++ show message)
+                                Nothing -> error ("Unexpected status code from calling 'ffiExecuteChainUpdate': " ++ show statusCode)
 
 -- | C-binding for calling the Rust function `plt_scheduler::scheduler::execute_chain_update`.
 --

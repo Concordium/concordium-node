@@ -10,11 +10,4 @@
 //! Blob store reference types are also cheaply clonable, such that they can be shared in the
 //! in-memory representation of the block state.
 
-use concordium_base::common::Serialize;
-
 pub mod hashed_cacheable_reference;
-
-/// Location of a value in the blob store.
-#[derive(Default, Debug, Clone, Copy, Eq, PartialEq, Serialize)]
-#[repr(transparent)]
-pub struct BlobStoreLocation(pub u64);

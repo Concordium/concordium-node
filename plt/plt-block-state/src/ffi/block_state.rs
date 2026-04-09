@@ -2,7 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::blob_reference::BlobStoreLocation;
+use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::{BlockState, blob_store};

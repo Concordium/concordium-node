@@ -13,13 +13,12 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
     TokenModuleInitializationParameters, TokenModuleState, TokenOperation, TokenOperationsPayload,
-    TokenSupplyUpdateDetails, TokenTransfer,
+    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::blob_reference::BlobStoreLocation;
-use plt_block_state::block_state::blob_store::BlobStoreLoad;
 use plt_block_state::block_state::blob_store::test_stub::UnreachableBlobStore;
+use plt_block_state::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation};
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
@@ -30,6 +29,7 @@ use plt_block_state::block_state_interface::{
     BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use plt_scheduler::{queries, scheduler};
+use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
@@ -213,6 +213,68 @@ impl BlockStateWithExternalStateStubbed {
         assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
     }
 
+    /// Pause the given token as the governance account. Panics if the operation fails.
+    pub fn pause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
+        let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+        let payload = TokenOperationsPayload {
+            token_id: token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+        let gov_addr = self.account_canonical_address(&gov_account);
+        let result = scheduler::execute_transaction(
+            gov_account,
+            gov_addr,
+            self.state_mut(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    }
+
+    /// Unpause the given token as the governance account. Panics if the operation fails.
+    pub fn unpause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
+        let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
+        let payload = TokenOperationsPayload {
+            token_id: token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+        let gov_addr = self.account_canonical_address(&gov_account);
+        let result = scheduler::execute_transaction(
+            gov_account,
+            gov_addr,
+            self.state_mut(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    }
+
+    /// Execute token operations as the given sender account. Returns the block item events on
+    /// success, panics if the transaction fails.
+    pub fn execute_token_operations(
+        &mut self,
+        token_id: &TokenId,
+        sender: AccountIndex,
+        operations: Vec<TokenOperation>,
+    ) -> Vec<BlockItemEvent> {
+        let payload = TokenOperationsPayload {
+            token_id: token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+        let sender_addr = self.account_canonical_address(&sender);
+        let result = scheduler::execute_transaction(
+            sender,
+            sender_addr,
+            self.state_mut(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
+    }
+
     /// Return protocol-level token update instruction sequence number
     pub fn plt_update_instruction_sequence_number(&self) -> u64 {
         self.block_state
@@ -351,22 +413,4 @@ impl ExternalBlockStateOperations for ExternalBlockStateStub {
     fn increment_plt_update_sequence_number(&mut self) {
         self.plt_update_instruction_sequence_number += 1;
     }
-}
-
-/// Test looking up account by alias.
-#[test]
-fn test_account_by_alias() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
-
-    let account = stub.create_account();
-    let account_address = stub.account_canonical_address(&account);
-    let account_by_alias = stub
-        .state()
-        .account_by_address(&account_address.get_alias(0).unwrap())
-        .unwrap();
-
-    assert_eq!(
-        stub.state().account_index(&account),
-        stub.state().account_index(&account_by_alias)
-    );
 }

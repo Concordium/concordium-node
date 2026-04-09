@@ -1,5 +1,4 @@
-use crate::block_state::blob_reference::BlobStoreLocation;
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore};
+use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation, BlobStoreStore};
 use libc::size_t;
 
 /// A [loader](BlobStoreLoad) implemented by an external function.
@@ -27,4 +26,15 @@ impl BlobStoreLoad for LoadCallback {
     fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
         *unsafe { Box::from_raw(self(location)) }
     }
+}
+
+pub mod tests_helpers {
+    use super::*;
+
+    pub const UNIMPLEMENTED_LOAD_CALLBACK: LoadCallback = {
+        extern "C" fn fun(_: BlobStoreLocation) -> *mut Vec<u8> {
+            unimplemented!()
+        }
+        fun
+    };
 }
