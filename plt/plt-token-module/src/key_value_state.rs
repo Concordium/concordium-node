@@ -265,7 +265,7 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
                 ))
             })?
             .canonical_account_address;
-        let roles = Roles::try_from_state_value(Some(roles)).map_err(|err| {
+        let roles = Roles::try_from_state_value(Some(&roles)).map_err(|err| {
             TokenStateInvariantError(format!(
                 "Stored account authorization roles cannot be decoded: {}",
                 err
@@ -351,6 +351,9 @@ mod test {
     #[test]
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
-        assert_eq!(key, TokenStateKey(vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]));
+        assert_eq!(
+            key,
+            TokenStateKey(vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3])
+        );
     }
 }

@@ -3,7 +3,9 @@
 use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_block_state::block_state::hash::Hashable;
-use plt_block_state::block_state::types::protocol_level_tokens::{TokenConfiguration, TokenStateKey, TokenStateValue};
+use plt_block_state::block_state::types::protocol_level_tokens::{
+    TokenConfiguration, TokenStateKey, TokenStateValue,
+};
 use plt_block_state::block_state::{BlockState, blob_store};
 use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -116,7 +118,8 @@ fn test_circulating_supply() {
     assert_eq!(circulating_supply, RawTokenAmount(10));
 }
 
-/// Test set and read key value state
+/// Test mutate and set token key-value state. Including
+/// updating, deleting and reading entries.
 #[test]
 fn test_key_value_state() {
     let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
@@ -129,44 +132,111 @@ fn test_key_value_state() {
     };
     let token = block_state.create_token(configuration.clone());
 
-    // Read key/value state
+    // Thaw key-value state
     let mut key_value_state = block_state.mutable_token_key_value_state(&token);
 
     // Set entries
-    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![0, 0])));
-    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 2]), Some(TokenStateValue(vec![1, 1])));
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![0, 1]),
+        Some(TokenStateValue(vec![0, 0])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![0, 2]),
+        Some(TokenStateValue(vec![1, 1])),
+    );
 
-    // Set key/value state
+    // Set key-value state
     block_state.set_token_key_value_state(&token, key_value_state);
 
-    // Read key/value state again
-    let mut key_value_state = block_state.mutable_token_key_value_state(&token);
-
     // Read entries
-    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 1]));
+    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 1]));
     assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
-    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 2]));
+    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
 
     // Read non-existing entry
-    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 3]));
+    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 3]));
     assert_eq!(value, None);
 
-    // Update entries
-    block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![2, 2])));
+    // Thaw key-value state again
+    let mut key_value_state = block_state.mutable_token_key_value_state(&token);
+
+    // Update and delete entries
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![0, 1]),
+        Some(TokenStateValue(vec![2, 2])),
+    );
     block_state.update_token_state_value(&mut key_value_state, &TokenStateKey(vec![0, 2]), None);
 
-    // Set key/value state
+    // Set key-value state
     block_state.set_token_key_value_state(&token, key_value_state);
 
-    // Read key/value state again
-    let key_value_state = block_state.mutable_token_key_value_state(&token);
-
     // Read entries
-    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 1]));
+    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 1]));
     assert_eq!(value, Some(TokenStateValue(vec![2, 2])));
-    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 2]));
+    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, None);
+}
+
+/// Iterate values in token key-value state by prefix.
+#[test]
+fn test_key_value_state_prefix_iter() {
+    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
+
+    // Create token
+    let configuration = TokenConfiguration {
+        token_id: "token1".parse().unwrap(),
+        module_ref: TokenModuleRef::from([5; 32]),
+        decimals: 2,
+    };
+    let token = block_state.create_token(configuration.clone());
+
+    // Thaw key-value state
+    let mut key_value_state = block_state.mutable_token_key_value_state(&token);
+
+    // Set entries
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![0, 1]),
+        Some(TokenStateValue(vec![0, 0])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![1, 1]),
+        Some(TokenStateValue(vec![1, 1])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![1, 2]),
+        Some(TokenStateValue(vec![2, 2])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state,
+        &TokenStateKey(vec![2, 1]),
+        Some(TokenStateValue(vec![3, 3])),
+    );
+
+    // Set key-value state
+    block_state.set_token_key_value_state(&token, key_value_state);
+
+    // Iterate entries
+    let entries: Vec<_> = block_state
+        .iter_token_state_prefix(&token, &TokenStateKey(vec![1]))
+        .collect();
+    assert_eq!(
+        entries,
+        vec![
+            (TokenStateKey(vec![1, 1]), TokenStateValue(vec![1, 1])),
+            (TokenStateKey(vec![1, 2]), TokenStateValue(vec![2, 2]))
+        ]
+    );
+    let entries: Vec<_> = block_state
+        .iter_token_state_prefix(&token, &TokenStateKey(vec![3]))
+        .collect();
+    assert_eq!(entries, vec![]);
 }
 
 /// Store state with PLTs to blob store and load it again.
@@ -185,8 +255,16 @@ fn test_store_and_load_plts() {
     let token1 = block_state.create_token(configuration1.clone());
     block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
     let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![0, 0])));
-    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 2]), Some(TokenStateValue(vec![1, 1])));
+    block_state.update_token_state_value(
+        &mut key_value_state1,
+        &TokenStateKey(vec![0, 1]),
+        Some(TokenStateValue(vec![0, 0])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state1,
+        &TokenStateKey(vec![0, 2]),
+        Some(TokenStateValue(vec![1, 1])),
+    );
     block_state.set_token_key_value_state(&token1, key_value_state1);
     let configuration2 = TokenConfiguration {
         token_id: "token2".parse().unwrap(),
@@ -218,10 +296,9 @@ fn test_store_and_load_plts() {
         RawTokenAmount(100)
     );
     assert_eq!(block_state.token_configuration(&token1), configuration1);
-    let key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-    let value = block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
+    let value = block_state.lookup_token_state_value(&token1, &TokenStateKey(vec![0, 1]));
     assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
-    let value = block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
+    let value = block_state.lookup_token_state_value(&token1, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
     assert_eq!(
         block_state.token_circulating_supply(&token2),
@@ -247,8 +324,16 @@ fn snapshot_test_hash_plts() {
     let token1 = block_state.create_token(configuration1.clone());
     block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
     let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 1]), Some(TokenStateValue(vec![0, 0])));
-    block_state.update_token_state_value(&mut key_value_state1, &TokenStateKey(vec![0, 2]), Some(TokenStateValue(vec![1, 1])));
+    block_state.update_token_state_value(
+        &mut key_value_state1,
+        &TokenStateKey(vec![0, 1]),
+        Some(TokenStateValue(vec![0, 0])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state1,
+        &TokenStateKey(vec![0, 2]),
+        Some(TokenStateValue(vec![1, 1])),
+    );
     block_state.set_token_key_value_state(&token1, key_value_state1);
     let configuration2 = TokenConfiguration {
         token_id: "token2".parse().unwrap(),
@@ -264,6 +349,6 @@ fn snapshot_test_hash_plts() {
         .expect("hash");
     assert_eq!(
         format!("{}", hash),
-        "19efba93a77c7ccd0997de17dde2b7ee526dec0f7efea769674d11659720fde5"
+        "231140c20455e597dd5e9a6f09f0bdb718d68e400a241a10a98cda35e77baa05"
     );
 }

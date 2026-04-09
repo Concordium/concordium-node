@@ -51,10 +51,6 @@ pub type BlockStateResult<T> = Result<T, BlockStateError>;
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    /// Opaque type that represents the module managed key-value map.
-    /// It defines a dynamic data model defined by the module.
-    type MutableTokenKeyValueState;
-
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
     type Account;
@@ -77,16 +73,6 @@ pub trait BlockStateQuery {
     /// - `token_id` The token id to get the [`Self::Token`] of.
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
 
-    /// Convert a persistent token key-value state to a mutable one that can be updated by the scheduler.
-    ///
-    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
-    ///
-    /// # Arguments
-    ///
-    /// - `token` The token to get the token key-value state for.
-    fn mutable_token_key_value_state(&self, token: &Self::Token)
-    -> Self::MutableTokenKeyValueState;
-
     /// Get the configuration of a protocol-level token.
     ///
     /// # Arguments
@@ -106,40 +92,26 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `token_key_value` The token module state to look up the value in.
+    /// - `token` The token key-value state to look up the value in.
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
-        token_key_value: &Self::MutableTokenKeyValueState,
+        token: &Self::Token,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
-    /// Get iterator over key-value pairs with a shared prefix.
-    ///
+    /// Get iterator over key-value pairs with the given prefix in the
+    /// token key-value state..
+    ///´
     /// # Arguments
     ///
-    /// - `token_key_value` The token module state to look up the value in.
+    /// - `token` The token key-value state to iterate values in.
     /// - `prefix` The token state key prefix to iterate over.
     fn iter_token_state_prefix<'a>(
-        &self,
-        token_key_value: &'a Self::MutableTokenKeyValueState,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)>;
-
-    /// Update the value for the given key in the given token key-value state. If `None` is
-    /// specified as value, the entry is removed.
-    ///
-    /// # Arguments
-    ///
-    /// - `token_key_value` The token module state to update the value in.
-    /// - `key` The token state key.
-    /// - `value` The value to set. If `None`, the entry with the given key is removed.
-    fn update_token_state_value(
-        &self,
-        token_key_value: &mut Self::MutableTokenKeyValueState,
-        key: &TokenStateKey,
-        value: Option<TokenStateValue>,
-    );
+        &'a self,
+        token: &Self::Token,
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, Self>;
 
     /// Lookup the account using an account address.
     fn account_by_address(
@@ -174,6 +146,9 @@ pub trait BlockStateQuery {
 
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
+    /// Opaque type that represents the thawed (mutable) token key-value map.
+    type MutableTokenKeyValueState;
+
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
     /// This should always be kept up-to-date with the total balance held in accounts.
@@ -241,9 +216,34 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
 
-    /// Convert a mutable token key-value state to a persistent one and store it in the block state.
+    /// Convert a persistent token key-value state to a mutable (thawed) one that can be updated by the scheduler.
     ///
-    /// To ensure this is future-proof, the mutable state should not be used after this call.
+    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
+    ///
+    /// # Arguments
+    ///
+    /// - `token` The token to thaw the token key-value state for.
+    fn mutable_token_key_value_state(&self, token: &Self::Token)
+    -> Self::MutableTokenKeyValueState;
+
+    /// Update the value for the given key in the given thawed token key-value state. If `None` is
+    /// specified as value, the entry is removed.
+    ///
+    /// # Arguments
+    ///
+    /// - `token_key_value` The thawed (mutable) token module state to update the value in.
+    /// - `key` The token state key.
+    /// - `value` The value to set. If `None`, the entry with the given key is removed.
+    fn update_token_state_value(
+        &self,
+        token_key_value: &mut Self::MutableTokenKeyValueState,
+        key: &TokenStateKey,
+        value: Option<TokenStateValue>,
+    );
+
+    /// Convert a mutable token key-value state into a persistent state and store it in the block state.
+    ///
+    /// The mutable state should not be used after this call.
     ///
     /// # Arguments
     ///
