@@ -1,11 +1,8 @@
 //! Test of protocol-level token queries. Notice that detailed test of the token module queries are
 //! implemented in the `plt-token-module` crate.
 
-use crate::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 use assert_matches::assert_matches;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
@@ -17,13 +14,16 @@ use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_token_module::TOKEN_MODULE_REF;
+use utils::block_state_external_stubbed::{
+    BlockStateWithExternalStateStubbed, TokenInitTestParams,
+};
 
-mod block_state_external_stubbed;
+mod utils;
 
 /// Test query token state
 #[test]
 fn test_query_plt_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id1 = "TokenId1".parse().unwrap();
     let (token1, _) =
         stub.create_and_init_token(token_id1, TokenInitTestParams::default(), 4, None);
@@ -41,7 +41,7 @@ fn test_query_plt_list() {
 /// Test query token info
 #[test]
 fn test_query_token_info() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (_token, _) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
@@ -66,7 +66,7 @@ fn test_query_token_info() {
 /// Test query token account info
 #[test]
 fn test_query_token_account_info() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
     let token_id1: TokenId = "TokenId1".parse().unwrap();
     let (token1, _) = stub.create_and_init_token(
@@ -109,7 +109,7 @@ fn test_query_token_account_info() {
 // Test that adding an account to a token list properly touches the account
 #[test]
 fn test_query_token_account_info_allow_list_no_balance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
     let token_id: TokenId = "TokenId3".parse().unwrap();
     let (_token, gov_account) = stub.create_and_init_token(
