@@ -68,6 +68,14 @@ mod test {
     use concordium_base::protocol_level_tokens::RawCbor;
 
     #[test]
+    fn test_serialization_failure_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::SerializationFailure;
+
+        let bytes = common::to_bytes(&reject_reason);
+        assert_eq!(hex::encode(&bytes), "09")
+    }
+
+    #[test]
     fn test_out_of_energy_reject_reason_serial() {
         let reject_reason = TransactionRejectReason::OutOfEnergy;
 

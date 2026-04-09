@@ -458,6 +458,7 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                         TokenUpdate{..} ->
                             onlyWithPLT $ handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
                         MetaUpdate{..} ->
+                            -- 'MetaUpdate' is only supported from P11, where we have 'PLTStateV1'.
                             onlyWithPLTV1 $ handleMetaUpdate (mkWTC TTMetaUpdate) muOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
