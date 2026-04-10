@@ -379,7 +379,7 @@ fn snapshot_test_hash_simple_plts() {
         .expect("hash");
     assert_eq!(
         format!("{}", hash),
-        "231140c20455e597dd5e9a6f09f0bdb718d68e400a241a10a98cda35e77baa05"
+        "d202e9153fea3fdd22c594be21d471c07e9619abc0baad3faca5c81f0bb1504b"
     );
 }
 
