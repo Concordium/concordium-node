@@ -269,7 +269,7 @@ benchTransfer ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
     SProtocolVersion pv -> Benchmark
-benchTransfer spv = benchTransactionsAssertSuccess spv "transfer (CCD)" $ transactions operationScaleFactor
+benchTransfer spv = benchTransactionsAssertSuccess spv ("transfer (CCD) transaction x" ++ show operationScaleFactor) $ transactions operationScaleFactor
   where
     transactions :: Int -> [Runner.TransactionJSON]
     transactions txnCount =
@@ -287,7 +287,7 @@ benchPltTransfer ::
 benchPltTransfer spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT transfer"
+        ("PLT transfer operation x" ++ show operationScaleFactor ++ " in a single token update transaction")
         [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
           Runner.AccountTx transaction
         ]
@@ -304,7 +304,7 @@ benchPltMint ::
 benchPltMint spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT mint"
+        ("PLT mint operation x" ++ show operationScaleFactor ++ " in a single token update transaction")
         [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
           Runner.AccountTx transaction
         ]
@@ -321,7 +321,7 @@ benchPltBurn ::
 benchPltBurn spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT burn"
+        ("PLT burn operation x" ++ show operationScaleFactor ++ " in a single token update transaction")
         [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
           Runner.AccountTx transaction
         ]
@@ -338,7 +338,7 @@ benchPltAddRemoveAllowList ::
 benchPltAddRemoveAllowList spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT add/remove allow list"
+        ("PLT add/remove allow list operation x" ++ show operationScaleFactor ++ " in a single token update transaction")
         [ createPltBlockItem plt1 (tokenInitializationParameters accountAddress0){CBOR.tipAllowList = Just True},
           Runner.AccountTx transaction
         ]
@@ -355,7 +355,7 @@ benchPltAddRemoveDenyList ::
 benchPltAddRemoveDenyList spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT add/remove deny list"
+        ("PLT add/remove deny list operation x" ++ show operationScaleFactor ++ " in a single token update transaction")
         [ createPltBlockItem plt1 $ (tokenInitializationParameters accountAddress0){CBOR.tipDenyList = Just True},
           Runner.AccountTx transaction
         ]
@@ -372,7 +372,7 @@ benchPltNoOperations ::
 benchPltNoOperations spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT no operations"
+        ("PLT token update transaction with no operations x" ++ show operationScaleFactor)
         ( createPltBlockItem plt1 (tokenInitializationParameters accountAddress0)
             : (Runner.AccountTx <$> transactions operationScaleFactor)
         )
@@ -394,7 +394,7 @@ benchPltTxnAndTransfer ::
 benchPltTxnAndTransfer spv =
     benchBlockItemsAssertSuccess
         spv
-        "PLT txn + PLT transfer"
+        ("PLT token update transaction with single PLT transfer operation x" ++ show operationScaleFactor)
         ( createPltBlockItem plt1 (tokenInitializationParameters accountAddress0)
             : (Runner.AccountTx <$> transactions operationScaleFactor)
         )
@@ -417,7 +417,7 @@ benchPltTxnCborDecodeError ::
 benchPltTxnCborDecodeError spv =
     benchBlockItems
         spv
-        "PLT cbor decode error"
+        ("PLT cbor decode error x" ++ show operationScaleFactor)
         False
         ( createPltBlockItem plt1 (tokenInitializationParameters accountAddress0)
             : (Runner.AccountTx <$> transactions operationScaleFactor)
@@ -445,7 +445,7 @@ benchNoTxns ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
     SProtocolVersion pv -> Benchmark
-benchNoTxns spv = benchBlockItemsAssertSuccess spv "no txns (overhead)" []
+benchNoTxns spv = benchBlockItemsAssertSuccess spv ("no txns (test overhead) x" ++ show operationScaleFactor) []
 
 main :: IO ()
 main =
