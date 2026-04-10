@@ -12,7 +12,6 @@ members = [
 
 # Optimize a good as possible with fat linking and a single code generation unit
 [profile.release]
-lto = "fat"
 codegen-units = 1
 
 [workspace.dependencies]
