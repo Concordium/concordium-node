@@ -24,3 +24,8 @@ hex.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
+divan.workspace = true
+
+[[bench]]
+name = "lfmb_tree"
+harness = false

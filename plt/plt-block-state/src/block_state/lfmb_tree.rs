@@ -65,7 +65,7 @@ use std::{iter, vec};
 /// The algorithms for specific operations are described in more detail in the implementations:
 ///
 /// * [`Subtree::insert_value`]
-/// * [`Subtree::with_value_for_key`]
+/// * [`Subtree::with_value`]
 ///
 /// ### Enforcing invariants
 ///

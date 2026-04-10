@@ -131,7 +131,6 @@ impl<T> ParseResultExt<T> for common::ParseResult<T> {
     }
 }
 
-#[cfg(test)]
 pub mod test_stub {
     use super::*;
 
