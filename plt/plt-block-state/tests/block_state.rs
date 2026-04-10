@@ -279,7 +279,7 @@ fn test_store_and_load_plts() {
         module_ref: TokenModuleRef::from([5; 32]),
         decimals: 4,
     };
-    let token2 = block_state.create_token(configuration2.clone());
+    let _token2 = block_state.create_token(configuration2.clone());
 
     // Store block state
     let blob_ref = blob_store::store_to_store(
@@ -324,7 +324,7 @@ fn test_store_and_load_plts() {
 /// todo extend this test on the haskell side as part of https://linear.app/concordium/issue/PSR-85/implement-test-of-storage-and-hashing
 #[test]
 fn snapshot_test_hash_empty() {
-    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
+    let block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
 
     // Assert hash
     let immutable_state = block_state.internal_block_state.into_immutable();
