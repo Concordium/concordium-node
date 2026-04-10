@@ -126,6 +126,21 @@ pub trait BlockStateQuery {
         prefix: &TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, Self>;
 
+    /// Update the value for the given key in the given thawed token key-value state. If `None` is
+    /// specified as value, the entry is removed.
+    ///
+    /// # Arguments
+    ///
+    /// - `token_key_value` The thawed (mutable) token module state to update the value in.
+    /// - `key` The token state key.
+    /// - `value` The value to set. If `None`, the entry with the given key is removed.
+    fn update_token_state_value(
+        &self,
+        token_key_value: &mut Self::MutableTokenKeyValueState,
+        key: &TokenStateKey,
+        value: Option<TokenStateValue>,
+    );
+
     /// Lookup the account using an account address.
     fn account_by_address(
         &self,
@@ -225,21 +240,6 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
-
-    /// Update the value for the given key in the given thawed token key-value state. If `None` is
-    /// specified as value, the entry is removed.
-    ///
-    /// # Arguments
-    ///
-    /// - `token_key_value` The thawed (mutable) token module state to update the value in.
-    /// - `key` The token state key.
-    /// - `value` The value to set. If `None`, the entry with the given key is removed.
-    fn update_token_state_value(
-        &self,
-        token_key_value: &mut Self::MutableTokenKeyValueState,
-        key: &TokenStateKey,
-        value: Option<TokenStateValue>,
-    );
 
     /// Convert a mutable token key-value state into a persistent state and store it in the block state.
     ///

@@ -59,6 +59,22 @@ impl ProtocolLevelTokens {
             .copied()
     }
 
+    pub fn mutable_token_key_value_state(
+        &self,
+        loader: &impl BlobStoreLoad,
+        token_index: TokenIndex,
+    ) -> BlockStateResult<smart_contract_trie::MutableState> {
+        self.tokens
+            .with_value(loader, token_index, |token| {
+                token
+                    .key_value_state
+                    .with_value(loader, |key_value_state| Ok(key_value_state.thaw()))
+            })
+            .ok_or_else(|| {
+                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
+            })?
+    }
+
     pub fn token_configuration(
         &self,
         loader: &impl BlobStoreLoad,
@@ -137,22 +153,6 @@ impl ProtocolLevelTokens {
                 token_id_map,
             },
         ))
-    }
-
-    pub fn mutable_token_key_value_state(
-        &self,
-        loader: &impl BlobStoreLoad,
-        token_index: TokenIndex,
-    ) -> BlockStateResult<smart_contract_trie::MutableState> {
-        self.tokens
-            .with_value(loader, token_index, |token| {
-                token
-                    .key_value_state
-                    .with_value(loader, |key_value_state| Ok(key_value_state.thaw()))
-            })
-            .ok_or_else(|| {
-                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
-            })?
     }
 
     pub fn set_token_key_value_state(

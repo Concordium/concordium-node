@@ -251,6 +251,24 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
             .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
 
+    fn update_token_state_value(
+        &self,
+        token_key_value_state: &mut Self::MutableTokenKeyValueState,
+        key: &TokenStateKey,
+        value: Option<TokenStateValue>,
+    ) {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        if let Some(value) = value {
+            token_key_value_state
+                .insert_value(&self.blob_store_load, &key.0, value.0)
+                .unwrap();
+        } else {
+            token_key_value_state
+                .delete_value(&self.blob_store_load, &key.0)
+                .unwrap();
+        }
+    }
+
     fn account_by_address(
         &self,
         address: &AccountAddress,
@@ -355,24 +373,6 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
     fn increment_plt_update_instruction_sequence_number(&mut self) {
         self.external_block_state
             .increment_plt_update_sequence_number();
-    }
-
-    fn update_token_state_value(
-        &self,
-        token_key_value_state: &mut Self::MutableTokenKeyValueState,
-        key: &TokenStateKey,
-        value: Option<TokenStateValue>,
-    ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        if let Some(value) = value {
-            token_key_value_state
-                .insert_value(&self.blob_store_load, &key.0, value.0)
-                .unwrap();
-        } else {
-            token_key_value_state
-                .delete_value(&self.blob_store_load, &key.0)
-                .unwrap();
-        }
     }
 
     fn set_token_key_value_state(
