@@ -2,9 +2,9 @@
 
 use divan::Bencher;
 use plt_block_state::block_state::blob_store::StoreSerialized;
-use plt_block_state::block_state::blob_store::test_stub::BlobStoreStub;
+use plt_block_state::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
 use plt_block_state::block_state::lfmb_tree::{LFMBTree, LFMBTreeKey};
-use std::hint;
+use std::time::Duration;
 
 fn main() {
     divan::main();
@@ -25,73 +25,66 @@ impl LFMBTreeKey for BenchKey {
 
 type BenchTree = LFMBTree<BenchKey, StoreSerialized<u64>>;
 
-const SIZES: &[u64] = &[1 << 10, 1 << 15, 1 << 20];
+const SIZES: &[u64] = &[(1 << 10) - 1, (1 << 15) - 1, (1 << 20) - 1];
 
-/// Build a tree of the given `size` using a fresh in-memory blob store.
-fn build_tree(size: u64) -> (BlobStoreStub, BenchTree) {
-    let mut store = BlobStoreStub::default();
+fn build_tree(size: u64) -> BenchTree {
     let mut tree = BenchTree::empty();
     for i in 0..size {
-        (_, tree) = tree.insert_value(&mut store, StoreSerialized(i)).unwrap();
+        (_, tree) = tree
+            .insert_value(&mut UnreachableBlobStore, StoreSerialized(i))
+            .unwrap();
     }
-    (store, tree)
+    tree
 }
 
-/// Benchmark `with_value` (point lookup) – expected O(log n) per call.
-/// We look up the *last* key so the traversal always reaches the deepest path.
+/// Warmup CPU. Divan does not seem to be good at doing this automatically.
+#[divan::bench]
+fn a_warmup() {
+    let mut x: u64 = 0;
+    for i in divan::black_box(0..10_000_000) {
+        x = x.wrapping_add(i);
+    }
+    divan::black_box(x);
+}
+
 #[divan::bench(args = SIZES)]
 fn bench_with_value(bencher: Bencher, size: u64) {
-    let (store, tree) = build_tree(size);
-    let last_key = BenchKey(size - 1);
-
-    bencher.bench(|| {
-        divan::black_box(&tree)
-            .with_value(&store, hint::black_box(last_key), |v| Ok(*v))
-            .unwrap()
-            .unwrap()
-    });
+    let tree = divan::black_box(build_tree(size));
+    bencher
+        .with_inputs(|| BenchKey(rand::random_range(0..size)))
+        .bench_values(|key| {
+            tree.with_value(&UnreachableBlobStore, key, |v| Ok(*v))
+                .unwrap()
+                .unwrap()
+        });
 }
 
-/// Benchmark `insert_value` – expected O(log n) per insertion.
-/// We measure the cost of inserting one more element into a tree of the given
-/// size.
 #[divan::bench(args = SIZES)]
 fn bench_insert_value(bencher: Bencher, size: u64) {
-    let (store, tree) = build_tree(size);
-
+    let tree = divan::black_box(build_tree(size));
     bencher.bench(|| {
-        divan::black_box(&tree)
-            .insert_value(&store, StoreSerialized(size))
+        tree.insert_value(&UnreachableBlobStore, StoreSerialized(0))
             .unwrap()
     });
 }
 
-/// Benchmark `update_value` – expected O(log n) per update.
-/// We update the *last* key (deepest path).
 #[divan::bench(args = SIZES)]
 fn bench_update_value(bencher: Bencher, size: u64) {
-    let (store, tree) = build_tree(size);
-    let last_key = BenchKey(size - 1);
-
-    bencher.bench(|| {
-        divan::black_box(&tree)
-            .update_value(&store, divan::black_box(last_key), |v| {
-                Ok(StoreSerialized(v.0 + 1))
-            })
-            .unwrap()
-            .unwrap()
-    });
+    let tree = divan::black_box(build_tree(size));
+    bencher
+        .with_inputs(|| BenchKey(rand::random_range(0..size)))
+        .bench_values(|key| {
+            tree.update_value(&UnreachableBlobStore, key, |v| Ok(StoreSerialized(v.0 + 1)))
+                .unwrap()
+                .unwrap()
+        });
 }
 
-/// Benchmark `values` (full iteration) – expected O(n).
-/// We consume the entire iterator and sum all values.
 #[divan::bench(args = SIZES)]
 fn bench_values(bencher: Bencher, size: u64) {
-    let (store, tree) = build_tree(size);
-
+    let tree = divan::black_box(build_tree(size));
     bencher.bench(|| {
-        divan::black_box(&tree)
-            .values(&store, |v| Ok(v.0))
+        tree.values(&UnreachableBlobStore, |v| Ok(v.0))
             .map(|r| r.unwrap())
             .sum::<u64>()
     });

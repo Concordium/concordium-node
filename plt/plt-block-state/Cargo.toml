@@ -23,8 +23,9 @@ libc = { workspace = true, optional = true }
 hex.workspace = true
 
 [dev-dependencies]
-hex.workspace = true
 divan.workspace = true
+hex.workspace = true
+rand.workspace = true
 
 [[bench]]
 name = "lfmb_tree"
