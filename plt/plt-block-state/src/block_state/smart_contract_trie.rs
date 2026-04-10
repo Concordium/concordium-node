@@ -1,6 +1,6 @@
 //! Adapter for the trie in the `concordium-smart-contract-engine` crate. There is an
-//! impedance mismatch the Rust block state and the smart contract trie, on how
-//! mutability (thawing/freezing) is handled, how interior mutability (via locks) is implemented,
+//! impedance mismatch between the Rust block state and the smart contract trie, on how
+//! mutability (thawing/freezing) is handled, at which level interior mutability (via locks) is implemented,
 //! and the specific definitions of the blob store traits. Hence, this adapter is needed to use
 //! the smart contract trie in the Rust block state.
 
@@ -16,20 +16,27 @@ use concordium_smart_contract_engine::v1::trie;
 use std::io::Read;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+/// Immutable (persistent) trie. The internal structure may be changed via interior mutability,
+/// but the entries in the trie never changes. This is the frozen/persistent dual to [`MutableState`].
 #[derive(Debug)]
 pub struct PersistentState(RwLock<trie::PersistentState>);
 
 impl PersistentState {
+    /// Create empty trie.
     pub fn empty() -> Self {
         Self(RwLock::new(trie::PersistentState::Empty))
     }
 
+    /// Lookup the value in the trie for the given key and return the value.
+    /// Returns `None` if there is no entry for the given key.
     pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
         let mut loader = LoaderAdapter(loader);
         let persistent_state = self.lock_read();
         persistent_state.lookup(&mut loader, key)
     }
 
+    /// Iterate entries whose keys start with the given prefix. Returns an iterator over
+    /// key-value pairs.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,
@@ -49,6 +56,7 @@ impl PersistentState {
         })
     }
 
+    /// Thaw the trie to make it [mutable](MutableState).
     pub fn thaw(&self) -> MutableState {
         let persistent_state = self.lock_read();
         MutableState(Mutex::new(persistent_state.thaw()))
@@ -103,10 +111,12 @@ where
     }
 }
 
+/// Mutable trie. This is the thawed/mutable dual to [`PersistentState`].
 #[derive(Debug)]
 pub struct MutableState(Mutex<trie::MutableState>);
 
 impl MutableState {
+    /// Freeze the trie to make it [persistent](PersistentState).
     pub fn freeze(&mut self, loader: &impl BlobStoreLoad) -> PersistentState {
         PersistentState(RwLock::new(
             self.lock()
@@ -114,6 +124,8 @@ impl MutableState {
         ))
     }
 
+    /// Lookup the value in the trie for the given key and return the value.
+    /// Returns `None` if there is no entry for the given key.
     pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
         let mut loader_adapter = LoaderAdapter(loader);
         let mut loader = LoaderAdapter(loader);
@@ -123,6 +135,8 @@ impl MutableState {
         trie.with_entry(entry_id, &mut loader, |value| value.to_vec())
     }
 
+    /// Iterate entries whose keys start with the given prefix. Returns an iterator over
+    /// key-value pairs.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,
@@ -142,6 +156,9 @@ impl MutableState {
         })
     }
 
+    /// Insert or update the value for the given key. If no entry exists in the trie
+    /// for the given key, the value is inserted. If an entry already exists
+    /// for the given key, the value is updated.
     pub fn insert_value(
         &mut self,
         loader: &impl BlobStoreLoad,
@@ -156,6 +173,8 @@ impl MutableState {
         Ok(())
     }
 
+    /// Delete the value for the given key. This is a no-op, if no entry exists in the trie
+    /// for the given key.
     pub fn delete_value(
         &mut self,
         loader: &impl BlobStoreLoad,
@@ -257,7 +276,6 @@ mod test {
         mutable_state
             .insert_value(&UnreachableBlobStore, &[0, 2], vec![2, 2])
             .unwrap();
-        let state = mutable_state.freeze(&UnreachableBlobStore);
 
         // Lookup values in mutable state
         assert_eq!(
@@ -272,6 +290,9 @@ mod test {
             mutable_state.lookup_value(&UnreachableBlobStore, &[0, 3]),
             None
         );
+
+        // Freeze state
+        let state = mutable_state.freeze(&UnreachableBlobStore);
 
         // Lookup values in persistent state
         assert_eq!(
@@ -292,7 +313,7 @@ mod test {
         mutable_state
             .delete_value(&UnreachableBlobStore, &[0, 2])
             .unwrap();
-        let state = mutable_state.freeze(&UnreachableBlobStore);
+
 
         // Lookup values in mutable state
         assert_eq!(
@@ -303,6 +324,9 @@ mod test {
             mutable_state.lookup_value(&UnreachableBlobStore, &[0, 2]),
             None
         );
+
+        // Freeze state
+        let state = mutable_state.freeze(&UnreachableBlobStore);
 
         // Lookup values in persistent state
         assert_eq!(
@@ -333,7 +357,7 @@ mod test {
         mutable_state
             .insert_value(&UnreachableBlobStore, &[2, 1], vec![5, 5])
             .unwrap();
-        let state = mutable_state.freeze(&UnreachableBlobStore);
+
 
         // Iterate values in mutable state
         let values: Vec<_> = mutable_state
@@ -354,6 +378,9 @@ mod test {
             .unwrap()
             .collect();
         assert_eq!(values, vec![]);
+
+        // Freeze state
+        let state = mutable_state.freeze(&UnreachableBlobStore);
 
         // Iterate values in persistent state
         let values: Vec<_> = state
