@@ -79,15 +79,15 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
 }
 
 /// Implementation of token kernel operations with a specific token in context.
-pub struct TokenKernelOperationsImpl<'a, BSO: BlockStateOperations> {
+pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// The block state
-    pub block_state: &'a mut BSO,
+    pub block_state: &'a mut BSQ,
     /// Token in context
-    pub token: &'a BSO::Token,
+    pub token: &'a BSQ::Token,
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSO::MutableTokenKeyValueState,
+    pub token_module_state: &'a mut BSQ::MutableTokenKeyValueState,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far

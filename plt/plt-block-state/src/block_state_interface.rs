@@ -105,7 +105,7 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `token` The token key-value state to look up the value in.
+    /// - `token_key_value` The token key-value state to look up the value in.
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
@@ -118,7 +118,7 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `token` The token key-value state to iterate values in.
+    /// - `token_key_value` The token key-value state to iterator values in.
     /// - `prefix` The token state key prefix to iterate over.
     fn iter_token_state_prefix<'a>(
         &'a self,
