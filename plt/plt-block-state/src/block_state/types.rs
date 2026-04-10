@@ -5,7 +5,7 @@ use concordium_base::common::Serialize;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
-use plt_scheduler_types::types::locks::LockController;
+use plt_scheduler_types::types::locks::LockControllerConfig;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Index of the protocol-level token in the block state map of tokens.
@@ -50,17 +50,16 @@ pub struct LockConfiguration {
     /// Expiry time of the lock (seconds since epoch).
     pub expiry: TransactionTime,
     /// Controller configuration for the lock.
-    pub controller: LockController,
+    pub controller: LockControllerConfig,
 }
 
-/// A token amount and the associated token ID as a pair.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize)]
-pub struct TokenAndAmount {
-    /// The token ID corresponding to the `amount`.
-    pub token_id: TokenIndex,
-    /// The amount of tokens as an unscaled integer value.
-    pub amount: RawTokenAmount,
-}
+/// Lock-controller state stored in block state.
+///
+/// The state is intentionally empty in the initial lock-controller interface
+/// work and will be expanded once non-trivial controllers need persistent
+/// state.
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize)]
+pub struct LockState {}
 
 /// Account representing (read-only) account state.
 ///
@@ -124,7 +123,7 @@ mod test {
         let lock_config = LockConfiguration {
             recipients: vec![AccountIndex::from(1u64), AccountIndex::from(2u64)],
             expiry: TransactionTime::from(1000u64),
-            controller: LockController::SimpleV0(LockControllerSimpleV0 {
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![LockControllerSimpleV0Grant {
                     account: AccountIndex::from(1u64),
                     roles: vec![LockControllerSimpleV0Capability::Fund],
@@ -153,7 +152,7 @@ mod test {
         let lock_config = LockConfiguration {
             recipients: vec![],
             expiry: TransactionTime::from(500u64),
-            controller: LockController::SimpleV0(
+            controller: LockControllerConfig::SimpleV0(
                 plt_scheduler_types::types::locks::LockControllerSimpleV0 {
                     grants: vec![],
                     tokens: vec![],
@@ -169,20 +168,5 @@ mod test {
         let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
-    }
-
-    #[test]
-    fn test_token_and_amount_serial() {
-        let token_and_amount = TokenAndAmount {
-            token_id: TokenIndex(2),
-            amount: RawTokenAmount(1000),
-        };
-
-        let bytes = common::to_bytes(&token_and_amount);
-        assert_eq!(hex::encode(&bytes), "00000000000000028768");
-
-        let token_and_amount_deserialized: TokenAndAmount =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(token_and_amount_deserialized, token_and_amount);
     }
 }

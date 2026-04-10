@@ -3,7 +3,7 @@
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenAndAmount,
+    AccountWithCanonicalAddress, LockConfiguration, LockState, TokenAccountState,
     TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
@@ -185,6 +185,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     type TokenKeyValueState = SimplisticTokenKeyValueState;
     type Account = AccountIndex;
     type Token = TokenIndex;
+    type Lock = LockId;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
         self.internal_block_state
@@ -394,16 +395,11 @@ pub struct SimplisticTokenKeyValueState {
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone, Serialize)]
 struct Lock {
-    /// The balances locked per account, mapping each account index to its
-    /// locked token and amount.
+    /// The balances locked per account and token.
     #[map_size_length = 4]
-    locked_balances: BTreeMap<AccountIndex, TokenAndAmount>,
+    locked_balances: BTreeMap<(AccountIndex, TokenIndex), RawTokenAmount>,
     /// The configuration parameters for the lock.
     configuration: LockConfiguration,
     /// The state associated with the lock.
     state: LockState,
 }
-
-/// The state of a single protocol-level lock.
-#[derive(Debug, Clone, Serialize)]
-struct LockState {}

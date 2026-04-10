@@ -9,7 +9,7 @@ use concordium_base::{
 ///
 /// Each variant represents a different controller version.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub enum LockController {
+pub enum LockControllerConfig {
     /// SimpleV0 lock controller configuration.
     SimpleV0(LockControllerSimpleV0),
 }
@@ -116,7 +116,7 @@ mod test {
 
     #[test]
     fn test_lock_controller_serial() {
-        let controller = LockController::SimpleV0(LockControllerSimpleV0 {
+        let controller = LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: vec![LockControllerSimpleV0Grant {
                 account: AccountIndex::from(1u64),
                 roles: vec![LockControllerSimpleV0Capability::Fund],
@@ -132,7 +132,8 @@ mod test {
             "00000100000000000000010100000106746f6b656e310100"
         );
 
-        let deserialized: LockController = common::from_bytes_complete(bytes.as_slice()).unwrap();
+        let deserialized: LockControllerConfig =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, controller);
     }
 }

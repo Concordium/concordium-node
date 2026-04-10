@@ -39,6 +39,10 @@ pub trait BlockStateQuery {
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
 
+    /// Opaque type that represents a lock on chain.
+    /// The lock is guaranteed to exist on chain, when holding an instance of this type.
+    type Lock;
+
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
     /// If the protocol version does not support protocol-level tokens, this will return the empty
