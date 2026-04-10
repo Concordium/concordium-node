@@ -314,7 +314,6 @@ mod test {
             .delete_value(&UnreachableBlobStore, &[0, 2])
             .unwrap();
 
-
         // Lookup values in mutable state
         assert_eq!(
             mutable_state.lookup_value(&UnreachableBlobStore, &[0, 1]),
@@ -357,7 +356,6 @@ mod test {
         mutable_state
             .insert_value(&UnreachableBlobStore, &[2, 1], vec![5, 5])
             .unwrap();
-
 
         // Iterate values in mutable state
         let values: Vec<_> = mutable_state
