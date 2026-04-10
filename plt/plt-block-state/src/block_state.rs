@@ -177,6 +177,7 @@ impl HasBlockState for MutableBlockState {
 impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
 {
+    type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = AccountIndex;
     type Token = TokenIndex;
 
@@ -195,6 +196,18 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
             .tokens
             .token_by_id(token_id)
             .ok_or_else(|| TokenNotFoundByIdError(token_id.clone()))
+    }
+
+    fn mutable_token_key_value_state(
+        &self,
+        token: &Self::Token,
+    ) -> Self::MutableTokenKeyValueState {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .mutable_token_key_value_state(&self.blob_store_load, *token)
+            .unwrap()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
@@ -217,29 +230,25 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
 
     fn lookup_token_state_value(
         &self,
-        token: &Self::Token,
+        token_key_value: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .lookup_token_state_value(&self.blob_store_load, *token, key)
-            .unwrap()
+        token_key_value
+            .lookup_value(&self.blob_store_load, &key.0)
+            .map(TokenStateValue)
     }
 
     fn iter_token_state_prefix<'a>(
         &'a self,
-        token: &Self::Token,
+        token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, IntState, Load, ExtState>
     {
         // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .iter_token_state_prefix(&self.blob_store_load, *token, prefix)
+        token_key_value
+            .iter_prefix(&self.blob_store_load, &prefix.0)
             .unwrap()
+            .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
 
     fn account_by_address(
@@ -297,8 +306,6 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
 impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
     for ExecutionTimeBlockState<MutableBlockState, Load, ExtState>
 {
-    type MutableTokenKeyValueState = smart_contract_trie::MutableState;
-
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
@@ -348,18 +355,6 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
     fn increment_plt_update_instruction_sequence_number(&mut self) {
         self.external_block_state
             .increment_plt_update_sequence_number();
-    }
-
-    fn mutable_token_key_value_state(
-        &self,
-        token: &Self::Token,
-    ) -> Self::MutableTokenKeyValueState {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .mutable_token_key_value_state(&self.blob_store_load, *token)
-            .unwrap()
     }
 
     fn update_token_state_value(

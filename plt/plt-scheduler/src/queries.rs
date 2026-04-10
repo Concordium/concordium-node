@@ -39,9 +39,12 @@ pub fn query_token_info(
         decimals: token_configuration.decimals,
     };
 
+    let token_module_state = block_state.mutable_token_key_value_state(&token);
+
     let kernel = TokenKernelQueriesImpl {
         block_state,
         token: &token,
+        token_module_state: &token_module_state,
     };
 
     let module_state = token_module::query_token_module_state(&kernel)?;
@@ -75,9 +78,11 @@ where
         .map(|(token, state)| {
             let token_configuration = block_state.token_configuration(&token);
 
+            let token_module_state = block_state.mutable_token_key_value_state(&token);
             let kernel = TokenKernelQueriesImpl {
                 block_state,
                 token: &token,
+                token_module_state: &token_module_state,
             };
             let module_state = token_module::query_token_module_account_state(
                 &kernel,
@@ -108,9 +113,11 @@ pub fn query_token_authorizations(
     token_id: &TokenId,
 ) -> Result<TokenAuthorizations, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
+    let token_module_state = block_state.mutable_token_key_value_state(&token);
     let kernel = TokenKernelQueriesImpl {
         block_state,
         token: &token,
+        token_module_state: &token_module_state,
     };
     let details = token_module::query_token_authorizations(&kernel)?;
     let token_configuration = block_state.token_configuration(&token);

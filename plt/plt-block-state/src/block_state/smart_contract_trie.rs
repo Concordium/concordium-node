@@ -14,7 +14,7 @@ use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
 use std::io::Read;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug)]
 pub struct PersistentState(RwLock<trie::PersistentState>);
@@ -51,7 +51,7 @@ impl PersistentState {
 
     pub fn thaw(&self) -> MutableState {
         let persistent_state = self.lock_read();
-        MutableState(persistent_state.thaw())
+        MutableState(Mutex::new(persistent_state.thaw()))
     }
 
     fn lock_write(&self) -> RwLockWriteGuard<'_, trie::PersistentState> {
@@ -104,14 +104,42 @@ where
 }
 
 #[derive(Debug)]
-pub struct MutableState(trie::MutableState);
+pub struct MutableState(Mutex<trie::MutableState>);
 
 impl MutableState {
     pub fn freeze(&mut self, loader: &impl BlobStoreLoad) -> PersistentState {
         PersistentState(RwLock::new(
-            self.0
+            self.lock()
                 .freeze(&mut LoaderAdapter(loader), &mut trie::EmptyCollector),
         ))
+    }
+
+    pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
+        let mut loader_adapter = LoaderAdapter(loader);
+        let mut loader = LoaderAdapter(loader);
+        let mut mutable_state = self.lock();
+        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
+        let entry_id = trie.get_entry(&mut loader, key)?;
+        trie.with_entry(entry_id, &mut loader, |value| value.to_vec())
+    }
+
+    pub fn iter_prefix<'a, L: BlobStoreLoad>(
+        &self,
+        loader: &'a L,
+        prefix: &[u8],
+    ) -> BlockStateResult<impl Iterator<Item = (Vec<u8>, Vec<u8>)> + use<'a, L>> {
+        let mut loader_adapter = LoaderAdapter(loader);
+        let mut mutable_state = self.lock();
+        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
+        let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
+            BlockStateError::Invariant(format!("Error iterating values in MutableTrie: {}", err))
+        })?;
+
+        Ok(PrefixIterator {
+            loader,
+            trie: trie.clone(),
+            trie_iter,
+        })
     }
 
     pub fn insert_value(
@@ -121,7 +149,7 @@ impl MutableState {
         value: Vec<u8>,
     ) -> BlockStateResult<()> {
         let mut loader = LoaderAdapter(loader);
-        let mut trie = self.0.get_inner(&mut loader).lock();
+        let mut trie = self.get_mut().get_inner(&mut loader).lock();
         trie.insert(&mut loader, key, value).map_err(|err| {
             BlockStateError::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
@@ -134,11 +162,19 @@ impl MutableState {
         key: &[u8],
     ) -> BlockStateResult<()> {
         let mut loader = LoaderAdapter(loader);
-        let mut trie = self.0.get_inner(&mut loader).lock();
+        let mut trie = self.get_mut().get_inner(&mut loader).lock();
         trie.delete(&mut loader, key).map_err(|err| {
             BlockStateError::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
         Ok(())
+    }
+
+    fn lock(&self) -> MutexGuard<'_, trie::MutableState> {
+        self.0.lock().expect("MutableState lock poisoned")
+    }
+
+    fn get_mut(&mut self) -> &mut trie::MutableState {
+        self.0.get_mut().expect("MutableState lock poisoned")
     }
 }
 
@@ -223,7 +259,21 @@ mod test {
             .unwrap();
         let state = mutable_state.freeze(&UnreachableBlobStore);
 
-        // Lookup values
+        // Lookup values in mutable state
+        assert_eq!(
+            mutable_state.lookup_value(&UnreachableBlobStore, &[0, 1]),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            mutable_state.lookup_value(&UnreachableBlobStore, &[0, 2]),
+            Some(vec![2, 2])
+        );
+        assert_eq!(
+            mutable_state.lookup_value(&UnreachableBlobStore, &[0, 3]),
+            None
+        );
+
+        // Lookup values in persistent state
         assert_eq!(
             state.lookup_value(&UnreachableBlobStore, &[0, 1]),
             Some(vec![1, 1])
@@ -244,7 +294,17 @@ mod test {
             .unwrap();
         let state = mutable_state.freeze(&UnreachableBlobStore);
 
-        // Lookup values
+        // Lookup values in mutable state
+        assert_eq!(
+            mutable_state.lookup_value(&UnreachableBlobStore, &[0, 1]),
+            Some(vec![4, 4])
+        );
+        assert_eq!(
+            mutable_state.lookup_value(&UnreachableBlobStore, &[0, 2]),
+            None
+        );
+
+        // Lookup values in persistent state
         assert_eq!(
             state.lookup_value(&UnreachableBlobStore, &[0, 1]),
             Some(vec![4, 4])
@@ -275,7 +335,27 @@ mod test {
             .unwrap();
         let state = mutable_state.freeze(&UnreachableBlobStore);
 
-        // Iterate values
+        // Iterate values in mutable state
+        let values: Vec<_> = mutable_state
+            .iter_prefix(&UnreachableBlobStore, &[0, 2])
+            .unwrap()
+            .collect();
+        assert_eq!(values, vec![(vec![0, 2], vec![2, 2])]);
+        let values: Vec<_> = mutable_state
+            .iter_prefix(&UnreachableBlobStore, &[1])
+            .unwrap()
+            .collect();
+        assert_eq!(
+            values,
+            vec![(vec![1, 1], vec![3, 3]), (vec![1, 2], vec![4, 4])]
+        );
+        let values: Vec<_> = mutable_state
+            .iter_prefix(&UnreachableBlobStore, &[3])
+            .unwrap()
+            .collect();
+        assert_eq!(values, vec![]);
+
+        // Iterate values in persistent state
         let values: Vec<_> = state
             .iter_prefix(&UnreachableBlobStore, &[0, 2])
             .unwrap()

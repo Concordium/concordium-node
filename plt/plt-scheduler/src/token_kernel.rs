@@ -27,6 +27,8 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     pub block_state: &'a BSQ,
     /// Token in context
     pub token: &'a BSQ::Token,
+    /// Token module state for the token in context
+    pub token_module_state: &'a BSQ::MutableTokenKeyValueState,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -59,7 +61,8 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     }
 
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
-        self.block_state.lookup_token_state_value(self.token, &key)
+        self.block_state
+            .lookup_token_state_value(self.token_module_state, &key)
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
@@ -71,7 +74,7 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token, &prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -273,7 +276,8 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
     }
 
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
-        self.block_state.lookup_token_state_value(self.token, &key)
+        self.block_state
+            .lookup_token_state_value(self.token_module_state, &key)
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
@@ -285,6 +289,6 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
         prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token, &prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }

@@ -150,18 +150,18 @@ fn test_key_value_state() {
     // Set key-value state
     block_state.set_token_key_value_state(&token, key_value_state);
 
+    // Thaw key-value state
+    let mut key_value_state = block_state.mutable_token_key_value_state(&token);
+
     // Read entries
-    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 1]));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 1]));
     assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
-    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 2]));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
 
     // Read non-existing entry
-    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 3]));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 3]));
     assert_eq!(value, None);
-
-    // Thaw key-value state again
-    let mut key_value_state = block_state.mutable_token_key_value_state(&token);
 
     // Update and delete entries
     block_state.update_token_state_value(
@@ -174,10 +174,13 @@ fn test_key_value_state() {
     // Set key-value state
     block_state.set_token_key_value_state(&token, key_value_state);
 
+    // Thaw key-value state
+    let key_value_state = block_state.mutable_token_key_value_state(&token);
+
     // Read entries
-    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 1]));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 1]));
     assert_eq!(value, Some(TokenStateValue(vec![2, 2])));
-    let value = block_state.lookup_token_state_value(&token, &TokenStateKey(vec![0, 2]));
+    let value = block_state.lookup_token_state_value(&key_value_state, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, None);
 }
 
@@ -222,9 +225,12 @@ fn test_key_value_state_prefix_iter() {
     // Set key-value state
     block_state.set_token_key_value_state(&token, key_value_state);
 
+    // Thaw key-value state
+    let key_value_state = block_state.mutable_token_key_value_state(&token);
+
     // Iterate entries
     let entries: Vec<_> = block_state
-        .iter_token_state_prefix(&token, &TokenStateKey(vec![1]))
+        .iter_token_state_prefix(&key_value_state, &TokenStateKey(vec![1]))
         .collect();
     assert_eq!(
         entries,
@@ -234,7 +240,7 @@ fn test_key_value_state_prefix_iter() {
         ]
     );
     let entries: Vec<_> = block_state
-        .iter_token_state_prefix(&token, &TokenStateKey(vec![3]))
+        .iter_token_state_prefix(&key_value_state, &TokenStateKey(vec![3]))
         .collect();
     assert_eq!(entries, vec![]);
 }
@@ -296,9 +302,10 @@ fn test_store_and_load_plts() {
         RawTokenAmount(100)
     );
     assert_eq!(block_state.token_configuration(&token1), configuration1);
-    let value = block_state.lookup_token_state_value(&token1, &TokenStateKey(vec![0, 1]));
+    let key_value_state1 = block_state.mutable_token_key_value_state(&token1);
+    let value = block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
     assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
-    let value = block_state.lookup_token_state_value(&token1, &TokenStateKey(vec![0, 2]));
+    let value = block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
     assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
     assert_eq!(
         block_state.token_circulating_supply(&token2),

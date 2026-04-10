@@ -51,6 +51,9 @@ pub type BlockStateResult<T> = Result<T, BlockStateError>;
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
+    /// Opaque type that represents the thawed (mutable) token key-value map.
+    type MutableTokenKeyValueState;
+
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
     type Account;
@@ -73,6 +76,16 @@ pub trait BlockStateQuery {
     /// - `token_id` The token id to get the [`Self::Token`] of.
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
 
+    /// Convert a persistent token key-value state to a mutable (thawed) one that can be updated by the scheduler.
+    ///
+    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
+    ///
+    /// # Arguments
+    ///
+    /// - `token` The token to thaw the token key-value state for.
+    fn mutable_token_key_value_state(&self, token: &Self::Token)
+    -> Self::MutableTokenKeyValueState;
+
     /// Get the configuration of a protocol-level token.
     ///
     /// # Arguments
@@ -87,7 +100,6 @@ pub trait BlockStateQuery {
     /// - `token` The token to get the circulating supply.
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount;
 
-    // todo ar in the m
     /// Lookup the value for the given key in the given token key-value state. Returns `None` if
     /// no value exists for the given key.
     ///
@@ -95,10 +107,9 @@ pub trait BlockStateQuery {
     ///
     /// - `token` The token key-value state to look up the value in.
     /// - `key` The token state key.
-    // todo ar make changes to mutable key-value state have effect on lookup_token_state_value and iter_token_state_prefix
     fn lookup_token_state_value(
         &self,
-        token: &Self::Token,
+        token_key_value: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
@@ -111,7 +122,7 @@ pub trait BlockStateQuery {
     /// - `prefix` The token state key prefix to iterate over.
     fn iter_token_state_prefix<'a>(
         &'a self,
-        token: &Self::Token,
+        token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, Self>;
 
@@ -148,9 +159,6 @@ pub trait BlockStateQuery {
 
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
-    /// Opaque type that represents the thawed (mutable) token key-value map.
-    type MutableTokenKeyValueState;
-
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
     /// This should always be kept up-to-date with the total balance held in accounts.
@@ -217,16 +225,6 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
-
-    /// Convert a persistent token key-value state to a mutable (thawed) one that can be updated by the scheduler.
-    ///
-    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
-    ///
-    /// # Arguments
-    ///
-    /// - `token` The token to thaw the token key-value state for.
-    fn mutable_token_key_value_state(&self, token: &Self::Token)
-    -> Self::MutableTokenKeyValueState;
 
     /// Update the value for the given key in the given thawed token key-value state. If `None` is
     /// specified as value, the entry is removed.

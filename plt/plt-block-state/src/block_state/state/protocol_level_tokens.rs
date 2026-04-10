@@ -7,9 +7,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::lfmb_tree::{LFMBTree, LFMBTreeKey};
-use crate::block_state::types::protocol_level_tokens::{
-    TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
-};
+use crate::block_state::types::protocol_level_tokens::{TokenConfiguration, TokenIndex};
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::{BlockStateError, BlockStateResult};
@@ -84,44 +82,6 @@ impl ProtocolLevelTokens {
     ) -> BlockStateResult<RawTokenAmount> {
         self.tokens
             .with_value(loader, token_index, |token| Ok(token.circulating_supply.0))
-            .ok_or_else(|| {
-                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
-            })?
-    }
-
-    pub fn lookup_token_state_value(
-        &self,
-        loader: &impl BlobStoreLoad,
-        token_index: TokenIndex,
-        key: &TokenStateKey,
-    ) -> BlockStateResult<Option<TokenStateValue>> {
-        self.tokens
-            .with_value(loader, token_index, |token| {
-                token.key_value_state.with_value(loader, |key_value_state| {
-                    Ok(key_value_state
-                        .lookup_value(loader, &key.0)
-                        .map(TokenStateValue))
-                })
-            })
-            .ok_or_else(|| {
-                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
-            })?
-    }
-
-    pub fn iter_token_state_prefix<'a, L: BlobStoreLoad>(
-        &self,
-        loader: &'a L,
-        token_index: TokenIndex,
-        prefix: &TokenStateKey,
-    ) -> BlockStateResult<impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, L>> {
-        self.tokens
-            .with_value(loader, token_index, |token| {
-                token.key_value_state.with_value(loader, |key_value_state| {
-                    Ok(key_value_state
-                        .iter_prefix(loader, &prefix.0)?
-                        .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1))))
-                })
-            })
             .ok_or_else(|| {
                 BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
             })?
