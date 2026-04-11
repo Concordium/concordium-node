@@ -12,6 +12,16 @@ fn main() {
 
 const THREADS: &[usize] = &[1, 2, 4, 8, 16];
 
+/// Warmup CPU. Divan does not seem to be good at doing this automatically.
+#[divan::bench]
+fn a_warmup() {
+    let mut x: u64 = 0;
+    for i in divan::black_box(0..10_000_000) {
+        x = x.wrapping_add(i);
+    }
+    divan::black_box(x);
+}
+
 #[divan::bench(threads = THREADS)]
 fn bench_with_value(bencher: Bencher) {
     let hcr = divan::black_box(HashedCacheableRef::new(StoreSerialized(0)));

@@ -15,6 +15,7 @@ plt-scheduler-types.workspace = true
 concordium_base.workspace = true
 
 # Third party dependencies
+arc-swap.workspace = true
 assert_matches.workspace = true
 either.workspace = true
 sha2.workspace = true

@@ -731,7 +731,7 @@ impl<K, V: Loadable> Loadable for LFMBTree<K, V> {
     }
 }
 
-impl<K, V: Storable> Storable for LFMBTree<K, V> {
+impl<K, V: Storable + Clone> Storable for LFMBTree<K, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         match &self.inner {
             LFMBTreeInner::Empty => {
@@ -769,7 +769,7 @@ impl<V: Loadable> Loadable for Subtree<V> {
     }
 }
 
-impl<V: Storable> Storable for Subtree<V> {
+impl<V: Storable + Clone> Storable for Subtree<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         match self {
             Subtree::Leaf(value) => {
@@ -786,7 +786,7 @@ impl<V: Storable> Storable for Subtree<V> {
     }
 }
 
-impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
+impl<K, V: Hashable + Loadable + Clone> Hashable for LFMBTree<K, V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let mut hasher = sha2::Sha256::new();
 
@@ -804,7 +804,7 @@ impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
     }
 }
 
-impl<V: Hashable + Loadable> Hashable for Subtree<V> {
+impl<V: Hashable + Loadable + Clone> Hashable for Subtree<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(match self {
             Subtree::Node(_, left_ref, right_ref) => {
@@ -815,7 +815,7 @@ impl<V: Hashable + Loadable> Hashable for Subtree<V> {
     }
 }
 
-impl<K, V: Cacheable + Loadable> Cacheable for LFMBTree<K, V> {
+impl<K, V: Cacheable + Loadable + Clone> Cacheable for LFMBTree<K, V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         match &self.inner {
             LFMBTreeInner::Empty => (),
@@ -827,7 +827,7 @@ impl<K, V: Cacheable + Loadable> Cacheable for LFMBTree<K, V> {
     }
 }
 
-impl<V: Cacheable + Loadable> Cacheable for Subtree<V> {
+impl<V: Cacheable + Loadable + Clone> Cacheable for Subtree<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         match self {
             Subtree::Leaf(value) => {
