@@ -82,7 +82,6 @@ use std::{iter, vec};
 ///
 /// * `[A]`: Leaf with value `A`.
 /// * `(h)`: Node at height `h`.
-///   and interpretations of the height.
 /// * `#i`: Key label indicating that leaf corresponds to key `i`.
 ///   Notice that this is not part of the data structure, it is implicitly derived.
 ///
@@ -91,6 +90,7 @@ use std::{iter, vec};
 /// size 1:
 ///       [A]
 ///       #0
+///
 /// size 2:
 ///       (0)
 ///      /   \
