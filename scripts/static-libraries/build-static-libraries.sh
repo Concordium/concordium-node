@@ -2,6 +2,15 @@
 
 set -ex
 
+# If a specific Rust toolchain version is requested, install and activate it.
+# This ensures that Rust libraries compiled here use the same toolchain version
+# as the node binary built in the separate build stage, preventing undefined
+# symbol errors caused by std symbol hash mismatches between different versions.
+if [ -n "${RUST_TOOLCHAIN_VERSION:-}" ]; then
+    rustup toolchain install "$RUST_TOOLCHAIN_VERSION"
+    rustup default "$RUST_TOOLCHAIN_VERSION"
+fi
+
 #############################################################################################################################
 ## Copy GHC libs
 

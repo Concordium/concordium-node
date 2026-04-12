@@ -5,8 +5,10 @@ ARG static_libraries_image_tag=latest
 FROM concordium/static-libraries:${static_libraries_image_tag} AS static-builder
 COPY . /build
 ARG ghc_version
+ARG rust_toolchain_version
 WORKDIR /build
 RUN GHC_VERSION="$ghc_version" \
+    RUST_TOOLCHAIN_VERSION="${rust_toolchain_version}" \
       /build/scripts/static-libraries/build-static-libraries.sh
 
 # Build static node binaries.
