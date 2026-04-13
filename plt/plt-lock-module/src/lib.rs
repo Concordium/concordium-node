@@ -1,7 +1,6 @@
 //! Runtime interface for protocol-level lock controllers.
 
 use concordium_base::{base::AccountIndex, protocol_level_tokens::RawCbor};
-use plt_block_state::block_state::types::LockState;
 
 /// Temporary runtime lock operation model.
 ///
@@ -17,11 +16,8 @@ pub enum LockOperation {}
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LockControllerRejectReason;
 
-/// Runtime interface implemented by protocol-level lock controllers.
+/// Runtime interface implemented by protocol-level locks.
 pub trait LockController {
-    /// Initialize controller-specific state for a newly created lock.
-    fn init_state(&self) -> LockState;
-
     /// Approve or reject a lock operation.
     fn approve_operation(
         &self,

@@ -12,6 +12,7 @@ plt-block-state.workspace = true
 plt-scheduler-types.workspace = true
 plt-scheduler-interface.workspace = true
 plt-token-module.workspace = true
+plt-lock-module.workspace = true
 
 concordium_base.workspace = true
 thiserror.workspace = true

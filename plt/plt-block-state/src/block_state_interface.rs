@@ -1,10 +1,11 @@
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenStateKey,
-    TokenStateValue,
+    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
+    TokenStateKey, TokenStateValue,
 };
 use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -24,6 +25,10 @@ pub enum RawTokenAmountDelta {
 #[derive(Debug, thiserror::Error)]
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
+
+/// Lock with given id does not exist
+#[derive(Debug)]
+pub struct LockNotFoundByIdError(pub LockId);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
@@ -149,6 +154,13 @@ pub trait BlockStateQuery {
 
     /// Query the protocol version of the block state.
     fn protocol_version(&self) -> ProtocolVersion;
+
+    /// Get the lock associated with a [`LockId`] (if it exists).
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The lock id to get the [`Self::Lock`] of.
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError>;
 }
 
 /// Operations on the state of a block in the chain.
@@ -233,6 +245,23 @@ pub trait BlockStateOperations: BlockStateQuery {
         token: &Self::Token,
         token_key_value_state: Self::TokenKeyValueState,
     );
+
+    /// Create a new PLT lock with the given configuration. The initial state will be empty.
+    /// Returns representation of the created lock.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The ID of the PLT lock.
+    /// - `configuration` The configuration for the PLT lock.
+    ///
+    /// # Preconditions
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
+    ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
+    fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> Self::Lock;
 }
 
 /// The computation resulted in overflow (negative or above maximum value).

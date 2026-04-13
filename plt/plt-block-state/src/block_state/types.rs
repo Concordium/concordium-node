@@ -53,14 +53,6 @@ pub struct LockConfiguration {
     pub controller: LockControllerConfig,
 }
 
-/// Lock-controller state stored in block state.
-///
-/// The state is intentionally empty in the initial lock-controller interface
-/// work and will be expanded once non-trivial controllers need persistent
-/// state.
-#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize)]
-pub struct LockState {}
-
 /// Account representing (read-only) account state.
 ///
 /// The account is guaranteed to exist on chain, when holding an instance of this type.

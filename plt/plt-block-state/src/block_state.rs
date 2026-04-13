@@ -3,12 +3,12 @@
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, LockConfiguration, LockState, TokenAccountState,
-    TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
+    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
+    TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, LockNotFoundByIdError, OverflowError,
+    RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
@@ -317,6 +317,19 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
         token_key_value_state.iter_prefix(prefix)
     }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError> {
+        if self
+            .internal_block_state
+            .block_state()
+            .locks
+            .contains_key(lock_id)
+        {
+            return Ok(lock_id.clone());
+        }
+
+        Err(LockNotFoundByIdError(lock_id.clone()))
+    }
 }
 
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -369,6 +382,11 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
     ) {
         self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
             token_key_value_state;
+    }
+
+    // TODO: lock creation implemented as part of COR-2302
+    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> Self::Lock {
+        todo!()
     }
 }
 
@@ -425,6 +443,4 @@ struct Lock {
     locked_balances: BTreeMap<(AccountIndex, TokenIndex), RawTokenAmount>,
     /// The configuration parameters for the lock.
     configuration: LockConfiguration,
-    /// The state associated with the lock.
-    state: LockState,
 }

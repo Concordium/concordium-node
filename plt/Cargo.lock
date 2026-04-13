@@ -1247,6 +1247,7 @@ dependencies = [
  "hex",
  "libc",
  "plt-block-state",
+ "plt-lock-module",
  "plt-scheduler-interface",
  "plt-scheduler-types",
  "plt-token-module",
