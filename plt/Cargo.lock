@@ -1231,6 +1231,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "plt-lock-module"
+version = "0.1.0"
+dependencies = [
+ "concordium_base",
+ "plt-block-state",
+]
+
+[[package]]
 name = "plt-scheduler"
 version = "0.1.0"
 dependencies = [

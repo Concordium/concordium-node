@@ -4,6 +4,7 @@ resolver = "3"
 members = [
     "node-rust-library",
     "plt-block-state",
+    "plt-lock-module",
     "plt-scheduler-types",
     "plt-scheduler-interface",
     "plt-scheduler",
@@ -17,6 +18,7 @@ codegen-units = 1
 
 [workspace.dependencies]
 plt-block-state = {path = "plt-block-state"}
+plt-lock-module = {path = "plt-lock-module"}
 plt-token-module = {path = "plt-token-module"}
 plt-scheduler = {path = "plt-scheduler"}
 plt-scheduler-types = {path = "plt-scheduler-types"}
