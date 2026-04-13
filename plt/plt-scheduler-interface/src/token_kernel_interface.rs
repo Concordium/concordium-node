@@ -100,11 +100,22 @@ pub trait TokenKernelQueries {
     /// Lookup a key in the token state.
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
 
+    /// Get iterator over key-value pairs with a shared prefix.
+    fn iter_token_state_prefix(
+        &self,
+        prefix: TokenStateKey,
+    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
+
     /// Query the protocol version for this block.
     fn protocol_version(&self) -> ProtocolVersion;
 
     /// Query whether to support RBAC operations.
     fn support_rbac(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
+
+    /// Query whether to support updating metadata operations.
+    fn support_updating_metadata(&self) -> bool {
         self.protocol_version() >= ProtocolVersion::P11
     }
 }

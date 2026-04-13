@@ -42,7 +42,7 @@ import Concordium.Crypto.SHA256 (Hash (Hash))
 import Concordium.External.Helpers
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError (..))
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenModuleError (..))
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Wasm as Wasm
 
@@ -158,13 +158,56 @@ getTokenInfoV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec 
         Right tokenId -> do
             res <- runMVR (Q.getTokenInfo bhi tokenId) mvr
             case res of
-                Q.BQRBlock _ (Left QTIEUnknownToken) -> do
+                Q.BQRBlock _ (Left QTMEUnknownToken) -> do
                     copyHashTo outHash res
                     return $ queryResultCode QRNotFound
-                Q.BQRBlock _ (Left e@QTIEInternal{}) -> do
+                Q.BQRBlock _ (Left e@QTMEInternal{}) -> do
                     mvLog mvr Logger.External Logger.LLError $
                         "Internal error processing GetTokenInfo: " ++ show e
                     return $ queryResultCode QRInternalError
+                Q.BQRBlock _ (Left QTMEUnavailable) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRUnavailable
+                Q.BQRBlock _ (Right r) ->
+                    returnMessageWithBlock (copier outVec) outHash (res $> r)
+                Q.BQRNoBlock ->
+                    return $ queryResultCode QRNotFound
+
+getTokenAuthorizationsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Token ID.
+    Ptr Word8 ->
+    -- | Token ID length.
+    Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- | Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getTokenAuthorizationsV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    decodeTokenId tokenIdPtr tokenIdLen >>= \case
+        Left _ -> return $ queryResultCode QRInvalidArgument
+        Right tokenId -> do
+            res <- runMVR (Q.getTokenAuthorizations bhi tokenId) mvr
+            case res of
+                Q.BQRBlock _ (Left QTMEUnknownToken) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRNotFound
+                Q.BQRBlock _ (Left e@QTMEInternal{}) -> do
+                    mvLog mvr Logger.External Logger.LLError $
+                        "Internal error processing GetTokenAuthorizations: " ++ show e
+                    return $ queryResultCode QRInternalError
+                Q.BQRBlock _ (Left QTMEUnavailable) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRUnavailable
                 Q.BQRBlock _ (Right r) ->
                     returnMessageWithBlock (copier outVec) outHash (res $> r)
                 Q.BQRNoBlock ->
@@ -1285,6 +1328,24 @@ foreign export ccall
 
 foreign export ccall
     getTokenInfoV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Token ID.
+        Ptr Word8 ->
+        -- | Token ID length.
+        Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        -- | Callback to output data.
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getTokenAuthorizationsV2 ::
         StablePtr Ext.ConsensusRunner ->
         -- | Block type.
         Word8 ->
