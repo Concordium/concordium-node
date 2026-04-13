@@ -1,17 +1,18 @@
 use crate::key_value_state;
-use crate::token_module::TokenModuleStateInvariantError;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
 };
-use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use plt_scheduler_interface::token_kernel_interface::{
+    TokenKernelQueries, TokenStateInvariantError,
+};
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenModuleError {
     #[error("{0}")]
-    StateInvariantViolation(#[from] TokenModuleStateInvariantError),
+    StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
 /// Get the CBOR-encoded representation of the token module state.
@@ -38,7 +39,7 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
     let governance_account = kernel
         .account_by_index(governance_account_index)
         .map_err(|_| {
-            TokenModuleStateInvariantError(format!(
+            TokenStateInvariantError(format!(
                 "Stored governance account with index {} does not exist",
                 governance_account_index
             ))
@@ -90,4 +91,13 @@ fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
         allow_list,
         deny_list,
     }
+}
+
+/// Get authorization roles and assigned accounts for the token.
+pub fn query_token_authorizations<TK: TokenKernelQueries>(
+    kernel: &TK,
+) -> Result<RawCbor, QueryTokenModuleError> {
+    Ok(RawCbor::from(cbor::cbor_encode(
+        &key_value_state::get_token_authorizations(kernel)?,
+    )))
 }

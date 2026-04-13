@@ -2,6 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use crate::ffi::status;
 use crate::scheduler;
 use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
@@ -88,103 +89,97 @@ extern "C" fn ffi_execute_transaction(
     used_energy_out: *mut u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
-) -> u8 {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(!payload.is_null(), "payload is a null pointer.");
-    assert!(
-        !block_state_out.is_null(),
-        "block_state_out is a null pointer."
-    );
-    assert!(
-        !used_energy_out.is_null(),
-        "used_energy_out is a null pointer."
-    );
-    assert!(
-        !sender_account_address.is_null(),
-        "sender_account_address is a null pointer."
-    );
-    assert!(
-        !return_data_len_out.is_null(),
-        "return_data_len_out is a null pointer."
-    );
-    assert!(
-        !return_data_out.is_null(),
-        "return_data_out is a null pointer."
-    );
-
-    let external_callbacks = ExternalBlockStateOperationCallbacks {
-        queries: ExternalBlockStateQueryCallbacks {
-            read_token_account_balance_ptr: read_token_account_balance_callback,
-            get_account_address_by_index_ptr: get_account_address_by_index_callback,
-            get_account_index_by_address_ptr: get_account_index_by_address_callback,
-            get_token_account_states_ptr: get_token_account_states_callback,
-        },
-        update_token_account_balance_ptr: update_token_account_balance_callback,
-        touch_token_account_ptr: touch_token_account_callback,
-        increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
-    };
-
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { (*block_state).mutable_state() };
-    let mut block_state = ExecutionTimePltBlockState {
-        protocol_version,
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
-    let sender_account_index = AccountIndex::from(sender_account_index);
-    let sender_account_address = {
-        let mut address_bytes = [0u8; contracts_common::ACCOUNT_ADDRESS_SIZE];
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                sender_account_address,
-                address_bytes.as_mut_ptr(),
-                contracts_common::ACCOUNT_ADDRESS_SIZE,
-            );
-        }
-        AccountAddress(address_bytes)
-    };
-
-    let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let payload: Payload = common::from_bytes_complete(payload_bytes).unwrap();
-
-    let remaining_energy = Energy::from(remaining_energy);
-
-    let result = scheduler::execute_transaction(
-        sender_account_index,
-        sender_account_address,
-        &mut block_state,
-        payload,
-        remaining_energy,
-    );
-
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let summary = result.unwrap();
-
-    unsafe {
-        *used_energy_out = summary.energy_used.energy;
-    }
-
-    let (return_status, return_data) = match summary.outcome {
-        TransactionOutcome::Success(events) => {
+) -> status::FfiStatusCode {
+    let (return_status, data_out) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(!payload.is_null(), "payload is a null pointer.");
+        assert!(
+            !block_state_out.is_null(),
+            "block_state_out is a null pointer."
+        );
+        assert!(
+            !used_energy_out.is_null(),
+            "used_energy_out is a null pointer."
+        );
+        assert!(
+            !sender_account_address.is_null(),
+            "sender_account_address is a null pointer."
+        );
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        let external_callbacks = ExternalBlockStateOperationCallbacks {
+            queries: ExternalBlockStateQueryCallbacks {
+                read_token_account_balance_ptr: read_token_account_balance_callback,
+                get_account_address_by_index_ptr: get_account_address_by_index_callback,
+                get_account_index_by_address_ptr: get_account_index_by_address_callback,
+                get_token_account_states_ptr: get_token_account_states_callback,
+            },
+            update_token_account_balance_ptr: update_token_account_balance_callback,
+            touch_token_account_ptr: touch_token_account_callback,
+            increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+        };
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let internal_block_state = unsafe { (*block_state).mutable_state() };
+        let mut block_state = ExecutionTimePltBlockState {
+            protocol_version,
+            internal_block_state,
+            backing_store_load: load_callback,
+            external_block_state: external_callbacks,
+        };
+        let sender_account_index = AccountIndex::from(sender_account_index);
+        let sender_account_address = {
+            let mut address_bytes = [0u8; contracts_common::ACCOUNT_ADDRESS_SIZE];
             unsafe {
-                *block_state_out =
-                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
+                std::ptr::copy_nonoverlapping(
+                    sender_account_address,
+                    address_bytes.as_mut_ptr(),
+                    contracts_common::ACCOUNT_ADDRESS_SIZE,
+                );
             }
-            (0, common::to_bytes(&events))
+            AccountAddress(address_bytes)
+        };
+        let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+        let payload: Payload = common::from_bytes_complete(payload_bytes)
+            .expect("Failed decoding transaction payload");
+        let remaining_energy = Energy::from(remaining_energy);
+        let result = scheduler::execute_transaction(
+            sender_account_index,
+            sender_account_address,
+            &mut block_state,
+            payload,
+            remaining_energy,
+        );
+        let summary = result.expect("Unexpected failure during transaction execution");
+        unsafe {
+            *used_energy_out = summary.energy_used.energy;
         }
-        TransactionOutcome::Rejected(reject_reason) => (1, common::to_bytes(&reject_reason)),
-    };
+        match summary.outcome {
+            TransactionOutcome::Success(events) => {
+                unsafe {
+                    *block_state_out =
+                        Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
+                }
+                (status::FfiStatusCode::Success, common::to_bytes(&events))
+            }
+            TransactionOutcome::Rejected(reject_reason) => (
+                status::FfiStatusCode::Failed,
+                common::to_bytes(&reject_reason),
+            ),
+        }
+    });
 
-    let array = memory::alloc_array_from_vec(return_data);
+    let array = memory::alloc_array_from_vec(data_out);
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }
-
     return_status
 }
 
@@ -246,69 +241,122 @@ extern "C" fn ffi_execute_chain_update(
     block_state_out: *mut *mut PltBlockStateSavepoint,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
-) -> u8 {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(!payload.is_null(), "payload is a null pointer.");
-    assert!(
-        !block_state_out.is_null(),
-        "block_state_out is a null pointer."
-    );
-    assert!(
-        !return_data_len_out.is_null(),
-        "return_data_len_out is a null pointer."
-    );
-    assert!(
-        !return_data_out.is_null(),
-        "return_data_out is a null pointer."
-    );
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(!payload.is_null(), "payload is a null pointer.");
+        assert!(
+            !block_state_out.is_null(),
+            "block_state_out is a null pointer."
+        );
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
 
-    let external_callbacks = ExternalBlockStateOperationCallbacks {
-        queries: ExternalBlockStateQueryCallbacks {
-            read_token_account_balance_ptr: read_token_account_balance_callback,
-            get_account_address_by_index_ptr: get_account_address_by_index_callback,
-            get_account_index_by_address_ptr: get_account_index_by_address_callback,
-            get_token_account_states_ptr: get_token_account_states_callback,
-        },
-        update_token_account_balance_ptr: update_token_account_balance_callback,
-        touch_token_account_ptr: touch_token_account_callback,
-        increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
-    };
+        let external_callbacks = ExternalBlockStateOperationCallbacks {
+            queries: ExternalBlockStateQueryCallbacks {
+                read_token_account_balance_ptr: read_token_account_balance_callback,
+                get_account_address_by_index_ptr: get_account_address_by_index_callback,
+                get_account_index_by_address_ptr: get_account_index_by_address_callback,
+                get_token_account_states_ptr: get_token_account_states_callback,
+            },
+            update_token_account_balance_ptr: update_token_account_balance_callback,
+            touch_token_account_ptr: touch_token_account_callback,
+            increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+        };
 
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let internal_block_state = unsafe { (*block_state).mutable_state() };
-    let mut block_state = ExecutionTimePltBlockState {
-        protocol_version,
-        internal_block_state,
-        backing_store_load: load_callback,
-        external_block_state: external_callbacks,
-    };
-
-    let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let payload: UpdatePayload = common::from_bytes_complete(payload_bytes).unwrap();
-
-    let result = scheduler::execute_chain_update(&mut block_state, payload);
-
-    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let outcome = result.unwrap();
-
-    let (return_status, return_data) = match outcome {
-        ChainUpdateOutcome::Success(events) => {
-            unsafe {
-                *block_state_out =
-                    Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let internal_block_state = unsafe { (*block_state).mutable_state() };
+        let mut block_state = ExecutionTimePltBlockState {
+            protocol_version,
+            internal_block_state,
+            backing_store_load: load_callback,
+            external_block_state: external_callbacks,
+        };
+        let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+        let payload: UpdatePayload = common::from_bytes_complete(payload_bytes)
+            .expect("Failed decoding chain update payload");
+        let result = scheduler::execute_chain_update(&mut block_state, payload);
+        let outcome = result.expect("Unexpected failure during chain update execution");
+        match outcome {
+            ChainUpdateOutcome::Success(events) => {
+                unsafe {
+                    *block_state_out =
+                        Box::into_raw(Box::new(block_state.internal_block_state.savepoint()));
+                }
+                (status::FfiStatusCode::Success, common::to_bytes(&events))
             }
-            (0, common::to_bytes(&events))
+            ChainUpdateOutcome::Failed(failure_kind) => (
+                status::FfiStatusCode::Failed,
+                common::to_bytes(&failure_kind),
+            ),
         }
-        ChainUpdateOutcome::Failed(failure_kind) => (1, common::to_bytes(&failure_kind)),
-    };
+    });
 
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
     }
-
     return_status
+}
+
+#[cfg(test)]
+mod tests {
+    use plt_block_state::ffi::blob_store_callbacks::tests_helpers::UNIMPLEMENTED_LOAD_CALLBACK;
+    use plt_block_state::ffi::block_state_callbacks::tests_helpers::{
+        UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
+        UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
+        UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES, UNIMPLEMENTED_INCREMENT_PLT_UPDATE_SEQUENCE_NUMBER,
+        UNIMPLEMENTED_READ_TOKEN_ACCOUNT_BALANCE, UNIMPLEMENTED_TOUCH_TOKEN_ACCOUNT,
+        UNIMPLEMENTED_UPDATE_TOKEN_ACCOUNT_BALANCE,
+    };
+
+    use super::*;
+    use std::ptr;
+
+    /// Test ensuring panics are caught and returned properly when providing invalid arguments to `ffi_execute_transaction`.
+    #[test]
+    fn test_execute_transaction_catches_panic() {
+        let data_out = Box::into_raw(Box::new(ptr::null_mut()));
+        let data_out_len = Box::into_raw(Box::new(0));
+
+        let status_code = ffi_execute_transaction(
+            UNIMPLEMENTED_LOAD_CALLBACK,
+            UNIMPLEMENTED_READ_TOKEN_ACCOUNT_BALANCE,
+            UNIMPLEMENTED_UPDATE_TOKEN_ACCOUNT_BALANCE,
+            UNIMPLEMENTED_TOUCH_TOKEN_ACCOUNT,
+            UNIMPLEMENTED_INCREMENT_PLT_UPDATE_SEQUENCE_NUMBER,
+            UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
+            UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
+            UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES,
+            ptr::null(),
+            8,
+            ptr::null(),
+            0,
+            0,
+            ptr::null(),
+            0,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            data_out,
+            data_out_len,
+        );
+        assert_eq!(status_code, status::FfiStatusCode::Panic);
+        let data = unsafe {
+            let data_len = *data_out_len;
+            assert!(data_len > 0);
+            let data_ptr = *data_out;
+            assert!(!data_ptr.is_null());
+            std::slice::from_raw_parts(data_ptr, data_len)
+        };
+        let message = std::str::from_utf8(data).expect("Failed decoding panic message");
+        assert_eq!(message, "block_state is a null pointer.");
+    }
 }

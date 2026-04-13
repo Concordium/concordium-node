@@ -1,4 +1,7 @@
+pub mod block_state_external_stubbed;
+
 use assert_matches::assert_matches;
+use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{
     TokenId, TokenModuleRejectReason, TokenModuleRejectReasonType,
 };
@@ -6,6 +9,10 @@ use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
 
+/// The latest protocol version supported by the scheduler, used as default in tests.
+pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
+
+#[allow(dead_code)]
 fn decode_token_module_reject_reason(
     reject_reason: &EncodedTokenModuleRejectReason,
 ) -> TokenModuleRejectReason {
@@ -19,6 +26,7 @@ fn decode_token_module_reject_reason(
     .unwrap()
 }
 
+#[allow(dead_code)]
 pub fn assert_token_module_reject_reason(
     token_id: &TokenId,
     reject_reason: TransactionRejectReason,
