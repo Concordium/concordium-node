@@ -68,7 +68,7 @@ impl ProtocolLevelTokens {
         token_index: TokenIndex,
     ) -> BlockStateResult<SimplisticTokenKeyValueState> {
         self.tokens
-            .with_value(loader, token_index, |token| {
+            .lookup_value(loader, token_index, |token| {
                 Ok(match token {
                     OwnedOrBorrowed::Owned(v) => v.key_value_state.0,
                     OwnedOrBorrowed::Borrowed(r) => r.key_value_state.0.clone(),
@@ -85,7 +85,7 @@ impl ProtocolLevelTokens {
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenConfiguration> {
         self.tokens
-            .with_value(loader, token_index, |token| {
+            .lookup_value(loader, token_index, |token| {
                 token
                     .configuration
                     .with_value(loader, |conf| Ok(conf.into_owned().0))
@@ -101,7 +101,7 @@ impl ProtocolLevelTokens {
         token_index: TokenIndex,
     ) -> BlockStateResult<RawTokenAmount> {
         self.tokens
-            .with_value(loader, token_index, |token| Ok(token.circulating_supply.0))
+            .lookup_value(loader, token_index, |token| Ok(token.circulating_supply.0))
             .ok_or_else(|| {
                 BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
             })?
