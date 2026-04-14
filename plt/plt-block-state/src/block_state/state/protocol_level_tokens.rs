@@ -7,7 +7,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash;
 use crate::block_state::hash::Hashable;
-use crate::block_state::lfmb_tree::{LFMBTree, LFMBTreeKey};
+use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::block_state::types::protocol_level_tokens::{
     TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
@@ -23,7 +23,7 @@ use std::io::Read;
 /// Block state for protocol level tokens
 #[derive(Debug, Clone, Default)]
 pub struct ProtocolLevelTokens {
-    tokens: LFMBTree<TokenIndex, Token>,
+    tokens: LfmbTree<TokenIndex, Token>,
     token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
 }
 
@@ -37,7 +37,7 @@ fn normalize_token_id(token_id: &TokenId) -> NormalizedTokenId {
 impl ProtocolLevelTokens {
     pub fn empty() -> Self {
         Self {
-            tokens: LFMBTree::empty(),
+            tokens: LfmbTree::empty(),
             token_id_map: im::HashMap::new(),
         }
     }
@@ -196,7 +196,7 @@ impl Loadable for ProtocolLevelTokens {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let tokens: LFMBTree<TokenIndex, Token> = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let tokens: LfmbTree<TokenIndex, Token> = Loadable::load_from_buffer(&mut buffer, loader)?;
         // To construct the full token id to token index map, we need to read the LFMBTree from
         // the blob store. This is not ideal. If the state is to be cached after loading, we would
         // rather wait until it is cached in memory before constructing the map.
@@ -227,7 +227,7 @@ impl Hashable for ProtocolLevelTokens {
     }
 }
 
-impl LFMBTreeKey for TokenIndex {
+impl LfmbTreeKey for TokenIndex {
     fn to_u64(self) -> u64 {
         self.0
     }
