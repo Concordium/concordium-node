@@ -1,4 +1,4 @@
-//! Benchmarks for the [`LFMBTree`] covering asymptotic behavior with varying tree size.
+//! Benchmarks for the [`LfmbTree`] covering asymptotic behavior with varying tree size.
 
 use divan::Bencher;
 use plt_block_state::block_state::blob_store::StoreSerialized;
@@ -36,16 +36,17 @@ fn build_tree(size: u64) -> BenchTree {
     tree
 }
 
-// /// Warmup CPU. Divan does not seem to be good at doing this automatically.
-// #[divan::bench]
-// fn a_warmup() {
-//     let mut x: u64 = 0;
-//     for i in divan::black_box(0..10_000_000) {
-//         x = x.wrapping_add(i);
-//     }
-//     divan::black_box(x);
-// }
+/// Warmup CPU. Divan does not seem to be good at doing this automatically.
+#[divan::bench]
+fn a_warmup() {
+    let mut x: u64 = 0;
+    for i in divan::black_box(0..10_000_000) {
+        x = x.wrapping_add(i);
+    }
+    divan::black_box(x);
+}
 
+/// Benchmark [`LfmbTree::with_value`] for different tree sizes.
 #[divan::bench(args = SIZES)]
 fn bench_with_value(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
@@ -58,6 +59,7 @@ fn bench_with_value(bencher: Bencher, size: u64) {
         });
 }
 
+/// Benchmark [`LfmbTree::insert_value`] for different tree sizes.
 #[divan::bench(args = SIZES)]
 fn bench_insert_value(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
@@ -67,6 +69,7 @@ fn bench_insert_value(bencher: Bencher, size: u64) {
     });
 }
 
+/// Benchmark [`LfmbTree::update_value`] for different tree sizes.
 #[divan::bench(args = SIZES)]
 fn bench_update_value(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
@@ -79,6 +82,7 @@ fn bench_update_value(bencher: Bencher, size: u64) {
         });
 }
 
+/// Benchmark [`LfmbTree::values`] iterator for different tree sizes.
 #[divan::bench(args = SIZES)]
 fn bench_values(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
