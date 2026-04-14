@@ -11,8 +11,9 @@ use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::BlockStateResult;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
+use once_cell::sync::OnceCell;
 use std::io::Read;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -53,10 +54,10 @@ impl<V> HashedCacheableRef<V> {
     /// Create a new value represented in memory.
     pub fn new(value: V) -> Self {
         let inner = HashedBufferedRefInner {
-            hash: OnceLock::new(),
+            hash: OnceCell::new(),
             repr: HashedCacheableRefRepr::Memory {
                 value,
-                blob_location_lock: OnceLock::new(),
+                blob_location_lock: OnceCell::new(),
             },
         };
 
@@ -96,7 +97,7 @@ impl<V> Clone for HashedCacheableRef<V> {
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
     /// Lazily calculated hash. If set, it is the hash of `value`.
-    hash: OnceLock<Hash>, // todo ar racing once lock
+    hash: OnceCell<Hash>, // todo ar racing once lock
     /// Representation of the value.
     repr: HashedCacheableRefRepr<V>,
 }
@@ -109,14 +110,14 @@ enum HashedCacheableRefRepr<V> {
         /// Location of the value in the blob store
         blob_location: BlobStoreLocation,
         /// In-memory value. Is set if the value is currently represented in memory.
-        value_lock: OnceLock<V>, // todo ar racing once lock
+        value_lock: OnceCell<V>, // todo ar racing once lock
     },
     /// The value is in memory, and is maybe also stored (the same as cached)
     Memory {
         /// In-memory value.
         value: V,
         /// Location of the value in the blob store. Is set if the value is stored in the blob store.
-        blob_location_lock: OnceLock<BlobStoreLocation>, // todo ar atomic blob store location
+        blob_location_lock: OnceCell<BlobStoreLocation>, // todo ar atomic blob store location
     },
 }
 
@@ -201,10 +202,10 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
     ) -> BlockStateResult<Self> {
         let blob_location: BlobStoreLocation = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = HashedBufferedRefInner {
-            hash: OnceLock::new(),
+            hash: OnceCell::new(),
             repr: HashedCacheableRefRepr::Store {
                 blob_location,
-                value_lock: OnceLock::new(),
+                value_lock: OnceCell::new(),
             },
         };
 
