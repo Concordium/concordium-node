@@ -619,11 +619,16 @@ impl<V> Subtree<V> {
     }
 }
 
+/// Iterator of values in tree.
 struct ValuesIterator<'a, L, F, V> {
+    /// Blob store loader reference
     loader: &'a L,
+    /// Already "peeked" value that is the next item if present.
     peeked_value: Option<HashedCacheableRef<V>>,
     node_stack: Vec<HashedCacheableRef<Subtree<V>>>,
+    /// Closure to access iterated values.
     read: F,
+    /// Remaining size of the iterator.
     size: usize,
 }
 
@@ -971,7 +976,7 @@ mod tests {
         }
     }
 
-    /// Test [`LfmbTree::with_value`]
+    /// Test [`LfmbTree::update_value`]
     #[test]
     fn prop_test_update_value() {
         for i in 0..100 {
