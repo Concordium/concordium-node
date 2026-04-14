@@ -7,12 +7,11 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::utils::{LockRef, OwnedOrBorrowed};
+use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::BlockStateResult;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
-use std::mem;
 use std::sync::{Arc, OnceLock};
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
@@ -64,41 +63,20 @@ impl<V> HashedCacheableRef<V> {
         }
     }
 
-    /// Access the referenced value via the given `read` closure. The value of type `T` returned by `read`
-    /// is the value returned by `with_value`. If the value is already in memory, the value
-    /// is passed to the closure as borrowed. If it is not in memory, it is loaded from the
+    /// Access the referenced value. If the value is already in memory, the value
+    /// is returned as borrowed. If it is not in memory, it is loaded from the
     /// blob store, and passed owned to the closure as owned.
     ///
     /// Loading from the blob store will not make the value cached in the reference.
     ///
     /// # Errors
     ///
-    /// Returns [`BlockStateError`] if returned by `read` or if
-    /// decoding data from the blob store fails.
-    pub fn with_value<T>(
-        &self,
-        loader: &impl BlobStoreLoad,
-        read: impl FnOnce(OwnedOrBorrowed<V>) -> BlockStateResult<T>,
-    ) -> BlockStateResult<T>
+    /// Returns [`BlockStateError`] if decoding data from the blob store fails.
+    pub fn value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<OwnedOrBorrowed<'_, V>>
     where
         V: Loadable,
     {
-        self.inner.get_or_load_value(loader).and_then(read)
-    }
-
-    /// Load the referenced value and return it. If the value is already in memory, it is cloned
-    /// and returned. If it is not in memory, it is loaded from the blob store, and returned.
-    ///
-    /// Loading from the blob store will not make the value cached in the reference.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BlockStateError`] if decoding data from the blob store fails.
-    pub fn clone_or_load_value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<V>
-    where
-        V: Loadable + Clone,
-    {
-        Ok(self.inner.get_or_load_value(loader)?.into_owned())
+        self.inner.get_or_load_value(loader)
     }
 }
 
@@ -252,7 +230,6 @@ mod tests {
     use crate::block_state::blob_store;
     use crate::block_state::blob_store::StoreSerialized;
     use crate::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-    use assert_matches::assert_matches;
 
     type TestRef = HashedCacheableRef<StoreSerialized<u64>>;
 
@@ -374,16 +351,16 @@ mod tests {
         assert_eq!(*assert_in_memory_repr(&val1), StoreSerialized(1));
     }
 
-    /// Test [`HashedCacheableRef::clone_or_load_value`]
+    /// Test [`HashedCacheableRef::value`]
     #[test]
-    fn test_clone_or_load_value() {
+    fn value() {
         let mut store = BlobStoreStub::default();
 
         // Test in-memory value. Assert in-memory representation does not change.
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
         let val1 = TestRef::new(StoreSerialized(1u64));
         assert_eq!(
-            val1.clone_or_load_value(&UnreachableBlobStore).unwrap(),
+            *val1.value(&UnreachableBlobStore).unwrap(),
             StoreSerialized(1u64)
         );
         assert_in_memory_repr(&val1);
@@ -395,7 +372,7 @@ mod tests {
         // Test cached value. Assert cached representation does not change.
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
         assert_eq!(
-            val1.clone_or_load_value(&UnreachableBlobStore).unwrap(),
+            *val1.value(&UnreachableBlobStore).unwrap(),
             StoreSerialized(1u64)
         );
         assert_cached_repr(&val1);
@@ -406,51 +383,7 @@ mod tests {
         assert_stored_repr(&val2);
 
         // Test stored value. Assert stored representation does not change.
-        assert_eq!(
-            val2.clone_or_load_value(&store).unwrap(),
-            StoreSerialized(1u64)
-        );
-        assert_stored_repr(&val2);
-    }
-
-    /// Test [`HashedCacheableRef::with_value`]
-    #[test]
-    fn test_with_value() {
-        let mut store = BlobStoreStub::default();
-
-        // Test in-memory value. Assert in-memory representation does not change.
-        // Assert that we don't need to read from the blob store by using UnreachableBlobStore
-        let val1 = TestRef::new(StoreSerialized(1u64));
-        assert_eq!(
-            val1.with_value(&UnreachableBlobStore, |val| Ok(*val))
-                .unwrap(),
-            StoreSerialized(1u64)
-        );
-        assert_in_memory_repr(&val1);
-
-        // Store value to make it cached
-        let blob_ref = blob_store::store_to_store(&mut store, &val1);
-        assert_cached_repr(&val1);
-
-        // Test cached value. Assert cached representation does not change.
-        // Assert that we don't need to read from the blob store by using UnreachableBlobStore
-        assert_eq!(
-            val1.with_value(&UnreachableBlobStore, |val| Ok(*val))
-                .unwrap(),
-            StoreSerialized(1u64)
-        );
-        assert_cached_repr(&val1);
-
-        // Load value to make it stored.
-        drop(val1);
-        let val2: TestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        assert_stored_repr(&val2);
-
-        // Test stored value. Assert stored representation does not change.
-        assert_eq!(
-            val2.with_value(&store, |val| Ok(*val)).unwrap(),
-            StoreSerialized(1u64)
-        );
+        assert_eq!(*val2.value(&store).unwrap(), StoreSerialized(1u64));
         assert_stored_repr(&val2);
     }
 

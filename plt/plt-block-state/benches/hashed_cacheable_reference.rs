@@ -25,5 +25,5 @@ fn a_warmup() {
 #[divan::bench(threads = THREADS)]
 fn bench_with_value(bencher: Bencher) {
     let hcr = divan::black_box(HashedCacheableRef::new(StoreSerialized(0)));
-    bencher.bench(|| hcr.with_value(&UnreachableBlobStore, |v| Ok(*v)).unwrap());
+    bencher.bench(|| hcr.value(&UnreachableBlobStore).unwrap());
 }
