@@ -256,6 +256,23 @@ mod tests {
 
     type TestRef = HashedCacheableRef<StoreSerialized<u64>>;
 
+    fn assert_in_memory_repr<V>(hcr: &HashedCacheableRef<V>) -> &V {
+        assert!(hcr.inner.blob_location.get().is_none(), "in blob store");
+        hcr.inner.value.get().expect("not in memory")
+    }
+
+    fn assert_stored_repr<V>(hcr: &HashedCacheableRef<V>) -> BlobStoreLocation {
+        assert!(hcr.inner.value.get().is_none(), "in memory");
+        *hcr.inner.blob_location.get().expect("not in blob store")
+    }
+
+    fn assert_cached_repr<V>(hcr: &HashedCacheableRef<V>) -> (&V, BlobStoreLocation) {
+        (
+            hcr.inner.value.get().expect("not in memory"),
+            *hcr.inner.blob_location.get().expect("not in blob store"),
+        )
+    }
+
     /// Test full lifecycle of a value:
     ///
     /// * create as new in memory
@@ -271,31 +288,24 @@ mod tests {
 
         // Create new value an assert representation is memory
         let val1 = TestRef::new(StoreSerialized(1u64));
-        assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Memory{value} => {
-            assert_eq!(*value, StoreSerialized(1));
-        });
+        assert_eq!(*assert_in_memory_repr(&val1), StoreSerialized(1));
 
         // Store value to blob store and assert representation is now cache.
         let blob_ref = blob_store::store_to_store(&mut store, &val1);
-        let val_ref = assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            *reference
-        });
+        let (val_tmp, val_ref) = assert_cached_repr(&val1);
+        assert_eq!(*val_tmp, StoreSerialized(1));
 
         drop(val1);
 
         // Load value from blob store and assert representation is store.
         let val2: TestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        assert_matches!(&val2.inner.read().repr, HashedCacheableRefRepr::Store {reference} => {
-            assert_eq!(*reference, val_ref);
-        });
+        assert_eq!(assert_stored_repr(&val2), val_ref);
 
         // Cache the value and assert representation is now cache
         val2.cache_reference_values(&store).expect("cache");
-        assert_matches!(&val2.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            assert_eq!(*reference, val_ref);
-        });
+        let (val_tmp, val_ref_tmp) = assert_cached_repr(&val2);
+        assert_eq!(*val_tmp, StoreSerialized(1));
+        assert_eq!(val_ref_tmp, val_ref);
     }
 
     /// Test storing cached value.
@@ -306,16 +316,13 @@ mod tests {
 
         // Store value to make it cached
         blob_store::store_to_store(&mut store, &val1);
-        let val_ref = assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,..} => {
-            *reference
-        });
+        let (_, val_ref) = assert_cached_repr(&val1);
 
         // Store value again and assert this does not change the reference to the value.
         blob_store::store_to_store(&mut store, &val1);
-        assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            assert_eq!(*reference, val_ref);
-        });
+        let (val_tmp, val_ref_tmp) = assert_cached_repr(&val1);
+        assert_eq!(*val_tmp, StoreSerialized(1));
+        assert_eq!(val_ref_tmp, val_ref);
     }
 
     /// Test storing stored value.
@@ -328,15 +335,11 @@ mod tests {
 
         // Load value to make it stored
         let val2: TestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        let val_ref = assert_matches!(&val2.inner.read().repr, HashedCacheableRefRepr::Store {reference} => {
-            *reference
-        });
+        let val_ref = assert_stored_repr(&val2);
 
         // Store value and assert this does not change the reference to the value.
         blob_store::store_to_store(&mut store, &val2);
-        assert_matches!(&val2.inner.read().repr, HashedCacheableRefRepr::Store {reference} => {
-            assert_eq!(*reference, val_ref);
-        });
+        assert_eq!(assert_stored_repr(&val2), val_ref);
     }
 
     /// Test caching cached value.
@@ -347,19 +350,16 @@ mod tests {
 
         // Store value to make it cached
         blob_store::store_to_store(&mut store, &val1);
-        let val_ref = assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            *reference
-        });
+        let (val_tmp, val_ref) = assert_cached_repr(&val1);
+        assert_eq!(*val_tmp, StoreSerialized(1));
 
         // Cache value and assert it does not change representation
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
         val1.cache_reference_values(&UnreachableBlobStore)
             .expect("cache");
-        assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            assert_eq!(*reference, val_ref);
-        });
+        let (val_tmp, val_ref_tmp) = assert_cached_repr(&val1);
+        assert_eq!(*val_tmp, StoreSerialized(1));
+        assert_eq!(val_ref_tmp, val_ref);
     }
 
     /// Test caching in-memory value.
@@ -371,9 +371,7 @@ mod tests {
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
         val1.cache_reference_values(&UnreachableBlobStore)
             .expect("cache");
-        assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Memory {value} => {
-            assert_eq!(*value, StoreSerialized(1));
-        });
+        assert_eq!(*assert_in_memory_repr(&val1), StoreSerialized(1));
     }
 
     /// Test [`HashedCacheableRef::clone_or_load_value`]
@@ -388,17 +386,11 @@ mod tests {
             val1.clone_or_load_value(&UnreachableBlobStore).unwrap(),
             StoreSerialized(1u64)
         );
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Memory { .. }
-        );
+        assert_in_memory_repr(&val1);
 
         // Store value to make it cached
         let blob_ref = blob_store::store_to_store(&mut store, &val1);
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Cache { .. }
-        );
+        assert_cached_repr(&val1);
 
         // Test cached value. Assert cached representation does not change.
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
@@ -406,28 +398,19 @@ mod tests {
             val1.clone_or_load_value(&UnreachableBlobStore).unwrap(),
             StoreSerialized(1u64)
         );
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Cache { .. }
-        );
+        assert_cached_repr(&val1);
 
         // Load value to make it stored.
         drop(val1);
         let val2: TestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        assert_matches!(
-            &val2.inner.read().repr,
-            HashedCacheableRefRepr::Store { .. }
-        );
+        assert_stored_repr(&val2);
 
         // Test stored value. Assert stored representation does not change.
         assert_eq!(
             val2.clone_or_load_value(&store).unwrap(),
             StoreSerialized(1u64)
         );
-        assert_matches!(
-            &val2.inner.read().repr,
-            HashedCacheableRefRepr::Store { .. }
-        );
+        assert_stored_repr(&val2);
     }
 
     /// Test [`HashedCacheableRef::with_value`]
@@ -443,17 +426,11 @@ mod tests {
                 .unwrap(),
             StoreSerialized(1u64)
         );
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Memory { .. }
-        );
+        assert_in_memory_repr(&val1);
 
         // Store value to make it cached
         let blob_ref = blob_store::store_to_store(&mut store, &val1);
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Cache { .. }
-        );
+        assert_cached_repr(&val1);
 
         // Test cached value. Assert cached representation does not change.
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
@@ -462,28 +439,19 @@ mod tests {
                 .unwrap(),
             StoreSerialized(1u64)
         );
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Cache { .. }
-        );
+        assert_cached_repr(&val1);
 
         // Load value to make it stored.
         drop(val1);
         let val2: TestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        assert_matches!(
-            &val2.inner.read().repr,
-            HashedCacheableRefRepr::Store { .. }
-        );
+        assert_stored_repr(&val2);
 
         // Test stored value. Assert stored representation does not change.
         assert_eq!(
             val2.with_value(&store, |val| Ok(*val)).unwrap(),
             StoreSerialized(1u64)
         );
-        assert_matches!(
-            &val2.inner.read().repr,
-            HashedCacheableRefRepr::Store { .. }
-        );
+        assert_stored_repr(&val2);
     }
 
     /// Test hash in-memory value.
@@ -494,13 +462,13 @@ mod tests {
         // Test hash in-memory value.
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
         let val1 = TestRef::new(StoreSerialized(1u64));
-        assert_eq!(val1.inner.read().hash, None);
+        assert_eq!(val1.inner.hash.get(), None);
         assert_eq!(
             val1.hash(&UnreachableBlobStore).unwrap(),
             StoreSerialized(1u64).hash(&store).unwrap()
         );
         assert_eq!(
-            val1.inner.read().hash,
+            val1.inner.hash.get().copied(),
             Some(StoreSerialized(1u64).hash(&store).unwrap())
         );
     }
@@ -513,20 +481,17 @@ mod tests {
         // Store value to make it cached
         let val1 = TestRef::new(StoreSerialized(1u64));
         blob_store::store_to_store(&mut store, &val1);
-        assert_matches!(
-            &val1.inner.read().repr,
-            HashedCacheableRefRepr::Cache { .. }
-        );
+        assert_cached_repr(&val1);
 
         // Test hash cached value.
         // Assert that we don't need to read from the blob store by using UnreachableBlobStore
-        assert_eq!(val1.inner.read().hash, None);
+        assert_eq!(val1.inner.hash.get(), None);
         assert_eq!(
             val1.hash(&UnreachableBlobStore).unwrap(),
             StoreSerialized(1u64).hash(&store).unwrap()
         );
         assert_eq!(
-            val1.inner.read().hash,
+            val1.inner.hash.get().copied(),
             Some(StoreSerialized(1u64).hash(&store).unwrap())
         );
     }
@@ -541,25 +506,19 @@ mod tests {
         let blob_ref = blob_store::store_to_store(&mut store, &val1);
         drop(val1);
         let val2: TestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        assert_matches!(
-            &val2.inner.read().repr,
-            HashedCacheableRefRepr::Store { .. }
-        );
+        assert_stored_repr(&val2);
 
         // Test hash stored value. Assert stored representation does not change.
-        assert_eq!(val2.inner.read().hash, None);
+        assert_eq!(val2.inner.hash.get(), None);
         assert_eq!(
             val2.hash(&store).unwrap(),
             StoreSerialized(1u64).hash(&store).unwrap()
         );
         assert_eq!(
-            val2.inner.read().hash,
+            val2.inner.hash.get().copied(),
             Some(StoreSerialized(1u64).hash(&store).unwrap())
         );
-        assert_matches!(
-            &val2.inner.read().repr,
-            HashedCacheableRefRepr::Store { .. }
-        );
+        assert_stored_repr(&val2);
 
         // Test hash again. This time we don't need to read from blob store, since we cache the hash.
         assert_eq!(
@@ -578,30 +537,21 @@ mod tests {
 
         // Store value to blob store and assert representation is now cache.
         let blob_ref = blob_store::store_to_store(&mut store, &val1);
-        let (val_blob_ref, val_nested1) = assert_matches!(&val1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            (*reference, value.clone())
-        });
-        let val_nested_blob_ref = assert_matches!(&val_nested1.inner.read().repr, HashedCacheableRefRepr::Cache {reference,..} => {
-            *reference
-        });
+        let (val_nested1, val_blob_ref) = assert_cached_repr(&val1);
+        let (_, val_nested_blob_ref) = assert_cached_repr(&val_nested1);
 
         drop(val1);
 
         // Load value from blob store and assert representation is store.
         let val2: NestedTestRef = blob_store::load_from_store(&store, blob_ref).unwrap();
-        assert_matches!(&val2.inner.read().repr, HashedCacheableRefRepr::Store {reference} => {
-            assert_eq!(*reference, val_blob_ref);
-        });
+        assert_eq!(assert_stored_repr(&val2), val_blob_ref);
 
         // Cache the value and assert representation is now cache
         val2.cache_reference_values(&store).expect("cache");
-        let val_nested2 = assert_matches!(&val2.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*reference, val_blob_ref);
-            value.clone()
-        });
-        assert_matches!(&val_nested2.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            assert_eq!(*reference, val_nested_blob_ref);
-        });
+        let (val_nested2, val_ref_tmp) = assert_cached_repr(&val2);
+        assert_eq!(val_ref_tmp, val_blob_ref);
+        let (val_tmp, val_ref_tmp) = assert_cached_repr(&val_nested2);
+        assert_eq!(*val_tmp, StoreSerialized(1));
+        assert_eq!(val_ref_tmp, val_nested_blob_ref);
     }
 }
