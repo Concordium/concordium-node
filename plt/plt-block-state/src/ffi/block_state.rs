@@ -2,8 +2,10 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use super::status;
 use crate::block_state::{PltBlockStateSavepoint, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
+use crate::ffi::status::FfiStatusCode;
 
 /// Allocate a new empty PLT block state and returns it.
 ///
@@ -17,6 +19,9 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
 
 /// Deallocate the PLT block state.
 ///
+/// This is called by the Haskell garbage collector, therefore we cannot handle
+/// a status code unlike other FFI functions in this module.
+///
 /// # Arguments
 ///
 /// - `block_state` Unique pointer to the PLT block state.
@@ -28,9 +33,14 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut PltBlockStateSavepoint {
 /// - Freeing is only ever done once.
 #[unsafe(no_mangle)]
 extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint) {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let state = unsafe { Box::from_raw(block_state) };
-    drop(state);
+    let panic_message = status::catch_unwind(move || {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        let state = unsafe { Box::from_raw(block_state) };
+        drop(state);
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+    }
 }
 
 /// Compute the hash of the PLT block state.
@@ -52,13 +62,21 @@ extern "C" fn ffi_hash_plt_block_state(
     mut load_callback: LoadCallback,
     block_state: *const PltBlockStateSavepoint,
     destination: *mut u8,
-) {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    assert!(!destination.is_null(), "destination is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    let hash = block_state.hash(&mut load_callback);
-    unsafe {
-        std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
+) -> status::FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(!destination.is_null(), "destination is a null pointer.");
+        let block_state = unsafe { &*block_state };
+        let hash = block_state.hash(&mut load_callback);
+        unsafe {
+            std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
+        }
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
     }
 }
 
@@ -79,11 +97,21 @@ extern "C" fn ffi_hash_plt_block_state(
 extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
     blob_ref: blob_store::Reference,
-) -> *mut PltBlockStateSavepoint {
-    // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state =
-        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
-    Box::into_raw(Box::new(block_state))
+    destination: *mut *mut PltBlockStateSavepoint,
+) -> status::FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        let block_state = blob_store::Loadable::load_from_location(&mut load_callback, blob_ref)
+            .expect("Failed loading block state");
+        unsafe {
+            *destination = Box::into_raw(Box::new(block_state));
+        }
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
+    }
 }
 
 /// Store a PLT block state in the blob store.
@@ -102,11 +130,23 @@ extern "C" fn ffi_load_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
+    destination: *mut blob_store::Reference,
     block_state: *const PltBlockStateSavepoint,
-) -> blob_store::Reference {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    block_state.store_update(&mut store_callback)
+) -> status::FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        let block_state = unsafe { &*block_state };
+        let reference = block_state.store_update(&mut store_callback);
+        unsafe {
+            *destination = reference;
+        }
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
+    }
 }
 
 /// Migrate the PLT block state from one blob store to another and return the migrated state.
@@ -131,12 +171,23 @@ extern "C" fn ffi_store_plt_block_state(
 extern "C" fn ffi_migrate_plt_block_state(
     mut load_callback: LoadCallback,
     mut store_callback: StoreCallback,
+    destination: *mut *mut PltBlockStateSavepoint,
     block_state: *const PltBlockStateSavepoint,
-) -> *mut PltBlockStateSavepoint {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    let new_block_state = block_state.migrate(&mut load_callback, &mut store_callback);
-    Box::into_raw(Box::new(new_block_state))
+) -> status::FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        let block_state = unsafe { &*block_state };
+        let new_block_state = block_state.migrate(&mut load_callback, &mut store_callback);
+        unsafe {
+            *destination = Box::into_raw(Box::new(new_block_state));
+        }
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
+    }
 }
 
 /// Cache the PLT block state into memory.
@@ -155,8 +206,16 @@ extern "C" fn ffi_migrate_plt_block_state(
 extern "C" fn ffi_cache_plt_block_state(
     mut load_callback: LoadCallback,
     block_state: *const PltBlockStateSavepoint,
-) {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    block_state.cache(&mut load_callback)
+) -> FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        let block_state = unsafe { &*block_state };
+        block_state.cache(&mut load_callback);
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
+    }
 }
