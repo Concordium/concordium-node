@@ -96,7 +96,7 @@ impl<V> Clone for HashedCacheableRef<V> {
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
     /// Lazily calculated hash. If set, it is the hash of `value`.
-    hash: OnceLock<Hash>,
+    hash: OnceLock<Hash>, // todo ar racing once lock
     /// Representation of the value.
     repr: HashedCacheableRefRepr<V>,
 }
@@ -109,14 +109,14 @@ enum HashedCacheableRefRepr<V> {
         /// Location of the value in the blob store
         blob_location: BlobStoreLocation,
         /// In-memory value. Is set if the value is currently represented in memory.
-        value_lock: OnceLock<V>,
+        value_lock: OnceLock<V>, // todo ar racing once lock
     },
     /// The value is in memory, and is maybe also stored (the same as cached)
     Memory {
         /// In-memory value.
         value: V,
         /// Location of the value in the blob store. Is set if the value is stored in the blob store.
-        blob_location_lock: OnceLock<BlobStoreLocation>,
+        blob_location_lock: OnceLock<BlobStoreLocation>, // todo ar atomic blob store location
     },
 }
 
