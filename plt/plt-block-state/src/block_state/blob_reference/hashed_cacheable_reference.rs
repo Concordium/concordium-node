@@ -217,7 +217,7 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
                 let value = self.inner.get_or_load_value(loader)?;
                 let hash = value.hash(loader)?;
                 // todo ar get_or_try_init
-                *self.inner.hash.get_or_init(|| hash);
+                self.inner.hash.get_or_init(|| hash);
                 Ok(hash)
             }
         }
@@ -471,7 +471,7 @@ mod tests {
         // Store value to blob store and assert representation is now cache.
         let blob_ref = blob_store::store_to_store(&mut store, &val1);
         let (val_nested1, val_blob_ref) = assert_cached_repr(&val1);
-        let (_, val_nested_blob_ref) = assert_cached_repr(&val_nested1);
+        let (_, val_nested_blob_ref) = assert_cached_repr(val_nested1);
 
         drop(val1);
 
@@ -483,7 +483,7 @@ mod tests {
         val2.cache_reference_values(&store).expect("cache");
         let (val_nested2, val_ref_tmp) = assert_cached_repr(&val2);
         assert_eq!(val_ref_tmp, val_blob_ref);
-        let (val_tmp, val_ref_tmp) = assert_cached_repr(&val_nested2);
+        let (val_tmp, val_ref_tmp) = assert_cached_repr(val_nested2);
         assert_eq!(*val_tmp, StoreSerialized(1));
         assert_eq!(val_ref_tmp, val_nested_blob_ref);
     }

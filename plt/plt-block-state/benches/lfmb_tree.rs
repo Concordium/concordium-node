@@ -61,7 +61,7 @@ fn bench_with_value(bencher: Bencher, size: u64) {
     bencher
         .with_inputs(|| BenchKey(rand::random_range(0..size)))
         .bench_local_values(|key| {
-            tree.with_value(&UnreachableBlobStore, key, |v| Ok(*v))
+            tree.lookup_value(&UnreachableBlobStore, key, |v| Ok(*v))
                 .unwrap()
                 .unwrap()
         });
