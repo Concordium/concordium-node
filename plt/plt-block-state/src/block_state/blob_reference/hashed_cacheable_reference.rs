@@ -54,8 +54,10 @@ impl<V> HashedCacheableRef<V> {
     pub fn new(value: V) -> Self {
         let inner = HashedBufferedRefInner {
             hash: OnceLock::new(),
-            blob_location: OnceLock::new(),
-            value: OnceLock::from(value),
+            repr: HashedCacheableRefRepr::Memory {
+                value,
+                blob_location_lock: OnceLock::new(),
+            },
         };
 
         Self {
@@ -76,7 +78,7 @@ impl<V> HashedCacheableRef<V> {
     where
         V: Loadable,
     {
-        self.inner.get_or_load_value(loader)
+        self.inner.repr.get_or_load_value(loader)
     }
 }
 
@@ -91,22 +93,34 @@ impl<V> Clone for HashedCacheableRef<V> {
 }
 
 /// The [`HashedCacheableRef`] behind the `Arc`.
-///
-/// Invariant: At least one of `value` and `blob_location` are always set. Depending on the "state":
-/// * memory: only `value` set
-/// * blob store: only `blob_location` set
-/// * cached: `value` and `blob_location` both set
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
-    /// In-memory value. Is set if the value is currently represented in memory.
-    value: OnceLock<V>,
-    /// Location of the value in the blob store. Is set if the value is stored in the blob store.
-    blob_location: OnceLock<BlobStoreLocation>,
     /// Lazily calculated hash. If set, it is the hash of `value`.
     hash: OnceLock<Hash>,
+    /// Representation of the value.
+    repr: HashedCacheableRefRepr<V>,
 }
 
-impl<V> HashedBufferedRefInner<V> {
+/// The possible representations of the referenced value.
+#[derive(Debug)]
+enum HashedCacheableRefRepr<V> {
+    /// The value is in the blob store, and is maybe cached.
+    Store {
+        /// Location of the value in the blob store
+        blob_location: BlobStoreLocation,
+        /// In-memory value. Is set if the value is currently represented in memory.
+        value_lock: OnceLock<V>,
+    },
+    /// The value is in memory, and is maybe also stored (the same as cached)
+    Memory {
+        /// In-memory value.
+        value: V,
+        /// Location of the value in the blob store. Is set if the value is stored in the blob store.
+        blob_location_lock: OnceLock<BlobStoreLocation>,
+    },
+}
+
+impl<V> HashedCacheableRefRepr<V> {
     /// Load the referenced value and return it. If the value is already in memory, a reference
     /// to it is simply returned. If it is not in memory, it is loaded from the blob store,
     /// and returned as owned.
@@ -119,16 +133,18 @@ impl<V> HashedBufferedRefInner<V> {
     where
         V: Loadable,
     {
-        Ok(match self.value.get() {
-            Some(value) => OwnedOrBorrowed::Borrowed(value),
-            None => {
-                let blob_location = self
-                    .blob_location
-                    .get()
-                    .expect("Neither value nor blob_location set in HashedBufferedRefInner");
-                let value: V = blob_store::load_from_store(loader, *blob_location)?;
-                OwnedOrBorrowed::Owned(value)
-            }
+        Ok(match self {
+            HashedCacheableRefRepr::Store {
+                blob_location,
+                value_lock,
+            } => match value_lock.get() {
+                None => {
+                    let value: V = blob_store::load_from_store(loader, *blob_location)?;
+                    OwnedOrBorrowed::Owned(value)
+                }
+                Some(value) => OwnedOrBorrowed::Borrowed(value),
+            },
+            HashedCacheableRefRepr::Memory { value, .. } => OwnedOrBorrowed::Borrowed(value),
         })
     }
 
@@ -139,17 +155,19 @@ impl<V> HashedBufferedRefInner<V> {
     where
         V: Loadable,
     {
-        Ok(match self.value.get() {
-            Some(value) => value,
-            None => {
-                let blob_location = self
-                    .blob_location
-                    .get()
-                    .expect("Neither value nor blob_location set in HashedBufferedRefInner");
-                let value: V = blob_store::load_from_store(loader, *blob_location)?;
-                // todo ar get_or_try_init
-                self.value.get_or_init(|| value)
-            }
+        Ok(match self {
+            HashedCacheableRefRepr::Store {
+                blob_location,
+                value_lock,
+            } => match value_lock.get() {
+                None => {
+                    let value: V = blob_store::load_from_store(loader, *blob_location)?;
+                    // todo ar get_or_try_init?
+                    value_lock.get_or_init(|| value)
+                }
+                Some(value) => value,
+            },
+            HashedCacheableRefRepr::Memory { value, .. } => value,
         })
     }
 
@@ -161,18 +179,17 @@ impl<V> HashedBufferedRefInner<V> {
     where
         V: Storable,
     {
-        match self.blob_location.get() {
-            Some(blob_location) => *blob_location,
-            None => {
-                let value = self
-                    .value
-                    .get()
-                    .expect("Neither value nor blob_location set in HashedBufferedRefInner");
-                // todo ar get_or_try_init
-                *self
-                    .blob_location
-                    .get_or_init(|| blob_store::store_to_store(storer, value))
-            }
+        match self {
+            HashedCacheableRefRepr::Store { blob_location, .. } => *blob_location,
+            HashedCacheableRefRepr::Memory {
+                value,
+                blob_location_lock,
+            } => match blob_location_lock.get() {
+                Some(blob_location) => *blob_location,
+                None => {
+                    *blob_location_lock.get_or_init(|| blob_store::store_to_store(storer, value))
+                }
+            },
         }
     }
 }
@@ -185,8 +202,10 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
         let blob_location: BlobStoreLocation = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = HashedBufferedRefInner {
             hash: OnceLock::new(),
-            blob_location: OnceLock::from(blob_location),
-            value: OnceLock::new(),
+            repr: HashedCacheableRefRepr::Store {
+                blob_location,
+                value_lock: OnceLock::new(),
+            },
         };
 
         Ok(Self {
@@ -197,14 +216,14 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
 
 impl<V: Storable> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        let reference = self.inner.get_reference_or_store(storer);
+        let reference = self.inner.repr.get_reference_or_store(storer);
         buffer.put(reference);
     }
 }
 
 impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        let value = self.inner.get_or_cache_value(loader)?;
+        let value = self.inner.repr.get_or_cache_value(loader)?;
         value.cache_reference_values(loader)
     }
 }
@@ -214,9 +233,9 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
         match self.inner.hash.get() {
             Some(hash) => Ok(*hash),
             None => {
-                let value = self.inner.get_or_load_value(loader)?;
+                let value = self.inner.repr.get_or_load_value(loader)?;
                 let hash = value.hash(loader)?;
-                // todo ar get_or_try_init
+                // todo ar get_or_try_init?
                 self.inner.hash.get_or_init(|| hash);
                 Ok(hash)
             }
@@ -230,24 +249,36 @@ mod tests {
     use crate::block_state::blob_store;
     use crate::block_state::blob_store::StoreSerialized;
     use crate::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use assert_matches::assert_matches;
+    use std::fmt::Debug;
 
     type TestRef = HashedCacheableRef<StoreSerialized<u64>>;
 
-    fn assert_in_memory_repr<V>(hcr: &HashedCacheableRef<V>) -> &V {
-        assert!(hcr.inner.blob_location.get().is_none(), "in blob store");
-        hcr.inner.value.get().expect("not in memory")
+    fn assert_in_memory_repr<V: Debug>(hcr: &HashedCacheableRef<V>) -> &V {
+        assert_matches!(&hcr.inner.repr, HashedCacheableRefRepr::Memory { blob_location_lock, value } => {
+            assert!(blob_location_lock.get().is_none(), "in blob store");
+            value
+        })
     }
 
-    fn assert_stored_repr<V>(hcr: &HashedCacheableRef<V>) -> BlobStoreLocation {
-        assert!(hcr.inner.value.get().is_none(), "in memory");
-        *hcr.inner.blob_location.get().expect("not in blob store")
+    fn assert_stored_repr<V: Debug>(hcr: &HashedCacheableRef<V>) -> BlobStoreLocation {
+        assert_matches!(&hcr.inner.repr, HashedCacheableRefRepr::Store { blob_location, value_lock } => {
+            assert!(value_lock.get().is_none(), "in memory");
+            *blob_location
+        })
     }
 
     fn assert_cached_repr<V>(hcr: &HashedCacheableRef<V>) -> (&V, BlobStoreLocation) {
-        (
-            hcr.inner.value.get().expect("not in memory"),
-            *hcr.inner.blob_location.get().expect("not in blob store"),
-        )
+        match &hcr.inner.repr {
+            HashedCacheableRefRepr::Store {
+                value_lock,
+                blob_location,
+            } => (value_lock.get().expect("not in memory"), *blob_location),
+            HashedCacheableRefRepr::Memory {
+                value,
+                blob_location_lock,
+            } => (value, *blob_location_lock.get().expect("not in blob store")),
+        }
     }
 
     /// Test full lifecycle of a value:
