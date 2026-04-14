@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Workspace dependencies
 plt-scheduler-types.workspace = true
 plt-block-state.workspace = true
 
+# Concordium dependencies
 concordium_base.workspace = true
 
+# Third party dependencies
 thiserror.workspace = true

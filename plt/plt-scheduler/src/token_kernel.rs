@@ -4,12 +4,13 @@ use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{
-    AccountWithCanonicalAddress, TokenConfiguration, TokenStateKey, TokenStateValue,
+use plt_block_state::block_state::types::AccountWithCanonicalAddress;
+use plt_block_state::block_state::types::protocol_level_tokens::{
+    TokenConfiguration, TokenStateKey, TokenStateValue,
 };
-use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
 use plt_scheduler_interface::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,

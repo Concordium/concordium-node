@@ -1,4 +1,4 @@
-/// Representation of an immutable, cachable and lazily hashed value of type `V`.
+/// Representation of an immutable, cacheable and lazily hashed value of type `V`.
 ///
 /// See [`HashedCacheableRef`].
 use crate::block_state::blob_store;
@@ -221,7 +221,10 @@ enum HashedCacheableRefRepr<V> {
 }
 
 impl<V: Loadable> Loadable for HashedCacheableRef<V> {
-    fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        _loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
         let reference = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = HashedBufferedRefInner {
             hash: None,

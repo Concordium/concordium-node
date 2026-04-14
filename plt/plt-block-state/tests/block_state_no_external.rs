@@ -1,3 +1,6 @@
+//! [Execution time block state](ExecutionTimeBlockState) where all interactions with
+//! externally (Haskell) managed block stated will result in panicking.
+
 // Allow items in this file to be unused. This is needed because it is imported from multiple
 // compile targets (each of the integration tests), and some of the targets may not use all
 // items in the file.
@@ -14,72 +17,51 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
+use plt_block_state::block_state::blob_store::test_stub::BlobStoreStub;
 use plt_block_state::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation};
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
-use plt_block_state::block_state::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExecutionTimePltBlockState,
-    PltBlockState, PltBlockStateSavepoint,
-};
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState, MutableBlockState};
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
-/// Block store load stub for tests.
-#[derive(Debug)]
-pub struct BlobStoreLoadStub;
-
-impl BlobStoreLoad for BlobStoreLoadStub {
-    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
-        unimplemented!("should not be called")
-    }
-}
-
-type ExecutionTimePltBlockStateWithNoExternalState =
-    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, NoExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithNoExternalState as BlockStateQuery>::Token;
-
-/// Block state where external interactions with the Haskell maintained block
-/// state is not possible.
-#[derive(Debug)]
-pub struct BlockStateWithNoExternalState {
-    block_state: ExecutionTimePltBlockStateWithNoExternalState,
-}
-
 /// Non-accessible block state representing the Haskell maintained part of the block state.
 #[derive(Debug)]
 pub struct NoExternalBlockStateStub;
 
-impl BlockStateWithNoExternalState {
-    /// Create block state stub
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
+/// Create fresh mutable execution time block state.
+pub fn new_mutable_block_state(
+    protocol_version: ProtocolVersion,
+) -> ExecutionTimeBlockState<MutableBlockState, BlobStoreStub, NoExternalBlockStateStub> {
+    let inner_block_state = BlockState::empty().into_mutable();
+    let blob_store = BlobStoreStub::default();
 
-        let block_state = ExecutionTimePltBlockState {
-            protocol_version: ProtocolVersion::P10,
-            internal_block_state: inner_block_state,
-            backing_store_load: BlobStoreLoadStub,
-            external_block_state: NoExternalBlockStateStub,
-        };
-
-        Self { block_state }
+    ExecutionTimeBlockState {
+        protocol_version,
+        internal_block_state: inner_block_state,
+        blob_store_load: blob_store,
+        external_block_state: NoExternalBlockStateStub,
     }
+}
 
-    /// Access to the underlying block state.
-    pub fn state(&self) -> &ExecutionTimePltBlockStateWithNoExternalState {
-        &self.block_state
-    }
-
-    /// Mutable access to the underlying block state.
-    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithNoExternalState {
-        &mut self.block_state
+/// Create execution time block state from immutable block state and blob store.
+pub fn with_block_state(
+    protocol_version: ProtocolVersion,
+    blob_store: BlobStoreStub,
+    block_state: &BlockState,
+) -> ExecutionTimeBlockState<&BlockState, BlobStoreStub, NoExternalBlockStateStub> {
+    ExecutionTimeBlockState {
+        protocol_version,
+        internal_block_state: block_state,
+        blob_store_load: blob_store,
+        external_block_state: NoExternalBlockStateStub,
     }
 }
 

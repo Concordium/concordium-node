@@ -1,6 +1,8 @@
-//! Definition of the blob store interface via
-//! [`BlobStoreLoad`] and [`BlobStoreStore`]. And definition of
-//! the traits [`Loadable`] and [`Storable`] that block state components
+//! Definition of the blob store interface via [`BlobStoreLoad`] and [`BlobStoreStore`].
+//! The blob store is a file system based storage, that stores the state to a flat
+//! binary file (per protocol version) that is only appended to.
+//!
+//! The module also defines the traits [`Loadable`] and [`Storable`] that block state components
 //! must implement to be storable in the blob store.
 
 use crate::block_state_interface::{BlockStateError, BlockStateResult};
@@ -36,7 +38,15 @@ pub trait Loadable: Sized {
     /// If the value is composed of [blob references](super::blob_reference), these references should not
     /// have their values loaded into memory as a result of the [`Self::load_from_buffer`] operation.
     /// As such, [`Self::load_from_buffer`] is a "shallow" operation.
-    fn load_from_buffer(buffer: impl Read) -> Result<Self, BlockStateError>;
+    ///
+    /// The given `loader` should generally not be used. If it is needed, it is generally a warning
+    /// sign that the state might not have the right model.
+    ///
+    /// To load a value from a given [`BlobStoreLocation`], use [`load_from_store`].
+    fn load_from_buffer(
+        buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> Result<Self, BlockStateError>;
 }
 
 /// A trait implemented by types that can be stored to a [blob store](BlobStoreStore).
@@ -46,6 +56,8 @@ pub trait Storable {
     /// values pointed to by the [blob references](super::blob_reference) the value may be composed of,
     /// if these values are not already represented in the blob store.
     /// As such, `store` is a "deep" operation.
+    ///
+    /// To store a value to a given [`BlobStoreLocation`], use [`load_from_store`].
     fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut impl BlobStoreStore);
 }
 
@@ -67,7 +79,10 @@ impl<T: Storable> Storable for &mut T {
 pub struct StoreSerialized<T>(pub T);
 
 impl<T: Deserial> Loadable for StoreSerialized<T> {
-    fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        _loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
         Ok(StoreSerialized(
             buffer.get().map_parse_err_to_block_state_err()?,
         ))
@@ -89,7 +104,7 @@ pub fn load_from_store<T: Loadable>(
 ) -> BlockStateResult<T> {
     let bytes = loader.load_raw(location);
     let mut bytes_slice = bytes.as_slice();
-    let value = T::load_from_buffer(&mut bytes_slice)?;
+    let value = T::load_from_buffer(&mut bytes_slice, loader)?;
     if !bytes_slice.is_empty() {
         return Err(BlockStateError::BlobStoreDecode(format!(
             "Bytes remaining after loading value of type {} from blob store",
@@ -131,6 +146,7 @@ impl<T> ParseResultExt<T> for common::ParseResult<T> {
     }
 }
 
+/// Blob store stubs to be used in tests.
 pub mod test_stub {
     use super::*;
 

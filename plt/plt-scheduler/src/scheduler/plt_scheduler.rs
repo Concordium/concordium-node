@@ -6,7 +6,7 @@ use crate::token_kernel::TokenKernelOperationsImpl;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_block_state::block_state::types::TokenConfiguration;
+use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
 use plt_scheduler_interface::transaction_execution_interface::{
     OutOfEnergyError, TransactionExecution,

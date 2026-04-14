@@ -1,11 +1,9 @@
 //! Benchmarks for the [`LFMBTree`] covering asymptotic behavior with varying tree size.
 
-use divan::counter::ItemsCount;
-use divan::{AllocProfiler, Bencher};
+use divan::Bencher;
 use plt_block_state::block_state::blob_store::StoreSerialized;
-use plt_block_state::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-use plt_block_state::block_state::lfmb_tree::{LFMBTree, LFMBTreeKey};
-use std::time::Duration;
+use plt_block_state::block_state::blob_store::test_stub::UnreachableBlobStore;
+use plt_block_state::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
 
 fn main() {
     divan::main();
@@ -14,7 +12,7 @@ fn main() {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct BenchKey(u64);
 
-impl LFMBTreeKey for BenchKey {
+impl LfmbTreeKey for BenchKey {
     fn to_u64(self) -> u64 {
         self.0
     }
@@ -24,7 +22,7 @@ impl LFMBTreeKey for BenchKey {
     }
 }
 
-type BenchTree = LFMBTree<BenchKey, StoreSerialized<u64>>;
+type BenchTree = LfmbTree<BenchKey, StoreSerialized<u64>>;
 
 const SIZES: &[u64] = &[(1 << 10) - 1, (1 << 15) - 1, (1 << 20) - 1];
 
@@ -32,7 +30,7 @@ fn build_tree(size: u64) -> BenchTree {
     let mut tree = BenchTree::empty();
     for i in 0..size {
         (_, tree) = tree
-            .insert_value(&mut UnreachableBlobStore, StoreSerialized(i))
+            .insert_value(&UnreachableBlobStore, StoreSerialized(i))
             .unwrap();
     }
     tree
@@ -85,7 +83,7 @@ fn bench_update_value(bencher: Bencher, size: u64) {
 fn bench_values(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
     bencher.bench_local(|| {
-        tree.values(&UnreachableBlobStore, |v| Ok(v.0))
+        tree.values(&UnreachableBlobStore, |_k, v| Ok(v.0))
             .map(|r| r.unwrap())
             .sum::<u64>()
     });
