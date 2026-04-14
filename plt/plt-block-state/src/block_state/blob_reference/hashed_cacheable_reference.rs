@@ -13,6 +13,7 @@ use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
 use std::mem;
+use std::sync::{Arc, OnceLock};
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -38,11 +39,9 @@ use std::mem;
 /// via interior mutability.
 #[derive(Debug)]
 pub struct HashedCacheableRef<V> {
-    /// The representation is wrapped in a [`LockRef`] to allow cheap cloning and
-    /// interior mutability. The interior mutability must not be used to change which value
-    /// is actually represented, only to update internal structure, such that where the value
-    /// is represented.
-    inner: LockRef<HashedBufferedRefInner<V>>,
+    /// The representation is wrapped in a [`Arc`] to allow cheap cloning and
+    /// interior mutability of a shared instance.
+    inner: Arc<HashedBufferedRefInner<V>>,
 }
 
 impl<V: Default> Default for HashedCacheableRef<V> {
@@ -55,16 +54,13 @@ impl<V> HashedCacheableRef<V> {
     /// Create a new value represented in memory.
     pub fn new(value: V) -> Self {
         let inner = HashedBufferedRefInner {
-            hash: None,
-            repr: HashedCacheableRefRepr::Memory { value },
+            hash: OnceLock::new(),
+            blob_location: OnceLock::new(),
+            value: OnceLock::from(value),
         };
 
-        Self::from_inner(inner)
-    }
-
-    fn from_inner(inner: HashedBufferedRefInner<V>) -> Self {
         Self {
-            inner: LockRef::new(inner),
+            inner: Arc::new(inner),
         }
     }
 
@@ -87,8 +83,7 @@ impl<V> HashedCacheableRef<V> {
     where
         V: Loadable,
     {
-        let inner = self.inner.read();
-        inner.repr.get_or_load_value(loader).and_then(read)
+        self.inner.get_or_load_value(loader).and_then(read)
     }
 
     /// Load the referenced value and return it. If the value is already in memory, it is cloned
@@ -103,8 +98,7 @@ impl<V> HashedCacheableRef<V> {
     where
         V: Loadable + Clone,
     {
-        let inner = self.inner.read();
-        Ok(inner.repr.get_or_load_value(loader)?.into_owned())
+        Ok(self.inner.get_or_load_value(loader)?.into_owned())
     }
 }
 
@@ -118,16 +112,23 @@ impl<V> Clone for HashedCacheableRef<V> {
     }
 }
 
-/// The [`HashedCacheableRef`] behind the [`LockRef`].
+/// The [`HashedCacheableRef`] behind the `Arc`.
+///
+/// Invariant: At least one of `value` and `blob_location` are always set. Depending on the "state":
+/// * memory: only `value` set
+/// * blob store: only `blob_location` set
+/// * cached: `value` and `blob_location` both set
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
-    /// Lazily calculated hash.
-    hash: Option<Hash>,
-    /// The potentially buffered value.
-    repr: HashedCacheableRefRepr<V>,
+    /// In-memory value. Is set if the value is currently represented in memory.
+    value: OnceLock<V>,
+    /// Location of the value in the blob store. Is set if the value is stored in the blob store.
+    blob_location: OnceLock<BlobStoreLocation>,
+    /// Lazily calculated hash. If set, it is the hash of `value`.
+    hash: OnceLock<Hash>,
 }
 
-impl<V> HashedCacheableRefRepr<V> {
+impl<V> HashedBufferedRefInner<V> {
     /// Load the referenced value and return it. If the value is already in memory, a reference
     /// to it is simply returned. If it is not in memory, it is loaded from the blob store,
     /// and returned as owned.
@@ -140,39 +141,37 @@ impl<V> HashedCacheableRefRepr<V> {
     where
         V: Loadable,
     {
-        Ok(match self {
-            HashedCacheableRefRepr::Store { reference } => {
-                let value: V = blob_store::load_from_store(loader, *reference)?;
+        Ok(match self.value.get() {
+            Some(value) => OwnedOrBorrowed::Borrowed(value),
+            None => {
+                let blob_location = self
+                    .blob_location
+                    .get()
+                    .expect("Neither value nor blob_location set in HashedBufferedRefInner");
+                let value: V = blob_store::load_from_store(loader, *blob_location)?;
                 OwnedOrBorrowed::Owned(value)
             }
-            HashedCacheableRefRepr::Memory { value } => OwnedOrBorrowed::Borrowed(value),
-            HashedCacheableRefRepr::Cache { value, .. } => OwnedOrBorrowed::Borrowed(value),
         })
     }
 
     /// Cache the referenced value and return it. If the value is already in memory, a reference
     /// to it is simply returned. If it is not in memory, it is loaded from the blob store and
     /// cached in [`HashedCacheableRefRepr::Cache`] first.
-    fn get_or_cache_value(&mut self, loader: &impl BlobStoreLoad) -> BlockStateResult<&V>
+    fn get_or_cache_value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<&V>
     where
         V: Loadable,
     {
-        Ok(match self {
-            HashedCacheableRefRepr::Store { reference } => {
-                let value: V = blob_store::load_from_store(loader, *reference)?;
-                *self = HashedCacheableRefRepr::Cache {
-                    reference: *reference,
-                    value,
-                };
-                // We just wrote the Cache variant, so we can safely assert this variant,
-                // in order to borrow the value just written.
-                let HashedCacheableRefRepr::Cache { value, .. } = self else {
-                    unreachable!("not HashedBufferedRefRepr::Cache though it was just written")
-                };
-                value
+        Ok(match self.value.get() {
+            Some(value) => value,
+            None => {
+                let blob_location = self
+                    .blob_location
+                    .get()
+                    .expect("Neither value nor blob_location set in HashedBufferedRefInner");
+                let value: V = blob_store::load_from_store(loader, *blob_location)?;
+                // todo ar get_or_try_init
+                self.value.get_or_init(|| value)
             }
-            HashedCacheableRefRepr::Memory { value } => value,
-            HashedCacheableRefRepr::Cache { value, .. } => value,
         })
     }
 
@@ -180,44 +179,24 @@ impl<V> HashedCacheableRefRepr<V> {
     /// the blob store, the [`BlobStoreLocation`] for it is simply returned. If it is not stored,
     /// it is stored into the blob store, and the resulting [`BlobStoreLocation`] is saved in
     /// [`HashedCacheableRefRepr::Cache`] and returned.
-    fn get_reference_or_store(&mut self, storer: &mut impl BlobStoreStore) -> BlobStoreLocation
+    fn get_reference_or_store(&self, storer: &mut impl BlobStoreStore) -> BlobStoreLocation
     where
         V: Storable,
     {
-        match self {
-            HashedCacheableRefRepr::Store { reference } => *reference,
-            HashedCacheableRefRepr::Memory { value } => {
-                let reference = blob_store::store_to_store(storer, &*value);
-
-                // We need the Memory representation owned, in order to move the value out of
-                // it and into the Cache representation, without cloning it.
-                // In order to achieve this, we swap the intermediate representation Store to self.
-                let mut repr_tmp = HashedCacheableRefRepr::Store { reference };
-                mem::swap(&mut repr_tmp, self);
-                let HashedCacheableRefRepr::Memory { value } = repr_tmp else {
-                    unreachable!("not HashedBufferedRefRepr::Memory though it was just matched")
-                };
-                *self = HashedCacheableRefRepr::Cache { value, reference };
-
-                reference
+        match self.blob_location.get() {
+            Some(blob_location) => *blob_location,
+            None => {
+                let value = self
+                    .value
+                    .get()
+                    .expect("Neither value nor blob_location set in HashedBufferedRefInner");
+                // todo ar get_or_try_init
+                *self
+                    .blob_location
+                    .get_or_init(|| blob_store::store_to_store(storer, value))
             }
-            HashedCacheableRefRepr::Cache { reference, .. } => *reference,
         }
     }
-}
-
-/// The possible representations of the referenced value.
-#[derive(Debug)]
-enum HashedCacheableRefRepr<V> {
-    /// The value is in the blob store.
-    Store { reference: BlobStoreLocation },
-    /// The value is in memory and not written to blob store.
-    Memory { value: V },
-    /// The value is in the blob store, and also cached in memory.
-    Cache {
-        reference: BlobStoreLocation,
-        value: V,
-    },
 }
 
 impl<V: Loadable> Loadable for HashedCacheableRef<V> {
@@ -225,43 +204,45 @@ impl<V: Loadable> Loadable for HashedCacheableRef<V> {
         mut buffer: impl Read,
         _loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let reference = buffer.get().map_parse_err_to_block_state_err()?;
+        let blob_location: BlobStoreLocation = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = HashedBufferedRefInner {
-            hash: None,
-            repr: HashedCacheableRefRepr::Store { reference },
+            hash: OnceLock::new(),
+            blob_location: OnceLock::from(blob_location),
+            value: OnceLock::new(),
         };
 
-        Ok(Self::from_inner(inner))
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
     }
 }
 
 impl<V: Storable> Storable for HashedCacheableRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        let mut inner = self.inner.write();
-        let reference = inner.repr.get_reference_or_store(storer);
+        let reference = self.inner.get_reference_or_store(storer);
         buffer.put(reference);
     }
 }
 
 impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        let mut inner = self.inner.write();
-        let value = inner.repr.get_or_cache_value(loader)?;
+        let value = self.inner.get_or_cache_value(loader)?;
         value.cache_reference_values(loader)
     }
 }
 
 impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        let mut inner = self.inner.write();
-        Ok(if let Some(hash) = inner.hash {
-            hash
-        } else {
-            let value = inner.repr.get_or_load_value(loader)?;
-            let hash = value.hash(loader)?;
-            inner.hash = Some(hash);
-            hash
-        })
+        match self.inner.hash.get() {
+            Some(hash) => Ok(*hash),
+            None => {
+                let value = self.inner.get_or_load_value(loader)?;
+                let hash = value.hash(loader)?;
+                // todo ar get_or_try_init
+                *self.inner.hash.get_or_init(|| hash);
+                Ok(hash)
+            }
+        }
     }
 }
 
