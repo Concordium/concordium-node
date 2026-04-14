@@ -65,7 +65,7 @@ use std::{iter, vec};
 /// The algorithms for specific operations are described in more detail in the implementations:
 ///
 /// * [`Subtree::insert_value`]
-/// * [`Subtree::with_value`]
+/// * [`Subtree::lookup_value`]
 ///
 /// ### Enforcing invariants
 ///
@@ -205,14 +205,14 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     /// - `loader`: Loader for the blob store the tree is stored in.
     /// - `key`: The key to access the value for.
     /// - `read`: Closure that is given the value, either as owned or borrowed,
-    ///   and returns the value of type `T` that will be returned by `with_value`.
+    ///   and returns the value of type `T` that will be returned by `lookup_value`.
     ///
     /// # Errors
     ///
     /// Returns [`BlockStateError`] if returned by `read`, or if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    pub fn with_value<T>(
+    pub fn lookup_value<T>(
         &self,
         loader: &impl BlobStoreLoad,
         key: K,
@@ -226,7 +226,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
             LfmbTreeInner::NonEmpty(size, subtree) => {
                 let int_key = SubtreeKey(key.to_u64());
                 if int_key.0 < *size {
-                    Some(subtree.with_value(loader, int_key, read))
+                    Some(subtree.lookup_value(loader, int_key, read))
                 } else {
                     None
                 }
@@ -422,8 +422,8 @@ impl<V> Subtree<V> {
     ///
     /// - `key`: The key to access the value for.
     /// - `read`: Closure that is given the value, either as owned or borrowed,
-    ///   and returns the value of type `T` that will be returned by `with_value`.
-    fn with_value<T>(
+    ///   and returns the value of type `T` that will be returned by `lookup_value`.
+    fn lookup_value<T>(
         &self,
         loader: &impl BlobStoreLoad,
         key: SubtreeKey,
@@ -450,10 +450,10 @@ impl<V> Subtree<V> {
                 // when we reach the leaf for the key.
                 if is_nth_bit_set(*height, key) {
                     right_ref.with_value(loader, |right| {
-                        right.with_value(loader, flip_nth_bit(*height, key), read)
+                        right.lookup_value(loader, flip_nth_bit(*height, key), read)
                     })
                 } else {
-                    left_ref.with_value(loader, |left| left.with_value(loader, key, read))
+                    left_ref.with_value(loader, |left| left.lookup_value(loader, key, read))
                 }
             }
         }
@@ -918,7 +918,7 @@ mod tests {
         }
     }
 
-    /// Test [`LfmbTree::with_value`]
+    /// Test [`LfmbTree::lookup_value`]
     #[test]
     fn prop_test_with_value() {
         for i in 0..100 {
@@ -930,7 +930,7 @@ mod tests {
             // Lookup existing values
             for j in 0..i {
                 assert_eq!(
-                    tree.with_value(&store, TestKey(j), |val| Ok(*val))
+                    tree.lookup_value(&store, TestKey(j), |val| Ok(*val))
                         .transpose()
                         .unwrap(),
                     Some(StoreSerialized(j + 10)),
@@ -942,7 +942,7 @@ mod tests {
 
             // Lookup non-existing values
             assert_eq!(
-                tree.with_value(&store, TestKey(i), |val| Ok(*val))
+                tree.lookup_value(&store, TestKey(i), |val| Ok(*val))
                     .transpose()
                     .unwrap(),
                 None,
@@ -951,7 +951,7 @@ mod tests {
                 i
             );
             assert_eq!(
-                tree.with_value(&store, TestKey(i + 1), |val| Ok(*val))
+                tree.lookup_value(&store, TestKey(i + 1), |val| Ok(*val))
                     .transpose()
                     .unwrap(),
                 None,
@@ -1020,7 +1020,7 @@ mod tests {
 
                 // Lookup the value again
                 assert_eq!(
-                    tree.with_value(&store, TestKey(j), |val| Ok(*val))
+                    tree.lookup_value(&store, TestKey(j), |val| Ok(*val))
                         .transpose()
                         .unwrap(),
                     Some(StoreSerialized(j + 20)),
@@ -1091,7 +1091,7 @@ mod tests {
             for j in 0..i {
                 assert_eq!(
                     tree2
-                        .with_value(&UnreachableBlobStore, TestKey(j), |val| Ok(*val))
+                        .lookup_value(&UnreachableBlobStore, TestKey(j), |val| Ok(*val))
                         .transpose()
                         .unwrap(),
                     Some(StoreSerialized(j + 10)),
@@ -1102,7 +1102,7 @@ mod tests {
             }
             assert_eq!(
                 tree2
-                    .with_value(&UnreachableBlobStore, TestKey(i), |val| Ok(*val))
+                    .lookup_value(&UnreachableBlobStore, TestKey(i), |val| Ok(*val))
                     .transpose()
                     .unwrap(),
                 None,
@@ -1174,19 +1174,19 @@ mod tests {
             blob_store::load_from_store(&store, BlobStoreLocation(135)).expect("load tree");
         assert_eq!(tree.size(), 3);
         assert_eq!(
-            tree.with_value(&store, TestKey(0), |val| Ok(val.into_owned()))
+            tree.lookup_value(&store, TestKey(0), |val| Ok(val.into_owned()))
                 .unwrap()
                 .unwrap(),
             StoreSerialized("A".to_string())
         );
         assert_eq!(
-            tree.with_value(&store, TestKey(1), |val| Ok(val.into_owned()))
+            tree.lookup_value(&store, TestKey(1), |val| Ok(val.into_owned()))
                 .unwrap()
                 .unwrap(),
             StoreSerialized("B".to_string())
         );
         assert_eq!(
-            tree.with_value(&store, TestKey(2), |val| Ok(val.into_owned()))
+            tree.lookup_value(&store, TestKey(2), |val| Ok(val.into_owned()))
                 .unwrap()
                 .unwrap(),
             StoreSerialized("C".to_string())
