@@ -1,6 +1,6 @@
 //! Representation of an immutable, left-full merkle binary (LFMB) tree.
 //!
-//! See [`LFMBTree`].
+//! See [`LfmbTree`].
 
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::block_state::blob_store::{
@@ -28,10 +28,10 @@ use std::{iter, vec};
 /// first.
 ///
 /// The operations supported for creating new trees are:
-/// * Create empty tree with [`LFMBTree::empty`]: Returns an new empty tree.  
-/// * Insert new value with [`LFMBTree::insert_value`]: Inserts a new value, assigning the sequentially next unused key,
+/// * Create empty tree with [`LfmbTree::empty`]: Returns an new empty tree.
+/// * Insert new value with [`LfmbTree::insert_value`]: Inserts a new value, assigning the sequentially next unused key,
 ///   and returns new tree with the inserted value.
-/// * Update value with [`LFMBTree::update_value`]: Updates an existing value, keeping the same key, and returns
+/// * Update value with [`LfmbTree::update_value`]: Updates an existing value, keeping the same key, and returns
 ///   the new tree with the updated value.
 ///
 /// ## Interior mutability
@@ -154,20 +154,20 @@ use std::{iter, vec};
 ///    #0  #1  #2  #3  #4  #5  #6  #7
 /// ```
 #[derive(Debug, Clone)]
-pub struct LFMBTree<K, V> {
-    inner: LFMBTreeInner<V>,
+pub struct LfmbTree<K, V> {
+    inner: LfmbTreeInner<V>,
     _key_type: PhantomData<K>,
 }
 
-impl<K: LFMBTreeKey, V> Default for LFMBTree<K, V> {
+impl<K: LfmbTreeKey, V> Default for LfmbTree<K, V> {
     fn default() -> Self {
         Self::empty()
     }
 }
 
 /// Trait implemented by tree keys, which allows them to be bijectively mapped
-/// to `u46` values.
-pub trait LFMBTreeKey: Copy {
+/// to `u64` values.
+pub trait LfmbTreeKey: Copy {
     /// Map key to `u64`
     fn to_u64(self) -> u64;
 
@@ -175,10 +175,10 @@ pub trait LFMBTreeKey: Copy {
     fn from_u64(key: u64) -> Self;
 }
 
-impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
+impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     /// Create an empty tree.
     pub fn empty() -> Self {
-        let inner = LFMBTreeInner::Empty;
+        let inner = LfmbTreeInner::Empty;
 
         Self {
             inner,
@@ -190,8 +190,8 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
     #[allow(unused)]
     pub fn size(&self) -> u64 {
         match &self.inner {
-            LFMBTreeInner::Empty => 0,
-            LFMBTreeInner::NonEmpty(size, _) => *size,
+            LfmbTreeInner::Empty => 0,
+            LfmbTreeInner::NonEmpty(size, _) => *size,
         }
     }
 
@@ -222,8 +222,8 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         V: Loadable,
     {
         match &self.inner {
-            LFMBTreeInner::Empty => None,
-            LFMBTreeInner::NonEmpty(size, subtree) => {
+            LfmbTreeInner::Empty => None,
+            LfmbTreeInner::NonEmpty(size, subtree) => {
                 let int_key = SubtreeKey(key.to_u64());
                 if int_key.0 < *size {
                     Some(subtree.with_value(loader, int_key, read))
@@ -259,8 +259,8 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         F: FnMut(OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
     {
         match &self.inner {
-            LFMBTreeInner::Empty => Either::Left(iter::empty()),
-            LFMBTreeInner::NonEmpty(_, subtree) => {
+            LfmbTreeInner::Empty => Either::Left(iter::empty()),
+            LfmbTreeInner::NonEmpty(_, subtree) => {
                 Either::Right(subtree.values(loader, self.size(), read))
             }
         }
@@ -268,7 +268,7 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
 
     /// Insert a value to the tree, and return the key for the inserted value and
     /// the tree with the inserted value. Keys are assigned sequentially,
-    /// starting from `LFMBTreeKey::from_u64(0)`, then `LFMBTreeKey::from_u64(1)` and
+    /// starting from `LfmbTreeKey::from_u64(0)`, then `LfmbTreeKey::from_u64(1)` and
     /// so on.
     ///
     /// Notice that trees are immutable data structures, see [`Self`].
@@ -288,16 +288,16 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         V: Loadable,
     {
         Ok(match &self.inner {
-            LFMBTreeInner::Empty => (
-                LFMBTreeKey::from_u64(0),
-                Self::from_inner(LFMBTreeInner::NonEmpty(
+            LfmbTreeInner::Empty => (
+                LfmbTreeKey::from_u64(0),
+                Self::from_inner(LfmbTreeInner::NonEmpty(
                     1,
                     Subtree::Leaf(HashedCacheableRef::new(value)),
                 )),
             ),
-            LFMBTreeInner::NonEmpty(size, subtree) => (
-                LFMBTreeKey::from_u64(*size),
-                Self::from_inner(LFMBTreeInner::NonEmpty(
+            LfmbTreeInner::NonEmpty(size, subtree) => (
+                LfmbTreeKey::from_u64(*size),
+                Self::from_inner(LfmbTreeInner::NonEmpty(
                     *size + 1,
                     subtree.insert_value(loader, None, *size, value)?,
                 )),
@@ -333,15 +333,15 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         V: Loadable,
     {
         match &self.inner {
-            LFMBTreeInner::Empty => None,
-            LFMBTreeInner::NonEmpty(size, subtree) => {
+            LfmbTreeInner::Empty => None,
+            LfmbTreeInner::NonEmpty(size, subtree) => {
                 let int_key = SubtreeKey(key.to_u64());
                 if int_key.0 < *size {
                     let new_subtree = match subtree.update_value(loader, int_key, update) {
                         Ok(new_subtree) => new_subtree,
                         Err(err) => return Some(Err(err)),
                     };
-                    Some(Ok(Self::from_inner(LFMBTreeInner::NonEmpty(
+                    Some(Ok(Self::from_inner(LfmbTreeInner::NonEmpty(
                         *size,
                         new_subtree,
                     ))))
@@ -352,7 +352,7 @@ impl<K: LFMBTreeKey, V> LFMBTree<K, V> {
         }
     }
 
-    fn from_inner(inner: LFMBTreeInner<V>) -> Self {
+    fn from_inner(inner: LfmbTreeInner<V>) -> Self {
         Self {
             inner,
             _key_type: Default::default(),
@@ -366,7 +366,7 @@ struct SubtreeKey(u64);
 
 /// Internal representation of the tree.
 #[derive(Debug, Clone)]
-enum LFMBTreeInner<V> {
+enum LfmbTreeInner<V> {
     /// Emtpy Tree.
     Empty,
     /// Non-empty tree.
@@ -714,14 +714,14 @@ where
     }
 }
 
-impl<K, V: Loadable> Loadable for LFMBTree<K, V> {
+impl<K, V: Loadable> Loadable for LfmbTree<K, V> {
     fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
         let size: u64 = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = if size == 0 {
-            LFMBTreeInner::Empty
+            LfmbTreeInner::Empty
         } else {
             let tree = Subtree::load_from_buffer(buffer)?;
-            LFMBTreeInner::NonEmpty(size, tree)
+            LfmbTreeInner::NonEmpty(size, tree)
         };
 
         Ok(Self {
@@ -731,13 +731,13 @@ impl<K, V: Loadable> Loadable for LFMBTree<K, V> {
     }
 }
 
-impl<K, V: Storable> Storable for LFMBTree<K, V> {
+impl<K, V: Storable> Storable for LfmbTree<K, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         match &self.inner {
-            LFMBTreeInner::Empty => {
+            LfmbTreeInner::Empty => {
                 buffer.put(0u64);
             }
-            LFMBTreeInner::NonEmpty(size, tree) => {
+            LfmbTreeInner::NonEmpty(size, tree) => {
                 buffer.put(size);
                 tree.store_to_buffer(buffer, storer);
             }
@@ -786,16 +786,16 @@ impl<V: Storable> Storable for Subtree<V> {
     }
 }
 
-impl<K, V: Hashable + Loadable> Hashable for LFMBTree<K, V> {
+impl<K, V: Hashable + Loadable> Hashable for LfmbTree<K, V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let mut hasher = sha2::Sha256::new();
 
         match &self.inner {
-            LFMBTreeInner::Empty => {
+            LfmbTreeInner::Empty => {
                 hasher.update(0u64.to_be_bytes());
                 hasher.update(Sha256::digest("EmptyLFMBTree"));
             }
-            LFMBTreeInner::NonEmpty(size, subtree) => {
+            LfmbTreeInner::NonEmpty(size, subtree) => {
                 hasher.update(size.to_be_bytes());
                 hasher.update(subtree.hash(loader)?);
             }
@@ -815,11 +815,11 @@ impl<V: Hashable + Loadable> Hashable for Subtree<V> {
     }
 }
 
-impl<K, V: Cacheable + Loadable> Cacheable for LFMBTree<K, V> {
+impl<K, V: Cacheable + Loadable> Cacheable for LfmbTree<K, V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         match &self.inner {
-            LFMBTreeInner::Empty => (),
-            LFMBTreeInner::NonEmpty(_, subtree) => {
+            LfmbTreeInner::Empty => (),
+            LfmbTreeInner::NonEmpty(_, subtree) => {
                 subtree.cache_reference_values(loader)?;
             }
         }
@@ -854,9 +854,9 @@ mod tests {
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     struct TestKey(u64);
 
-    type TestTree = LFMBTree<TestKey, StoreSerialized<u64>>;
+    type TestTree = LfmbTree<TestKey, StoreSerialized<u64>>;
 
-    impl LFMBTreeKey for TestKey {
+    impl LfmbTreeKey for TestKey {
         fn to_u64(self) -> u64 {
             self.0
         }
@@ -876,7 +876,7 @@ mod tests {
         tree
     }
 
-    /// Test [`LFMBTree::size`]
+    /// Test [`LfmbTree::size`]
     #[test]
     fn prop_test_size() {
         for i in 0..100 {
@@ -890,7 +890,7 @@ mod tests {
         }
     }
 
-    /// Test [`LFMBTree::with_value`]
+    /// Test [`LfmbTree::with_value`]
     #[test]
     fn prop_test_with_value() {
         for i in 0..100 {
@@ -934,7 +934,7 @@ mod tests {
         }
     }
 
-    /// Test [`LFMBTree::values`]
+    /// Test [`LfmbTree::values`]
     #[test]
     fn prop_test_values() {
         for i in 0..100 {
@@ -971,7 +971,7 @@ mod tests {
         }
     }
 
-    /// Test [`LFMBTree::with_value`]
+    /// Test [`LfmbTree::with_value`]
     #[test]
     fn prop_test_update_value() {
         for i in 0..100 {
@@ -1084,12 +1084,12 @@ mod tests {
     }
 
     /// Assert snapshot of hash of empty tree.
-    /// Hash snapshot must not change and must be equal to Haskell LFMBTree implementation.
+    /// Hash snapshot must not change and must be equal to Haskell LFMB tree implementation.
     #[test]
     fn snapshot_test_hash_empty_tree() {
         let store = BlobStoreStub::default();
 
-        let tree = LFMBTree::<TestKey, StoreSerialized<String>>::empty();
+        let tree = LfmbTree::<TestKey, StoreSerialized<String>>::empty();
         let hash = tree.hash(&store).unwrap();
         assert_eq!(
             hex::encode(hash.bytes),
@@ -1098,12 +1098,12 @@ mod tests {
     }
 
     /// Assert snapshot of hash of tree with 3 values A, B, C.
-    /// Hash snapshot must not change and must be equal to Haskell LFMBTree implementation.
+    /// Hash snapshot must not change and must be equal to Haskell LFMB tree implementation.
     #[test]
     fn snapshot_test_hash_simple_tree() {
         let store = BlobStoreStub::default();
 
-        let tree = LFMBTree::<TestKey, StoreSerialized<String>>::empty();
+        let tree = LfmbTree::<TestKey, StoreSerialized<String>>::empty();
         let tree1 = tree
             .insert_value(&store, StoreSerialized("A".to_string()))
             .unwrap()
@@ -1124,23 +1124,23 @@ mod tests {
     }
 
     /// Load empty tree from storage bytes fixture.
-    /// The fixture bytes must not change and must be compatible with Haskell LFMBTree implementation.
+    /// The fixture bytes must not change and must be compatible with Haskell LFMB tree implementation.
     #[test]
     fn fixture_test_storage_empty_tree() {
         let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
 
-        let tree: LFMBTree<TestKey, StoreSerialized<String>> =
+        let tree: LfmbTree<TestKey, StoreSerialized<String>> =
             blob_store::load_from_store(&store, BlobStoreLocation(0)).expect("load tree");
         assert_eq!(tree.size(), 0);
     }
 
     /// Load tree with 3 values A, B, C from storage bytes fixture.
-    /// The fixture bytes must not change and must be compatible with Haskell LFMBTree implementation.
+    /// The fixture bytes must not change and must be compatible with Haskell LFMB tree implementation.
     #[test]
     fn fixture_test_storage_simple_tree() {
         let store = BlobStoreStub(hex::decode("0000000000000009000000000000000141000000000000000900000000000000000000000000000000090000000000000001420000000000000009000000000000000022000000000000001901000000000000000000000000000000110000000000000033000000000000000900000000000000014300000000000000090000000000000000650000000000000021000000000000000301000000000000000100000000000000440000000000000076").unwrap());
 
-        let tree: LFMBTree<TestKey, StoreSerialized<String>> =
+        let tree: LfmbTree<TestKey, StoreSerialized<String>> =
             blob_store::load_from_store(&store, BlobStoreLocation(135)).expect("load tree");
         assert_eq!(tree.size(), 3);
         assert_eq!(
@@ -1166,17 +1166,17 @@ mod tests {
     /// Assert node structure and values in tree are equal.
     fn assert_trees_eq<K: Debug, V: Loadable + Clone + PartialEq + Debug>(
         loader: &impl BlobStoreLoad,
-        tree1: &LFMBTree<K, V>,
-        tree2: &LFMBTree<K, V>,
+        tree1: &LfmbTree<K, V>,
+        tree2: &LfmbTree<K, V>,
         context: String,
     ) {
         match (&tree1.inner, &tree2.inner) {
-            (LFMBTreeInner::Empty, LFMBTreeInner::Empty) => {
+            (LfmbTreeInner::Empty, LfmbTreeInner::Empty) => {
                 // equal
             }
             (
-                LFMBTreeInner::NonEmpty(size1, subtree1),
-                LFMBTreeInner::NonEmpty(size2, subtree2),
+                LfmbTreeInner::NonEmpty(size1, subtree1),
+                LfmbTreeInner::NonEmpty(size2, subtree2),
             ) => {
                 assert_eq!(size1, size2);
                 assert_subtrees_eq(loader, subtree1, subtree2, context.clone());
