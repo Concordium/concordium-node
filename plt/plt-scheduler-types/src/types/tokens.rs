@@ -104,6 +104,15 @@ pub struct TokenAmount {
     pub decimals: u8,
 }
 
+impl TokenAmount {
+    pub fn from_raw(amount: u64, decimals: u8) -> Self {
+        Self {
+            amount: RawTokenAmount(amount),
+            decimals,
+        }
+    }
+}
+
 /// Token holder.
 ///
 /// Corresponding Haskell type: `Concordium.Types.TokenHolder`
