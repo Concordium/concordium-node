@@ -4,9 +4,9 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborMemo, MetaUpdatePayload, MetadataUrl, RawCbor, TokenAmount, TokenId,
-    TokenListUpdateEventDetails, TokenModuleInitializationParameters, TokenPauseDetails,
-    TokenPauseEventDetails, meta_operations,
+    CborMemo, MetadataUrl, RawCbor, TokenAmount, TokenId, TokenListUpdateEventDetails,
+    TokenModuleInitializationParameters, TokenPauseDetails, TokenPauseEventDetails,
+    meta_operations,
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
@@ -73,7 +73,7 @@ fn test_meta_update_transaction() {
     });
     scheduler::execute_chain_update(stub.state_mut(), payload).expect("create pltY");
 
-    use meta_operations::meta_operations::*;
+    use meta_operations::*;
     let operations = vec![
         transfer_tokens(plt_x.clone(), account_2, TokenAmount::from_raw(100, 2)),
         mint_tokens(plt_y.clone(), TokenAmount::from_raw(100000, 0)),

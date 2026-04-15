@@ -163,7 +163,6 @@ pub fn execute_meta_update_transaction<
     let operations: Vec<MetaUpdateOperation> = match payload.decode_operations() {
         Ok(payload) => payload.operations,
         Err(_) => {
-            // TODO: We could potentially produce a more descriptive reject reason.
             return Ok(TransactionOutcome::Rejected(
                 TransactionRejectReason::SerializationFailure,
             ));
