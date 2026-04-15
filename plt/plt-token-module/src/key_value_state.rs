@@ -412,6 +412,15 @@ pub fn set_locked_balance_for<TK: TokenKernelOperations>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use concordium_base::base::Nonce;
+
+    fn example_lock_id() -> LockId {
+        LockId {
+            account_index: AccountIndex::from(7u64),
+            sequence_number: Nonce::from(11u64),
+            creation_order: 3,
+        }
+    }
 
     /// Test that the module state key is formed correctly
     #[test]
@@ -425,5 +434,19 @@ mod test {
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
         assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_account_locked_balance_state_key() {
+        let account = AccountIndex::from(1u64);
+        let lock_id = example_lock_id();
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&ACCOUNT_LOCKED_BALANCES_STATE_PREFIX);
+        account.serial(&mut expected);
+        lock_id.serial(&mut expected);
+
+        let key = account_locked_balance_state_key(account, lock_id);
+        assert_eq!(key, expected);
     }
 }
