@@ -248,8 +248,6 @@ fn test_key_value_state_prefix_iter() {
 }
 
 /// Store state with PLTs to blob store and load it again.
-///
-/// todo extend this test with a blob store fixture that matches the haskell side part of https://linear.app/concordium/issue/PSR-85/implement-test-of-storage-and-hashing
 #[test]
 fn test_store_and_load_plts() {
     let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
@@ -320,11 +318,9 @@ fn test_store_and_load_plts() {
 
 /// Assert that hash of an empty block state matches a fixed/snapshot hash. The hash
 /// must remain stable.
-///
-/// todo extend this test on the haskell side as part of https://linear.app/concordium/issue/PSR-85/implement-test-of-storage-and-hashing
 #[test]
-fn snapshot_test_hash_empty() {
-    let block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
+fn snapshot_test_hash_empty_p10() {
+    let block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P10);
 
     // Assert hash
     let immutable_state = block_state.internal_block_state.into_immutable();
@@ -339,11 +335,9 @@ fn snapshot_test_hash_empty() {
 
 /// Assert that hash of block state with some simple PLTs matches a fixed/snapshot hash. The hash
 /// must remain stable.
-///
-/// todo extend this test on the haskell side as part of https://linear.app/concordium/issue/PSR-85/implement-test-of-storage-and-hashing
 #[test]
-fn snapshot_test_hash_simple_plts() {
-    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
+fn snapshot_test_hash_simple_plts_p10() {
+    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P10);
 
     // Create tokens
     let configuration1 = TokenConfiguration {
@@ -386,14 +380,14 @@ fn snapshot_test_hash_simple_plts() {
 /// Load empty block state from storage bytes fixture.
 /// The fixture bytes must not change and must be compatible with Haskell PLT state implementation.
 #[test]
-fn fixture_test_storage_empty() {
+fn fixture_test_storage_empty_p10() {
     let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
 
     // Load block state
     let immutable_state = blob_store::load_from_store::<BlockState>(&store, BlobStoreLocation(0))
         .expect("load block state");
     let block_state =
-        block_state_no_external::with_block_state(ProtocolVersion::P11, store, &immutable_state);
+        block_state_no_external::with_block_state(ProtocolVersion::P10, store, &immutable_state);
 
     // Assert loaded state
     assert_eq!(block_state.plt_list().len(), 0);
@@ -402,14 +396,14 @@ fn fixture_test_storage_empty() {
 /// Load block state with some simple PLTs from storage bytes fixture.
 /// The fixture bytes must not change and must be compatible with Haskell PLT state implementation.
 #[test]
-fn fixture_test_storage_simple_plts() {
+fn fixture_test_storage_simple_plts_p10() {
     let store = BlobStoreStub(hex::decode("000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155").unwrap());
 
     // Load block state
     let immutable_state = blob_store::load_from_store::<BlockState>(&store, BlobStoreLocation(358))
         .expect("load block state");
     let block_state =
-        block_state_no_external::with_block_state(ProtocolVersion::P11, store, &immutable_state);
+        block_state_no_external::with_block_state(ProtocolVersion::P10, store, &immutable_state);
 
     // Assert loaded state
     assert_eq!(block_state.plt_list().len(), 2);

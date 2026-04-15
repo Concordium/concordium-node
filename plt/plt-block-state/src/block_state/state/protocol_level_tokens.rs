@@ -281,9 +281,6 @@ impl Hashable for Token {
         let key_value_state = self.key_value_state.hash(loader)?;
         let state = hash::hash_of_serialization((key_value_state, self.circulating_supply.0));
 
-        Ok(hash::hash_of_hashes(
-            config,
-            state,
-        ))
+        Ok(hash::hash_of_hashes(config, state))
     }
 }
