@@ -4,7 +4,8 @@
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
 use concordium_base::protocol_level_tokens::{
-    MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload, TokenOperationsPayload,
+    TokenOperationsPayload,
+    meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
