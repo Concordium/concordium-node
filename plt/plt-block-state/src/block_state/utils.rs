@@ -4,6 +4,9 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Value of type `T` that is either owned or borrowed.
+///
+/// We use our own type instead of `Cow`, since we don't want to require
+/// `T` to implement `Clone` which `Cow` does.
 pub enum OwnedOrBorrowed<'a, T> {
     Owned(T),
     Borrowed(&'a T),
@@ -44,6 +47,8 @@ pub struct LockRef<V> {
     lock_ref: Arc<RwLock<V>>,
 }
 
+/// Implement [`Clone`] explicitly, such that clonability does not depend on
+/// if `V` is clonable.
 impl<V> Clone for LockRef<V> {
     fn clone(&self) -> Self {
         Self {

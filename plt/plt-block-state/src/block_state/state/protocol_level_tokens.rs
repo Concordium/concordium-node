@@ -6,7 +6,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::lfmb_tree::{LFMBTree, LFMBTreeKey};
+use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::block_state::types::protocol_level_tokens::{TokenConfiguration, TokenIndex};
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state::{hash, smart_contract_trie};
@@ -20,7 +20,7 @@ use std::io::Read;
 /// Block state for protocol level tokens
 #[derive(Debug, Clone, Default)]
 pub struct ProtocolLevelTokens {
-    tokens: LFMBTree<TokenIndex, Token>,
+    tokens: LfmbTree<TokenIndex, Token>,
     token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
 }
 
@@ -34,7 +34,7 @@ fn normalize_token_id(token_id: &TokenId) -> NormalizedTokenId {
 impl ProtocolLevelTokens {
     pub fn empty() -> Self {
         Self {
-            tokens: LFMBTree::empty(),
+            tokens: LfmbTree::empty(),
             token_id_map: im::HashMap::new(),
         }
     }
@@ -65,7 +65,7 @@ impl ProtocolLevelTokens {
         token_index: TokenIndex,
     ) -> BlockStateResult<smart_contract_trie::MutableState> {
         self.tokens
-            .with_value(loader, token_index, |token| {
+            .lookup_value(loader, token_index, |token| {
                 token
                     .key_value_state
                     .with_value(loader, |key_value_state| Ok(key_value_state.thaw()))
@@ -81,7 +81,7 @@ impl ProtocolLevelTokens {
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenConfiguration> {
         self.tokens
-            .with_value(loader, token_index, |token| {
+            .lookup_value(loader, token_index, |token| {
                 token
                     .configuration
                     .with_value(loader, |conf| Ok(conf.into_owned().0))
@@ -97,7 +97,7 @@ impl ProtocolLevelTokens {
         token_index: TokenIndex,
     ) -> BlockStateResult<RawTokenAmount> {
         self.tokens
-            .with_value(loader, token_index, |token| Ok(token.circulating_supply.0))
+            .lookup_value(loader, token_index, |token| Ok(token.circulating_supply.0))
             .ok_or_else(|| {
                 BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
             })?
@@ -194,7 +194,7 @@ impl Loadable for ProtocolLevelTokens {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let tokens: LFMBTree<TokenIndex, Token> = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let tokens: LfmbTree<TokenIndex, Token> = Loadable::load_from_buffer(&mut buffer, loader)?;
         // To construct the full token id to token index map, we need to read the LFMBTree from
         // the blob store. This is not ideal. If the state is to be cached after loading, we would
         // rather wait until it is cached in memory before constructing the map.
@@ -225,7 +225,7 @@ impl Hashable for ProtocolLevelTokens {
     }
 }
 
-impl LFMBTreeKey for TokenIndex {
+impl LfmbTreeKey for TokenIndex {
     fn to_u64(self) -> u64 {
         self.0
     }
