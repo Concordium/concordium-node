@@ -108,7 +108,7 @@ impl<V> HashedCacheableRef<V> {
     }
 }
 
-/// Implement [`Clone`] directly, such that clonability does not depend on
+/// Implement [`Clone`] explicitly, such that clonability does not depend on
 /// if `V` is clonable.
 impl<V> Clone for HashedCacheableRef<V> {
     fn clone(&self) -> Self {
