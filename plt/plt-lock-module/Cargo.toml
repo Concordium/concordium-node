@@ -5,5 +5,7 @@ edition = "2024"
 
 [dependencies]
 plt-block-state.workspace = true
+plt-scheduler-types.workspace = true
+plt-token-module.workspace = true
 
 concordium_base.workspace = true

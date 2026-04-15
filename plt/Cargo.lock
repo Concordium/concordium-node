@@ -1236,6 +1236,8 @@ version = "0.1.0"
 dependencies = [
  "concordium_base",
  "plt-block-state",
+ "plt-scheduler-types",
+ "plt-token-module",
 ]
 
 [[package]]
