@@ -7,7 +7,7 @@ use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
 use concordium_base::{base::AccountIndex, common::Serial};
-use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenStateKey, TokenStateValue};
 use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
 };

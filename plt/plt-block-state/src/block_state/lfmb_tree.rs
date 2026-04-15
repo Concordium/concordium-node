@@ -241,7 +241,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     /// # Arguments
     ///
     /// - `loader`: Loader for the blob store the tree is stored in.
-    /// - `read`: Closure that is given each value, either as owned or borrowed,
+    /// - `read`: Closure that is given each key-value pair, either as owned or borrowed,
     ///   and returns the value of type `T` that will be the item in the iterator.
     ///
     /// # Errors
@@ -252,17 +252,19 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     pub fn values<'a, L: BlobStoreLoad, F, T>(
         &self,
         loader: &'a L,
-        read: F,
+        mut read: F,
     ) -> impl ExactSizeIterator<Item = BlockStateResult<T>> + use<'a, K, V, L, F, T>
     where
         V: Loadable,
-        F: FnMut(OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
+        F: FnMut(K, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
     {
         match &self.inner {
             LfmbTreeInner::Empty => Either::Left(iter::empty()),
-            LfmbTreeInner::NonEmpty(_, subtree) => {
-                Either::Right(subtree.values(loader, self.size(), read))
-            }
+            LfmbTreeInner::NonEmpty(_, subtree) => Either::Right(subtree.values(
+                loader,
+                self.size(),
+                move |subtree_key, value| read(K::from_u64(subtree_key.0), value),
+            )),
         }
     }
 
@@ -472,9 +474,9 @@ impl<V> Subtree<V> {
     ) -> impl ExactSizeIterator<Item = BlockStateResult<T>> + use<'a, V, L, F, T>
     where
         V: Loadable,
-        F: FnMut(OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
+        F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
     {
-        ValuesIterator::new(self, loader, read, node_size as usize)
+        ValuesIterator::new(self, loader, read, node_size)
     }
 
     /// Insert `new_value` into the subtree and return a new subtree with the inserted value.
@@ -625,69 +627,82 @@ struct ValuesIterator<'a, L, F, V> {
     loader: &'a L,
     /// Already "peeked" value that is the next item if present.
     peeked_value: Option<HashedCacheableRef<V>>,
+    /// Stack of next nodes to visit.
     node_stack: Vec<HashedCacheableRef<Subtree<V>>>,
     /// Closure to access iterated values.
     read: F,
-    /// Remaining size of the iterator.
-    size: usize,
+    /// Size of the full tree (constant).
+    tree_size: u64,
+    /// Key of next item to be returned by the iterator.
+    next_key: SubtreeKey,
 }
 
 impl<'a, L: BlobStoreLoad, F, V> ValuesIterator<'a, L, F, V> {
-    fn new(subtree: &Subtree<V>, loader: &'a L, read: F, size: usize) -> Self {
+    fn new(subtree: &Subtree<V>, loader: &'a L, read: F, tree_size: u64) -> Self {
         match subtree {
             Subtree::Leaf(value_ref) => Self {
                 loader,
                 peeked_value: Some(value_ref.clone()),
                 node_stack: vec![],
                 read,
-                size,
+                tree_size,
+                next_key: SubtreeKey(0),
             },
             Subtree::Node(_, left_ref, right_ref) => Self {
                 loader,
                 peeked_value: None,
                 node_stack: vec![right_ref.clone(), left_ref.clone()],
                 read,
-                size,
+                tree_size,
+                next_key: SubtreeKey(0),
             },
         }
     }
 }
 
 impl<'a, L: BlobStoreLoad, F, V: Loadable, T> ExactSizeIterator for ValuesIterator<'a, L, F, V> where
-    F: FnMut(OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>
+    F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>
 {
 }
 
 impl<'a, L: BlobStoreLoad, F, V: Loadable, T> Iterator for ValuesIterator<'a, L, F, V>
 where
-    F: FnMut(OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
+    F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
 {
     type Item = BlockStateResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(next_value) = self.peeked_value.take() {
-            if self.size == 0 {
+            if self.next_key.0 == self.tree_size {
                 return Some(Err(BlockStateError::Invariant(
-                    "LFMB Subtree invariant broken: ValuesIterator size 0 before end of iterator"
+                    "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
                         .to_string(),
                 )));
             }
-            self.size -= 1;
-            Some(next_value.with_value(self.loader, |value| (self.read)(value)))
+            let key = self.next_key;
+            self.next_key.0 += 1;
+            Some(next_value.with_value(self.loader, |value| (self.read)(key, value)))
         } else if let Some(next_node_ref) = self.node_stack.pop() {
-            if self.size == 0 {
+            if self.next_key.0 == self.tree_size {
                 return Some(Err(BlockStateError::Invariant(
-                    "LFMB Subtree invariant broken: ValuesIterator size 0 before end of iterator"
+                    "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
                         .to_string(),
                 )));
             }
-            self.size -= 1;
-            Some(self.next_value_push_right_branches(&next_node_ref))
+            let key = self.next_key;
+            self.next_key.0 += 1;
+            Some(next_value_push_right_branches(
+                key,
+                self.loader,
+                &next_node_ref,
+                &mut self.node_stack,
+                &mut self.read,
+            ))
         } else {
-            if self.size != 0 {
+            if self.next_key.0 != self.tree_size {
                 return Some(Err(BlockStateError::Invariant(format!(
-                    "LFMB Subtree invariant broken: ValuesIterator size not 0 at end of iterator, is {}",
-                    self.size
+                    "LFMB Subtree invariant broken: ValuesIterator next_key not equal to tree_size at end of iterator, is {}",
+                    self.next_key.0
                 ))));
             }
             None
@@ -695,37 +710,42 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.size, Some(self.size))
+        let size = (self.tree_size - self.next_key.0) as usize;
+        (size, Some(size))
     }
 }
 
-impl<'a, L: BlobStoreLoad, F, V: Loadable, T> ValuesIterator<'a, L, F, V>
+/// Follow left branches to reach next value while pushing all right branches to the
+/// node stack.
+fn next_value_push_right_branches<L: BlobStoreLoad, F, V: Loadable, T>(
+    key: SubtreeKey,
+    loader: &L,
+    node_ref: &HashedCacheableRef<Subtree<V>>,
+    node_stack: &mut Vec<HashedCacheableRef<Subtree<V>>>,
+    read: &mut F,
+) -> BlockStateResult<T>
 where
-    F: FnMut(OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
+    F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
 {
-    /// Follow left branches to reach next value while pushing all right branches to the
-    /// node stack.
-    fn next_value_push_right_branches(
-        &mut self,
-        node_ref: &HashedCacheableRef<Subtree<V>>,
-    ) -> BlockStateResult<T> {
-        node_ref.with_value(self.loader, |node| match &*node {
-            Subtree::Leaf(value) => value.with_value(self.loader, |value| (self.read)(value)),
-            Subtree::Node(_, left_ref, right_ref) => {
-                self.node_stack.push(right_ref.clone());
-                self.next_value_push_right_branches(left_ref)
-            }
-        })
-    }
+    node_ref.with_value(loader, |node| match &*node {
+        Subtree::Leaf(value) => value.with_value(loader, |value| read(key, value)),
+        Subtree::Node(_, left_ref, right_ref) => {
+            node_stack.push(right_ref.clone());
+            next_value_push_right_branches(key, loader, left_ref, node_stack, read)
+        }
+    })
 }
 
 impl<K, V: Loadable> Loadable for LfmbTree<K, V> {
-    fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
         let size: u64 = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = if size == 0 {
             LfmbTreeInner::Empty
         } else {
-            let tree = Subtree::load_from_buffer(buffer)?;
+            let tree = Subtree::load_from_buffer(buffer, loader)?;
             LfmbTreeInner::NonEmpty(size, tree)
         };
 
@@ -751,17 +771,20 @@ impl<K, V: Storable> Storable for LfmbTree<K, V> {
 }
 
 impl<V: Loadable> Loadable for Subtree<V> {
-    fn load_from_buffer(mut buffer: impl Read) -> BlockStateResult<Self> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
         let disc: u8 = buffer.get().map_parse_err_to_block_state_err()?;
         Ok(match disc {
             0 => {
-                let value_ref = Loadable::load_from_buffer(buffer)?;
+                let value_ref = Loadable::load_from_buffer(buffer, loader)?;
                 Subtree::Leaf(value_ref)
             }
             1 => {
                 let height: u64 = buffer.get().map_parse_err_to_block_state_err()?;
-                let left_ref = Loadable::load_from_buffer(&mut buffer)?;
-                let right_ref = Loadable::load_from_buffer(&mut buffer)?;
+                let left_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
+                let right_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
                 Subtree::Node(height, left_ref, right_ref)
             }
             _ => {
@@ -949,7 +972,7 @@ mod tests {
             let tree = create_tree(&mut store, i);
 
             // Iterate values
-            let mut values = tree.values(&store, |val| Ok(*val));
+            let mut values = tree.values(&store, |key, val| Ok((key, *val)));
 
             // Assert values as expected
             assert_eq!(
@@ -959,9 +982,11 @@ mod tests {
                 i
             );
             let mut j = 0;
-            while let Some(val) = values.next() {
+            while let Some(entry_res) = values.next() {
+                let (key, val) = entry_res.unwrap();
+                assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
                 assert_eq!(
-                    val.unwrap(),
+                    val,
                     StoreSerialized(j + 10),
                     "value number {} in tree of size {}",
                     j,

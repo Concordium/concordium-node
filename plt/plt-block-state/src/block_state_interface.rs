@@ -1,8 +1,7 @@
-use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenStateKey,
-    TokenStateValue,
+use crate::block_state::types::AccountWithCanonicalAddress;
+use crate::block_state::types::protocol_level_tokens::{
+    TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
 };
-use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -24,6 +23,16 @@ pub enum RawTokenAmountDelta {
 #[derive(Debug, thiserror::Error)]
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
+
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Unrecoverable error accessing the block state. This is generally an error that
 /// should never happen and is unrecoverable.
@@ -58,7 +67,7 @@ pub trait BlockStateQuery {
     ///
     /// If the protocol version does not support protocol-level tokens, this will return the empty
     /// list.
-    fn plt_list(&self) -> impl Iterator<Item = TokenId>;
+    fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId>;
 
     /// Get the token associated with a [`TokenId`] (if it exists).
     /// The token ID is case-insensitive when looking up tokens by token ID.

@@ -17,10 +17,11 @@ concordium_base.workspace = true
 # Third party dependencies
 assert_matches.workspace = true
 either.workspace = true
+hex.workspace = true
+im.workspace = true
+libc = { workspace = true, optional = true }
 sha2.workspace = true
 thiserror.workspace = true
-libc = { workspace = true, optional = true }
-hex.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
