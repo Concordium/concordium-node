@@ -54,9 +54,9 @@ fn a_warmup() {
     divan::black_box(x);
 }
 
-/// Benchmark [`LfmbTree::with_value`] for different tree sizes.
+/// Benchmark [`LfmbTree::lookup_value`] for different tree sizes.
 #[divan::bench(args = SIZES)]
-fn bench_with_value(bencher: Bencher, size: u64) {
+fn bench_lookup_value(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
     bencher
         .with_inputs(|| BenchKey(rand::random_range(0..size)))
