@@ -24,13 +24,6 @@ const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
 /// Note the roles are stored separately from the remaining account state, to allow for iterating
 /// the prefix.
 const ACCOUNT_ROLES_STATE_PREFIX: [u8; 2] = 40308u16.to_le_bytes();
-/// Little-endian prefix used to distinguish account role state keys.
-///
-/// Note the roles are stored separately from the remaining account state, to allow for iterating
-/// the prefix.
-// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
-#[allow(dead_code)] // Used by locked-balance helpers that are not wired in yet.
-const ACCOUNT_LOCKED_BALANCES_STATE_PREFIX: [u8; 2] = 40309u16.to_le_bytes();
 
 pub const STATE_KEY_NAME: &[u8] = b"name";
 pub const STATE_KEY_METADATA: &[u8] = b"metadata";
@@ -40,6 +33,7 @@ pub const STATE_KEY_MINTABLE: &[u8] = b"mintable";
 pub const STATE_KEY_BURNABLE: &[u8] = b"burnable";
 pub const STATE_KEY_PAUSED: &[u8] = b"paused";
 pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
+pub const ACCOUNT_STATE_KEY_QUANTA: &[u8] = b"quanta";
 
 /// Extension trait for [`TokenKernelOperations`] to provide convenience wrappers for
 /// state updates.
@@ -60,22 +54,6 @@ pub trait KernelOperationsExt: TokenKernelOperations {
 
     fn set_account_roles_state(&mut self, account: AccountIndex, value: Roles) {
         self.set_token_state_value(account_roles_state_key(account), value.into_state_value());
-    }
-
-    // FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
-    #[allow(dead_code)] // Reserved for upcoming public locked-balance integration.
-    fn set_account_locked_balance_state(
-        &mut self,
-        account: AccountIndex,
-        lock: LockId,
-        amount: RawTokenAmount,
-    ) {
-        let state_value = if amount == RawTokenAmount(0) {
-            None
-        } else {
-            common::to_bytes(&amount).into()
-        };
-        self.set_token_state_value(account_locked_balance_state_key(account, lock), state_value);
     }
 }
 
@@ -104,23 +82,6 @@ pub trait KernelQueriesExt: TokenKernelQueries {
                     err
                 ))
             })
-    }
-
-    // FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
-    #[allow(dead_code)] // Reserved for upcoming public locked-balance integration.
-    fn get_account_locked_balance_state(
-        &mut self,
-        account: AccountIndex,
-        lock: LockId,
-    ) -> Result<RawTokenAmount, TokenStateInvariantError> {
-        let Some(value) =
-            self.lookup_token_state_value(account_locked_balance_state_key(account, lock))
-        else {
-            return Ok(RawTokenAmount(0));
-        };
-        common::from_bytes_complete(&value).map_err(|err| {
-            TokenStateInvariantError(format!("Stored locked balance cannot be decoded: {}", err))
-        })
     }
 }
 
@@ -154,14 +115,10 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
 
 // FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
 #[allow(dead_code)] // Used by locked-balance helpers that are not wired in yet.
-fn account_locked_balance_state_key(account_index: AccountIndex, lock_id: LockId) -> TokenStateKey {
-    let mut locked_balance_key = Vec::with_capacity(
-        ACCOUNT_LOCKED_BALANCES_STATE_PREFIX.len()
-            + size_of::<AccountIndex>()
-            + size_of::<LockId>(),
-    );
-    locked_balance_key.extend_from_slice(&ACCOUNT_LOCKED_BALANCES_STATE_PREFIX);
-    account_index.serial(&mut locked_balance_key);
+fn account_quanta_state_key(lock_id: LockId) -> Vec<u8> {
+    let mut locked_balance_key =
+        Vec::with_capacity(ACCOUNT_STATE_KEY_QUANTA.len() + size_of::<LockId>());
+    locked_balance_key.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
     lock_id.serial(&mut locked_balance_key);
     locked_balance_key
 }
@@ -390,11 +347,16 @@ pub fn set_deny_list_for<TK: TokenKernelOperations>(
 // FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
 #[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
 pub fn get_locked_balance_for<TK: TokenKernelQueries>(
-    kernel: &mut TK,
+    kernel: &TK,
     account: AccountIndex,
     lock: LockId,
 ) -> Result<RawTokenAmount, TokenStateInvariantError> {
-    kernel.get_account_locked_balance_state(account, lock)
+    let Some(value) = kernel.get_account_state(account, &account_quanta_state_key(lock)) else {
+        return Ok(RawTokenAmount(0));
+    };
+    common::from_bytes_complete(&value).map_err(|err| {
+        TokenStateInvariantError(format!("Stored locked balance cannot be decoded: {}", err))
+    })
 }
 
 /// Set the locked balance for the given account and lock.
@@ -406,7 +368,12 @@ pub fn set_locked_balance_for<TK: TokenKernelOperations>(
     lock: LockId,
     amount: RawTokenAmount,
 ) {
-    kernel.set_account_locked_balance_state(account, lock, amount)
+    let state_value = if amount == RawTokenAmount(0) {
+        None
+    } else {
+        common::to_bytes(&amount).into()
+    };
+    kernel.set_account_state(account, &account_quanta_state_key(lock), state_value)
 }
 
 #[cfg(test)]
@@ -437,16 +404,17 @@ mod test {
     }
 
     #[test]
-    fn test_account_locked_balance_state_key() {
+    fn test_account_quanta_state_key() {
         let account = AccountIndex::from(1u64);
         let lock_id = example_lock_id();
 
         let mut expected = Vec::new();
-        expected.extend_from_slice(&ACCOUNT_LOCKED_BALANCES_STATE_PREFIX);
+        expected.extend_from_slice(&ACCOUNT_STATE_PREFIX);
         account.serial(&mut expected);
+        expected.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
         lock_id.serial(&mut expected);
 
-        let key = account_locked_balance_state_key(account, lock_id);
+        let key = account_state_key(account, &account_quanta_state_key(lock_id));
         assert_eq!(key, expected);
     }
 }
