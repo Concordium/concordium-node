@@ -41,6 +41,8 @@ pub trait Loadable: Sized {
     ///
     /// The given `loader` should generally not be used. If it is needed, it is generally a warning
     /// sign that the state might not have the right model.
+    ///
+    /// To load a value from a given [`BlobStoreLocation`], use [`load_from_store`].
     fn load_from_buffer(
         buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -54,6 +56,8 @@ pub trait Storable {
     /// values pointed to by the [blob references](super::blob_reference) the value may be composed of,
     /// if these values are not already represented in the blob store.
     /// As such, `store` is a "deep" operation.
+    ///
+    /// To store a value to a given [`BlobStoreLocation`], use [`load_from_store`].
     fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut impl BlobStoreStore);
 }
 
