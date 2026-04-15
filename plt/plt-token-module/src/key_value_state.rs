@@ -3,6 +3,7 @@
 use crate::roles::Roles;
 use crate::util;
 use concordium_base::common;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
@@ -11,6 +12,7 @@ use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
 };
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
@@ -22,6 +24,11 @@ const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
 /// Note the roles are stored separately from the remaining account state, to allow for iterating
 /// the prefix.
 const ACCOUNT_ROLES_STATE_PREFIX: [u8; 2] = 40308u16.to_le_bytes();
+/// Little-endian prefix used to distinguish account role state keys.
+///
+/// Note the roles are stored separately from the remaining account state, to allow for iterating
+/// the prefix.
+const ACCOUNT_LOCKED_BALANCES_STATE_PREFIX: [u8; 2] = 40309u16.to_le_bytes();
 
 pub const STATE_KEY_NAME: &[u8] = b"name";
 pub const STATE_KEY_METADATA: &[u8] = b"metadata";
@@ -52,6 +59,18 @@ pub trait KernelOperationsExt: TokenKernelOperations {
     fn set_account_roles_state(&mut self, account: AccountIndex, value: Roles) {
         self.set_token_state_value(account_roles_state_key(account), value.into_state_value());
     }
+
+    fn set_account_locked_balance_state(
+        &mut self,
+        account: AccountIndex,
+        lock: LockId,
+        amount: RawTokenAmount,
+    ) {
+        self.set_token_state_value(
+            account_locked_balance_state_key(account, lock),
+            common::to_bytes(&amount).into(),
+        );
+    }
 }
 
 impl<T: TokenKernelOperations> KernelOperationsExt for T {}
@@ -79,6 +98,21 @@ pub trait KernelQueriesExt: TokenKernelQueries {
                     err
                 ))
             })
+    }
+
+    fn get_account_locked_balance_state(
+        &mut self,
+        account: AccountIndex,
+        lock: LockId,
+    ) -> Result<RawTokenAmount, TokenStateInvariantError> {
+        let Some(value) =
+            self.lookup_token_state_value(account_locked_balance_state_key(account, lock))
+        else {
+            return Ok(RawTokenAmount(0));
+        };
+        common::from_bytes_complete(&value).map_err(|err| {
+            TokenStateInvariantError(format!("Stored locked balance cannot be decoded: {}", err))
+        })
     }
 }
 
@@ -108,6 +142,18 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
     account_key.extend_from_slice(&ACCOUNT_ROLES_STATE_PREFIX);
     account_index.serial(&mut account_key);
     account_key
+}
+
+fn account_locked_balance_state_key(account_index: AccountIndex, lock_id: LockId) -> TokenStateKey {
+    let mut locked_balance_key = Vec::with_capacity(
+        ACCOUNT_LOCKED_BALANCES_STATE_PREFIX.len()
+            + size_of::<AccountIndex>()
+            + size_of::<LockId>(),
+    );
+    locked_balance_key.extend_from_slice(&ACCOUNT_LOCKED_BALANCES_STATE_PREFIX);
+    account_index.serial(&mut locked_balance_key);
+    lock_id.serial(&mut locked_balance_key);
+    locked_balance_key
 }
 
 /// Get whether the balance-affecting operations on the token are currently
@@ -328,6 +374,25 @@ pub fn set_deny_list_for<TK: TokenKernelOperations>(
 ) {
     let state_value = value.then_some(vec![]);
     kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
+}
+
+/// Get the locked balance for the given account and lock.
+pub fn get_locked_balance_for<TK: TokenKernelQueries>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    lock: LockId,
+) -> Result<RawTokenAmount, TokenStateInvariantError> {
+    kernel.get_account_locked_balance_state(account, lock)
+}
+
+/// Set the locked balance for the given account and lock.
+pub fn set_locked_balance_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    lock: LockId,
+    amount: RawTokenAmount,
+) {
+    kernel.set_account_locked_balance_state(account, lock, amount)
 }
 
 #[cfg(test)]
