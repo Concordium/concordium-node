@@ -3,8 +3,8 @@
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenAndAmount,
-    TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
+    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
+    TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
