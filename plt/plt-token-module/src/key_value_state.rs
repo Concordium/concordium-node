@@ -28,6 +28,8 @@ const ACCOUNT_ROLES_STATE_PREFIX: [u8; 2] = 40308u16.to_le_bytes();
 ///
 /// Note the roles are stored separately from the remaining account state, to allow for iterating
 /// the prefix.
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Used by locked-balance helpers that are not wired in yet.
 const ACCOUNT_LOCKED_BALANCES_STATE_PREFIX: [u8; 2] = 40309u16.to_le_bytes();
 
 pub const STATE_KEY_NAME: &[u8] = b"name";
@@ -60,16 +62,20 @@ pub trait KernelOperationsExt: TokenKernelOperations {
         self.set_token_state_value(account_roles_state_key(account), value.into_state_value());
     }
 
+    // FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+    #[allow(dead_code)] // Reserved for upcoming public locked-balance integration.
     fn set_account_locked_balance_state(
         &mut self,
         account: AccountIndex,
         lock: LockId,
         amount: RawTokenAmount,
     ) {
-        self.set_token_state_value(
-            account_locked_balance_state_key(account, lock),
-            common::to_bytes(&amount).into(),
-        );
+        let state_value = if amount == RawTokenAmount(0) {
+            None
+        } else {
+            common::to_bytes(&amount).into()
+        };
+        self.set_token_state_value(account_locked_balance_state_key(account, lock), state_value);
     }
 }
 
@@ -100,6 +106,8 @@ pub trait KernelQueriesExt: TokenKernelQueries {
             })
     }
 
+    // FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+    #[allow(dead_code)] // Reserved for upcoming public locked-balance integration.
     fn get_account_locked_balance_state(
         &mut self,
         account: AccountIndex,
@@ -144,6 +152,8 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
     account_key
 }
 
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Used by locked-balance helpers that are not wired in yet.
 fn account_locked_balance_state_key(account_index: AccountIndex, lock_id: LockId) -> TokenStateKey {
     let mut locked_balance_key = Vec::with_capacity(
         ACCOUNT_LOCKED_BALANCES_STATE_PREFIX.len()
@@ -377,6 +387,8 @@ pub fn set_deny_list_for<TK: TokenKernelOperations>(
 }
 
 /// Get the locked balance for the given account and lock.
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
 pub fn get_locked_balance_for<TK: TokenKernelQueries>(
     kernel: &mut TK,
     account: AccountIndex,
@@ -386,6 +398,8 @@ pub fn get_locked_balance_for<TK: TokenKernelQueries>(
 }
 
 /// Set the locked balance for the given account and lock.
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
 pub fn set_locked_balance_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
     account: AccountIndex,
