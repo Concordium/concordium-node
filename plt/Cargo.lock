@@ -1223,6 +1223,7 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "concordium_base",
+ "either",
  "hex",
  "libc",
  "plt-scheduler-types",
