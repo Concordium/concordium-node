@@ -3,8 +3,8 @@
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenAndAmount,
-    TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
+    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
+    TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
@@ -19,7 +19,7 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use sha2::Digest;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub mod blob_store;
 pub mod external;
@@ -419,16 +419,9 @@ impl SimplisticTokenKeyValueState {
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone, Serialize)]
 struct Lock {
-    /// The balances locked per account, mapping each account index to its
-    /// locked token and amount.
-    #[map_size_length = 4]
-    locked_balances: BTreeMap<AccountIndex, TokenAndAmount>,
+    /// Contains references to the tokens with balances locked within this lock
+    #[set_size_length = 4]
+    locked_balances: BTreeSet<(AccountIndex, TokenIndex)>,
     /// The configuration parameters for the lock.
     configuration: LockConfiguration,
-    /// The state associated with the lock.
-    state: LockState,
 }
-
-/// The state of a single protocol-level lock.
-#[derive(Debug, Clone, Serialize)]
-struct LockState {}
