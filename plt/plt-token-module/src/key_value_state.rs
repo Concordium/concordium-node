@@ -3,6 +3,7 @@
 use crate::roles::Roles;
 use crate::util;
 use concordium_base::common;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
@@ -11,6 +12,7 @@ use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
 };
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
@@ -31,6 +33,7 @@ pub const STATE_KEY_MINTABLE: &[u8] = b"mintable";
 pub const STATE_KEY_BURNABLE: &[u8] = b"burnable";
 pub const STATE_KEY_PAUSED: &[u8] = b"paused";
 pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
+pub const ACCOUNT_STATE_KEY_QUANTA: &[u8] = b"quanta";
 
 /// Extension trait for [`TokenKernelOperations`] to provide convenience wrappers for
 /// state updates.
@@ -108,6 +111,16 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
     account_key.extend_from_slice(&ACCOUNT_ROLES_STATE_PREFIX);
     account_index.serial(&mut account_key);
     account_key
+}
+
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Used by locked-balance helpers that are not wired in yet.
+fn account_quanta_state_key(lock_id: LockId) -> Vec<u8> {
+    let mut locked_balance_key =
+        Vec::with_capacity(ACCOUNT_STATE_KEY_QUANTA.len() + size_of::<LockId>());
+    locked_balance_key.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
+    lock_id.serial(&mut locked_balance_key);
+    locked_balance_key
 }
 
 /// Get whether the balance-affecting operations on the token are currently
@@ -330,9 +343,51 @@ pub fn set_deny_list_for<TK: TokenKernelOperations>(
     kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
 }
 
+/// Get the locked balance for the given account and lock.
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
+pub fn get_locked_balance_for<TK: TokenKernelQueries>(
+    kernel: &TK,
+    account: AccountIndex,
+    lock: LockId,
+) -> Result<RawTokenAmount, TokenStateInvariantError> {
+    let Some(value) = kernel.get_account_state(account, &account_quanta_state_key(lock)) else {
+        return Ok(RawTokenAmount(0));
+    };
+    common::from_bytes_complete(&value).map_err(|err| {
+        TokenStateInvariantError(format!("Stored locked balance cannot be decoded: {}", err))
+    })
+}
+
+/// Set the locked balance for the given account and lock.
+// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
+#[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
+pub fn set_locked_balance_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    lock: LockId,
+    amount: RawTokenAmount,
+) {
+    let state_value = if amount == RawTokenAmount(0) {
+        None
+    } else {
+        common::to_bytes(&amount).into()
+    };
+    kernel.set_account_state(account, &account_quanta_state_key(lock), state_value)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use concordium_base::base::Nonce;
+
+    fn example_lock_id() -> LockId {
+        LockId {
+            account_index: AccountIndex::from(7u64),
+            sequence_number: Nonce::from(11u64),
+            creation_order: 3,
+        }
+    }
 
     /// Test that the module state key is formed correctly
     #[test]
@@ -346,5 +401,20 @@ mod test {
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
         assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_account_quanta_state_key() {
+        let account = AccountIndex::from(1u64);
+        let lock_id = example_lock_id();
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&ACCOUNT_STATE_PREFIX);
+        account.serial(&mut expected);
+        expected.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
+        lock_id.serial(&mut expected);
+
+        let key = account_state_key(account, &account_quanta_state_key(lock_id));
+        assert_eq!(key, expected);
     }
 }
