@@ -96,7 +96,7 @@ impl<V> Clone for HashedCacheableRef<V> {
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
     /// Lazily calculated hash. If set, it is the hash of `value`.
-    hash: OnceLock<Hash>, // todo ar racing once lock
+    hash: OnceLock<Hash>,
     /// Representation of the value.
     repr: HashedCacheableRefRepr<V>,
 }
@@ -109,14 +109,14 @@ enum HashedCacheableRefRepr<V> {
         /// Location of the value in the blob store
         blob_location: BlobStoreLocation,
         /// In-memory value. Is set if the value is currently represented in memory.
-        value_lock: OnceLock<V>, // todo ar racing once lock
+        value_lock: OnceLock<V>,
     },
     /// The value is in memory, and is maybe also stored (the same as cached)
     Memory {
         /// In-memory value.
         value: V,
         /// Location of the value in the blob store. Is set if the value is stored in the blob store.
-        blob_location_lock: OnceLock<BlobStoreLocation>, // todo ar atomic blob store location
+        blob_location_lock: OnceLock<BlobStoreLocation>,
     },
 }
 
@@ -159,14 +159,19 @@ impl<V> HashedCacheableRefRepr<V> {
             HashedCacheableRefRepr::Store {
                 blob_location,
                 value_lock,
-            } => match value_lock.get() {
-                None => {
-                    let value: V = blob_store::load_from_store(loader, *blob_location)?;
-                    // todo ar get_or_try_init?
-                    value_lock.get_or_init(|| value)
+            } => {
+                match value_lock.get() {
+                    None => {
+                        let value: V = blob_store::load_from_store(loader, *blob_location)?;
+                        value_lock
+                            .set(value)
+                            .inspect_err(|err| eprintln!("HashedCacheableRef: Value loaded by two threads at the same time"))
+                            .ok();
+                        value_lock.get().expect("value just set")
+                    }
+                    Some(value) => value,
                 }
-                Some(value) => value,
-            },
+            }
             HashedCacheableRefRepr::Memory { value, .. } => value,
         })
     }
@@ -235,8 +240,15 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
             None => {
                 let value = self.inner.repr.get_or_load_value(loader)?;
                 let hash = value.hash(loader)?;
-                // todo ar get_or_try_init?
-                self.inner.hash.get_or_init(|| hash);
+                self.inner
+                    .hash
+                    .set(hash)
+                    .inspect_err(|err| {
+                        eprintln!(
+                            "HashedCacheableRef: Hash calculated by two threads at the same time"
+                        )
+                    })
+                    .ok();
                 Ok(hash)
             }
         }
