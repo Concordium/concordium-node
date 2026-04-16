@@ -28,32 +28,32 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 
 -- | Opaque type representing a Rust maintained PLT state.
 -- The value is allocated in Rust and must be deallocated in Rust.
-data RustPLTBlockState (pv :: Types.ProtocolVersion)
+data RustPLTBlockState
 
 -- | Opaque pointer to a immutable PLT block state save-point managed by the rust library.
 --
 -- Memory is deallocated using a finalizer.
-newtype ForeignPLTBlockStatePtr (pv :: Types.ProtocolVersion) = ForeignPLTBlockStatePtr (FFI.ForeignPtr (RustPLTBlockState pv))
+newtype ForeignPLTBlockStatePtr = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
 
 -- | Helper function to convert a raw pointer passed by the Rust library into a `PLTBlockState` object.
-wrapFFIPtr :: FFI.Ptr (RustPLTBlockState pv) -> IO (ForeignPLTBlockStatePtr pv)
+wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO ForeignPLTBlockStatePtr 
 wrapFFIPtr blockStatePtr = ForeignPLTBlockStatePtr <$> FFI.newForeignPtr ffiFreePLTBlockState blockStatePtr
 
 -- | Deallocate a pointer to `PLTBlockState`.
 --
 -- See the exported function in the Rust code for documentation of safety.
 foreign import ccall unsafe "&ffi_free_plt_block_state"
-    ffiFreePLTBlockState :: FFI.FinalizerPtr (RustPLTBlockState pv)
+    ffiFreePLTBlockState :: FFI.FinalizerPtr RustPLTBlockState
 
 -- | Get temporary access to the block state pointer. The pointer should not be
 -- leaked from the computation.
 --
 -- This ensures the finalizer is not called until the computation is over.
-withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr (RustPLTBlockState pv) -> IO a) -> IO a
+withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr RustPLTBlockState -> IO a) -> IO a
 withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr foreignPtr
 
 -- | Allocate new empty block state.
-empty :: (BlobStore.MonadBlobStore m) => Types.SProtocolVersion pv -> m (ForeignPLTBlockStatePtr pv)
+empty :: (BlobStore.MonadBlobStore m) => Types.SProtocolVersion pv -> m ForeignPLTBlockStatePtr
 empty spv = liftIO $ do
     state <- ffiEmptyPLTBlockState (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv)
     wrapFFIPtr state
@@ -65,8 +65,8 @@ foreign import ccall "ffi_empty_plt_block_state"
     ffiEmptyPLTBlockState ::
         -- | Protocol version of the block.
         FFI.Word64 ->
-        -- | New block state    
-        IO (FFI.Ptr (RustPLTBlockState pv))
+        -- | New block state
+        IO (FFI.Ptr RustPLTBlockState)
 
 instance (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) => BlobStore.BlobStorable m (ForeignPLTBlockStatePtr pv) where
     load = do
@@ -107,7 +107,7 @@ foreign import ccall "ffi_store_plt_block_state"
         -- | New reference in the blob store.
         IO (BlobStore.BlobRef RustPLTBlockState)
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
+instance (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) => BlobStore.Cacheable m (ForeignPLTBlockStatePtr pv) where
     cache blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
@@ -128,7 +128,10 @@ foreign import ccall "ffi_cache_plt_block_state"
 newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelTokensHash :: SHA256.Hash}
     deriving newtype (Eq, Ord, Show, S.Serialize)
 
-instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTokensHash ForeignPLTBlockStatePtr where
+instance
+    (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
+    Hashable.MHashableTo m ProtocolLevelTokensHash (ForeignPLTBlockStatePtr pv)
+    where
     getHashM blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
@@ -152,11 +155,14 @@ foreign import ccall "ffi_hash_plt_block_state"
 
 -- | Run migration during a protocol update.
 migrate ::
-    (BlobStore.SupportMigration m t) =>
+    ( BlobStore.SupportMigration m t,
+      Types.MonadProtocolVersion m,
+      Types.MonadProtocolVersion (t m)
+    ) =>
     -- | Current block state
-    ForeignPLTBlockStatePtr ->
+    ForeignPLTBlockStatePtr (Types.MPV m) ->
     -- | New migrated block state
-    t m ForeignPLTBlockStatePtr
+    t m ForeignPLTBlockStatePtr (Types.MPV (m t))
 migrate currentState = do
     loadCallback <- fst <$> lift BlobStore.getCallbacks
     storeCallback <- snd <$> BlobStore.getCallbacks

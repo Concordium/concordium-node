@@ -250,7 +250,7 @@ makeRustPLTBlockState = ProtocolLevelTokensV1
 -- | An empty 'ProtocolLevelTokensForStateVersion' with no tokens.
 emptyProtocolLevelTokensForStateVersion ::
     forall m pltsv.
-    (IsPLTStateVersion pltsv, MonadBlobStore m) =>
+    (IsPLTStateVersion pltsv, MonadBlobStore m, MonadProtocolVersion m) =>
     m (ProtocolLevelTokensForStateVersion pltsv)
 emptyProtocolLevelTokensForStateVersion = case pltStateVersion @pltsv of
     SPLTStateNone -> return $ ProtocolLevelTokensNone
