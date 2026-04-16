@@ -513,8 +513,6 @@ foreign import ccall "ffi_execute_chain_update"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | Protocol version of the block.
-        Word.Word64 ->
         -- | Pointer to chain update payload bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of chain update payload.

@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Bindings to the Rust PLT block state implementation.
 --
@@ -13,61 +14,67 @@ module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTB
     ProtocolLevelTokensHash (..),
 ) where
 
+import Control.Monad.Trans (lift, liftIO)
 import qualified Data.Serialize as S
 import qualified Foreign as FFI
 
 import qualified Concordium.Crypto.SHA256 as SHA256
+import qualified Concordium.Types as Types
+import qualified Concordium.Types.HashableTo as Hashable
+import qualified Data.FixedByteString as FixedByteString
+
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
-import qualified Concordium.Types.HashableTo as Hashable
-import Control.Monad.Trans (lift, liftIO)
-import qualified Data.FixedByteString as FixedByteString
 
 -- | Opaque type representing a Rust maintained PLT state.
 -- The value is allocated in Rust and must be deallocated in Rust.
-data RustPLTBlockState
+data RustPLTBlockState (pv :: Types.ProtocolVersion)
 
 -- | Opaque pointer to a immutable PLT block state save-point managed by the rust library.
 --
 -- Memory is deallocated using a finalizer.
-newtype ForeignPLTBlockStatePtr = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
+newtype ForeignPLTBlockStatePtr (pv :: Types.ProtocolVersion) = ForeignPLTBlockStatePtr (FFI.ForeignPtr (RustPLTBlockState pv))
 
 -- | Helper function to convert a raw pointer passed by the Rust library into a `PLTBlockState` object.
-wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO ForeignPLTBlockStatePtr
+wrapFFIPtr :: FFI.Ptr (RustPLTBlockState pv) -> IO (ForeignPLTBlockStatePtr pv)
 wrapFFIPtr blockStatePtr = ForeignPLTBlockStatePtr <$> FFI.newForeignPtr ffiFreePLTBlockState blockStatePtr
 
 -- | Deallocate a pointer to `PLTBlockState`.
 --
 -- See the exported function in the Rust code for documentation of safety.
 foreign import ccall unsafe "&ffi_free_plt_block_state"
-    ffiFreePLTBlockState :: FFI.FinalizerPtr RustPLTBlockState
+    ffiFreePLTBlockState :: FFI.FinalizerPtr (RustPLTBlockState pv)
 
 -- | Get temporary access to the block state pointer. The pointer should not be
 -- leaked from the computation.
 --
 -- This ensures the finalizer is not called until the computation is over.
-withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr RustPLTBlockState -> IO a) -> IO a
+withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr (RustPLTBlockState pv) -> IO a) -> IO a
 withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr foreignPtr
 
 -- | Allocate new empty block state.
-empty :: (BlobStore.MonadBlobStore m) => m ForeignPLTBlockStatePtr
-empty = liftIO $ do
-    state <- ffiEmptyPLTBlockState
+empty :: (BlobStore.MonadBlobStore m) => Types.SProtocolVersion pv -> m (ForeignPLTBlockStatePtr pv)
+empty spv = liftIO $ do
+    state <- ffiEmptyPLTBlockState (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv)
     wrapFFIPtr state
 
 -- | Allocate new empty block state.
 --
 -- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_empty_plt_block_state"
-    ffiEmptyPLTBlockState :: IO (FFI.Ptr RustPLTBlockState)
+    ffiEmptyPLTBlockState ::
+        -- | Protocol version of the block.
+        FFI.Word64 ->
+        -- | New block state    
+        IO (FFI.Ptr (RustPLTBlockState pv))
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBlockStatePtr where
+instance (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) => BlobStore.BlobStorable m (ForeignPLTBlockStatePtr pv) where
     load = do
         blobRef <- S.get
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
-                blockState <- ffiLoadPLTBlockState loadCallback blobRef
+                blockState <- ffiLoadPLTBlockState loadCallback (Types.protocolVersionToWord64 $ (Types.protocolVersion @pv)) blobRef
                 wrapFFIPtr blockState
     storeUpdate pltBlockState = do
         storeCallback <- snd <$> BlobStore.getCallbacks
@@ -81,6 +88,8 @@ foreign import ccall "ffi_load_plt_block_state"
     ffiLoadPLTBlockState ::
         -- | Called to read data from blob store.
         FFI.LoadCallback ->
+        -- | Protocol version of the block.
+        FFI.Word64 ->
         -- | Reference in the blob store.
         BlobStore.BlobRef RustPLTBlockState ->
         -- | Pointer to the loaded block state.
