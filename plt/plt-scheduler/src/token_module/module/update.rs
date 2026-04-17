@@ -1,7 +1,8 @@
+use crate::token_kernel::TokenKernelOperationsImpl;
 use crate::token_module::module::TokenAmountDecimalsMismatchError;
 use crate::token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
+    TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::{key_value_state, util};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
@@ -18,6 +19,7 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::block_state::AccountNotFoundByAddressError;
+use plt_block_state::block_state_interface::BlockStateOperations;
 
 /// Details provided by the token module in the event of rejecting a
 /// transaction.
@@ -40,7 +42,7 @@ pub enum TokenUpdateError {
     StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
-/// Execute a token update transaction using the [`TokenKernelOperations`] to
+/// Execute a token update transaction using the token kernel to
 /// update state and produce events.
 ///
 /// The caller must ensure to rollback state changes in case of
@@ -95,9 +97,9 @@ pub enum TokenUpdateError {
 /// If the state stored in the token module contains data that breaks the invariants
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
 /// is returned. This is an unrecoverable error and should never happen.
-pub fn execute_token_update_transaction<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
     let operations: Vec<TokenOperation> = util::cbor_decode(&token_operations).map_err(|err| {
@@ -114,7 +116,7 @@ pub fn execute_token_update_transaction<TK: TokenKernelOperations>(
     Ok(())
 }
 
-/// Execute a token update operation using the [`TokenKernelOperations`] to
+/// Execute a token update operation using the token kernel to
 /// update state and produce events.
 ///
 /// The caller must ensure to rollback state changes in case of
@@ -177,9 +179,9 @@ pub fn execute_token_update_transaction<TK: TokenKernelOperations>(
 /// - `kernel`: the token kernel operations interface
 /// - `index`: the index of the operation in the transaction, used for error reporting
 /// - `operation`: the token operation to execute
-pub fn execute_token_update_operation_at_index<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     index: usize,
     operation: &TokenOperation,
 ) -> Result<(), TokenUpdateError> {
@@ -345,9 +347,9 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
     }
 }
 
-fn execute_token_update_operation<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_token_update_operation<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -423,8 +425,8 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
     }
 }
 
-fn check_not_paused<TK: TokenKernelOperations>(
-    kernel: &TK,
+fn check_not_paused<BSO: BlockStateOperations>(
+    kernel: &TokenKernelOperationsImpl<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if key_value_state::is_paused(kernel) {
         return Err(TokenUpdateErrorInternal::Paused);
@@ -433,9 +435,9 @@ fn check_not_paused<TK: TokenKernelOperations>(
 }
 
 /// Ensure the sender account from the transaction context is authorized to perform the operation.
-fn check_authorized<TK: TokenKernelQueries>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &TK,
+fn check_authorized<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &TokenKernelOperationsImpl<'_, BSO>,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if kernel.support_rbac() {
@@ -462,9 +464,9 @@ fn check_authorized<TK: TokenKernelQueries>(
     Ok(())
 }
 
-fn execute_token_transfer<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_token_transfer<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
@@ -517,9 +519,9 @@ fn execute_token_transfer<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_token_mint<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_token_mint<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
@@ -542,9 +544,9 @@ fn execute_token_mint<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_token_burn<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_token_burn<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
@@ -567,9 +569,9 @@ fn execute_token_burn<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_token_pause<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_token_pause<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
 
@@ -580,9 +582,9 @@ fn execute_token_pause<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_token_unpause<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_token_unpause<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
 
@@ -593,9 +595,9 @@ fn execute_token_unpause<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_add_allow_list<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_add_allow_list<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !key_value_state::has_allow_list(kernel) {
@@ -622,9 +624,9 @@ fn execute_add_allow_list<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_add_deny_list<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_add_deny_list<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !key_value_state::has_deny_list(kernel) {
@@ -652,9 +654,9 @@ fn execute_add_deny_list<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_remove_allow_list<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_remove_allow_list<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !key_value_state::has_allow_list(kernel) {
@@ -682,9 +684,9 @@ fn execute_remove_allow_list<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_remove_deny_list<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_remove_deny_list<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !key_value_state::has_deny_list(kernel) {
@@ -712,9 +714,8 @@ fn execute_remove_deny_list<TK: TokenKernelOperations>(
     Ok(())
 }
 
-/// Whether the roles are supported for the features enabled.
-fn check_roles_supported(
-    kernel: &impl TokenKernelQueries,
+fn check_roles_supported<BSO: BlockStateOperations>(
+    kernel: &TokenKernelOperationsImpl<'_, BSO>,
     roles: &[TokenAdminRole],
 ) -> Result<(), TokenUpdateErrorInternal> {
     for role in roles {
@@ -736,9 +737,9 @@ fn check_roles_supported(
     Ok(())
 }
 
-fn execute_assign_admin_roles<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_assign_admin_roles<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(
@@ -762,9 +763,9 @@ fn execute_assign_admin_roles<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_revoke_admin_roles<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(
@@ -793,9 +794,9 @@ fn execute_revoke_admin_roles<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn execute_update_metadata<TK: TokenKernelOperations>(
-    transaction_execution: &mut TransactionExecution<TK::Account>,
-    kernel: &mut TK,
+fn execute_update_metadata<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     metadata_url: &MetadataUrl,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !metadata_url.additional.is_empty() {

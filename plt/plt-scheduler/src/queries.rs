@@ -42,7 +42,6 @@ pub fn query_token_info(
 
     let kernel = TokenKernelQueriesImpl {
         block_state,
-        token: &token,
         token_module_state: &token_module_state,
     };
 
@@ -81,7 +80,6 @@ where
 
             let kernel = TokenKernelQueriesImpl {
                 block_state,
-                token: &token,
                 token_module_state: &token_module_state,
             };
             let module_state = token_module::query_token_module_account_state(
@@ -116,7 +114,6 @@ pub fn query_token_authorizations(
     let token_module_state = block_state.mutable_token_key_value_state(&token);
     let kernel = TokenKernelQueriesImpl {
         block_state,
-        token: &token,
         token_module_state: &token_module_state,
     };
     let details = token_module::query_token_authorizations(&kernel)?;
