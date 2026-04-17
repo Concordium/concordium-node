@@ -161,7 +161,7 @@ extern "C" fn ffi_migrate_plt_block_state(
     let block_state = unsafe { &*from_block_state };
     let to_protocol_version =
         ProtocolVersion::try_from(to_protocol_version).expect("Unknown protocol version");
-    let new_block_state = block_state.migrate(from_load_callback, to_store_callback);
+    let new_block_state = block_state.migrate(from_load_callback, to_store_callback, to_protocol_version);
     Box::into_raw(Box::new(new_block_state))
 }
 

@@ -78,8 +78,14 @@ impl BlockState {
     }
 
     /// Migrate the PLT block state from one blob store to another.
-    pub fn migrate(&self, _loader: impl BlobStoreLoad, _storer: impl BlobStoreStore) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-67/implement-p10-to-p11-migration-for-plt-state
+    ///
+    /// # Arguments
+    ///
+    /// - `from_loader` Blob store loader for the blob store we are migrating from.
+    /// - `to_storer` Blob store storer for the blob store we are migrating to.
+    /// - `to_protocol_version` Protocol version for the block state to migrate to.
+    pub fn migrate(&self, from_loader: impl BlobStoreLoad, to_storer: impl BlobStoreStore, to_protocol_version: ProtocolVersion) -> Self {
+        // todo ar
         todo!()
     }
 }

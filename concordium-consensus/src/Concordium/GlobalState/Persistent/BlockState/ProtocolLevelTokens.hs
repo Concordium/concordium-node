@@ -37,6 +37,7 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as RustBS
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBTree
+import Data.Coerce (coerce)
 
 -- | A token index is the index of a token in the 'ProtocolLevelTokens' table.
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}
@@ -488,17 +489,26 @@ migrateProtocolLevelTokensForStateVersion _ ProtocolLevelTokensNone = do
     -- When migrating from a version where there are no protocol-level tokens, we use the
     -- empty protocol level tokens (if the new state supports LTS).
     emptyProtocolLevelTokensForStateVersion
-migrateProtocolLevelTokensForStateVersion migration oldPLTsV0@(ProtocolLevelTokensV0 _) =
+migrateProtocolLevelTokensForStateVersion migration oldPLTsV0@(ProtocolLevelTokensV0 oldPLTsRef) =
     case pltStateVersion @(PltStateVersionFor (MPV (t m))) of
         SPLTStateNone -> case migration of {}
         SPLTStateV0 -> do
             oldPLTs <- lift $ loadPLTs oldPLTsV0
             newPLTs <- migrateProtocolLevelTokens oldPLTs
             storePLTs newPLTs
-        -- todo implement P10 to P11 migration in https://linear.app/concordium/issue/COR-2218/implement-p10-to-p11-migration-for-plt-state
-        SPLTStateV1 -> undefined
-migrateProtocolLevelTokensForStateVersion migration (ProtocolLevelTokensV1 fstate) =
+        SPLTStateV1 -> do
+            -- Migrate from Haskell to Rust, by reloading the PLT state from the blob store and into Rust and then
+            -- migrate the newly loaded state in the Rust block state implementation.
+            let oldBlobRefMaybe = getHBRRefIfBlobbed oldPLTsRef
+            let oldBlobRef =
+                    maybe
+                        (error "Haskell maintained PLT state to migrate from does not have blob reference set")
+                        id
+                        oldBlobRefMaybe
+            oldState <- lift $ loadDirect (coerce oldBlobRef)
+            ProtocolLevelTokensV1 <$> RustBS.migrate oldState
+migrateProtocolLevelTokensForStateVersion migration (ProtocolLevelTokensV1 oldState) =
     case pltStateVersion @(PltStateVersionFor (MPV (t m))) of
         SPLTStateNone -> case migration of {}
         SPLTStateV0 -> case migration of {}
-        SPLTStateV1 -> ProtocolLevelTokensV1 <$> RustBS.migrate fstate
+        SPLTStateV1 -> ProtocolLevelTokensV1 <$> RustBS.migrate oldState

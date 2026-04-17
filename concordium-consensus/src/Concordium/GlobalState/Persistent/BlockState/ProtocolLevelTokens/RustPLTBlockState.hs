@@ -175,11 +175,11 @@ migrate ::
     -- | New migrated block state
     t m ForeignPLTBlockStatePtr
 migrate currentState = do
-    fromLoadCallback <- fst <$> lift BlobStore.getCallbacks
-    toStoreCallback <- snd <$> BlobStore.getCallbacks
-    let toSProtocolVersion = Types.protocolVersion @(Types.MPV (t m))
+    oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
+    newStoreCallback <- snd <$> BlobStore.getCallbacks
+    let newSProtocolVersion = Types.protocolVersion @(Types.MPV (t m))
     newState <- liftIO $ withPLTBlockState currentState $ \fromRustBlockState ->
-        ffiMigratePLTBlockState fromLoadCallback toStoreCallback fromRustBlockState (sProtocolVersionToWord64 toSProtocolVersion)
+        ffiMigratePLTBlockState oldLoadCallback newStoreCallback fromRustBlockState (sProtocolVersionToWord64 newSProtocolVersion)
     liftIO $ wrapFFIPtr newState
 
 -- | Migrate PLT block state from one blob store to another.
