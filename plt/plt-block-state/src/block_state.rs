@@ -7,8 +7,8 @@ use crate::block_state::types::{
     TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, LockNotFoundByIdError, OverflowError,
+    RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
@@ -185,6 +185,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     type TokenKeyValueState = SimplisticTokenKeyValueState;
     type Account = AccountIndex;
     type Token = TokenIndex;
+    type Lock = LockId;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
         self.internal_block_state
@@ -316,6 +317,35 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
         token_key_value_state.iter_prefix(prefix)
     }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError> {
+        if self
+            .internal_block_state
+            .block_state()
+            .locks
+            .contains_key(lock_id)
+        {
+            return Ok(lock_id.clone());
+        }
+
+        Err(LockNotFoundByIdError(lock_id.clone()))
+    }
+
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration {
+        self.internal_block_state.block_state().locks[lock]
+            .configuration
+            .clone()
+    }
+
+    fn lock_balances(
+        &self,
+        lock: &Self::Lock,
+    ) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        self.internal_block_state.block_state().locks[lock]
+            .locked_balances
+            .iter()
+            .cloned()
+    }
 }
 
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -368,6 +398,21 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
     ) {
         self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
             token_key_value_state;
+    }
+
+    // TODO: lock creation implemented as part of COR-2302
+    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> Self::Lock {
+        todo!()
+    }
+
+    // TODO: Implement as part of COR-2305.
+    fn add_lock_balance_ref(
+        &mut self,
+        _lock: &Self::Lock,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
+        todo!()
     }
 }
 

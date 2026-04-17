@@ -5,7 +5,7 @@ use concordium_base::common::Serialize;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
-use plt_scheduler_types::types::locks::LockController;
+use plt_scheduler_types::types::locks::LockControllerConfig;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Index of the protocol-level token in the block state map of tokens.
@@ -50,7 +50,7 @@ pub struct LockConfiguration {
     /// Expiry time of the lock (seconds since epoch).
     pub expiry: TransactionTime,
     /// Controller configuration for the lock.
-    pub controller: LockController,
+    pub controller: LockControllerConfig,
 }
 
 /// Account representing (read-only) account state.
@@ -115,7 +115,7 @@ mod test {
         let lock_config = LockConfiguration {
             recipients: vec![AccountIndex::from(1u64), AccountIndex::from(2u64)],
             expiry: TransactionTime::from(1000u64),
-            controller: LockController::SimpleV0(LockControllerSimpleV0 {
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![LockControllerSimpleV0Grant {
                     account: AccountIndex::from(1u64),
                     roles: vec![LockControllerSimpleV0Capability::Fund],
@@ -144,7 +144,7 @@ mod test {
         let lock_config = LockConfiguration {
             recipients: vec![],
             expiry: TransactionTime::from(500u64),
-            controller: LockController::SimpleV0(
+            controller: LockControllerConfig::SimpleV0(
                 plt_scheduler_types::types::locks::LockControllerSimpleV0 {
                     grants: vec![],
                     tokens: vec![],

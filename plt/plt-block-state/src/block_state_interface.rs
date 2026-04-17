@@ -1,10 +1,11 @@
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenStateKey,
-    TokenStateValue,
+    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
+    TokenStateKey, TokenStateValue,
 };
 use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -25,6 +26,10 @@ pub enum RawTokenAmountDelta {
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
 
+/// Lock with given id does not exist
+#[derive(Debug)]
+pub struct LockNotFoundByIdError(pub LockId);
+
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the module managed key-value map.
@@ -38,6 +43,9 @@ pub trait BlockStateQuery {
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
+
+    /// Opaque type that represents a lock on chain.
+    type Lock;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
@@ -145,6 +153,34 @@ pub trait BlockStateQuery {
 
     /// Query the protocol version of the block state.
     fn protocol_version(&self) -> ProtocolVersion;
+
+    /// Get the lock associated with a [`LockId`] (if it exists).
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The lock id to get the [`Self::Lock`] of.
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError>;
+
+    /// Get the configuration of a protocol-level lock.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the configuration for.
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration;
+
+    /// Get the set of account/token balances currently tracked under a lock.
+    ///
+    /// Each returned pair identifies an account and token for which the lock may
+    /// hold a non-zero locked balance. The corresponding amount is tracked in the
+    /// token module state.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the tracked locked balances for.
+    fn lock_balances(
+        &self,
+        lock: &Self::Lock,
+    ) -> impl Iterator<Item = (Self::Account, Self::Token)>;
 }
 
 /// Operations on the state of a block in the chain.
@@ -228,6 +264,40 @@ pub trait BlockStateOperations: BlockStateQuery {
         &mut self,
         token: &Self::Token,
         token_key_value_state: Self::TokenKeyValueState,
+    );
+
+    /// Create a new PLT lock with the given configuration. The initial state will be empty.
+    /// Returns representation of the created lock.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The ID of the PLT lock.
+    /// - `configuration` The configuration for the PLT lock.
+    ///
+    /// # Preconditions
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
+    ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
+    fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> Self::Lock;
+
+    /// Track that a lock holds a balance for the given account and token.
+    ///
+    /// This records the account/token pair in the lock state so it can later be
+    /// queried through [`BlockStateQuery::lock_balances`].
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to update.
+    /// - `account` The account whose locked balance is tracked.
+    /// - `token` The token whose locked balance is tracked.
+    fn add_lock_balance_ref(
+        &mut self,
+        lock: &Self::Lock,
+        account: &Self::Account,
+        token: &Self::Token,
     );
 }
 
