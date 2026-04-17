@@ -3,6 +3,7 @@ use concordium_base::protocol_level_tokens::TokenModuleRef;
 mod key_value_state;
 pub mod module;
 mod roles;
+pub mod token_kernel_interface;
 mod util;
 
 /// Module ref for the currently implemented token module. It is the SHA-256 of "TokenModuleV0"

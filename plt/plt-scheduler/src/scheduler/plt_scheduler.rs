@@ -5,6 +5,7 @@ use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
 use crate::token_module::module::{TokenInitializationError, TokenUpdateError};
 use crate::token_module::{TOKEN_MODULE_REF, module};
+use crate::transaction_execution_interface::{OutOfEnergyError, TransactionExecution};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
@@ -13,9 +14,6 @@ use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state::types::TokenConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
-use plt_scheduler_interface::transaction_execution_interface::{
-    OutOfEnergyError, TransactionExecution,
-};
 use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::reject_reasons::{

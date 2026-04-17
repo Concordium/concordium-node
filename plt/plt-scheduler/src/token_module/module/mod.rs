@@ -3,10 +3,10 @@
 //!
 //! The capabilities of the token module are defined and limited by the token kernel through
 //! which all state modifications are performed,
-//! see [`TokenKernelOperations`](plt_scheduler_interface::token_kernel_interface::TokenKernelOperations).
+//! see [`TokenKernelOperations`](crate::token_kernel_interface::TokenKernelOperations).
 //!
 //! It is the responsibility of the token module to charge energy for execution via
-//! [`TransactionExecution`](plt_scheduler_interface::transaction_execution_interface::TransactionExecution),
+//! [`TransactionExecution`](crate::transaction_execution_interface::TransactionExecution),
 //! and release control (return an error) if the energy limit is reached.
 mod initialize;
 mod queries;

@@ -1,5 +1,8 @@
 use crate::token_module::key_value_state::{self, KernelOperationsExt};
 use crate::token_module::module::TokenAmountDecimalsMismatchError;
+use crate::token_module::token_kernel_interface::{
+    MintWouldOverflowError, TokenKernelOperations, TokenMintError, TokenStateInvariantError,
+};
 use crate::token_module::{roles, util};
 use concordium_base::common;
 use concordium_base::common::cbor::CborSerializationError;
@@ -7,9 +10,6 @@ use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAdminRole, TokenModuleInitializationParameters,
 };
 use plt_block_state::block_state::AccountNotFoundByAddressError;
-use plt_scheduler_interface::token_kernel_interface::{
-    MintWouldOverflowError, TokenKernelOperations, TokenMintError, TokenStateInvariantError,
-};
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]

@@ -1239,17 +1239,6 @@ dependencies = [
  "hex",
  "libc",
  "plt-block-state",
- "plt-scheduler-interface",
- "plt-scheduler-types",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "plt-scheduler-interface"
-version = "0.1.0"
-dependencies = [
- "concordium_base",
- "plt-block-state",
  "plt-scheduler-types",
  "thiserror 2.0.17",
 ]

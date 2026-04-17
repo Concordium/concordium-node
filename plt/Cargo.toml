@@ -5,7 +5,6 @@ members = [
     "node-rust-library",
     "plt-block-state",
     "plt-scheduler-types",
-    "plt-scheduler-interface",
     "plt-scheduler",
 ]
 
@@ -18,7 +17,6 @@ codegen-units = 1
 plt-block-state = {path = "plt-block-state"}
 plt-scheduler = {path = "plt-scheduler"}
 plt-scheduler-types = {path = "plt-scheduler-types"}
-plt-scheduler-interface = {path = "plt-scheduler-interface"}
 
 concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
 concordium-smart-contract-engine = {path = "../concordium-base/smart-contracts/wasm-chain-integration"}
