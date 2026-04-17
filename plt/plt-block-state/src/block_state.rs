@@ -330,6 +330,22 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
 
         Err(LockNotFoundByIdError(lock_id.clone()))
     }
+
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration {
+        self.internal_block_state.block_state().locks[lock]
+            .configuration
+            .clone()
+    }
+
+    fn lock_balances(
+        &self,
+        lock: &Self::Lock,
+    ) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        self.internal_block_state.block_state().locks[lock]
+            .locked_balances
+            .iter()
+            .cloned()
+    }
 }
 
 impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -386,6 +402,16 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
 
     // TODO: lock creation implemented as part of COR-2302
     fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> Self::Lock {
+        todo!()
+    }
+
+    // TODO: Implement as part of COR-2305.
+    fn add_lock_balance_ref(
+        &mut self,
+        _lock: &Self::Lock,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
         todo!()
     }
 }

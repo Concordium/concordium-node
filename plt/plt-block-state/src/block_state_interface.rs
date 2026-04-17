@@ -45,7 +45,6 @@ pub trait BlockStateQuery {
     type Token;
 
     /// Opaque type that represents a lock on chain.
-    /// The lock is guaranteed to exist on chain, when holding an instance of this type.
     type Lock;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
@@ -161,6 +160,27 @@ pub trait BlockStateQuery {
     ///
     /// - `lock_id` The lock id to get the [`Self::Lock`] of.
     fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError>;
+
+    /// Get the configuration of a protocol-level lock.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the configuration for.
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration;
+
+    /// Get the set of account/token balances currently tracked under a lock.
+    ///
+    /// Each returned pair identifies an account and token for which the lock may
+    /// hold a non-zero locked balance. The corresponding amount is tracked in the
+    /// token module state.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the tracked locked balances for.
+    fn lock_balances(
+        &self,
+        lock: &Self::Lock,
+    ) -> impl Iterator<Item = (Self::Account, Self::Token)>;
 }
 
 /// Operations on the state of a block in the chain.
@@ -262,6 +282,23 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
     ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
     fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> Self::Lock;
+
+    /// Track that a lock holds a balance for the given account and token.
+    ///
+    /// This records the account/token pair in the lock state so it can later be
+    /// queried through [`BlockStateQuery::lock_balances`].
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to update.
+    /// - `account` The account whose locked balance is tracked.
+    /// - `token` The token whose locked balance is tracked.
+    fn add_lock_balance_ref(
+        &mut self,
+        lock: &Self::Lock,
+        account: &Self::Account,
+        token: &Self::Token,
+    );
 }
 
 /// The computation resulted in overflow (negative or above maximum value).
