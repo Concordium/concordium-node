@@ -191,7 +191,6 @@ executeTransaction depositContext tokenUpdate =
                                             getAccountAddressByIndexCallbackPtr
                                             getTokenAccountStatesCallbackPtr
                                             blockStatePtr
-                                            (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv)
                                             (FFI.castPtr transactionPayloadPtr)
                                             (fromIntegral transactionPayloadLen)
                                             (fromIntegral senderAccountIndex)
@@ -288,8 +287,6 @@ foreign import ccall "ffi_execute_transaction"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | The protocol version of the block.
-        Word.Word64 ->
         -- | Pointer to transaction payload bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of transaction payload.
@@ -426,7 +423,6 @@ executeChainUpdate updateHeader createPLT =
                                         getAccountAddressByIndexCallbackPtr
                                         getTokenAccountStatesCallbackPtr
                                         blockStatePtr
-                                        (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv)
                                         (FFI.castPtr chainUpdatePayloadPtr)
                                         (fromIntegral chainUpdatePayloadLen)
                                         resultingBlockStateOutPtr

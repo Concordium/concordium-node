@@ -197,7 +197,7 @@ data ProtocolLevelTokensForStateVersion (pltsv :: PLTStateVersion) where
     ProtocolLevelTokensV0 :: (HashedBufferedRef' ProtocolLevelTokensHash ProtocolLevelTokens) -> ProtocolLevelTokensForStateVersion 'PLTStateV0
     ProtocolLevelTokensV1 :: RustBS.ForeignPLTBlockStatePtr -> ProtocolLevelTokensForStateVersion 'PLTStateV1
 
-instance (MonadBlobStore m, IsPLTStateVersion pltsv) => BlobStorable m (ProtocolLevelTokensForStateVersion pltsv) where
+instance (MonadBlobStore m, MonadProtocolVersion m, IsPLTStateVersion pltsv) => BlobStorable m (ProtocolLevelTokensForStateVersion pltsv) where
     load = case pltStateVersion @pltsv of
         SPLTStateNone -> return $ return ProtocolLevelTokensNone
         SPLTStateV0 -> fmap ProtocolLevelTokensV0 <$> load
