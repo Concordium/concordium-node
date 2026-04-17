@@ -3,8 +3,7 @@
 
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
-use crate::token_module::module::{TokenInitializationError, TokenUpdateError};
-use crate::token_module::{TOKEN_MODULE_REF, module};
+use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
@@ -79,7 +78,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
     };
 
     // Call token module to execute operations
-    let token_update_result = module::execute_token_update_transaction(
+    let token_update_result = token_module::execute_token_update_transaction(
         transaction_execution,
         &mut kernel,
         payload.operations,
@@ -185,7 +184,7 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                     token_module_state_dirty: &mut token_module_state_dirty,
                     events: &mut events,
                 };
-                let token_update_result = module::execute_token_update_operation_at_index(
+                let token_update_result = token_module::execute_token_update_operation_at_index(
                     transaction_execution,
                     &mut kernel,
                     index,
@@ -285,7 +284,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
     // Initialize token in token module
     let token_initialize_result =
-        module::initialize_token(&mut kernel, payload.initialization_parameters);
+        token_module::initialize_token(&mut kernel, payload.initialization_parameters);
 
     match token_initialize_result {
         Ok(()) => {
