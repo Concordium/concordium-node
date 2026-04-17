@@ -4,7 +4,7 @@ use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_block_state::block_state::hash::Hashable;
 use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
-use plt_block_state::block_state::{BlockState, blob_store};
+use plt_block_state::block_state::{BlockStateData, blob_store};
 use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -202,13 +202,13 @@ fn test_store_and_load_plts() {
     );
 
     // Load block state
-    let immutable_state =
-        blob_store::load_from_store::<BlockState>(&block_state.blob_store_load, blob_ref)
+    let immutable_state_data =
+        blob_store::load_from_store::<BlockStateData>(&block_state.blob_store_load, blob_ref)
             .expect("load block state");
     let block_state = block_state_no_external::with_block_state(
         ProtocolVersion::P11,
         block_state.blob_store_load,
-        &immutable_state,
+        immutable_state_data,
     );
 
     // Assert loaded state

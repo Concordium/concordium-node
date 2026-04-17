@@ -5,7 +5,7 @@
 use crate::ffi::status;
 use crate::queries;
 use crate::queries::QueryTokenInfoError;
-use concordium_base::base::{AccountIndex, ProtocolVersion};
+use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use libc::size_t;
 use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
@@ -53,7 +53,6 @@ extern "C" fn ffi_query_plt_list(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    protocol_version: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> status::FfiStatusCode {
@@ -73,11 +72,8 @@ extern "C" fn ffi_query_plt_list(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
         let internal_block_state = unsafe { &*block_state };
         let block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state,
             blob_store_load: load_callback,
             external_block_state: external_callbacks,
@@ -135,7 +131,6 @@ extern "C" fn ffi_query_token_info(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    protocol_version: u64,
     token_id: *const u8,
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
@@ -157,11 +152,8 @@ extern "C" fn ffi_query_token_info(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
         let internal_block_state = unsafe { &*block_state };
         let block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state,
             blob_store_load: load_callback,
             external_block_state: external_callbacks,
@@ -234,7 +226,6 @@ extern "C" fn ffi_query_token_authorizations(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    protocol_version: u64,
     token_id: *const u8,
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
@@ -256,11 +247,8 @@ extern "C" fn ffi_query_token_authorizations(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
         let internal_block_state = unsafe { &*block_state };
         let block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state,
             blob_store_load: load_callback,
             external_block_state: external_callbacks,
@@ -329,7 +317,6 @@ extern "C" fn ffi_query_token_account_infos(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    protocol_version: u64,
     account_index: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -350,11 +337,8 @@ extern "C" fn ffi_query_token_account_infos(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
         let internal_block_state = unsafe { &*block_state };
         let block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state,
             blob_store_load: load_callback,
             external_block_state: external_callbacks,

@@ -4,7 +4,7 @@
 
 use crate::ffi::status;
 use crate::scheduler;
-use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -79,7 +79,6 @@ extern "C" fn ffi_execute_transaction(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    protocol_version: u64,
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
@@ -124,11 +123,8 @@ extern "C" fn ffi_execute_transaction(
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
         };
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
         let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
         let mut block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state,
             blob_store_load: load_callback,
             external_block_state: external_callbacks,
@@ -235,7 +231,6 @@ extern "C" fn ffi_execute_chain_update(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    protocol_version: u64,
     payload: *const u8,
     payload_len: size_t,
     block_state_out: *mut *mut BlockState,
@@ -270,11 +265,8 @@ extern "C" fn ffi_execute_chain_update(
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
         };
 
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
         let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
         let mut block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state,
             blob_store_load: load_callback,
             external_block_state: external_callbacks,
@@ -337,7 +329,6 @@ mod tests {
             UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
             UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES,
             ptr::null(),
-            8,
             ptr::null(),
             0,
             0,

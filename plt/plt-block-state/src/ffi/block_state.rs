@@ -5,16 +5,23 @@
 use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::{BlockState, blob_store};
+use crate::block_state::{BlockState, BlockStateData, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
+use concordium_base::base::ProtocolVersion;
 
 /// Allocate a new empty PLT block state and returns it.
 ///
 /// The returned pointer is to a uniquely owned instance.
 /// It must be freed by calling [`ffi_free_plt_block_state`].
+///
+/// # Arguments
+///
+/// - `protocol_version` Protocol version for the block state to create.
 #[unsafe(no_mangle)]
-extern "C" fn ffi_empty_plt_block_state() -> *mut BlockState {
-    let block_state = BlockState::empty();
+extern "C" fn ffi_empty_plt_block_state(protocol_version: u64) -> *mut BlockState {
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+    let block_state = BlockState::empty(protocol_version);
     Box::into_raw(Box::new(block_state))
 }
 
@@ -74,6 +81,7 @@ extern "C" fn ffi_hash_plt_block_state(
 /// # Arguments
 ///
 /// - `load_callback` External function to call for loading bytes from the blob store.
+/// - `protocol_version` Protocol version for the block state to load.
 /// - `blob_ref` Blob store reference to load the block state from.
 ///
 /// # Safety
@@ -82,10 +90,17 @@ extern "C" fn ffi_hash_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
     load_callback: LoadCallback,
+    protocol_version: u64,
     blob_ref: BlobStoreLocation,
 ) -> *mut BlockState {
     // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state = blob_store::load_from_store(&load_callback, blob_ref).unwrap();
+    let protocol_version =
+        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+    let data: BlockStateData = blob_store::load_from_store(&load_callback, blob_ref).unwrap();
+    let block_state = BlockState {
+        protocol_version,
+        data,
+    };
     Box::into_raw(Box::new(block_state))
 }
 
@@ -119,10 +134,12 @@ extern "C" fn ffi_store_plt_block_state(
 ///
 /// # Arguments
 ///
-/// - `load_callback` External function to call for loading bytes a reference from the blob store.
-/// - `store_callback` External function to call for storing bytes in the blob store returning a
-///   reference.
-/// - `block_state` The block state to store in the blob store.
+/// - `from_load_callback` External function to call for loading bytes a reference from
+///   the blob store to migrate from.
+/// - `to_store_callback` External function to call for storing bytes in the blob store
+///   to migrate to.
+/// - `from_block_state` The block state to migrate from.
+/// - `to_protocol_version` Protocol version for the block state to migrate to.
 ///
 /// # Safety
 ///
@@ -132,13 +149,19 @@ extern "C" fn ffi_store_plt_block_state(
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_migrate_plt_block_state(
-    load_callback: LoadCallback,
-    store_callback: StoreCallback,
-    block_state: *const BlockState,
+    from_load_callback: LoadCallback,
+    to_store_callback: StoreCallback,
+    from_block_state: *const BlockState,
+    to_protocol_version: u64,
 ) -> *mut BlockState {
-    assert!(!block_state.is_null(), "block_state is a null pointer.");
-    let block_state = unsafe { &*block_state };
-    let new_block_state = block_state.migrate(load_callback, store_callback);
+    assert!(
+        !from_block_state.is_null(),
+        "block_state is a null pointer."
+    );
+    let block_state = unsafe { &*from_block_state };
+    let to_protocol_version =
+        ProtocolVersion::try_from(to_protocol_version).expect("Unknown protocol version");
+    let new_block_state = block_state.migrate(from_load_callback, to_store_callback);
     Box::into_raw(Box::new(new_block_state))
 }
 
