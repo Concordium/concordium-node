@@ -1,14 +1,14 @@
 //! Implementation of queries related to protocol-level tokens.
 
 use crate::token_kernel::TokenKernelQueriesImpl;
+use crate::token_module::module;
+use crate::token_module::module::QueryTokenModuleError;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
-use plt_token_module::token_module;
-use plt_token_module::token_module::QueryTokenModuleError;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -47,7 +47,7 @@ pub fn query_token_info(
         token_module_state: &token_module_state,
     };
 
-    let module_state = token_module::query_token_module_state(&kernel)?;
+    let module_state = module::query_token_module_state(&kernel)?;
 
     let token_state = TokenState {
         token_module_ref: token_configuration.module_ref,
@@ -85,7 +85,7 @@ where
                 token: &token,
                 token_module_state: &token_module_state,
             };
-            let module_state = token_module::query_token_module_account_state(
+            let module_state = module::query_token_module_account_state(
                 &kernel,
                 block_state.account_index(&account),
             );
@@ -120,7 +120,7 @@ pub fn query_token_authorizations(
         token: &token,
         token_module_state: &token_module_state,
     };
-    let details = token_module::query_token_authorizations(&kernel)?;
+    let details = module::query_token_authorizations(&kernel)?;
     let token_configuration = block_state.token_configuration(&token);
     Ok(TokenAuthorizations {
         token_id: token_configuration.token_id,

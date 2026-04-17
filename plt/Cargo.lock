@@ -1241,7 +1241,6 @@ dependencies = [
  "plt-block-state",
  "plt-scheduler-interface",
  "plt-scheduler-types",
- "plt-token-module",
  "thiserror 2.0.17",
 ]
 
@@ -1262,18 +1261,6 @@ dependencies = [
  "concordium_base",
  "hex",
  "proptest",
-]
-
-[[package]]
-name = "plt-token-module"
-version = "0.1.0"
-dependencies = [
- "assert_matches",
- "concordium_base",
- "plt-block-state",
- "plt-scheduler-interface",
- "plt-scheduler-types",
- "thiserror 2.0.17",
 ]
 
 [[package]]

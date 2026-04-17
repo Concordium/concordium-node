@@ -1,4 +1,4 @@
-use crate::key_value_state;
+use crate::token_module::key_value_state;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{

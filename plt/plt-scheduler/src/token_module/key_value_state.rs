@@ -1,7 +1,7 @@
 //! Internal constants and utilities for token key-value state.
 
-use crate::roles::Roles;
-use crate::util;
+use super::roles::Roles;
+use super::util;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,

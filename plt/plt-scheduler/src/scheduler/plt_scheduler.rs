@@ -3,6 +3,8 @@
 
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
+use crate::token_module::module::{TokenInitializationError, TokenUpdateError};
+use crate::token_module::{TOKEN_MODULE_REF, module};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
@@ -19,8 +21,6 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, Tra
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
-use plt_token_module::token_module::{TokenInitializationError, TokenUpdateError};
-use plt_token_module::{TOKEN_MODULE_REF, token_module};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
@@ -84,7 +84,7 @@ pub fn execute_token_update_transaction<
     };
 
     // Call token module to execute operations
-    let token_update_result = token_module::execute_token_update_transaction(
+    let token_update_result = module::execute_token_update_transaction(
         transaction_execution,
         &mut kernel,
         payload.operations,
@@ -193,7 +193,7 @@ pub fn execute_meta_update_transaction<
                     token_module_state_dirty: &mut token_module_state_dirty,
                     events: &mut events,
                 };
-                let token_update_result = token_module::execute_token_update_operation_at_index(
+                let token_update_result = module::execute_token_update_operation_at_index(
                     transaction_execution,
                     &mut kernel,
                     index,
@@ -293,7 +293,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
     // Initialize token in token module
     let token_initialize_result =
-        token_module::initialize_token(&mut kernel, payload.initialization_parameters);
+        module::initialize_token(&mut kernel, payload.initialization_parameters);
 
     match token_initialize_result {
         Ok(()) => {

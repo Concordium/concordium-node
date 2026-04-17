@@ -1,6 +1,5 @@
-use crate::key_value_state;
-use crate::token_module::TokenAmountDecimalsMismatchError;
-use crate::util;
+use crate::token_module::module::TokenAmountDecimalsMismatchError;
+use crate::token_module::{key_value_state, util};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{

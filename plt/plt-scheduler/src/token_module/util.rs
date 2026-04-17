@@ -1,6 +1,6 @@
 //! Internal utilities for the token module implementation.
 
-use crate::token_module::TokenAmountDecimalsMismatchError;
+use crate::token_module::module::TokenAmountDecimalsMismatchError;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::{
     CborDeserialize, CborSerializationResult, SerializationOptions, UnknownMapKeys,
