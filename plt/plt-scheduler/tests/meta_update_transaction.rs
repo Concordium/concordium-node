@@ -10,13 +10,12 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_scheduler::scheduler;
+use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_scheduler_types::types::events::{
     self, BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenTransferEvent,
 };
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::{self, TokenHolder};
-use plt_token_module::TOKEN_MODULE_REF;
 use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;

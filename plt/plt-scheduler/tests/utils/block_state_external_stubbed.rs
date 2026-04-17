@@ -27,11 +27,10 @@ use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
-use plt_scheduler::{queries, scheduler};
+use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use plt_token_module::TOKEN_MODULE_REF;
 use std::collections::BTreeMap;
 
 /// Block store load stub for tests.
