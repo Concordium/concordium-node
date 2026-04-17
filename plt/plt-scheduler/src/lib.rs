@@ -1,5 +1,6 @@
 #[cfg(feature = "ffi")]
 mod ffi;
+mod locks;
 pub mod queries;
 pub mod scheduler;
 mod token_kernel;

@@ -4,7 +4,6 @@ resolver = "3"
 members = [
     "node-rust-library",
     "plt-block-state",
-    "plt-lock-module",
     "plt-scheduler-types",
     "plt-scheduler-interface",
     "plt-scheduler",

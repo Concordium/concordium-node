@@ -1231,16 +1231,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plt-lock-module"
-version = "0.1.0"
-dependencies = [
- "concordium_base",
- "plt-block-state",
- "plt-scheduler-types",
- "plt-token-module",
-]
-
-[[package]]
 name = "plt-scheduler"
 version = "0.1.0"
 dependencies = [
@@ -1249,7 +1239,6 @@ dependencies = [
  "hex",
  "libc",
  "plt-block-state",
- "plt-lock-module",
  "plt-scheduler-interface",
  "plt-scheduler-types",
  "plt-token-module",
