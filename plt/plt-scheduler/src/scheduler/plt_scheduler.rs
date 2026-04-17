@@ -5,7 +5,7 @@ use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
 use crate::token_module::module::{TokenInitializationError, TokenUpdateError};
 use crate::token_module::{TOKEN_MODULE_REF, module};
-use crate::transaction_execution_interface::{OutOfEnergyError, TransactionExecution};
+use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
@@ -39,11 +39,8 @@ use plt_scheduler_types::types::reject_reasons::{
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_token_update_transaction<
-    BSO: BlockStateOperations,
-    TE: TransactionExecution<Account = BSO::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
@@ -138,11 +135,8 @@ pub fn execute_token_update_transaction<
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_meta_update_transaction<
-    BSO: BlockStateOperations,
-    TE: TransactionExecution<Account = BSO::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
     payload: MetaUpdatePayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
