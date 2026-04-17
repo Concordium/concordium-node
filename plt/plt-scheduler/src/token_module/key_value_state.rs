@@ -2,15 +2,15 @@
 
 use super::roles::Roles;
 use super::util;
-use crate::token_module::token_kernel_interface::{
-    TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
-};
+use crate::token_kernel::{TokenKernelOperationsImpl, TokenKernelQueriesImpl};
+use crate::token_module::token_kernel_interface::{HasTokenState, TokenStateInvariantError};
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
+use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
@@ -32,33 +32,9 @@ pub const STATE_KEY_BURNABLE: &[u8] = b"burnable";
 pub const STATE_KEY_PAUSED: &[u8] = b"paused";
 pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
 
-/// Extension trait for [`TokenKernelOperations`] to provide convenience wrappers for
-/// state updates.
-pub trait KernelOperationsExt: TokenKernelOperations {
-    /// Set or clear a value in the token module state at the corresponding key.
-    fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
-        self.set_token_state_value(module_state_key(key), value);
-    }
-
-    fn set_account_state(
-        &mut self,
-        account: AccountIndex,
-        key: &[u8],
-        value: Option<TokenStateValue>,
-    ) {
-        self.set_token_state_value(account_state_key(account, key), value);
-    }
-
-    fn set_account_roles_state(&mut self, account: AccountIndex, value: Roles) {
-        self.set_token_state_value(account_roles_state_key(account), value.into_state_value());
-    }
-}
-
-impl<T: TokenKernelOperations> KernelOperationsExt for T {}
-
-/// Extension trait for [`TokenKernelQueries`] to provide convenience wrappers for
-/// state access.
-pub trait KernelQueriesExt: TokenKernelQueries {
+/// Extension trait for [`HasTokenState`] providing convenience read wrappers for token
+/// key-value state access.
+pub trait KernelQueriesExt: HasTokenState {
     /// Get value from the token module state at the given key.
     fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {
         self.lookup_token_state_value(module_state_key(key))
@@ -82,7 +58,40 @@ pub trait KernelQueriesExt: TokenKernelQueries {
     }
 }
 
-impl<T: TokenKernelQueries> KernelQueriesExt for T {}
+impl<T: HasTokenState> KernelQueriesExt for T {}
+
+/// Extension trait for [`TokenKernelOperationsImpl`] providing convenience wrappers for
+/// token key-value state updates.
+pub trait KernelOperationsExt: KernelQueriesExt {
+    /// Set or clear a value in the token key-value state at the corresponding key.
+    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>);
+
+    /// Set or clear a value in the token module state at the corresponding key.
+    fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
+        self.set_token_state_value(module_state_key(key), value);
+    }
+
+    fn set_account_state(
+        &mut self,
+        account: AccountIndex,
+        key: &[u8],
+        value: Option<TokenStateValue>,
+    ) {
+        self.set_token_state_value(account_state_key(account, key), value);
+    }
+
+    fn set_account_roles_state(&mut self, account: AccountIndex, value: Roles) {
+        self.set_token_state_value(account_roles_state_key(account), value.into_state_value());
+    }
+}
+
+impl<BSO: BlockStateOperations> KernelOperationsExt for TokenKernelOperationsImpl<'_, BSO> {
+    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
+        *self.token_module_state_dirty = true;
+        self.block_state
+            .update_token_state_value(self.token_module_state, &key, value);
+    }
+}
 
 /// Construct a [`TokenStateKey`] for a module key. This prefixes the key to
 /// distinguish it from other keys.
@@ -112,32 +121,32 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
 
 /// Get whether the balance-affecting operations on the token are currently
 /// paused.
-pub fn is_paused(kernel: &impl TokenKernelQueries) -> bool {
+pub fn is_paused(kernel: &impl KernelQueriesExt) -> bool {
     kernel.get_module_state(STATE_KEY_PAUSED).is_some()
 }
 
 /// Get whether the token has allow lists enabled.
-pub fn has_allow_list(kernel: &impl TokenKernelQueries) -> bool {
+pub fn has_allow_list(kernel: &impl KernelQueriesExt) -> bool {
     kernel.get_module_state(STATE_KEY_ALLOW_LIST).is_some()
 }
 
 /// Get whether the token has deny lists enabled.
-pub fn has_deny_list(kernel: &impl TokenKernelQueries) -> bool {
+pub fn has_deny_list(kernel: &impl KernelQueriesExt) -> bool {
     kernel.get_module_state(STATE_KEY_DENY_LIST).is_some()
 }
 
 /// Get whether the token allows minting.
-pub fn is_mintable(kernel: &impl TokenKernelQueries) -> bool {
+pub fn is_mintable(kernel: &impl KernelQueriesExt) -> bool {
     kernel.get_module_state(STATE_KEY_MINTABLE).is_some()
 }
 
 /// Get whether the token allows burning.
-pub fn is_burnable(kernel: &impl TokenKernelQueries) -> bool {
+pub fn is_burnable(kernel: &impl KernelQueriesExt) -> bool {
     kernel.get_module_state(STATE_KEY_BURNABLE).is_some()
 }
 
 /// Get the name of the token.
-pub fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, TokenStateInvariantError> {
+pub fn get_name(kernel: &impl KernelQueriesExt) -> Result<String, TokenStateInvariantError> {
     kernel
         .get_module_state(STATE_KEY_NAME)
         .ok_or_else(|| TokenStateInvariantError("Name not present".to_string()))
@@ -150,7 +159,7 @@ pub fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, TokenStateIn
 
 /// Get the URL metadata of the token.
 pub fn get_metadata(
-    kernel: &impl TokenKernelQueries,
+    kernel: &impl KernelQueriesExt,
 ) -> Result<MetadataUrl, TokenStateInvariantError> {
     let metadata_cbor = kernel
         .get_module_state(STATE_KEY_METADATA)
@@ -162,14 +171,14 @@ pub fn get_metadata(
 }
 
 /// Set the metadata URL.
-pub fn set_metadata_url<TK: TokenKernelOperations>(kernel: &mut TK, metadata: &MetadataUrl) {
+pub fn set_metadata_url<TK: KernelOperationsExt>(kernel: &mut TK, metadata: &MetadataUrl) {
     let encoded_metadata = common::cbor::cbor_encode(metadata);
     kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata));
 }
 
 /// Get the account index of the governance account for the token.
 pub fn get_governance_account_index(
-    kernel: &impl TokenKernelQueries,
+    kernel: &impl KernelQueriesExt,
 ) -> Result<AccountIndex, TokenStateInvariantError> {
     let governance_account_index = AccountIndex::from(
         kernel
@@ -189,7 +198,7 @@ pub fn get_governance_account_index(
 
 /// Get the authorization roles for an account from state.
 pub fn get_account_roles(
-    kernel: &impl TokenKernelQueries,
+    kernel: &impl KernelQueriesExt,
     account: AccountIndex,
 ) -> Result<Roles, TokenStateInvariantError> {
     kernel.get_account_roles_state(account)
@@ -197,7 +206,7 @@ pub fn get_account_roles(
 
 /// Assign roles to an account in the state.
 pub fn assign_account_roles(
-    kernel: &mut impl TokenKernelOperations,
+    kernel: &mut impl KernelOperationsExt,
     account: AccountIndex,
     assigned_roles: &[TokenAdminRole],
 ) -> Result<(), TokenStateInvariantError> {
@@ -211,7 +220,7 @@ pub fn assign_account_roles(
 
 /// Revoke roles of an account in the state.
 pub fn revoke_account_roles(
-    kernel: &mut impl TokenKernelOperations,
+    kernel: &mut impl KernelOperationsExt,
     account: AccountIndex,
     revoked_roles: &[TokenAdminRole],
 ) -> Result<(), TokenStateInvariantError> {
@@ -224,8 +233,11 @@ pub fn revoke_account_roles(
 }
 
 /// Get authorization roles and assigned accounts for the token.
-pub fn get_token_authorizations<TK: TokenKernelQueries>(
-    kernel: &TK,
+///
+/// Takes a concrete [`TokenKernelQueriesImpl`] because account index lookups are needed
+/// in addition to key-value state access.
+pub fn get_token_authorizations<BSQ: BlockStateQuery>(
+    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
 ) -> Result<TokenAuthorizations, TokenStateInvariantError> {
     let mut update_admin_roles = TokenRoleAuthorizations::default();
     let mut mint = TokenRoleAuthorizations::default();
@@ -290,21 +302,21 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
     })
 }
 
-/// Sets the puased state of the token module.
-pub fn set_paused<TK: TokenKernelOperations>(kernel: &mut TK, value: bool) {
+/// Sets the paused state of the token module.
+pub fn set_paused<TK: KernelOperationsExt>(kernel: &mut TK, value: bool) {
     let state_value = value.then_some(vec![]);
     kernel.set_module_state(STATE_KEY_PAUSED, state_value)
 }
 
 /// Get the allow-list state for the account at the given account.
-pub fn get_allow_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
+pub fn get_allow_list_for<TK: KernelQueriesExt>(kernel: &TK, account: AccountIndex) -> bool {
     kernel
         .get_account_state(account, STATE_KEY_ALLOW_LIST)
         .is_some()
 }
 
 /// Set the allow-list state for the account at the given account.
-pub fn set_allow_list_for<TK: TokenKernelOperations>(
+pub fn set_allow_list_for<TK: KernelOperationsExt>(
     kernel: &mut TK,
     account: AccountIndex,
     value: bool,
@@ -314,14 +326,14 @@ pub fn set_allow_list_for<TK: TokenKernelOperations>(
 }
 
 /// Get the deny-list state for the account at the given account.
-pub fn get_deny_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
+pub fn get_deny_list_for<TK: KernelQueriesExt>(kernel: &TK, account: AccountIndex) -> bool {
     kernel
         .get_account_state(account, STATE_KEY_DENY_LIST)
         .is_some()
 }
 
 /// Set the deny-list state for the account at the given account.
-pub fn set_deny_list_for<TK: TokenKernelOperations>(
+pub fn set_deny_list_for<TK: KernelOperationsExt>(
     kernel: &mut TK,
     account: AccountIndex,
     value: bool,

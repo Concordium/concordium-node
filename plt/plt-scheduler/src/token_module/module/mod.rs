@@ -1,10 +1,6 @@
 //! Implementation of the protocol-level token module. The token module implements
 //! execution of [token operations](concordium_base::protocol_level_tokens::TokenOperation).
 //!
-//! The capabilities of the token module are defined and limited by the token kernel through
-//! which all state modifications are performed,
-//! see [`TokenKernelOperations`](crate::token_kernel_interface::TokenKernelOperations).
-//!
 //! It is the responsibility of the token module to charge energy for execution via
 //! [`TransactionExecution`](crate::transaction_execution_interface::TransactionExecution),
 //! and release control (return an error) if the energy limit is reached.

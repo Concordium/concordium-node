@@ -1,8 +1,8 @@
 //! Implementation of the protocol-level token kernel.
 
 use crate::token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
+    HasTokenState, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
+    TokenStateInvariantError, TokenTransferError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
@@ -24,48 +24,23 @@ use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolde
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a BSQ,
-    /// Token in context
-    pub token: &'a BSQ::Token,
     /// Token module state for the token in context
     pub token_module_state: &'a BSQ::TokenKeyValueState,
 }
 
-impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
-    type Account = BSQ::Account;
-
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
-    }
-
-    fn account_by_index(
+impl<BSQ: BlockStateQuery> TokenKernelQueriesImpl<'_, BSQ> {
+    pub fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
+    ) -> Result<AccountWithCanonicalAddress<BSQ::Account>, AccountNotFoundByIndexError> {
         self.block_state.account_by_index(index)
     }
+}
 
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
-    }
-
-    fn decimals(&self) -> u8 {
-        self.block_state.token_configuration(self.token).decimals
-    }
-
+impl<BSQ: BlockStateQuery> HasTokenState for TokenKernelQueriesImpl<'_, BSQ> {
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.block_state.protocol_version()
     }
 
     fn iter_token_state_prefix(
@@ -93,14 +68,61 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     pub events: &'a mut Vec<BlockItemEvent>,
 }
 
-impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
-    fn touch_account(&mut self, account: &Self::Account) {
+impl<BSO: BlockStateOperations> TokenKernelOperationsImpl<'_, BSO> {
+    pub fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<BSO::Account, AccountNotFoundByAddressError> {
+        self.block_state.account_by_address(address)
+    }
+
+    pub fn account_index(&self, account: &BSO::Account) -> AccountIndex {
+        self.block_state.account_index(account)
+    }
+
+    pub fn account_token_balance(&self, account: &BSO::Account) -> RawTokenAmount {
+        self.block_state.account_token_balance(account, self.token)
+    }
+
+    pub fn decimals(&self) -> u8 {
+        self.block_state.token_configuration(self.token).decimals
+    }
+
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.block_state.protocol_version()
+    }
+
+    pub fn support_rbac(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
+
+    pub fn support_updating_metadata(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
+
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// It has the observable effect that the token is then returned when querying the tokens
+    /// for an account. Should be called if the token module account state is set,
+    /// in order to make sure the token is returned when querying token account info.
+    ///
+    /// If the account already has a balance for the token in context, the operation has no effect.
+    pub fn touch_account(&mut self, account: &BSO::Account) {
         self.block_state.touch_token_account(self.token, account);
     }
 
-    fn mint(
+    /// Mint a specified amount and deposit it in the account.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenMintEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
+    pub fn mint(
         &mut self,
-        account: &Self::Account,
+        account: &BSO::Account,
         account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError> {
@@ -142,9 +164,19 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn burn(
+    /// Burn a specified amount from the account.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenBurnEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenBurnError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
+    pub fn burn(
         &mut self,
-        account: &Self::Account,
+        account: &BSO::Account,
         account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
@@ -186,11 +218,21 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn transfer(
+    /// Transfer a token amount from one account to another, with an optional memo.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenTransferEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
+    pub fn transfer(
         &mut self,
-        from: &Self::Account,
+        from: &BSO::Account,
         from_address: AccountAddress,
-        to: &Self::Account,
+        to: &BSO::Account,
         to_address: AccountAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,
@@ -229,13 +271,16 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
-        *self.token_module_state_dirty = true;
-        self.block_state
-            .update_token_state_value(self.token_module_state, &key, value);
-    }
-
-    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
+    /// Log a token module event with the specified type and details.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenModuleEvent` in the logs.
+    pub fn log_token_event(
+        &mut self,
+        event_type: TokenModuleCborTypeDiscriminator,
+        details: RawCbor,
+    ) {
         self.events
             .push(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
                 token_id: self.token_configuration.token_id.clone(),
@@ -245,42 +290,10 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     }
 }
 
-impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSO> {
-    type Account = BSO::Account;
-
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
-    }
-
-    fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index)
-    }
-
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
-    }
-
-    fn decimals(&self) -> u8 {
-        self.block_state.token_configuration(self.token).decimals
-    }
-
+impl<BSO: BlockStateOperations> HasTokenState for TokenKernelOperationsImpl<'_, BSO> {
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.block_state.protocol_version()
     }
 
     fn iter_token_state_prefix(

@@ -1,7 +1,8 @@
+use crate::token_kernel::TokenKernelOperationsImpl;
 use crate::token_module::key_value_state::{self, KernelOperationsExt};
 use crate::token_module::module::TokenAmountDecimalsMismatchError;
 use crate::token_module::token_kernel_interface::{
-    MintWouldOverflowError, TokenKernelOperations, TokenMintError, TokenStateInvariantError,
+    MintWouldOverflowError, TokenMintError, TokenStateInvariantError,
 };
 use crate::token_module::{roles, util};
 use concordium_base::common;
@@ -10,6 +11,7 @@ use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAdminRole, TokenModuleInitializationParameters,
 };
 use plt_block_state::block_state::AccountNotFoundByAddressError;
+use plt_block_state::block_state_interface::BlockStateOperations;
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]
@@ -39,8 +41,8 @@ impl From<TokenMintError> for TokenInitializationError {
 
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
-pub fn initialize_token(
-    kernel: &mut impl TokenKernelOperations,
+pub fn initialize_token<BSO: BlockStateOperations>(
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     initialization_parameters_cbor: RawCbor,
 ) -> Result<(), TokenInitializationError> {
     let init_params: TokenModuleInitializationParameters =
@@ -48,8 +50,8 @@ pub fn initialize_token(
     initialize_token_impl(kernel, init_params)
 }
 
-fn initialize_token_impl(
-    kernel: &mut impl TokenKernelOperations,
+fn initialize_token_impl<BSO: BlockStateOperations>(
+    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
     init_params: TokenModuleInitializationParameters,
 ) -> Result<(), TokenInitializationError> {
     let name = init_params.name.ok_or_else(|| {

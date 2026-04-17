@@ -1,10 +1,12 @@
-use crate::token_module::key_value_state;
-use crate::token_module::token_kernel_interface::{TokenKernelQueries, TokenStateInvariantError};
+use crate::token_kernel::TokenKernelQueriesImpl;
+use crate::token_module::key_value_state::{self, KernelQueriesExt};
+use crate::token_module::token_kernel_interface::TokenStateInvariantError;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
 };
+use plt_block_state::block_state_interface::BlockStateQuery;
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
@@ -14,16 +16,16 @@ pub enum QueryTokenModuleError {
 }
 
 /// Get the CBOR-encoded representation of the token module state.
-pub fn query_token_module_state<TK: TokenKernelQueries>(
-    kernel: &TK,
+pub fn query_token_module_state<BSQ: BlockStateQuery>(
+    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
 ) -> Result<RawCbor, QueryTokenModuleError> {
     let state = query_token_module_state_impl(kernel)?;
 
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-fn query_token_module_state_impl<TK: TokenKernelQueries>(
-    kernel: &TK,
+fn query_token_module_state_impl<BSQ: BlockStateQuery>(
+    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
     let name = key_value_state::get_name(kernel)?;
     let metadata = key_value_state::get_metadata(kernel)?;
@@ -60,7 +62,7 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 }
 
 /// Get the CBOR-encoded representation of the token module account state.
-pub fn query_token_module_account_state<TK: TokenKernelQueries>(
+pub fn query_token_module_account_state<TK: KernelQueriesExt>(
     kernel: &TK,
     account: AccountIndex,
 ) -> RawCbor {
@@ -68,7 +70,7 @@ pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     RawCbor::from(cbor::cbor_encode(&state))
 }
 
-fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
+fn query_token_module_account_state_impl<TK: KernelQueriesExt>(
     kernel: &TK,
     account: AccountIndex,
 ) -> TokenModuleAccountState {
@@ -92,8 +94,8 @@ fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
 }
 
 /// Get authorization roles and assigned accounts for the token.
-pub fn query_token_authorizations<TK: TokenKernelQueries>(
-    kernel: &TK,
+pub fn query_token_authorizations<BSQ: BlockStateQuery>(
+    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
 ) -> Result<RawCbor, QueryTokenModuleError> {
     Ok(RawCbor::from(cbor::cbor_encode(
         &key_value_state::get_token_authorizations(kernel)?,

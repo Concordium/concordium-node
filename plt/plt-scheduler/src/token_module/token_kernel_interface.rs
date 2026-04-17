@@ -2,14 +2,7 @@
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
-use concordium_base::base::{AccountIndex, ProtocolVersion};
-use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
-use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{
-    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
-};
-use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// The account has insufficient balance.
@@ -67,135 +60,16 @@ pub enum TokenBurnError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
-/// Queries provided by the token kernel. All queries are in context of
-/// a specific token that the kernel is initialized with.
-pub trait TokenKernelQueries {
-    /// Opaque type that represents an account on chain.
-    /// The account is guaranteed to exist on chain, when holding an instance of this type.
-    type Account;
-
-    /// Lookup the account using an account address.
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError>;
-
-    /// Lookup the account using an account index.
-    /// Returns both the opaque account
-    //  representation and the account canonical address.
-    fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
-
-    /// Get the account index for the account.
-    fn account_index(&self, account: &Self::Account) -> AccountIndex;
-
-    /// Get the token balance of the account.
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount;
-
-    /// The number of decimals used in the presentation of the token amount.
-    fn decimals(&self) -> u8;
-
-    /// Lookup a key in the token state.
+/// Minimal read-only access to token key-value state, used as an anchor for the
+/// extension traits [`KernelQueriesExt`](crate::token_module::key_value_state::KernelQueriesExt)
+/// and [`KernelOperationsExt`](crate::token_module::key_value_state::KernelOperationsExt).
+pub trait HasTokenState {
+    /// Lookup a key in the token key-value state.
     fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
 
-    /// Get iterator over key-value pairs with a shared prefix.
+    /// Get an iterator over key-value pairs that share the given prefix.
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
     ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
-
-    /// Query the protocol version for this block.
-    fn protocol_version(&self) -> ProtocolVersion;
-
-    /// Query whether to support RBAC operations.
-    fn support_rbac(&self) -> bool {
-        self.protocol_version() >= ProtocolVersion::P11
-    }
-
-    /// Query whether to support updating metadata operations.
-    fn support_updating_metadata(&self) -> bool {
-        self.protocol_version() >= ProtocolVersion::P11
-    }
-}
-
-/// Operations provided by the token kernel. All operations are in context of
-/// a specific token that the kernel is initialized with.
-///
-/// The operations do not only allow modifying
-/// token module state, but also indirectly affect the token state maintained by the token
-/// kernel.
-pub trait TokenKernelOperations: TokenKernelQueries {
-    /// Initialize the balance of the given account to zero if it didn't have a balance before.
-    /// It has the observable effect that the token is then returned when querying the tokens
-    /// for an account. Should be called if the token module account state is set,
-    /// in order to make sure the token is returned when querying token account info.
-    ///
-    /// If the account already has a balance for the token in context, the operation has no effect
-    fn touch_account(&mut self, account: &Self::Account);
-
-    /// Mint a specified amount and deposit it in the account.
-    ///
-    /// # Events
-    ///
-    /// This will produce a `TokenMintEvent` in the logs.
-    ///
-    /// # Errors
-    ///
-    /// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
-    /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
-    fn mint(
-        &mut self,
-        account: &Self::Account,
-        account_address: AccountAddress,
-        amount: RawTokenAmount,
-    ) -> Result<(), TokenMintError>;
-
-    /// Burn a specified amount from the account.
-    ///
-    /// # Events
-    ///
-    /// This will produce a `TokenBurnEvent` in the logs.
-    ///
-    /// # Errors
-    ///
-    /// - [`TokenBurnError::InsufficientBalance`] The sender has insufficient balance.
-    /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
-    fn burn(
-        &mut self,
-        account: &Self::Account,
-        account_address: AccountAddress,
-        amount: RawTokenAmount,
-    ) -> Result<(), TokenBurnError>;
-
-    /// Transfer a token amount from one account to another, with an optional memo.
-    ///
-    /// # Events
-    ///
-    /// This will produce a `TokenTransferEvent` in the logs.
-    ///
-    /// # Errors
-    ///
-    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
-    /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
-    fn transfer(
-        &mut self,
-        from: &Self::Account,
-        from_address: AccountAddress,
-        to: &Self::Account,
-        to_address: AccountAddress,
-        amount: RawTokenAmount,
-        memo: Option<Memo>,
-    ) -> Result<(), TokenTransferError>;
-
-    /// Set or clear a value in the token state at the corresponding key.
-    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>);
-
-    /// Log a token module event with the specified type and details.
-    ///
-    /// # Events
-    ///
-    /// This will produce a `TokenModuleEvent` in the logs.
-    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor);
 }
