@@ -16,6 +16,8 @@ use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTy
 /// Corresponding Haskell type: `Concordium.Types.Execution.RejectReason`
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TransactionRejectReason {
+    /// The transaction payload could not be fully deserialized.
+    SerializationFailure,
     /// We ran of out energy to process this transaction.
     OutOfEnergy,
     /// The provided identifier does not match a token currently on chain.
@@ -27,6 +29,9 @@ pub enum TransactionRejectReason {
 impl Serial for TransactionRejectReason {
     fn serial<B: Buffer>(&self, out: &mut B) {
         match self {
+            TransactionRejectReason::SerializationFailure => {
+                out.put(&9u8);
+            }
             TransactionRejectReason::OutOfEnergy => {
                 out.put(&10u8);
             }
@@ -61,6 +66,14 @@ mod test {
     use crate::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
     use concordium_base::common;
     use concordium_base::protocol_level_tokens::RawCbor;
+
+    #[test]
+    fn test_serialization_failure_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::SerializationFailure;
+
+        let bytes = common::to_bytes(&reject_reason);
+        assert_eq!(hex::encode(&bytes), "09")
+    }
 
     #[test]
     fn test_out_of_energy_reject_reason_serial() {
