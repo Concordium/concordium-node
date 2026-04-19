@@ -460,13 +460,21 @@ const fn flip_nth_bit(nth: u64, key: SubtreeKey) -> SubtreeKey {
 }
 
 impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
-    /// Returns subtree where values in blob references have been fetched, both
-    /// the leaf values, and branch subtrees.
+    /// Returns subtree where values in blob references have been fetched. Both
+    /// the referenced leaf values, and referenced branch subtrees are fetched.
     ///
-    /// Getting the referenced value in an owned subtree must return owned value due to the
-    /// lazy nature of the implementation Loadable for Subtree: The subtree is
-    /// owned if it has just been loaded, and loading does not load any
-    /// blob references into memory.
+    /// Precondition/invariant: If the given subtree is owned,
+    /// it is a precondition/invariant that the referenced values (leaf values and branch subtrees)
+    /// are not be in-memory. The invariant will be fulfilled in the returned subtrees.
+    /// If the given subtree is borrowed, there is no precondition for using the function.
+    ///
+    /// Notice that the precondition for owned subtrees is also true for a subtree that has just
+    /// been loaded with the implementation of `Loadable` for `Subtree` due to its lazy behaviour
+    /// of not loading referenced values.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the precondition described above is not fulfilled for the subtree.
     fn with_referenced_values(
         self,
         loader: &impl BlobStoreLoad,
@@ -503,6 +511,10 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
     /// # Arguments
     ///
     /// - `key`: The key to access the value for.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the precondition described on `[Self::with_referenced_values`] is not fulfilled for the subtree.
     fn lookup_value(
         self,
         loader: &impl BlobStoreLoad,
@@ -702,6 +714,8 @@ struct ValuesIterator<'a, 'b, L, V> {
     /// Blob store loader reference
     loader: &'a L,
     /// Stack of next nodes to visit.
+    /// All nodes in the stack must fulfill the precondition described on
+    /// [`OwnedOrBorrowed<Subtree>::with_referenced_values`].
     node_stack: Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
     /// Size of the full tree (constant).
     tree_size: u64,
@@ -758,12 +772,17 @@ impl<'a, 'b, L: BlobStoreLoad, V: Loadable> Iterator for ValuesIterator<'a, 'b, 
 
 /// Follow left branches to reach next value while pushing all right branches to the
 /// node stack.
+///
+/// # Panic
+///
+/// Panics if the precondition described on [`OwnedOrBorrowed<Subtree>::with_referenced_values`] is
+/// not fulfilled for the subtree.
 fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     loader: &L,
-    node: OwnedOrBorrowed<'b, Subtree<V>>,
+    subtree: OwnedOrBorrowed<'b, Subtree<V>>,
     node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
 ) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
-    Ok(match node.with_referenced_values(loader)? {
+    Ok(match subtree.with_referenced_values(loader)? {
         SubtreeWithReferencedValues::Leaf(value) => value,
         SubtreeWithReferencedValues::Node(_, left, right) => {
             node_stack.push(right);
