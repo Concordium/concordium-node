@@ -153,10 +153,19 @@ use std::{iter, vec};
 ///    [A] [B] [C] [D] [E] [F] [G] [H]
 ///    #0  #1  #2  #3  #4  #5  #6  #7
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LfmbTree<K, V> {
     inner: LfmbTreeInner<V>,
     _key_type: PhantomData<K>,
+}
+
+impl<K, V> Clone for LfmbTree<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            _key_type: self._key_type,
+        }
+    }
 }
 
 impl<K: LfmbTreeKey, V> Default for LfmbTree<K, V> {
@@ -221,7 +230,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
             LfmbTreeInner::NonEmpty(size, subtree) => {
                 let int_key = SubtreeKey(key.to_u64());
                 if int_key.0 < *size {
-                    Some(subtree.lookup_value(loader, int_key)?)
+                    Some(OwnedOrBorrowed::Borrowed(subtree).lookup_value(loader, int_key)?)
                 } else {
                     None
                 }
@@ -361,9 +370,9 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
 struct SubtreeKey(u64);
 
 /// Internal representation of the tree.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum LfmbTreeInner<V> {
-    /// Emtpy Tree.
+    /// Empty Tree.
     Empty,
     /// Non-empty tree.
     ///
@@ -377,8 +386,19 @@ enum LfmbTreeInner<V> {
     ),
 }
 
+impl<V> Clone for LfmbTreeInner<V> {
+    fn clone(&self) -> Self {
+        match self {
+            LfmbTreeInner::Empty => LfmbTreeInner::Empty,
+            LfmbTreeInner::NonEmpty(size, subtree) => {
+                LfmbTreeInner::NonEmpty(*size, subtree.clone())
+            }
+        }
+    }
+}
+
 /// Non-empty subtree. The type is used recursively to represent branches.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum Subtree<V> {
     /// Leaf with value
     Leaf(HashedCacheableRef<V>),
@@ -397,6 +417,36 @@ enum Subtree<V> {
     ),
 }
 
+impl<V> Clone for Subtree<V> {
+    fn clone(&self) -> Self {
+        match self {
+            Subtree::Leaf(val_ref) => Subtree::Leaf(val_ref.clone()),
+            Subtree::Node(height, left_ref, right_ref) => {
+                Subtree::Node(*height, left_ref.clone(), right_ref.clone())
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SubtreeWithReferencedValues<'b, V> {
+    /// Leaf with value
+    Leaf(OwnedOrBorrowed<'b, V>),
+    /// Node with two subtrees/branches.
+    ///
+    /// Invariant relating height `h` and branches:
+    /// * *size of left subtree* `== 2^h`
+    /// * `0 <` *size of right subtree* `<= 2^h`
+    Node(
+        /// Height of tree
+        u64,
+        /// Left branch
+        OwnedOrBorrowed<'b, Subtree<V>>,
+        /// Right branch
+        OwnedOrBorrowed<'b, Subtree<V>>,
+    ),
+}
+
 /// Check if `nth` bit is set in `key`.
 const fn is_nth_bit_set(nth: u64, key: SubtreeKey) -> bool {
     let bit = 1u64 << nth;
@@ -409,22 +459,60 @@ const fn flip_nth_bit(nth: u64, key: SubtreeKey) -> SubtreeKey {
     SubtreeKey(key.0 ^ bit)
 }
 
-impl<V> Subtree<V> {
+impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
+    /// Returns subtree where values in blob references have been fetched, both
+    /// the leaf values, and branch subtrees.
+    ///
+    /// Getting the referenced value in an owned subtree must return owned value due to the
+    /// lazy nature of the implementation Loadable for Subtree: The subtree is
+    /// owned if it has just been loaded, and loading does not load any
+    /// blob references into memory.
+    fn with_referenced_values(
+        self,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<SubtreeWithReferencedValues<'b, V>>
+    where
+        V: Loadable,
+    {
+        Ok(match self {
+            OwnedOrBorrowed::Borrowed(Subtree::Leaf(value_ref)) => {
+                SubtreeWithReferencedValues::Leaf(value_ref.value(loader)?)
+            }
+            OwnedOrBorrowed::Borrowed(Subtree::Node(height, left_ref, right_ref)) => {
+                SubtreeWithReferencedValues::Node(
+                    *height,
+                    left_ref.value(loader)?,
+                    right_ref.value(loader)?,
+                )
+            }
+            OwnedOrBorrowed::Owned(Subtree::Leaf(value_ref)) => SubtreeWithReferencedValues::Leaf(
+                value_ref.value(loader)?.new_lifetime_if_owned().expect("Loading value reference in owned subtree should return owned value"),
+            ),
+            OwnedOrBorrowed::Owned(Subtree::Node(height, left_ref, right_ref)) => {
+                SubtreeWithReferencedValues::Node(
+                    height,
+                    left_ref.value(loader)?.new_lifetime_if_owned().expect("Loading left branch reference in owned subtree should return owned subtree"),
+                    right_ref.value(loader)?.new_lifetime_if_owned().expect("Loading right branch reference in owned subtree should return owned subtree"),
+                )
+            }
+        })
+    }
+
     /// Get the value for the given `key` in the subtree.
     ///
     /// # Arguments
     ///
     /// - `key`: The key to access the value for.
     fn lookup_value(
-        &self,
+        self,
         loader: &impl BlobStoreLoad,
         key: SubtreeKey,
-    ) -> BlockStateResult<OwnedOrBorrowed<'_, V>>
+    ) -> BlockStateResult<OwnedOrBorrowed<'b, V>>
     where
         V: Loadable,
     {
-        match self {
-            Subtree::Leaf(val_ref) => {
+        match self.with_referenced_values(loader)? {
+            SubtreeWithReferencedValues::Leaf(val) => {
                 // When we reach the leaf for the key, the key must be 0.
                 if key != SubtreeKey(0) {
                     return Err(BlockStateFailure::Invariant(format!(
@@ -432,36 +520,24 @@ impl<V> Subtree<V> {
                         key
                     )));
                 }
-                val_ref.value(loader)
+                Ok(val)
             }
-            Subtree::Node(height, left_ref, right_ref) => {
+            SubtreeWithReferencedValues::Node(height, left, right) => {
                 // The height'th bit in key decides if we should follow left `0`
                 // or right branch `1`. Additionally, when going right, we set the bit to 0.
                 // This allows us to check the invariant that the key must be identical to 0
                 // when we reach the leaf for the key.
-                let (branch_ref, branch_key) = if is_nth_bit_set(*height, key) {
-                    (right_ref, flip_nth_bit(*height, key))
+                if is_nth_bit_set(height, key) {
+                    right.lookup_value(loader, flip_nth_bit(height, key))
                 } else {
-                    (left_ref, key)
-                };
-
-                match branch_ref.value(loader)? {
-                    OwnedOrBorrowed::Owned(branch) => {
-                        // Looking up the value in owned branch must return owned value due to the
-                        // lazy nature of the implementation Loadable for Subtree: The branch is
-                        // owned if it has just been loaded, and loading does not load any
-                        // blob references into memory.
-                        Ok(branch
-                            .lookup_value(loader, branch_key)?
-                            .new_lifetime_if_owned()
-                            .expect("Looking up the value in owned branch must return owned value"))
-                    }
-                    OwnedOrBorrowed::Borrowed(branch) => branch.lookup_value(loader, branch_key),
+                    left.lookup_value(loader, key)
                 }
             }
         }
     }
+}
 
+impl<V> Subtree<V> {
     /// Iterates all values in the subtree in insertion order.
     ///
     /// # Arguments
@@ -687,35 +763,11 @@ fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     node: OwnedOrBorrowed<'b, Subtree<V>>,
     node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
 ) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
-    Ok(match node {
-        OwnedOrBorrowed::Borrowed(node) => match node {
-            Subtree::Leaf(value) => value.value(loader)?,
-            Subtree::Node(_, left_ref, right_ref) => {
-                node_stack.push(right_ref.value(loader)?);
-                next_value_push_right_branches(loader, left_ref.value(loader)?, node_stack)?
-            }
-        },
-        OwnedOrBorrowed::Owned(node) => {
-            match node {
-                Subtree::Leaf(value) => value
-                    .value(loader)?
-                    .new_lifetime_if_owned()
-                    .expect("Looking up the value in owned node must return owned value"),
-                Subtree::Node(_, left_ref, right_ref) => {
-                    node_stack.push(
-                        right_ref.value(loader)?.new_lifetime_if_owned().expect(
-                            "Looking up the right ref in owned node must return owned value",
-                        ),
-                    );
-                    next_value_push_right_branches(
-                        loader,
-                        left_ref.value(loader)?.new_lifetime_if_owned().expect(
-                            "Looking up the left ref in owned node must return owned value",
-                        ),
-                        node_stack,
-                    )?
-                }
-            }
+    Ok(match node.with_referenced_values(loader)? {
+        SubtreeWithReferencedValues::Leaf(value) => value,
+        SubtreeWithReferencedValues::Node(_, left, right) => {
+            node_stack.push(right);
+            next_value_push_right_branches(loader, left, node_stack)?
         }
     })
 }
