@@ -199,7 +199,7 @@ impl<V> HashedCacheableRefRepr<V> {
     }
 }
 
-impl<V: Loadable> Loadable for HashedCacheableRef<V> {
+impl<V> Loadable for HashedCacheableRef<V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         _loader: &impl BlobStoreLoad,

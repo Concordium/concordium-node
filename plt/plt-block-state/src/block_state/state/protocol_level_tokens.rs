@@ -65,16 +65,20 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
     ) -> BlockStateResult<SimplisticTokenKeyValueState> {
-        self.tokens
-            .lookup_value(loader, token_index, |token| {
-                Ok(match token {
-                    OwnedOrBorrowed::Owned(v) => v.key_value_state.0,
-                    OwnedOrBorrowed::Borrowed(r) => r.key_value_state.0.clone(),
-                })
-            })
-            .ok_or_else(|| {
-                BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
-            })?
+        Ok(
+            match self
+                .tokens
+                .lookup_value(loader, token_index)?
+                .ok_or_else(|| {
+                    BlockStateFailure::Invariant(format!(
+                        "token not found by index: {:?}",
+                        token_index
+                    ))
+                })? {
+                OwnedOrBorrowed::Owned(v) => v.key_value_state.0,
+                OwnedOrBorrowed::Borrowed(r) => r.key_value_state.0.clone(),
+            },
+        )
     }
 
     pub fn token_configuration(
@@ -82,13 +86,16 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenConfiguration> {
-        self.tokens
-            .lookup_value(loader, token_index, |token| {
-                Ok(token.configuration.value(loader)?.into_owned().0)
-            })
+        Ok(self
+            .tokens
+            .lookup_value(loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
+            .configuration
+            .value(loader)?
+            .into_owned()
+            .0)
     }
 
     pub fn token_circulating_supply(
@@ -96,11 +103,14 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
     ) -> BlockStateResult<RawTokenAmount> {
-        self.tokens
-            .lookup_value(loader, token_index, |token| Ok(token.circulating_supply.0))
+        Ok(self
+            .tokens
+            .lookup_value(loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
+            .circulating_supply
+            .0)
     }
 
     pub fn set_token_circulating_supply(
