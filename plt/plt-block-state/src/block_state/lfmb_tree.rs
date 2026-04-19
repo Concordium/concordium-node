@@ -830,6 +830,8 @@ impl<V> Loadable for Subtree<V> {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
+        // Notice that the load implementation must ensure that the precondition
+        // on with_referenced_values is fulfilled for newly loaded subtrees.
         let disc: u8 = buffer.get().map_parse_err_to_block_state_err()?;
         Ok(match disc {
             0 => {
