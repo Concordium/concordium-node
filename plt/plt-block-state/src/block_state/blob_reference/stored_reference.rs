@@ -53,7 +53,7 @@ impl<V> Clone for StoredRef<V> {
     }
 }
 
-impl<V: Loadable> Loadable for StoredRef<V> {
+impl<V> Loadable for StoredRef<V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         _loader: &impl BlobStoreLoad,
@@ -67,7 +67,7 @@ impl<V: Loadable> Loadable for StoredRef<V> {
     }
 }
 
-impl<V: Storable> Storable for StoredRef<V> {
+impl<V> Storable for StoredRef<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, _storer: &mut impl BlobStoreStore) {
         buffer.put(self.blob_location);
     }

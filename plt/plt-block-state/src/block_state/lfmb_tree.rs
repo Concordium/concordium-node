@@ -3,6 +3,7 @@
 //! See [`LfmbTree`].
 
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::block_state::blob_reference::{BlobRefTypeFamily, HashedCacheableRefFamily};
 use crate::block_state::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, ParseResultExt, Storable,
 };
@@ -367,8 +368,8 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
 struct SubtreeKey(u64);
 
 /// Internal representation of the tree.
-#[derive(Debug, Clone)]
-enum LfmbTreeInner<V> {
+#[derive(Clone)]
+enum LfmbTreeInner<V, R: BlobRefTypeFamily = HashedCacheableRefFamily> {
     /// Emtpy Tree.
     Empty,
     /// Non-empty tree.
@@ -379,15 +380,15 @@ enum LfmbTreeInner<V> {
         /// Size
         u64,
         /// Root
-        Subtree<V>,
+        Subtree<V, R>,
     ),
 }
 
 /// Non-empty subtree. The type is used recursively to represent branches.
-#[derive(Debug, Clone)]
-enum Subtree<V> {
+#[derive(Clone)]
+enum Subtree<V, R: BlobRefTypeFamily = HashedCacheableRefFamily> {
     /// Leaf with value
-    Leaf(HashedCacheableRef<V>),
+    Leaf(R::Ref<V>),
     /// Node with two subtrees/branches.
     ///
     /// Invariant relating height `h` and branches:
@@ -397,10 +398,41 @@ enum Subtree<V> {
         /// Height of tree
         u64,
         /// Left branch
-        HashedCacheableRef<Subtree<V>>,
+        R::Ref<Subtree<V, R>>,
         /// Right branch
-        HashedCacheableRef<Subtree<V>>,
+        R::Ref<Subtree<V, R>>,
     ),
+}
+
+impl<V: Debug, R: BlobRefTypeFamily> Debug for LfmbTreeInner<V, R>
+where
+    R::Ref<V>: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LfmbTreeInner::Empty => write!(f, "Empty"),
+            LfmbTreeInner::NonEmpty(size, subtree) => {
+                f.debug_tuple("NonEmpty").field(size).field(subtree).finish()
+            }
+        }
+    }
+}
+
+impl<V: Debug, R: BlobRefTypeFamily> Debug for Subtree<V, R>
+where
+    R::Ref<V>: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Subtree::Leaf(val) => f.debug_tuple("Leaf").field(val).finish(),
+            Subtree::Node(height, _left, _right) => f
+                .debug_tuple("Node")
+                .field(height)
+                .field(&"..")
+                .field(&"..")
+                .finish(),
+        }
+    }
 }
 
 /// Check if `nth` bit is set in `key`.
@@ -739,7 +771,7 @@ where
     }
 }
 
-impl<K, V: Loadable> Loadable for LfmbTree<K, V> {
+impl<K, V> Loadable for LfmbTree<K, V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -773,7 +805,11 @@ impl<K, V: Storable> Storable for LfmbTree<K, V> {
     }
 }
 
-impl<V: Loadable> Loadable for Subtree<V> {
+impl<V, R: BlobRefTypeFamily> Loadable for Subtree<V, R>
+where
+    R::Ref<V>: Loadable,
+    R::Ref<Subtree<V, R>>: Loadable,
+{
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
