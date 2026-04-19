@@ -25,7 +25,7 @@ impl<T: Serial> Hashable for StoreSerialized<T> {
     }
 }
 
-/// Calculate has by digesting the bytes of two hashes.
+/// Calculate hash by digesting the bytes of two hashes.
 pub fn hash_of_hashes(hash1: Hash, hash2: Hash) -> Hash {
     let mut hasher = sha2::Sha256::new();
     hasher.update(hash1);

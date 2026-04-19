@@ -1,7 +1,7 @@
 //! Entry points to calling the scheduler. The scheduler is responsible for executing
 //! transaction and update instruction payloads.
 
-use concordium_base::base::Energy;
+use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -104,6 +104,20 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     match payload {
         Payload::TokenUpdate { payload } => {
             let outcome = plt_scheduler::execute_token_update_transaction(
+                &mut execution,
+                block_state,
+                payload,
+            )?;
+
+            Ok(TransactionExecutionSummary {
+                outcome,
+                energy_used: execution.energy_used,
+            })
+        }
+        Payload::MetaUpdate { payload }
+            if block_state.protocol_version() >= ProtocolVersion::P11 =>
+        {
+            let outcome = plt_scheduler::execute_meta_update_transaction(
                 &mut execution,
                 block_state,
                 payload,

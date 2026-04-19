@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Bindings to the Rust PLT block state implementation.
 --
@@ -20,6 +21,7 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.Types.HashableTo as Hashable
+import qualified Control.Monad as Monad
 import Control.Monad.Trans (lift, liftIO)
 import qualified Data.FixedByteString as FixedByteString
 
@@ -67,11 +69,17 @@ instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBloc
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
-                blockState <- ffiLoadPLTBlockState loadCallback blobRef
-                wrapFFIPtr blockState
+                FFI.alloca $ \blockStateDestPtr -> do
+                    status <- ffiLoadPLTBlockState loadCallback blobRef blockStateDestPtr
+                    Monad.unless (status == 0) $ error "Unexpected panic when loading a block state"
+                    blockState <- FFI.peek blockStateDestPtr
+                    wrapFFIPtr blockState
     storeUpdate pltBlockState = do
         storeCallback <- snd <$> BlobStore.getCallbacks
-        blobRef <- liftIO $ withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback
+        blobRef <- liftIO $ FFI.alloca $ \blobRefDestPtr -> do
+            status <- withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback blobRefDestPtr
+            Monad.unless (status == 0) $ error "Unexpected panic when storing a block state"
+            BlobStore.BlobRef @RustPLTBlockState <$> FFI.peek blobRefDestPtr
         return (S.put blobRef, pltBlockState)
 
 -- | Load PLT block state from the given disk reference.
@@ -83,8 +91,10 @@ foreign import ccall "ffi_load_plt_block_state"
         FFI.LoadCallback ->
         -- | Reference in the blob store.
         BlobStore.BlobRef RustPLTBlockState ->
-        -- | Pointer to the loaded block state.
-        IO (FFI.Ptr RustPLTBlockState)
+        -- | Destination pointer for the loaded block state.
+        FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
+        -- | Status code
+        IO FFI.Word8
 
 -- | Write out the block state using the provided callback, and return a `BlobRef`.
 --
@@ -93,15 +103,18 @@ foreign import ccall "ffi_store_plt_block_state"
     ffiStorePLTBlockState ::
         -- | The provided closure is called to write data to blob store.
         FFI.StoreCallback ->
+        -- | Destination for the new reference in the blob store.
+        FFI.Ptr FFI.Word64 ->
         -- | Pointer to the block state to write.
         FFI.Ptr RustPLTBlockState ->
-        -- | New reference in the blob store.
-        IO (BlobStore.BlobRef RustPLTBlockState)
+        -- | Status code
+        IO FFI.Word8
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
     cache blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
-        liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
+        status <- liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
+        Monad.unless (status == 0) $ error "Unexpected panic when caching a block state"
         return blockState
 
 -- | Cache block state into memory.
@@ -113,7 +126,7 @@ foreign import ccall "ffi_cache_plt_block_state"
         FFI.LoadCallback ->
         -- | Pointer to the block state to cache into memory.
         FFI.Ptr RustPLTBlockState ->
-        IO ()
+        IO FFI.Word8
 
 -- | The hash of protocol-levels tokens state.
 newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelTokensHash :: SHA256.Hash}
@@ -124,8 +137,10 @@ instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTok
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
             liftIO $
-                withPLTBlockState blockState $
-                    FixedByteString.createWith . ffiHashPLTBlockState loadCallback
+                withPLTBlockState blockState $ \blockStatePtr ->
+                    FixedByteString.createWith $ \hashDestPtr -> do
+                        status <- ffiHashPLTBlockState loadCallback blockStatePtr hashDestPtr
+                        Monad.unless (status == 0) $ error "Unexpected panic when hashing a block state"
         return $ ProtocolLevelTokensHash (SHA256.Hash hash)
 
 -- | Compute the hash of the block state.
@@ -139,7 +154,8 @@ foreign import ccall "ffi_hash_plt_block_state"
         FFI.Ptr RustPLTBlockState ->
         -- | Pointer to write destination of the hash
         FFI.Ptr FFI.Word8 ->
-        IO ()
+        -- | Status code
+        IO FFI.Word8
 
 -- | Run migration during a protocol update.
 migrate ::
@@ -151,8 +167,11 @@ migrate ::
 migrate currentState = do
     loadCallback <- fst <$> lift BlobStore.getCallbacks
     storeCallback <- snd <$> BlobStore.getCallbacks
-    newState <- liftIO $ withPLTBlockState currentState $ ffiMigratePLTBlockState loadCallback storeCallback
-    liftIO $ wrapFFIPtr newState
+    liftIO $ FFI.alloca $ \newStateDestPtr -> do
+        status <- withPLTBlockState currentState $ ffiMigratePLTBlockState loadCallback storeCallback newStateDestPtr
+        Monad.unless (status == 0) $ error "Unexpected panic when migrating a block state"
+        newState <- FFI.peek newStateDestPtr
+        wrapFFIPtr newState
 
 -- | Migrate PLT block state from one blob store to another.
 --
@@ -163,7 +182,9 @@ foreign import ccall "ffi_migrate_plt_block_state"
         FFI.LoadCallback ->
         -- | Called to write data to the new blob store.
         FFI.StoreCallback ->
+        -- | Pointer to the new block state.
+        FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
         -- | Pointer to the old block state.
         FFI.Ptr RustPLTBlockState ->
-        -- | Pointer to the new block state.
-        IO (FFI.Ptr RustPLTBlockState)
+        -- | Status code
+        IO FFI.Word8

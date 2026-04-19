@@ -82,7 +82,7 @@ impl<V> HashedCacheableRef<V> {
     }
 }
 
-/// Implement [`Clone`] directly, such that clonability does not depend on
+/// Implement [`Clone`] explicitly, such that clonability does not depend on
 /// if `V` is clonable.
 impl<V> Clone for HashedCacheableRef<V> {
     fn clone(&self) -> Self {
@@ -165,7 +165,7 @@ impl<V> HashedCacheableRefRepr<V> {
                         let value: V = blob_store::load_from_store(loader, *blob_location)?;
                         value_lock
                             .set(value)
-                            .inspect_err(|err| eprintln!("HashedCacheableRef: Value loaded by two threads at the same time"))
+                            .inspect_err(|_| eprintln!("HashedCacheableRef: Value loaded by two threads at the same time"))
                             .ok();
                         value_lock.get().expect("value just set")
                     }
@@ -243,7 +243,7 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
                 self.inner
                     .hash
                     .set(hash)
-                    .inspect_err(|err| {
+                    .inspect_err(|_| {
                         eprintln!(
                             "HashedCacheableRef: Hash calculated by two threads at the same time"
                         )
