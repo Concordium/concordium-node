@@ -718,20 +718,6 @@ fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
             }
         },
     })
-    // Ok(match node.value(loader)? {
-    //     OwnedOrBorrowed::Borrowed(Subtree::Leaf(value)) => value.value(loader)?,
-    //     OwnedOrBorrowed::Owned(Subtree::Leaf(value)) => {
-    //         value.value(loader)?.new_lifetime_if_owned().expect("")
-    //     }
-    //     OwnedOrBorrowed::Borrowed(Subtree::Node(_, left_ref, right_ref)) => {
-    //         node_stack.push(OwnedOrBorrowed::Borrowed(right_ref));
-    //         next_value_push_right_branches(loader, left_ref, node_stack)?
-    //     }
-    //     OwnedOrBorrowed::Owned(Subtree::Node(_, left_ref, right_ref)) => {
-    //         node_stack.push(OwnedOrBorrowed::Owned(right_ref));
-    //         next_value_push_right_branches(loader, left_ref, node_stack)?
-    //     }
-    // })
 }
 
 impl<K, V> Loadable for LfmbTree<K, V> {
