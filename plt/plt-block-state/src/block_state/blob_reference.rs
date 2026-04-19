@@ -14,6 +14,7 @@ pub mod hashed_cacheable_reference;
 pub mod stored_reference;
 
 use hashed_cacheable_reference::HashedCacheableRef;
+use crate::block_state::blob_store::Storable;
 
 /// Trait for abstracting over blob reference type families.
 /// A blob reference type family provides a generic reference type [`BlobRefTypeFamily::Ref<T>`]
@@ -23,6 +24,11 @@ pub trait BlobRefTypeFamily {
     type Ref<T>: Clone;
 }
 
+pub trait StorableBlobRefTypeFamily {
+    /// The reference type for a value of type `T`.
+    type StorableRef<T:Storable>: Clone + Storable;
+}
+
 /// Type family for [`HashedCacheableRef`].
 #[derive(Debug, Clone)]
 pub struct HashedCacheableRefFamily;
@@ -30,4 +36,7 @@ pub struct HashedCacheableRefFamily;
 impl BlobRefTypeFamily for HashedCacheableRefFamily {
     type Ref<T> = HashedCacheableRef<T>;
 }
+
+
+
 

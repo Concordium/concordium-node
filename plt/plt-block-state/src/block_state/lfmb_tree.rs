@@ -16,7 +16,7 @@ use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use either::Either;
 use sha2::{Digest, Sha256};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use std::marker::PhantomData;
 use std::{iter, vec};
@@ -368,8 +368,8 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
 struct SubtreeKey(u64);
 
 /// Internal representation of the tree.
-#[derive(Clone)]
-enum LfmbTreeInner<V, R: BlobRefTypeFamily = HashedCacheableRefFamily> {
+#[derive(Clone, Debug)]
+enum LfmbTreeInner<V> {
     /// Emtpy Tree.
     Empty,
     /// Non-empty tree.
@@ -380,7 +380,7 @@ enum LfmbTreeInner<V, R: BlobRefTypeFamily = HashedCacheableRefFamily> {
         /// Size
         u64,
         /// Root
-        Subtree<V, R>,
+        Subtree<V, HashedCacheableRefFamily>,
     ),
 }
 
@@ -398,42 +398,48 @@ enum Subtree<V, R: BlobRefTypeFamily = HashedCacheableRefFamily> {
         /// Height of tree
         u64,
         /// Left branch
-        R::Ref<Subtree<V, R>>,
+        R::Ref<Self>,
         /// Right branch
-        R::Ref<Subtree<V, R>>,
+        R::Ref<Self>,
     ),
 }
 
-impl<V: Debug, R: BlobRefTypeFamily> Debug for LfmbTreeInner<V, R>
-where
-    R::Ref<V>: Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LfmbTreeInner::Empty => write!(f, "Empty"),
-            LfmbTreeInner::NonEmpty(size, subtree) => {
-                f.debug_tuple("NonEmpty").field(size).field(subtree).finish()
-            }
-        }
+impl<V, R: BlobRefTypeFamily> Debug for Subtree<V, R> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
     }
 }
 
-impl<V: Debug, R: BlobRefTypeFamily> Debug for Subtree<V, R>
-where
-    R::Ref<V>: Debug,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Subtree::Leaf(val) => f.debug_tuple("Leaf").field(val).finish(),
-            Subtree::Node(height, _left, _right) => f
-                .debug_tuple("Node")
-                .field(height)
-                .field(&"..")
-                .field(&"..")
-                .finish(),
-        }
-    }
-}
+// impl<V: Debug, R: BlobRefTypeFamily> Debug for LfmbTreeInner<V, R>
+// where
+//     R::Ref<V>: Debug,
+// {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             LfmbTreeInner::Empty => write!(f, "Empty"),
+//             LfmbTreeInner::NonEmpty(size, subtree) => {
+//                 f.debug_tuple("NonEmpty").field(size).field(subtree).finish()
+//             }
+//         }
+//     }
+// }
+//
+// impl<V: Debug, R: BlobRefTypeFamily> Debug for Subtree<V, R>
+// where
+//     R::Ref<V>: Debug,
+// {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Subtree::Leaf(val) => f.debug_tuple("Leaf").field(val).finish(),
+//             Subtree::Node(height, _left, _right) => f
+//                 .debug_tuple("Node")
+//                 .field(height)
+//                 .field(&"..")
+//                 .field(&"..")
+//                 .finish(),
+//         }
+//     }
+// }
 
 /// Check if `nth` bit is set in `key`.
 const fn is_nth_bit_set(nth: u64, key: SubtreeKey) -> bool {
@@ -808,7 +814,7 @@ impl<K, V: Storable> Storable for LfmbTree<K, V> {
 impl<V, R: BlobRefTypeFamily> Loadable for Subtree<V, R>
 where
     R::Ref<V>: Loadable,
-    R::Ref<Subtree<V, R>>: Loadable,
+    R::Ref<Self>: Loadable,
 {
     fn load_from_buffer(
         mut buffer: impl Read,
@@ -836,7 +842,11 @@ where
     }
 }
 
-impl<V: Storable> Storable for Subtree<V> {
+impl<V: Storable, R: BlobRefTypeFamily> Storable for Subtree<V, R>
+where
+    R::Ref<V>: Storable,
+    R::Ref<Self>: Storable,
+{
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         match self {
             Subtree::Leaf(value) => {
