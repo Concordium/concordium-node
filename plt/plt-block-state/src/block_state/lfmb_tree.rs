@@ -244,22 +244,21 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     /// The iterator returns [`BlockStateFailure`] if returned by `read`, or if decoding data from the
     /// blob store fails, or if the tree does not fulfill the expected invariants (this can happen
     /// if the blob store is corrupted in some way).
-    pub fn values<'a, L: BlobStoreLoad, F, T>(
+    pub fn values(
         &self,
-        loader: &'a L,
-        mut read: F,
-    ) -> impl ExactSizeIterator<Item = BlockStateResult<T>> + use<'a, K, V, L, F, T>
+        loader: &impl BlobStoreLoad,
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<(K, OwnedOrBorrowed<'_, V>)>>
     where
         V: Loadable,
-        F: FnMut(K, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
     {
         match &self.inner {
             LfmbTreeInner::Empty => Either::Left(iter::empty()),
-            LfmbTreeInner::NonEmpty(_, subtree) => Either::Right(subtree.values(
-                loader,
-                self.size(),
-                move |subtree_key, value| read(K::from_u64(subtree_key.0), value),
-            )),
+            LfmbTreeInner::NonEmpty(_, subtree) => {
+                Either::Right(subtree.values(loader, self.size()).map(|item| {
+                    let (subtree_key, value) = item?;
+                    Ok((K::from_u64(subtree_key.0), value))
+                }))
+            }
         }
     }
 
@@ -470,17 +469,15 @@ impl<V> Subtree<V> {
     /// - `read`: Closure that is given each value, either as owned or borrowed,
     ///   and returns the value of type `T` that will be the item in the iterator.
     /// - `node_size`: The number of entries in the subtree.
-    pub fn values<'a, L: BlobStoreLoad, F, T>(
+    pub fn values(
         &self,
-        loader: &'a L,
+        loader: &impl BlobStoreLoad,
         node_size: u64,
-        read: F,
-    ) -> impl ExactSizeIterator<Item = BlockStateResult<T>> + use<'a, V, L, F, T>
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<(SubtreeKey, OwnedOrBorrowed<'_, V>)>>
     where
         V: Loadable,
-        F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
     {
-        ValuesIterator::new(self, loader, read, node_size)
+        ValuesIterator::new(self, loader, node_size)
     }
 
     /// Insert `new_value` into the subtree and return a new subtree with the inserted value.
@@ -625,57 +622,35 @@ impl<V> Subtree<V> {
 }
 
 /// Iterator of values in tree.
-struct ValuesIterator<'a, L, F, V> {
+struct ValuesIterator<'a, 'b, L, V> {
     /// Blob store loader reference
     loader: &'a L,
-    /// Already "peeked" value that is the next item if present.
-    peeked_value: Option<HashedCacheableRef<V>>,
     /// Stack of next nodes to visit.
-    node_stack: Vec<HashedCacheableRef<Subtree<V>>>,
-    /// Closure to access iterated values.
-    read: F,
+    node_stack: Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
     /// Size of the full tree (constant).
     tree_size: u64,
     /// Key of next item to be returned by the iterator.
     next_key: SubtreeKey,
 }
 
-impl<'a, L: BlobStoreLoad, F, V> ValuesIterator<'a, L, F, V> {
-    fn new(subtree: &Subtree<V>, loader: &'a L, read: F, tree_size: u64) -> Self {
-        match subtree {
-            Subtree::Leaf(value_ref) => Self {
-                loader,
-                peeked_value: Some(value_ref.clone()),
-                node_stack: vec![],
-                read,
-                tree_size,
-                next_key: SubtreeKey(0),
-            },
-            Subtree::Node(_, left_ref, right_ref) => Self {
-                loader,
-                peeked_value: None,
-                node_stack: vec![right_ref.clone(), left_ref.clone()],
-                read,
-                tree_size,
-                next_key: SubtreeKey(0),
-            },
+impl<'a, 'b, L: BlobStoreLoad, V> ValuesIterator<'a, 'b, L, V> {
+    fn new(subtree: &'b Subtree<V>, loader: &'a L, tree_size: u64) -> Self {
+        Self {
+            loader,
+            node_stack: vec![OwnedOrBorrowed::Borrowed(subtree)],
+            tree_size,
+            next_key: SubtreeKey(0),
         }
     }
 }
 
-impl<'a, L: BlobStoreLoad, F, V: Loadable, T> ExactSizeIterator for ValuesIterator<'a, L, F, V> where
-    F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>
-{
-}
+impl<'a, 'b, L: BlobStoreLoad, V: Loadable> ExactSizeIterator for ValuesIterator<'a, 'b, L, V> {}
 
-impl<'a, L: BlobStoreLoad, F, V: Loadable, T> Iterator for ValuesIterator<'a, L, F, V>
-where
-    F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
-{
-    type Item = BlockStateResult<T>;
+impl<'a, 'b, L: BlobStoreLoad, V: Loadable> Iterator for ValuesIterator<'a, 'b, L, V> {
+    type Item = BlockStateResult<(SubtreeKey, OwnedOrBorrowed<'b, V>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(next_value) = self.peeked_value.take() {
+        if let Some(next_node_ref) = self.node_stack.pop() {
             if self.next_key.0 == self.tree_size {
                 return Some(Err(BlockStateFailure::Invariant(
                     "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
@@ -685,26 +660,9 @@ where
             let key = self.next_key;
             self.next_key.0 += 1;
             Some(
-                next_value
-                    .value(self.loader)
-                    .and_then(|val| (self.read)(key, val)),
+                next_value_push_right_branches(self.loader, next_node_ref, &mut self.node_stack)
+                    .map(|v| (key, v)),
             )
-        } else if let Some(next_node_ref) = self.node_stack.pop() {
-            if self.next_key.0 == self.tree_size {
-                return Some(Err(BlockStateFailure::Invariant(
-                    "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
-                        .to_string(),
-                )));
-            }
-            let key = self.next_key;
-            self.next_key.0 += 1;
-            Some(next_value_push_right_branches(
-                key,
-                self.loader,
-                &next_node_ref,
-                &mut self.node_stack,
-                &mut self.read,
-            ))
         } else {
             if self.next_key.0 != self.tree_size {
                 return Some(Err(BlockStateFailure::Invariant(format!(
@@ -724,23 +682,56 @@ where
 
 /// Follow left branches to reach next value while pushing all right branches to the
 /// node stack.
-fn next_value_push_right_branches<L: BlobStoreLoad, F, V: Loadable, T>(
-    key: SubtreeKey,
+fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     loader: &L,
-    node_ref: &HashedCacheableRef<Subtree<V>>,
-    node_stack: &mut Vec<HashedCacheableRef<Subtree<V>>>,
-    read: &mut F,
-) -> BlockStateResult<T>
-where
-    F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
-{
-    match &*node_ref.value(loader)? {
-        Subtree::Leaf(value) => read(key, value.value(loader)?),
-        Subtree::Node(_, left_ref, right_ref) => {
-            node_stack.push(right_ref.clone());
-            next_value_push_right_branches(key, loader, left_ref, node_stack, read)
-        }
-    }
+    node: OwnedOrBorrowed<'b, Subtree<V>>,
+    node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
+) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
+    Ok(match node {
+        OwnedOrBorrowed::Borrowed(node) => match node {
+            Subtree::Leaf(value) => value.value(loader)?,
+            Subtree::Node(_, left_ref, right_ref) => {
+                node_stack.push(right_ref.value(loader)?);
+                next_value_push_right_branches(loader, left_ref.value(loader)?, node_stack)?
+            }
+        },
+        OwnedOrBorrowed::Owned(node) => match node {
+            Subtree::Leaf(value) => value
+                .value(loader)?
+                .new_lifetime_if_owned()
+                .expect("Looking up the value in owned node must return owned value"),
+            Subtree::Node(_, left_ref, right_ref) => {
+                node_stack.push(
+                    right_ref
+                        .value(loader)?
+                        .new_lifetime_if_owned()
+                        .expect("Looking up the value in owned node must return owned value"),
+                );
+                next_value_push_right_branches(
+                    loader,
+                    left_ref
+                        .value(loader)?
+                        .new_lifetime_if_owned()
+                        .expect("Looking up the value in owned node must return owned value"),
+                    node_stack,
+                )?
+            }
+        },
+    })
+    // Ok(match node.value(loader)? {
+    //     OwnedOrBorrowed::Borrowed(Subtree::Leaf(value)) => value.value(loader)?,
+    //     OwnedOrBorrowed::Owned(Subtree::Leaf(value)) => {
+    //         value.value(loader)?.new_lifetime_if_owned().expect("")
+    //     }
+    //     OwnedOrBorrowed::Borrowed(Subtree::Node(_, left_ref, right_ref)) => {
+    //         node_stack.push(OwnedOrBorrowed::Borrowed(right_ref));
+    //         next_value_push_right_branches(loader, left_ref, node_stack)?
+    //     }
+    //     OwnedOrBorrowed::Owned(Subtree::Node(_, left_ref, right_ref)) => {
+    //         node_stack.push(OwnedOrBorrowed::Owned(right_ref));
+    //         next_value_push_right_branches(loader, left_ref, node_stack)?
+    //     }
+    // })
 }
 
 impl<K, V> Loadable for LfmbTree<K, V> {
@@ -901,7 +892,7 @@ mod tests {
         }
     }
 
-    fn create_tree(store: &mut impl BlobStoreLoad, size: u64) -> TestTree {
+    fn create_tree_in_memory(store: &mut impl BlobStoreLoad, size: u64) -> TestTree {
         let mut tree = TestTree::empty();
         for i in 0..size {
             let key;
@@ -926,7 +917,7 @@ mod tests {
             let mut store = BlobStoreStub::default();
 
             // Append values to tree
-            let tree = create_tree(&mut store, i);
+            let tree = create_tree_in_memory(&mut store, i);
 
             // Assert size
             assert_eq!(tree.size(), i, "get size for tree of size {}", i);
@@ -940,7 +931,7 @@ mod tests {
             let mut store = BlobStoreStub::default();
 
             // Append values to tree
-            let tree = create_tree(&mut store, i);
+            let tree = create_tree_in_memory(&mut store, i);
 
             // Lookup existing values
             for j in 0..i {
@@ -978,7 +969,7 @@ mod tests {
             let mut store = BlobStoreStub::default();
 
             // Append values to tree and store it
-            let tree = create_tree(&mut store, i);
+            let tree = create_tree_in_memory(&mut store, i);
             let tree = store_value(&mut store, &tree);
 
             // Lookup existing values
@@ -1010,17 +1001,17 @@ mod tests {
         }
     }
 
-    /// Test [`LfmbTree::values`]
+    /// Test [`LfmbTree::values`] for a tree that is in memory.
     #[test]
-    fn prop_test_values() {
+    fn prop_test_values_in_memory() {
         for i in 0..100 {
             let mut store = BlobStoreStub::default();
 
             // Append values to tree
-            let tree = create_tree(&mut store, i);
+            let tree = create_tree_in_memory(&mut store, i);
 
             // Iterate values
-            let mut values = tree.values(&store, |key, val| Ok((key, *val)));
+            let mut values = tree.values(&store);
 
             // Assert values as expected
             assert_eq!(
@@ -1034,7 +1025,7 @@ mod tests {
                 let (key, val) = entry_res.unwrap();
                 assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
                 assert_eq!(
-                    val,
+                    *val,
                     StoreSerialized(j + 10),
                     "value number {} in tree of size {}",
                     j,
@@ -1049,7 +1040,45 @@ mod tests {
         }
     }
 
-    // todo ar fix iterator
+    /// Test [`LfmbTree::values`] for a tree that is stored in blob store.
+    #[test]
+    fn prop_test_values_stored() {
+        for i in 0..100 {
+            let mut store = BlobStoreStub::default();
+
+            // Append values to tree
+            let tree = create_tree_in_memory(&mut store, i);
+            let tree = store_value(&mut store, &tree);
+
+            // Iterate values
+            let mut values = tree.values(&store);
+
+            // Assert values as expected
+            assert_eq!(
+                values.len(),
+                i as usize,
+                "values length for tree of size {}",
+                i
+            );
+            let mut j = 0;
+            while let Some(entry_res) = values.next() {
+                let (key, val) = entry_res.unwrap();
+                assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
+                assert_eq!(
+                    *val,
+                    StoreSerialized(j + 10),
+                    "value number {} in tree of size {}",
+                    j,
+                    i
+                );
+                j += 1;
+                assert_eq!(values.len(), (i - j) as usize);
+            }
+            assert_eq!(values.len(), 0);
+            assert_eq!(values.next().transpose().unwrap(), None);
+            assert_eq!(values.len(), 0);
+        }
+    }
 
     /// Test [`LfmbTree::update_value`]
     #[test]
@@ -1058,7 +1087,7 @@ mod tests {
             let mut store = BlobStoreStub::default();
 
             // Append values to tree
-            let mut tree = create_tree(&mut store, i);
+            let mut tree = create_tree_in_memory(&mut store, i);
 
             // Update each of the values
             for j in 0..i {
@@ -1103,7 +1132,7 @@ mod tests {
             let mut store = BlobStoreStub::default();
 
             // Append values to tree
-            let tree1 = create_tree(&mut store, i);
+            let tree1 = create_tree_in_memory(&mut store, i);
 
             // Store tree
             let blob_ref = blob_store::store_to_store(&mut store, &tree1);
@@ -1121,7 +1150,7 @@ mod tests {
     fn prop_test_cache() {
         for i in 0..100 {
             let mut store = BlobStoreStub::default();
-            let tree1 = create_tree(&mut store, i);
+            let tree1 = create_tree_in_memory(&mut store, i);
             let blob_ref = blob_store::store_to_store(&mut store, &tree1);
             let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
 

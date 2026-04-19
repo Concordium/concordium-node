@@ -91,8 +91,8 @@ fn bench_update_value(bencher: Bencher, size: u64) {
 fn bench_values(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
     bencher.bench_local(|| {
-        tree.values(&UnreachableBlobStore, |_k, v| Ok(v.0))
-            .map(|r| r.unwrap())
+        tree.values(&UnreachableBlobStore)
+            .map(|r| r.unwrap().1.0)
             .sum::<u64>()
     });
 }

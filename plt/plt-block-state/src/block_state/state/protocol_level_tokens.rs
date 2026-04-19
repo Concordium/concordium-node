@@ -46,8 +46,8 @@ impl ProtocolLevelTokens {
         &self,
         loader: &impl BlobStoreLoad,
     ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
-        self.tokens.values(loader, |_token_index, token| {
-            Ok(match token.configuration.value(loader)? {
+        self.tokens.values(loader).map(|item| {
+            Ok(match item?.1.configuration.value(loader)? {
                 OwnedOrBorrowed::Owned(v) => v.0.token_id,
                 OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
             })
@@ -207,7 +207,9 @@ impl Loadable for ProtocolLevelTokens {
         // the blob store. This is not ideal. If the state is to be cached after loading, we would
         // rather wait until it is cached in memory before constructing the map.
         let token_id_map = tokens
-            .values(loader, |token_index, plt| {
+            .values(loader)
+            .map(|item| {
+                let (token_index, plt) = item?;
                 let conf = plt.configuration.value(loader)?;
                 Ok((normalize_token_id(&conf.0.token_id), token_index))
             })
