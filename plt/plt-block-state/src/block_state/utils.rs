@@ -1,5 +1,7 @@
 //! Block state utility types and functions.
 
+pub mod racing_once_lock;
+
 use std::ops::Deref;
 
 /// Value of type `T` that is either owned or borrowed.
