@@ -695,28 +695,28 @@ fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
                 next_value_push_right_branches(loader, left_ref.value(loader)?, node_stack)?
             }
         },
-        OwnedOrBorrowed::Owned(node) => match node {
-            Subtree::Leaf(value) => value
-                .value(loader)?
-                .new_lifetime_if_owned()
-                .expect("Looking up the value in owned node must return owned value"),
-            Subtree::Node(_, left_ref, right_ref) => {
-                node_stack.push(
-                    right_ref
-                        .value(loader)?
-                        .new_lifetime_if_owned()
-                        .expect("Looking up the value in owned node must return owned value"),
-                );
-                next_value_push_right_branches(
-                    loader,
-                    left_ref
-                        .value(loader)?
-                        .new_lifetime_if_owned()
-                        .expect("Looking up the value in owned node must return owned value"),
-                    node_stack,
-                )?
+        OwnedOrBorrowed::Owned(node) => {
+            match node {
+                Subtree::Leaf(value) => value
+                    .value(loader)?
+                    .new_lifetime_if_owned()
+                    .expect("Looking up the value in owned node must return owned value"),
+                Subtree::Node(_, left_ref, right_ref) => {
+                    node_stack.push(
+                        right_ref.value(loader)?.new_lifetime_if_owned().expect(
+                            "Looking up the right ref in owned node must return owned value",
+                        ),
+                    );
+                    next_value_push_right_branches(
+                        loader,
+                        left_ref.value(loader)?.new_lifetime_if_owned().expect(
+                            "Looking up the left ref in owned node must return owned value",
+                        ),
+                        node_stack,
+                    )?
+                }
             }
-        },
+        }
     })
 }
 
