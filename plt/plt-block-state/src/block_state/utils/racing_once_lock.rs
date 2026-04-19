@@ -61,6 +61,9 @@ impl<T> RacingOnceLock<T> {
         }
     }
 
+    /// Try to initialize the lock with the given value. The result may be setting
+    /// the value, or that the value is returned again, because the lock has already
+    /// been initialized, or is being initialized by another thread.
     pub fn try_insert(&self, value: T) -> InsertReturn<'_, T> {
         match self.set.compare_exchange(
             State::Uninitialized as u8,
