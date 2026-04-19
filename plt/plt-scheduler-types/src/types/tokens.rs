@@ -21,7 +21,7 @@ impl RawTokenAmount {
 ///
 /// The VLQ encoding represents a value in big-endian base 128. Each byte of the encoding uses
 /// the high-order bit to indicate if further bytes follow (when set). The remaining bits represent
-/// the positional value in base 128. See https://en.wikipedia.org/wiki/Variable-length_quantity
+/// the positional value in base 128. See <https://en.wikipedia.org/wiki/Variable-length_quantity>
 impl Serial for RawTokenAmount {
     fn serial<B: Buffer>(&self, out: &mut B) {
         // Maximum number of bytes a u64 can be serialized to.
@@ -61,7 +61,7 @@ impl Serial for RawTokenAmount {
 ///
 /// The VLQ encoding represents a value in big-endian base 128. Each byte of the encoding uses
 /// the high-order bit to indicate if further bytes follow (when set). The remaining bits represent
-/// the positional value in base 128. See https://en.wikipedia.org/wiki/Variable-length_quantity
+/// the positional value in base 128. See <https://en.wikipedia.org/wiki/Variable-length_quantity>
 impl Deserial for RawTokenAmount {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
         // Decode first byte and use 7 bits from it.
@@ -102,6 +102,15 @@ pub struct TokenAmount {
     pub amount: RawTokenAmount,
     /// The number of decimals in the token amount.
     pub decimals: u8,
+}
+
+impl TokenAmount {
+    pub fn from_raw(amount: u64, decimals: u8) -> Self {
+        Self {
+            amount: RawTokenAmount(amount),
+            decimals,
+        }
+    }
 }
 
 /// Token holder.

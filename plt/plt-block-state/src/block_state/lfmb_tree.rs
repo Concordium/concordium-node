@@ -10,7 +10,7 @@ use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash;
 use crate::block_state::hash::Hashable;
 use crate::block_state::utils::OwnedOrBorrowed;
-use crate::block_state_interface::{BlockStateError, BlockStateResult};
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use either::Either;
@@ -71,7 +71,7 @@ use std::{iter, vec};
 ///
 /// Loading a tree from the blob store may result in broken invariants,
 /// if the blob store is corrupted in some way. The implemented operations will return
-/// [`BlockStateError::Invariant`] if broken invariants are encountered.
+/// [`BlockStateFailure::Invariant`] if broken invariants are encountered.
 ///
 /// ### Example tree
 ///
@@ -209,7 +209,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     ///
     /// # Errors
     ///
-    /// Returns [`BlockStateError`] if returned by `read`, or if decoding data from the
+    /// Returns [`BlockStateFailure`] if returned by `read`, or if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn lookup_value<T>(
@@ -246,7 +246,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     ///
     /// # Errors
     ///
-    /// The iterator returns [`BlockStateError`] if returned by `read`, or if decoding data from the
+    /// The iterator returns [`BlockStateFailure`] if returned by `read`, or if decoding data from the
     /// blob store fails, or if the tree does not fulfill the expected invariants (this can happen
     /// if the blob store is corrupted in some way).
     pub fn values<'a, L: BlobStoreLoad, F, T>(
@@ -282,7 +282,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     ///
     /// # Errors
     ///
-    /// Returns [`BlockStateError`] if decoding data from the
+    /// Returns [`BlockStateFailure`] if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn insert_value(&self, loader: &impl BlobStoreLoad, value: V) -> BlockStateResult<(K, Self)>
@@ -322,7 +322,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     ///
     /// # Errors
     ///
-    /// Returns [`BlockStateError`] if returned by `update` or if decoding data from the
+    /// Returns [`BlockStateFailure`] if returned by `update` or if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn update_value(
@@ -436,7 +436,7 @@ impl<V> Subtree<V> {
             Subtree::Leaf(val_ref) => {
                 // When we reach the leaf for the key, the key must be 0.
                 if key != SubtreeKey(0) {
-                    return Err(BlockStateError::Invariant(format!(
+                    return Err(BlockStateFailure::Invariant(format!(
                         "LFMB Subtree invariant broken: SubtreeKey must be zero at leaf, is {:?}",
                         key
                     )));
@@ -500,7 +500,7 @@ impl<V> Subtree<V> {
         Ok(match self {
             Subtree::Leaf(current_val_ref) => {
                 if node_size != 1 {
-                    return Err(BlockStateError::Invariant(format!(
+                    return Err(BlockStateFailure::Invariant(format!(
                         "LFMB Subtree invariant broken: Expected size 1 for leaf, is {:?}",
                         node_size
                     )));
@@ -519,7 +519,7 @@ impl<V> Subtree<V> {
                 let node_max_size = left_branch_size << 1;
 
                 if node_size > node_max_size || node_size <= left_branch_size {
-                    return Err(BlockStateError::Invariant(format!(
+                    return Err(BlockStateFailure::Invariant(format!(
                         "LFMB Subtree invariant broken: Node size {} for node with height {}",
                         node_size, height
                     )));
@@ -583,7 +583,7 @@ impl<V> Subtree<V> {
             Subtree::Leaf(val_ref) => {
                 // When we reach the leaf for the key, the key must be 0.
                 if key != SubtreeKey(0) {
-                    return Err(BlockStateError::Invariant(format!(
+                    return Err(BlockStateFailure::Invariant(format!(
                         "LFMB Subtree invariant broken: SubtreeKey must be zero at leaf, is {:?}",
                         key
                     )));
@@ -674,7 +674,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(next_value) = self.peeked_value.take() {
             if self.next_key.0 == self.tree_size {
-                return Some(Err(BlockStateError::Invariant(
+                return Some(Err(BlockStateFailure::Invariant(
                     "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
                         .to_string(),
                 )));
@@ -684,7 +684,7 @@ where
             Some(next_value.with_value(self.loader, |value| (self.read)(key, value)))
         } else if let Some(next_node_ref) = self.node_stack.pop() {
             if self.next_key.0 == self.tree_size {
-                return Some(Err(BlockStateError::Invariant(
+                return Some(Err(BlockStateFailure::Invariant(
                     "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
                         .to_string(),
                 )));
@@ -700,7 +700,7 @@ where
             ))
         } else {
             if self.next_key.0 != self.tree_size {
-                return Some(Err(BlockStateError::Invariant(format!(
+                return Some(Err(BlockStateFailure::Invariant(format!(
                     "LFMB Subtree invariant broken: ValuesIterator next_key not equal to tree_size at end of iterator, is {}",
                     self.next_key.0
                 ))));
@@ -788,7 +788,7 @@ impl<V: Loadable> Loadable for Subtree<V> {
                 Subtree::Node(height, left_ref, right_ref)
             }
             _ => {
-                return Err(BlockStateError::BlobStoreDecode(format!(
+                return Err(BlockStateFailure::BlobStoreDecode(format!(
                     "Invalid LFMB Tree discriminator: {}",
                     disc
                 )));

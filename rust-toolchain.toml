@@ -1,2 +1,5 @@
+# The toolchain version here must be in sync (down to patch version) with the toolchain version
+# used in the static_libraries image found in the workflow of `.github/workflow/release.yaml`,
+# otherwise it causes issues during linking the static builds.
 [toolchain]
-channel = "1.94"
+channel = "1.94.0"

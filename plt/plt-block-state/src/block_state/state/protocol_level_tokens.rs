@@ -12,7 +12,7 @@ use crate::block_state::types::protocol_level_tokens::{
     TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state::utils::OwnedOrBorrowed;
-use crate::block_state_interface::{BlockStateError, BlockStateResult};
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Serialize};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -75,7 +75,7 @@ impl ProtocolLevelTokens {
                 })
             })
             .ok_or_else(|| {
-                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
+                BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
     }
 
@@ -91,7 +91,7 @@ impl ProtocolLevelTokens {
                     .with_value(loader, |conf| Ok(conf.into_owned().0))
             })
             .ok_or_else(|| {
-                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
+                BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
     }
 
@@ -103,7 +103,7 @@ impl ProtocolLevelTokens {
         self.tokens
             .lookup_value(loader, token_index, |token| Ok(token.circulating_supply.0))
             .ok_or_else(|| {
-                BlockStateError::Invariant(format!("token not found by index: {:?}", token_index))
+                BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
     }
 
@@ -123,7 +123,7 @@ impl ProtocolLevelTokens {
                     })
                 })
                 .ok_or_else(|| {
-                    BlockStateError::Invariant(format!(
+                    BlockStateFailure::Invariant(format!(
                         "token not found by index: {:?}",
                         token_index
                     ))
@@ -175,7 +175,7 @@ impl ProtocolLevelTokens {
                     })
                 })
                 .ok_or_else(|| {
-                    BlockStateError::Invariant(format!(
+                    BlockStateFailure::Invariant(format!(
                         "token not found by index: {:?}",
                         token_index
                     ))
