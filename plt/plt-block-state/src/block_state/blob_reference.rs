@@ -11,3 +11,4 @@
 //! in-memory representation of the block state.
 
 pub mod hashed_cacheable_reference;
+pub mod stored_reference;

@@ -1,6 +1,8 @@
-/// Representation of an immutable, cacheable and lazily hashed value of type `V`.
-///
-/// See [`HashedCacheableRef`].
+//! Representation of an immutable, cacheable and lazily hashed value. The value may be
+//! stored in the blob store, in memory, or both.
+//!
+//! See [`HashedCacheableRef`].
+
 use crate::block_state::blob_store;
 use crate::block_state::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, ParseResultExt, Storable,
@@ -14,7 +16,7 @@ use concordium_base::hashes::Hash;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
-/// Representation of an immutable, cachable and lazily hashed value of type `V`.
+/// Representation of an immutable, cacheable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
 /// once the [`HashedCacheableRef`] has been created. The value representation can be in
 ///
