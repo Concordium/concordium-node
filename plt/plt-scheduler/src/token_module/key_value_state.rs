@@ -379,12 +379,11 @@ pub fn set_locked_balance_for<TK: TokenKernelOperations>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use concordium_base::base::Nonce;
 
     fn example_lock_id() -> LockId {
         LockId {
-            account_index: AccountIndex::from(7u64),
-            sequence_number: Nonce::from(11u64),
+            account_index: 7,
+            sequence_number: 11,
             creation_order: 3,
         }
     }
