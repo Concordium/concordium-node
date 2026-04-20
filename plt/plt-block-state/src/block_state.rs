@@ -30,6 +30,7 @@ pub mod cacheable;
 pub mod external;
 pub mod hash;
 mod lfmb_tree;
+pub mod migration;
 mod state;
 pub mod types;
 mod utils;

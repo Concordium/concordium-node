@@ -7,6 +7,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
+use crate::block_state::migration::Migrate;
 use crate::block_state::utils::{LockRef, OwnedOrBorrowed};
 use crate::block_state_interface::BlockStateResult;
 use concordium_base::common::{Buffer, Get, Put};
@@ -262,6 +263,24 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
             inner.hash = Some(hash);
             hash
         })
+    }
+}
+
+impl<V: Migrate + Storable> Migrate for HashedCacheableRef<V> {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreLoad,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let migrated_value =
+            self.with_value(from_loader, |value| value.migrate(from_loader, to_storer))?;
+        let new_hcr = Self::new(migrated_value);
+        let mut new_inner = new_hcr.inner.write();
+        new_inner.repr.get_reference_or_store(to_storer);
+        Ok(new_hcr)
     }
 }
 
