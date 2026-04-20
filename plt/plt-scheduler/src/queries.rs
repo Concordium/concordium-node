@@ -1,6 +1,6 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::token_kernel::TokenKernelQueriesImpl;
+use crate::token_kernel::TokenQueryContext;
 use crate::token_module;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
@@ -40,7 +40,7 @@ pub fn query_token_info(
 
     let token_module_state = block_state.mutable_token_key_value_state(&token);
 
-    let kernel = TokenKernelQueriesImpl {
+    let kernel = TokenQueryContext {
         block_state,
         token_module_state: &token_module_state,
     };
@@ -78,7 +78,7 @@ where
 
             let token_module_state = block_state.mutable_token_key_value_state(&token);
 
-            let kernel = TokenKernelQueriesImpl {
+            let kernel = TokenQueryContext {
                 block_state,
                 token_module_state: &token_module_state,
             };
@@ -112,7 +112,7 @@ pub fn query_token_authorizations(
 ) -> Result<TokenAuthorizations, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
     let token_module_state = block_state.mutable_token_key_value_state(&token);
-    let kernel = TokenKernelQueriesImpl {
+    let kernel = TokenQueryContext {
         block_state,
         token_module_state: &token_module_state,
     };

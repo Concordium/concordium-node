@@ -1,6 +1,6 @@
 //! Internal utilities for the token module implementation.
 
-use crate::token_kernel::TokenKernelOperationsImpl;
+use crate::token_kernel::TokenOperationContext;
 use crate::token_module::module::TokenAmountDecimalsMismatchError;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::{
@@ -13,7 +13,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 /// Checks that token amount has the right number of decimals and converts it to a plain
 /// integer and return [`RawTokenAmount`]
 pub fn to_raw_token_amount<BSO: BlockStateOperations>(
-    kernel: &TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &TokenOperationContext<'_, BSO>,
     amount: TokenAmount,
 ) -> Result<RawTokenAmount, TokenAmountDecimalsMismatchError> {
     let kernel_decimals = kernel.decimals();
@@ -28,7 +28,7 @@ pub fn to_raw_token_amount<BSO: BlockStateOperations>(
 }
 
 pub fn to_token_amount<BSO: BlockStateOperations>(
-    kernel: &TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &TokenOperationContext<'_, BSO>,
     amount: RawTokenAmount,
 ) -> TokenAmount {
     TokenAmount::from_raw(amount.0, kernel.decimals())

@@ -1,5 +1,5 @@
-use crate::token_kernel::TokenKernelQueriesImpl;
-use crate::token_module::key_value_state::{self, KernelQueriesExt};
+use crate::token_kernel::TokenQueryContext;
+use crate::token_module::key_value_state;
 use crate::token_module::token_kernel_interface::TokenStateInvariantError;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
@@ -17,7 +17,7 @@ pub enum QueryTokenModuleError {
 
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<BSQ: BlockStateQuery>(
-    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
+    kernel: &TokenQueryContext<'_, BSQ>,
 ) -> Result<RawCbor, QueryTokenModuleError> {
     let state = query_token_module_state_impl(kernel)?;
 
@@ -25,11 +25,11 @@ pub fn query_token_module_state<BSQ: BlockStateQuery>(
 }
 
 fn query_token_module_state_impl<BSQ: BlockStateQuery>(
-    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
+    kernel: &TokenQueryContext<'_, BSQ>,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
-    let name = key_value_state::get_name(kernel)?;
+    let name = key_value_state::get_token_name(kernel)?;
     let metadata = key_value_state::get_metadata(kernel)?;
-    let allow_list = key_value_state::has_allow_list(kernel);
+    let allow_list = key_value_state::is_allow_list_enabled(kernel);
     let deny_list = key_value_state::has_deny_list(kernel);
     let mintable = key_value_state::is_mintable(kernel);
     let burnable = key_value_state::is_burnable(kernel);
@@ -63,19 +63,19 @@ fn query_token_module_state_impl<BSQ: BlockStateQuery>(
 }
 
 /// Get the CBOR-encoded representation of the token module account state.
-pub fn query_token_module_account_state<TK: KernelQueriesExt>(
-    kernel: &TK,
+pub fn query_token_module_account_state<BSQ: BlockStateQuery>(
+    kernel: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
 ) -> RawCbor {
     let state = query_token_module_account_state_impl(kernel, account);
     RawCbor::from(cbor::cbor_encode(&state))
 }
 
-fn query_token_module_account_state_impl<TK: KernelQueriesExt>(
-    kernel: &TK,
+fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
+    kernel: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
 ) -> TokenModuleAccountState {
-    let has_allow_list = key_value_state::has_allow_list(kernel);
+    let has_allow_list = key_value_state::is_allow_list_enabled(kernel);
     let allow_list = if has_allow_list {
         key_value_state::get_allow_list_for(kernel, account).into()
     } else {
@@ -96,7 +96,7 @@ fn query_token_module_account_state_impl<TK: KernelQueriesExt>(
 
 /// Get authorization roles and assigned accounts for the token.
 pub fn query_token_authorizations<BSQ: BlockStateQuery>(
-    kernel: &TokenKernelQueriesImpl<'_, BSQ>,
+    kernel: &TokenQueryContext<'_, BSQ>,
 ) -> Result<RawCbor, QueryTokenModuleError> {
     Ok(RawCbor::from(cbor::cbor_encode(
         &key_value_state::get_token_authorizations(kernel)?,

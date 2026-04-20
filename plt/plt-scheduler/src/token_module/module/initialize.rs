@@ -1,11 +1,10 @@
-use crate::token_kernel::TokenKernelOperationsImpl;
-use crate::token_module::key_value_state::{self, KernelOperationsExt};
+use crate::token_kernel::TokenOperationContext;
+use crate::token_module::key_value_state;
 use crate::token_module::module::TokenAmountDecimalsMismatchError;
 use crate::token_module::token_kernel_interface::{
     MintWouldOverflowError, TokenMintError, TokenStateInvariantError,
 };
 use crate::token_module::{roles, util};
-use concordium_base::common;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAdminRole, TokenModuleInitializationParameters,
@@ -42,7 +41,7 @@ impl From<TokenMintError> for TokenInitializationError {
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token<BSO: BlockStateOperations>(
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     initialization_parameters_cbor: RawCbor,
 ) -> Result<(), TokenInitializationError> {
     let init_params: TokenModuleInitializationParameters =
@@ -51,7 +50,7 @@ pub fn initialize_token<BSO: BlockStateOperations>(
 }
 
 fn initialize_token_impl<BSO: BlockStateOperations>(
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     init_params: TokenModuleInitializationParameters,
 ) -> Result<(), TokenInitializationError> {
     let name = init_params.name.ok_or_else(|| {
@@ -69,7 +68,7 @@ fn initialize_token_impl<BSO: BlockStateOperations>(
             "Token governance account is missing".to_string(),
         )
     })?;
-    kernel.set_module_state(key_value_state::STATE_KEY_NAME, Some(name.into()));
+    key_value_state::set_token_name(kernel, name);
     key_value_state::set_metadata_url(kernel, &metadata);
 
     // The governance account should hold every role, except for disabled features, so we build a
@@ -77,19 +76,19 @@ fn initialize_token_impl<BSO: BlockStateOperations>(
     let mut enabled_roles = Vec::from(roles::UNIVERSAL_ROLES);
 
     if init_params.allow_list == Some(true) {
-        kernel.set_module_state(key_value_state::STATE_KEY_ALLOW_LIST, Some(vec![]));
+        key_value_state::set_allow_list_enabled(kernel);
         enabled_roles.push(TokenAdminRole::UpdateAllowList);
     }
     if init_params.deny_list == Some(true) {
-        kernel.set_module_state(key_value_state::STATE_KEY_DENY_LIST, Some(vec![]));
+        key_value_state::set_deny_list_enabled(kernel);
         enabled_roles.push(TokenAdminRole::UpdateDenyList);
     }
     if init_params.mintable == Some(true) {
-        kernel.set_module_state(key_value_state::STATE_KEY_MINTABLE, Some(vec![]));
+        key_value_state::set_mintable_enabled(kernel);
         enabled_roles.push(TokenAdminRole::Mint);
     }
     if init_params.burnable == Some(true) {
-        kernel.set_module_state(key_value_state::STATE_KEY_BURNABLE, Some(vec![]));
+        key_value_state::set_burnable_enabled(kernel);
         enabled_roles.push(TokenAdminRole::Burn);
     }
 
@@ -97,10 +96,7 @@ fn initialize_token_impl<BSO: BlockStateOperations>(
         .block_state
         .account_by_address(&cbor_governance_account.address)?;
     let governance_account_index = kernel.block_state.account_index(&governance_account);
-    kernel.set_module_state(
-        key_value_state::STATE_KEY_GOVERNANCE_ACCOUNT,
-        Some(common::to_bytes(&governance_account_index.index)),
-    );
+    key_value_state::set_governance_account(kernel, governance_account_index);
     if kernel.support_rbac() {
         key_value_state::assign_account_roles(kernel, governance_account_index, &enabled_roles)?;
     }

@@ -1,4 +1,4 @@
-use crate::token_kernel::TokenKernelOperationsImpl;
+use crate::token_kernel::TokenOperationContext;
 use crate::token_module::module::TokenAmountDecimalsMismatchError;
 use crate::token_module::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
@@ -99,7 +99,7 @@ pub enum TokenUpdateError {
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
     let operations: Vec<TokenOperation> = util::cbor_decode(&token_operations).map_err(|err| {
@@ -181,7 +181,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 /// - `operation`: the token operation to execute
 pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     index: usize,
     operation: &TokenOperation,
 ) -> Result<(), TokenUpdateError> {
@@ -349,7 +349,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 
 fn execute_token_update_operation<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -426,7 +426,7 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
 }
 
 fn check_not_paused<BSO: BlockStateOperations>(
-    kernel: &TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if key_value_state::is_paused(kernel) {
         return Err(TokenUpdateErrorInternal::Paused);
@@ -437,7 +437,7 @@ fn check_not_paused<BSO: BlockStateOperations>(
 /// Ensure the sender account from the transaction context is authorized to perform the operation.
 fn check_authorized<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &TokenOperationContext<'_, BSO>,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if kernel.support_rbac() {
@@ -470,7 +470,7 @@ fn check_authorized<BSO: BlockStateOperations>(
 
 fn execute_token_transfer<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
@@ -484,7 +484,7 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
         .block_state
         .account_by_address(&transfer_operation.recipient.address)?;
 
-    if key_value_state::has_allow_list(kernel) {
+    if key_value_state::is_allow_list_enabled(kernel) {
         if !key_value_state::get_allow_list_for(kernel, kernel.block_state.account_index(sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
@@ -528,7 +528,7 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
 
 fn execute_token_mint<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
@@ -553,7 +553,7 @@ fn execute_token_mint<BSO: BlockStateOperations>(
 
 fn execute_token_burn<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
@@ -578,7 +578,7 @@ fn execute_token_burn<BSO: BlockStateOperations>(
 
 fn execute_token_pause<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
 
@@ -591,7 +591,7 @@ fn execute_token_pause<BSO: BlockStateOperations>(
 
 fn execute_token_unpause<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
 
@@ -604,10 +604,10 @@ fn execute_token_unpause<BSO: BlockStateOperations>(
 
 fn execute_add_allow_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if !key_value_state::has_allow_list(kernel) {
+    if !key_value_state::is_allow_list_enabled(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -635,7 +635,7 @@ fn execute_add_allow_list<BSO: BlockStateOperations>(
 
 fn execute_add_deny_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !key_value_state::has_deny_list(kernel) {
@@ -667,10 +667,10 @@ fn execute_add_deny_list<BSO: BlockStateOperations>(
 
 fn execute_remove_allow_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if !key_value_state::has_allow_list(kernel) {
+    if !key_value_state::is_allow_list_enabled(kernel) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -699,7 +699,7 @@ fn execute_remove_allow_list<BSO: BlockStateOperations>(
 
 fn execute_remove_deny_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !key_value_state::has_deny_list(kernel) {
@@ -730,7 +730,7 @@ fn execute_remove_deny_list<BSO: BlockStateOperations>(
 }
 
 fn check_roles_supported<BSO: BlockStateOperations>(
-    kernel: &TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &TokenOperationContext<'_, BSO>,
     roles: &[TokenAdminRole],
 ) -> Result<(), TokenUpdateErrorInternal> {
     for role in roles {
@@ -738,7 +738,7 @@ fn check_roles_supported<BSO: BlockStateOperations>(
             TokenAdminRole::UpdateAdminRoles => true,
             TokenAdminRole::Mint => key_value_state::is_mintable(kernel),
             TokenAdminRole::Burn => key_value_state::is_burnable(kernel),
-            TokenAdminRole::UpdateAllowList => key_value_state::has_allow_list(kernel),
+            TokenAdminRole::UpdateAllowList => key_value_state::is_allow_list_enabled(kernel),
             TokenAdminRole::UpdateDenyList => key_value_state::has_deny_list(kernel),
             TokenAdminRole::Pause => true,
             TokenAdminRole::UpdateMetadata => true,
@@ -754,7 +754,7 @@ fn check_roles_supported<BSO: BlockStateOperations>(
 
 fn execute_assign_admin_roles<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(
@@ -782,7 +782,7 @@ fn execute_assign_admin_roles<BSO: BlockStateOperations>(
 
 fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(
@@ -818,7 +818,7 @@ fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
 
 fn execute_update_metadata<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenKernelOperationsImpl<'_, BSO>,
+    kernel: &mut TokenOperationContext<'_, BSO>,
     metadata_url: &MetadataUrl,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !metadata_url.additional.is_empty() {
