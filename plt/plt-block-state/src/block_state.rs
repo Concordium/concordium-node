@@ -60,7 +60,7 @@ impl BlockState {
     }
 
     /// Migrate the PLT block state from one blob store to another.
-    pub fn migrate(&self, _loader: impl BlobStoreLoad, _storer: impl BlobStoreStore) -> Self {
+    pub fn migrate(&self, _loader: &impl BlobStoreLoad, _storer: &mut impl BlobStoreStore) -> Self {
         // todo implement as part of https://linear.app/concordium/issue/PSR-67/implement-p10-to-p11-migration-for-plt-state
         todo!()
     }

@@ -9,7 +9,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state_interface::{BlockStateError, BlockStateResult};
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
@@ -46,7 +46,7 @@ impl PersistentState {
         let mut mutable_state = self.lock_read().thaw();
         let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
         let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
-            BlockStateError::Invariant(format!("Error iterating values in MutableTrie: {}", err))
+            BlockStateFailure::Invariant(format!("Error iterating values in MutableTrie: {}", err))
         })?;
 
         Ok(PrefixIterator {
@@ -146,7 +146,7 @@ impl MutableState {
         let mut mutable_state = self.lock();
         let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
         let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
-            BlockStateError::Invariant(format!("Error iterating values in MutableTrie: {}", err))
+            BlockStateFailure::Invariant(format!("Error iterating values in MutableTrie: {}", err))
         })?;
 
         Ok(PrefixIterator {
@@ -168,7 +168,7 @@ impl MutableState {
         let mut loader = LoaderAdapter(loader);
         let mut trie = self.get_mut().get_inner(&mut loader).lock();
         trie.insert(&mut loader, key, value).map_err(|err| {
-            BlockStateError::Invariant(format!("Error deleting value from MutableState: {}", err))
+            BlockStateFailure::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
         Ok(())
     }
@@ -183,7 +183,7 @@ impl MutableState {
         let mut loader = LoaderAdapter(loader);
         let mut trie = self.get_mut().get_inner(&mut loader).lock();
         trie.delete(&mut loader, key).map_err(|err| {
-            BlockStateError::Invariant(format!("Error deleting value from MutableState: {}", err))
+            BlockStateFailure::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
         Ok(())
     }
@@ -230,13 +230,16 @@ impl Loadable for PersistentState {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
-    ) -> Result<Self, BlockStateError> {
+    ) -> Result<Self, BlockStateFailure> {
         let persistent_state = <trie::PersistentState as trie::Loadable>::load(
             &mut LoaderAdapter(loader),
             &mut buffer,
         )
         .map_err(|load_err| {
-            BlockStateError::BlobStoreDecode(format!("Error loading PersistentState: {}", load_err))
+            BlockStateFailure::BlobStoreDecode(format!(
+                "Error loading PersistentState: {}",
+                load_err
+            ))
         })?;
         Ok(PersistentState(RwLock::new(persistent_state)))
     }
