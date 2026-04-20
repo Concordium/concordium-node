@@ -1,14 +1,14 @@
 //! Implementation of the protocol-level token kernel.
 
 use crate::token_module::token_kernel_interface::{
-    HasTokenState, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
-    TokenMintError, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
+    TokenStateInvariantError, TokenTransferError,
 };
 use concordium_base::base::ProtocolVersion;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{TokenConfiguration, TokenStateKey, TokenStateValue};
+use plt_block_state::block_state::types::TokenConfiguration;
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
@@ -17,31 +17,16 @@ use plt_scheduler_types::types::events::{
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
-/// Implementation of token kernel queries with a specific token in context.
-pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
+/// Context for running token queries with a specific token in context.
+pub struct TokenQueryContext<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a BSQ,
     /// Token module state for the token in context
     pub token_module_state: &'a BSQ::TokenKeyValueState,
 }
 
-impl<BSQ: BlockStateQuery> HasTokenState for TokenKernelQueriesImpl<'_, BSQ> {
-    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
-        self.block_state
-            .lookup_token_state_value(self.token_module_state, &key)
-    }
-
-    fn iter_token_state_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
-        self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
-    }
-}
-
-/// Implementation of token kernel operations with a specific token in context.
-pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
+/// Context for running token operations with a specific token in context.
+pub struct TokenOperationContext<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a mut BSQ,
     /// Token in context
@@ -56,25 +41,25 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     pub events: &'a mut Vec<BlockItemEvent>,
 }
 
-impl<BSO: BlockStateOperations> TokenKernelOperationsImpl<'_, BSO> {
+impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
+    /// Read the token balance of an account for the token being invoked.
     pub fn account_token_balance(&self, account: &BSO::Account) -> RawTokenAmount {
         self.block_state.account_token_balance(account, self.token)
     }
 
+    /// Read the decimals of the token being invoked.
     pub fn decimals(&self) -> u8 {
-        self.block_state.token_configuration(self.token).decimals
+        self.token_configuration.decimals
     }
 
-    pub fn protocol_version(&self) -> ProtocolVersion {
-        self.block_state.protocol_version()
-    }
-
+    /// Whether the protocol version of the block supports RBAC token feature.
     pub fn support_rbac(&self) -> bool {
-        self.protocol_version() >= ProtocolVersion::P11
+        self.block_state.protocol_version() >= ProtocolVersion::P11
     }
 
+    /// Whether the protocol version of the block supports updating the token metadata.
     pub fn support_updating_metadata(&self) -> bool {
-        self.protocol_version() >= ProtocolVersion::P11
+        self.block_state.protocol_version() >= ProtocolVersion::P11
     }
 
     /// Initialize the balance of the given account to zero if it didn't have a balance before.
@@ -264,20 +249,5 @@ impl<BSO: BlockStateOperations> TokenKernelOperationsImpl<'_, BSO> {
                 event_type,
                 details,
             }))
-    }
-}
-
-impl<BSO: BlockStateOperations> HasTokenState for TokenKernelOperationsImpl<'_, BSO> {
-    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
-        self.block_state
-            .lookup_token_state_value(self.token_module_state, &key)
-    }
-
-    fn iter_token_state_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
-        self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
     }
 }

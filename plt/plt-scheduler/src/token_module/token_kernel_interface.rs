@@ -1,8 +1,6 @@
 //! Token kernel interface for protocol-level tokens. This is the interface seen
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
-
-use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// The account has insufficient balance.
@@ -58,18 +56,4 @@ pub enum TokenBurnError {
     StateInvariantViolation(#[from] TokenStateInvariantError),
     #[error("Insufficient balance for burn: {0}")]
     InsufficientBalance(#[from] InsufficientBalanceError),
-}
-
-/// Minimal read-only access to token key-value state, used as an anchor for the
-/// extension traits [`KernelQueriesExt`](crate::token_module::key_value_state::KernelQueriesExt)
-/// and [`KernelOperationsExt`](crate::token_module::key_value_state::KernelOperationsExt).
-pub trait HasTokenState {
-    /// Lookup a key in the token key-value state.
-    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
-
-    /// Get an iterator over key-value pairs that share the given prefix.
-    fn iter_token_state_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
 }
