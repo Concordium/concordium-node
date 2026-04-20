@@ -5,9 +5,7 @@ members = [
     "node-rust-library",
     "plt-block-state",
     "plt-scheduler-types",
-    "plt-scheduler-interface",
     "plt-scheduler",
-    "plt-token-module"
 ]
 
 # Optimize a good as possible with fat linking and a single code generation unit
@@ -17,10 +15,8 @@ codegen-units = 1
 
 [workspace.dependencies]
 plt-block-state = {path = "plt-block-state"}
-plt-token-module = {path = "plt-token-module"}
 plt-scheduler = {path = "plt-scheduler"}
 plt-scheduler-types = {path = "plt-scheduler-types"}
-plt-scheduler-interface = {path = "plt-scheduler-interface"}
 
 concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
 concordium-smart-contract-engine = {path = "../concordium-base/smart-contracts/wasm-chain-integration"}
