@@ -1,15 +1,17 @@
 use std::cell::UnsafeCell;
-use std::fmt;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::{fmt, hint};
 
 /// State of the value in the lock.
 #[repr(u8)]
 enum State {
-    /// The value in
+    /// The value is not initialized.
     Uninitialized = 0,
+    /// A thread is currently setting the value.
     Initializing = 1,
+    /// The value is initialized.
     Initialized = 2,
 }
 
@@ -23,29 +25,15 @@ enum State {
 /// can be more lightweight than a lock like `OnceLock`, which allows computing the initialization
 /// value in a critical region, such that only one thread computes the value.
 pub struct RacingOnceLock<T> {
-    set: AtomicU8,
+    state: AtomicU8,
     value: UnsafeCell<MaybeUninit<T>>,
-}
-
-/// Return value from [`RacingOnceLock::try_insert`].
-pub enum InsertReturn<'a, T> {
-    /// The value was initialized to the value given to [try_insert](RacingOnceLock::try_insert).
-    /// The returned tuple is a reference to the value set in the lock.
-    Initialized(&'a T),
-    /// The value is being initialized by another thread. The returned tuple is
-    /// the value given to [try_insert](RacingOnceLock::try_insert).
-    Initializing(T),
-    /// The value is already initialized in the lock. The returned tuple is
-    /// a reference to the value already initialized in the lock and
-    /// the value given to [try_insert](RacingOnceLock::try_insert).
-    AlreadyInitialized(&'a T, T),
 }
 
 impl<T> RacingOnceLock<T> {
     /// Create new lock which is not initialized with a value yet.
     pub fn new() -> Self {
         Self {
-            set: AtomicU8::from(State::Uninitialized as u8),
+            state: AtomicU8::from(State::Uninitialized as u8),
             value: UnsafeCell::new(MaybeUninit::uninit()),
             // _marker: PhantomData,
         }
@@ -54,7 +42,14 @@ impl<T> RacingOnceLock<T> {
     /// Return the initialized value, or `None` if the lock has not been
     /// initialized yet.
     pub fn get(&self) -> Option<&T> {
-        if self.set.load(Ordering::Acquire) == State::Initialized as u8 {
+        if self.state.load(Ordering::Acquire) == State::Initialized as u8 {
+            // Data-race safety: Reading the value happens-after writing it in Self::try_insert,
+            // because the acquire load of state happens-after the release store of state in
+            // Self::try_insert.
+            // Initialization safety: By the same argument, the value has been
+            // initialized in Self::try_insert.
+            // Aliasing safety: The only unique reference created is in
+            // Self::try_insert when the value is set.
             unsafe { Some((&*self.value.get()).assume_init_ref()) }
         } else {
             None
@@ -62,28 +57,43 @@ impl<T> RacingOnceLock<T> {
     }
 
     /// Try to initialize the lock with the given value. The result may be setting
-    /// the value, or that the value is returned again, because the lock has already
-    /// been initialized, or is being initialized by another thread.
-    pub fn try_insert(&self, value: T) -> InsertReturn<'_, T> {
-        match self.set.compare_exchange(
-            State::Uninitialized as u8,
-            State::Initializing as u8,
-            Ordering::Relaxed,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => {
-                let value_ref = unsafe { (&mut *self.value.get()).write(value) as &T };
-                self.set.store(State::Initialized as u8, Ordering::Release);
-                InsertReturn::Initialized(value_ref)
-            }
-            Err(state) => {
-                if state == State::Initialized as u8 {
-                    InsertReturn::AlreadyInitialized(
-                        unsafe { (&*self.value.get()).assume_init_ref() },
-                        value,
-                    )
-                } else {
-                    InsertReturn::Initializing(value)
+    /// the value, or doing nothing, because the lock has already
+    /// been initialized. In any case, it is guaranteed that when this function returns,
+    /// the lock has been initialized.
+    ///
+    /// # Returns
+    ///
+    /// If the lock was initialized with the given value, then `Ok` with a reference
+    /// to the value is returned. If the lock was already initialized `Err`
+    /// with a reference to the already initialized value, and the value given to
+    /// `try_insert` is returned.
+    pub fn try_insert(&self, value: T) -> Result<&T, (&T, T)> {
+        loop {
+            match self.state.compare_exchange(
+                State::Uninitialized as u8,
+                State::Initializing as u8,
+                Ordering::Relaxed,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    // Aliasing safety: This is the only place a unique reference is created,
+                    // and only on thread will ever see the state Uninitialized and set it to
+                    // Initializing.
+                    // Data-race safety: As argued, there is ever only one write. Each read has an
+                    // argument for its data-race safety.
+                    let value_ref = unsafe { (&mut *self.value.get()).write(value) as &T };
+                    self.state
+                        .store(State::Initialized as u8, Ordering::Release);
+                    return Ok(value_ref);
+                }
+                Err(state) => {
+                    if state == State::Initialized as u8 {
+                        // Safety: Same argument as in Self::get. Notice that compare_exchange
+                        // performs an acquire load in the failure case.
+                        return Err((unsafe { (&*self.value.get()).assume_init_ref() }, value));
+                    } else {
+                        hint::spin_loop();
+                    }
                 }
             }
         }
