@@ -6,6 +6,7 @@ use super::status;
 use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
+use crate::block_state::migration::Migrate;
 use crate::block_state::{BlockState, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 
@@ -181,7 +182,9 @@ extern "C" fn ffi_migrate_plt_block_state(
     let panic_message = status::catch_unwind(move || {
         assert!(!block_state.is_null(), "block_state is a null pointer.");
         let block_state = unsafe { &*block_state };
-        let new_block_state = block_state.migrate(&load_callback, &mut store_callback);
+        let new_block_state = block_state
+            .migrate(&load_callback, &mut store_callback)
+            .expect("Failed migrating block state");
         unsafe {
             *destination = Box::into_raw(Box::new(new_block_state));
         }

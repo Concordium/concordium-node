@@ -4,6 +4,7 @@ use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, St
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
+use crate::block_state::migration::Migrate;
 use crate::block_state::state::protocol_level_tokens::{
     ProtocolLevelTokens, SimplisticTokenKeyValueState,
 };
@@ -60,12 +61,6 @@ impl BlockState {
     pub fn into_mutable(self) -> MutableBlockState {
         MutableBlockState::new(self)
     }
-
-    /// Migrate the PLT block state from one blob store to another.
-    pub fn migrate(&self, _loader: &impl BlobStoreLoad, _storer: &mut impl BlobStoreStore) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-67/implement-p10-to-p11-migration-for-plt-state
-        todo!()
-    }
 }
 
 impl Loadable for BlockState {
@@ -82,6 +77,21 @@ impl Loadable for BlockState {
 impl Storable for BlockState {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
+    }
+}
+
+impl Migrate for BlockState {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.tokens.migrate(from_loader, to_storer)?;
+
+        Ok(Self { tokens: new_tokens })
     }
 }
 

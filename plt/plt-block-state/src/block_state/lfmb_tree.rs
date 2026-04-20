@@ -9,6 +9,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash;
 use crate::block_state::hash::Hashable;
+use crate::block_state::migration::Migrate;
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Get, Put};
@@ -867,6 +868,52 @@ impl<V: Cacheable + Loadable> Cacheable for Subtree<V> {
             }
         }
         Ok(())
+    }
+}
+
+impl<K, V: Migrate + Storable + Loadable> Migrate for LfmbTree<K, V> {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_inner = match &self.inner {
+            LfmbTreeInner::Empty => LfmbTreeInner::Empty,
+            LfmbTreeInner::NonEmpty(size, subtree) => {
+                LfmbTreeInner::NonEmpty(*size, subtree.migrate(from_loader, to_storer)?)
+            }
+        };
+
+        Ok(Self {
+            inner: new_inner,
+            _key_type: PhantomData,
+        })
+    }
+}
+
+impl<V: Migrate + Storable + Loadable> Migrate for Subtree<V> {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(match self {
+            Subtree::Leaf(value_ref) => {
+                let new_value_ref = value_ref.migrate(from_loader, to_storer)?;
+                Subtree::Leaf(new_value_ref)
+            }
+            Subtree::Node(height, left_ref, right_ref) => {
+                let new_left_ref = left_ref.migrate(from_loader, to_storer)?;
+                let new_right_ref = right_ref.migrate(from_loader, to_storer)?;
+                Subtree::Node(*height, new_left_ref, new_right_ref)
+            }
+        })
     }
 }
 

@@ -266,11 +266,11 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Migrate + Storable> Migrate for HashedCacheableRef<V> {
+impl<V: Migrate + Storable + Loadable> Migrate for HashedCacheableRef<V> {
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,
-        to_storer: &mut impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
     ) -> BlockStateResult<Self>
     where
         Self: Sized,
@@ -280,6 +280,7 @@ impl<V: Migrate + Storable> Migrate for HashedCacheableRef<V> {
         let new_hcr = Self::new(migrated_value);
         let mut new_inner = new_hcr.inner.write();
         new_inner.repr.get_reference_or_store(to_storer);
+        drop(new_inner);
         Ok(new_hcr)
     }
 }
