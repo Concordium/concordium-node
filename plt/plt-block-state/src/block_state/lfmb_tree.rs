@@ -1111,7 +1111,42 @@ mod tests {
             let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
 
             // Assert loaded tree is equal to the tree we started with
-            assert_trees_eq(&store, &tree1, &tree2, format!("loaded tree of size {}", i));
+            assert_trees_eq(
+                &store,
+                &store,
+                &tree1,
+                &tree2,
+                format!("loaded tree of size {}", i),
+            );
+        }
+    }
+
+    /// Tests migrating tree into new blob store
+    #[test]
+    fn prop_test_migrate() {
+        for i in 0..100 {
+            let mut from_store = BlobStoreStub::default();
+            let mut to_store = BlobStoreStub::default();
+
+            // Create tree and store it
+            let tree = create_tree(&mut from_store, i);
+            blob_store::store_to_store(&mut from_store, &tree);
+
+            // Migrate the tree and store it
+            let new_tree = tree.migrate(&from_store, &mut to_store).unwrap();
+            let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_tree);
+
+            // Load migrated tree
+            let new_tree2: TestTree = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
+
+            // Assert loaded tree is equal to the tree we started with
+            assert_trees_eq(
+                &from_store,
+                &to_store,
+                &tree,
+                &new_tree2,
+                format!("loaded tree of size {}", i),
+            );
         }
     }
 
@@ -1128,7 +1163,13 @@ mod tests {
             tree2.cache_reference_values(&store).expect("cache");
 
             // Assert cached tree is identical to the tree with started with
-            assert_trees_eq(&store, &tree1, &tree2, format!("cached tree of size {}", i));
+            assert_trees_eq(
+                &store,
+                &store,
+                &tree1,
+                &tree2,
+                format!("cached tree of size {}", i),
+            );
 
             // Assert that when caching again or looking up entries, we don't need to read from the blob store again.
             // We assert that by using UnreachableBlobStore.
@@ -1242,7 +1283,8 @@ mod tests {
 
     /// Assert node structure and values in tree are equal.
     fn assert_trees_eq<K: Debug, V: Loadable + Clone + PartialEq + Debug>(
-        loader: &impl BlobStoreLoad,
+        loader1: &impl BlobStoreLoad,
+        loader2: &impl BlobStoreLoad,
         tree1: &LfmbTree<K, V>,
         tree2: &LfmbTree<K, V>,
         context: String,
@@ -1256,7 +1298,7 @@ mod tests {
                 LfmbTreeInner::NonEmpty(size2, subtree2),
             ) => {
                 assert_eq!(size1, size2);
-                assert_subtrees_eq(loader, subtree1, subtree2, context.clone());
+                assert_subtrees_eq(loader1, loader2, subtree1, subtree2, context.clone());
             }
             (_, _) => {
                 panic!("{}: trees not equal: {:?}, {:?}", context, tree1, tree2);
@@ -1266,15 +1308,16 @@ mod tests {
 
     /// Assert node structure and values in subtree are equal.
     fn assert_subtrees_eq<V: Loadable + Clone + PartialEq + Debug>(
-        loader: &impl BlobStoreLoad,
+        loader1: &impl BlobStoreLoad,
+        loader2: &impl BlobStoreLoad,
         subtree1: &Subtree<V>,
         subtree2: &Subtree<V>,
         context: String,
     ) {
         match (subtree1, subtree2) {
             (Subtree::Leaf(val_ref1), Subtree::Leaf(val_ref2)) => {
-                let val1 = val_ref1.clone_or_load_value(loader).unwrap();
-                let val2 = val_ref2.clone_or_load_value(loader).unwrap();
+                let val1 = val_ref1.clone_or_load_value(loader1).unwrap();
+                let val2 = val_ref2.clone_or_load_value(loader2).unwrap();
                 assert_eq!(val1, val2, "{}: leaf value", context);
             }
             (
@@ -1282,12 +1325,12 @@ mod tests {
                 Subtree::Node(height2, left_ref2, right_ref2),
             ) => {
                 assert_eq!(height1, height2);
-                let left1 = left_ref1.clone_or_load_value(loader).unwrap();
-                let right1 = right_ref1.clone_or_load_value(loader).unwrap();
-                let left2 = left_ref2.clone_or_load_value(loader).unwrap();
-                let right2 = right_ref2.clone_or_load_value(loader).unwrap();
-                assert_subtrees_eq(loader, &left1, &left2, context.clone());
-                assert_subtrees_eq(loader, &right1, &right2, context.clone());
+                let left1 = left_ref1.clone_or_load_value(loader1).unwrap();
+                let right1 = right_ref1.clone_or_load_value(loader1).unwrap();
+                let left2 = left_ref2.clone_or_load_value(loader2).unwrap();
+                let right2 = right_ref2.clone_or_load_value(loader2).unwrap();
+                assert_subtrees_eq(loader1, loader2, &left1, &left2, context.clone());
+                assert_subtrees_eq(loader1, loader2, &right1, &right2, context.clone());
             }
             (_, _) => {
                 panic!("subtrees not equal: {:?}, {:?}", subtree1, subtree2);

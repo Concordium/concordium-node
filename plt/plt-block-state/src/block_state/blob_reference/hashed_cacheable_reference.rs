@@ -337,6 +337,33 @@ mod tests {
         });
     }
 
+    /// Test migrate a value:
+    ///
+    /// * create value in source blob store
+    /// * migrate to new blob store
+    /// * load the new value from the new blob store
+    #[test]
+    fn test_migrate() {
+        let mut from_store = BlobStoreStub::default();
+        let mut to_store = BlobStoreStub::default();
+
+        // Create new value and store it in the source blob store
+        let val = TestRef::new(StoreSerialized(1u64));
+        blob_store::store_to_store(&mut from_store, &val);
+
+        // Migrate to destination blob store
+        let new_val = val.migrate(&from_store, &mut to_store).unwrap();
+        let val_ref = assert_matches!(&new_val.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
+            assert_eq!(*value, StoreSerialized(1));
+            *reference
+        });
+
+        // Store migrated reference and load it
+        let blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
+        let new_val2: TestRef = blob_store::load_from_store(&to_store, blob_loc).unwrap();
+        assert_eq!(new_val2.with_value(&to_store, |val| Ok(val.0)).unwrap(), 1);
+    }
+
     /// Test storing cached value.
     #[test]
     fn test_store_cached_value() {
@@ -607,11 +634,11 @@ mod tests {
         );
     }
 
+    type NestedTestRef = HashedCacheableRef<HashedCacheableRef<StoreSerialized<u64>>>;
+
     /// Test store, load and cache a reference with a nested reference.
     #[test]
     fn test_nested_reference_store_load_and_cache() {
-        type NestedTestRef = HashedCacheableRef<HashedCacheableRef<StoreSerialized<u64>>>;
-
         let mut store = BlobStoreStub::default();
         let val1 = HashedCacheableRef::new(HashedCacheableRef::new(StoreSerialized(1u64)));
 
@@ -642,5 +669,30 @@ mod tests {
             assert_eq!(*value, StoreSerialized(1));
             assert_eq!(*reference, val_nested_blob_ref);
         });
+    }
+
+    /// Test migrate a reference with a nested reference.
+    #[test]
+    fn test_nested_reference_migrate() {
+        let mut from_store = BlobStoreStub::default();
+        let mut to_store = BlobStoreStub::default();
+
+        // Create new value and store it in the source blob store
+        let val = HashedCacheableRef::new(HashedCacheableRef::new(StoreSerialized(1u64)));
+        blob_store::store_to_store(&mut from_store, &val);
+
+        // Migrate to destination blob store and store it
+        let new_val = val.migrate(&from_store, &mut to_store).unwrap();
+        let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
+
+        // Load migrated reference
+        let new_val2: NestedTestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
+        assert_eq!(
+            new_val2
+                .with_value(&to_store, |val_ref| val_ref
+                    .with_value(&to_store, |val| Ok(val.0)))
+                .unwrap(),
+            1
+        );
     }
 }
