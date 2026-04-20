@@ -457,6 +457,9 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
                         TokenUpdate{..} ->
                             onlyWithPLT $ handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
+                        MetaUpdate{..} ->
+                            -- 'MetaUpdate' is only supported from P11, where we have 'PLTStateV1'.
+                            onlyWithPLTV1 $ handleMetaUpdate (mkWTC TTMetaUpdate) muOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -483,6 +486,10 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
     onlyWithPLT c = case sSupportsPLT (accountVersion @(AccountVersionFor (MPV m))) of
         SFalse -> error "Operation unsupported at this protocol version."
         STrue -> c
+    onlyWithPLTV1 :: ((PltStateVersionFor (MPV m) ~ PLTStateV1) => a) -> a
+    onlyWithPLTV1 c = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+        SPLTStateV1 -> c
+        _ -> error "Operation unsupported at this protocol version."
     cHasSponsorDetails = (sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m))))
 
 handleTransferWithSchedule ::
@@ -2749,6 +2756,19 @@ handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations =
                         }
             (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenUpdateTransaction tc parameter
             return ((events <$ res, energyUsed), isLeft res)
+
+-- | Handler for a meta update transaction.
+handleMetaUpdate ::
+    forall m.
+    ( PltStateVersionFor (MPV m) ~ PLTStateV1,
+      BlockStateOperations m
+    ) =>
+    WithDepositContext m ->
+    -- | Operations.
+    MetaUpdateParameter ->
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+handleMetaUpdate depositContext tokenOperations =
+    RustScheduler.executeTransaction depositContext (MetaUpdate tokenOperations)
 
 -- * Chain updates
 

@@ -6,3 +6,4 @@ pub mod blob_store_callbacks;
 mod block_state;
 pub mod block_state_callbacks;
 pub mod memory;
+pub mod status;

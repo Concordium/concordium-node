@@ -34,10 +34,18 @@ pub struct AccountNotFoundByAddressError(pub AccountAddress);
 #[error("Account with index {0} does not exist")]
 pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
-/// Unrecoverable error accessing the block state. This is generally an error that
+/// Unrecoverable failure accessing the block state. This is generally an error that
 /// should never happen and is unrecoverable.
+///
+/// If returned when **applying a block item to the block state**,
+/// it may leave the block state in an indeterminate state. E.g. can parts of the effects
+/// of processing the block item be applied, an others not. Hence, the resulting block
+/// state should not be used.
+///
+/// If returned when **querying the block state**, the query itself fails,
+/// but the block state is still in a valid state.
 #[derive(Debug, thiserror::Error)]
-pub enum BlockStateError {
+pub enum BlockStateFailure {
     /// An error happened when decoding a block state value from the blob store.
     #[error("Error decoding state from blob store: {0}")]
     BlobStoreDecode(String),
@@ -47,7 +55,7 @@ pub enum BlockStateError {
     Invariant(String),
 }
 
-pub type BlockStateResult<T> = Result<T, BlockStateError>;
+pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {

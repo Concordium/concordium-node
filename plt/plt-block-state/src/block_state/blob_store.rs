@@ -5,7 +5,7 @@
 //! The module also defines the traits [`Loadable`] and [`Storable`] that block state components
 //! must implement to be storable in the blob store.
 
-use crate::block_state_interface::{BlockStateError, BlockStateResult};
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common;
 use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};
 use std::any;
@@ -46,7 +46,7 @@ pub trait Loadable: Sized {
     fn load_from_buffer(
         buffer: impl Read,
         loader: &impl BlobStoreLoad,
-    ) -> Result<Self, BlockStateError>;
+    ) -> Result<Self, BlockStateFailure>;
 }
 
 /// A trait implemented by types that can be stored to a [blob store](BlobStoreStore).
@@ -106,7 +106,7 @@ pub fn load_from_store<T: Loadable>(
     let mut bytes_slice = bytes.as_slice();
     let value = T::load_from_buffer(&mut bytes_slice, loader)?;
     if !bytes_slice.is_empty() {
-        return Err(BlockStateError::BlobStoreDecode(format!(
+        return Err(BlockStateFailure::BlobStoreDecode(format!(
             "Bytes remaining after loading value of type {} from blob store",
             any::type_name::<T>()
         )));
@@ -130,14 +130,14 @@ pub fn store_to_store(
 /// Extension trait for [`common::ParseResult`] that allows mapping error type
 /// to [`DecodeError`].
 pub trait ParseResultExt<T> {
-    /// Map the error type of [`common::ParseResult`] to [`BlockStateError`]
-    fn map_parse_err_to_block_state_err(self) -> Result<T, BlockStateError>;
+    /// Map the error type of [`common::ParseResult`] to [`BlockStateFailure`]
+    fn map_parse_err_to_block_state_err(self) -> Result<T, BlockStateFailure>;
 }
 
 impl<T> ParseResultExt<T> for common::ParseResult<T> {
-    fn map_parse_err_to_block_state_err(self) -> Result<T, BlockStateError> {
+    fn map_parse_err_to_block_state_err(self) -> Result<T, BlockStateFailure> {
         self.map_err(|err| {
-            BlockStateError::BlobStoreDecode(format!(
+            BlockStateFailure::BlobStoreDecode(format!(
                 "Error parsing bytes for value of type {} loaded from blob store: {}",
                 any::type_name::<T>(),
                 err
