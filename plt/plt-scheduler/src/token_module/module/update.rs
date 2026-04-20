@@ -442,7 +442,9 @@ fn check_authorized<BSO: BlockStateOperations>(
 ) -> Result<(), TokenUpdateErrorInternal> {
     if kernel.support_rbac() {
         // Ensure the sender holds the specified role.
-        let sender_index = kernel.account_index(transaction_execution.sender_account());
+        let sender_index = kernel
+            .block_state
+            .account_index(transaction_execution.sender_account());
         let account_roles = key_value_state::get_account_roles(kernel, sender_index)?;
         if !account_roles.has(required_role) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -452,7 +454,9 @@ fn check_authorized<BSO: BlockStateOperations>(
         }
     } else {
         // Ensure the sender is the governance account.
-        let sender_index = kernel.account_index(transaction_execution.sender_account());
+        let sender_index = kernel
+            .block_state
+            .account_index(transaction_execution.sender_account());
         let gov_index = key_value_state::get_governance_account_index(kernel)?;
         if gov_index != sender_index {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -476,16 +480,19 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
     check_not_paused(kernel)?;
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
-    let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
+    let receiver = kernel
+        .block_state
+        .account_by_address(&transfer_operation.recipient.address)?;
 
     if key_value_state::has_allow_list(kernel) {
-        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(sender)) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.block_state.account_index(sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender not in allow list",
             });
         }
-        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&receiver)) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.block_state.account_index(&receiver))
+        {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient not in allow list",
@@ -494,13 +501,13 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
     }
 
     if key_value_state::has_deny_list(kernel) {
-        if key_value_state::get_deny_list_for(kernel, kernel.account_index(sender)) {
+        if key_value_state::get_deny_list_for(kernel, kernel.block_state.account_index(sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender in deny list",
             });
         }
-        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&receiver)) {
+        if key_value_state::get_deny_list_for(kernel, kernel.block_state.account_index(&receiver)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient in deny list",
@@ -610,10 +617,12 @@ fn execute_add_allow_list<BSO: BlockStateOperations>(
         kernel,
         TokenAdminRole::UpdateAllowList,
     )?;
-    let account = kernel.account_by_address(&list_operation.target.address)?;
+    let account = kernel
+        .block_state
+        .account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
-    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), true);
+    key_value_state::set_allow_list_for(kernel, kernel.block_state.account_index(&account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -640,10 +649,12 @@ fn execute_add_deny_list<BSO: BlockStateOperations>(
         TokenAdminRole::UpdateDenyList,
     )?;
 
-    let account = kernel.account_by_address(&list_operation.target.address)?;
+    let account = kernel
+        .block_state
+        .account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
-    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), true);
+    key_value_state::set_deny_list_for(kernel, kernel.block_state.account_index(&account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -670,10 +681,12 @@ fn execute_remove_allow_list<BSO: BlockStateOperations>(
         TokenAdminRole::UpdateAllowList,
     )?;
 
-    let account = kernel.account_by_address(&list_operation.target.address)?;
+    let account = kernel
+        .block_state
+        .account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
-    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), false);
+    key_value_state::set_allow_list_for(kernel, kernel.block_state.account_index(&account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -700,10 +713,12 @@ fn execute_remove_deny_list<BSO: BlockStateOperations>(
         TokenAdminRole::UpdateDenyList,
     )?;
 
-    let account = kernel.account_by_address(&list_operation.target.address)?;
+    let account = kernel
+        .block_state
+        .account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
-    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), false);
+    key_value_state::set_deny_list_for(kernel, kernel.block_state.account_index(&account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -748,10 +763,12 @@ fn execute_assign_admin_roles<BSO: BlockStateOperations>(
         TokenAdminRole::UpdateAdminRoles,
     )?;
     check_roles_supported(kernel, &operation.roles)?;
-    let account = kernel.account_by_address(&operation.account.address)?;
+    let account = kernel
+        .block_state
+        .account_by_address(&operation.account.address)?;
     key_value_state::assign_account_roles(
         kernel,
-        kernel.account_index(&account),
+        kernel.block_state.account_index(&account),
         &operation.roles,
     )?;
     let event = TokenModuleEvent::AssignAdminRoles(TokenUpdateAdminRolesEventDetails {
@@ -774,9 +791,14 @@ fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
         TokenAdminRole::UpdateAdminRoles,
     )?;
     check_roles_supported(kernel, &operation.roles)?;
-    let account = kernel.account_by_address(&operation.account.address)?;
-    let account_index = kernel.account_index(&account);
-    if account_index == kernel.account_index(transaction_execution.sender_account())
+    let account = kernel
+        .block_state
+        .account_by_address(&operation.account.address)?;
+    let account_index = kernel.block_state.account_index(&account);
+    if account_index
+        == kernel
+            .block_state
+            .account_index(transaction_execution.sender_account())
         && operation.roles.contains(&TokenAdminRole::UpdateAdminRoles)
     {
         return Err(TokenUpdateErrorInternal::OperationNotPermitted {

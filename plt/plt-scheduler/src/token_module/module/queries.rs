@@ -37,6 +37,7 @@ fn query_token_module_state_impl<BSQ: BlockStateQuery>(
 
     let governance_account_index = key_value_state::get_governance_account_index(kernel)?;
     let governance_account = kernel
+        .block_state
         .account_by_index(governance_account_index)
         .map_err(|_| {
             TokenStateInvariantError(format!(

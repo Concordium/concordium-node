@@ -1,17 +1,14 @@
 //! Implementation of the protocol-level token kernel.
 
 use crate::token_module::token_kernel_interface::{
-    HasTokenState, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
-    TokenStateInvariantError, TokenTransferError,
+    HasTokenState, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
+    TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
-use concordium_base::base::{AccountIndex, ProtocolVersion};
+use concordium_base::base::ProtocolVersion;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{
-    AccountWithCanonicalAddress, TokenConfiguration, TokenStateKey, TokenStateValue,
-};
-use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::block_state::types::{TokenConfiguration, TokenStateKey, TokenStateValue};
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
@@ -26,15 +23,6 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     pub block_state: &'a BSQ,
     /// Token module state for the token in context
     pub token_module_state: &'a BSQ::TokenKeyValueState,
-}
-
-impl<BSQ: BlockStateQuery> TokenKernelQueriesImpl<'_, BSQ> {
-    pub fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<BSQ::Account>, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index)
-    }
 }
 
 impl<BSQ: BlockStateQuery> HasTokenState for TokenKernelQueriesImpl<'_, BSQ> {
@@ -69,17 +57,6 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<BSO: BlockStateOperations> TokenKernelOperationsImpl<'_, BSO> {
-    pub fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<BSO::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
-    }
-
-    pub fn account_index(&self, account: &BSO::Account) -> AccountIndex {
-        self.block_state.account_index(account)
-    }
-
     pub fn account_token_balance(&self, account: &BSO::Account) -> RawTokenAmount {
         self.block_state.account_token_balance(account, self.token)
     }

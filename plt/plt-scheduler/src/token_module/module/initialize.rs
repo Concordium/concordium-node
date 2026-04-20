@@ -93,8 +93,10 @@ fn initialize_token_impl<BSO: BlockStateOperations>(
         enabled_roles.push(TokenAdminRole::Burn);
     }
 
-    let governance_account = kernel.account_by_address(&cbor_governance_account.address)?;
-    let governance_account_index = kernel.account_index(&governance_account);
+    let governance_account = kernel
+        .block_state
+        .account_by_address(&cbor_governance_account.address)?;
+    let governance_account_index = kernel.block_state.account_index(&governance_account);
     kernel.set_module_state(
         key_value_state::STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(common::to_bytes(&governance_account_index.index)),

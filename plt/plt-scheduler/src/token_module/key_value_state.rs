@@ -263,6 +263,7 @@ pub fn get_token_authorizations<BSQ: BlockStateQuery>(
                 ))
             })?;
         let account = kernel
+            .block_state
             .account_by_index(account_index)
             .map_err(|err| {
                 TokenStateInvariantError(format!(
