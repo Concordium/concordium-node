@@ -10,7 +10,7 @@ use concordium_base::updates::CreatePlt;
 /// Block item event. This is an observable effect on the token state.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Execution.Event`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BlockItemEvent {
     /// An event emitted by the token module.
     TokenModule(EncodedTokenModuleEvent),
@@ -138,7 +138,7 @@ impl Serial for TokenBurnEvent {
 }
 
 /// A new token was created.
-#[derive(Debug, Clone, Serial)]
+#[derive(Debug, Clone, PartialEq, Serial)]
 pub struct TokenCreateEvent {
     /// The update instruction payload for the token creation.
     pub payload: CreatePlt,
