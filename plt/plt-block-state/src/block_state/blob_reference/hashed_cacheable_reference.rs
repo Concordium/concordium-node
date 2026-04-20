@@ -353,14 +353,16 @@ mod tests {
 
         // Migrate to destination blob store
         let new_val = val.migrate(&from_store, &mut to_store).unwrap();
-        let val_ref = assert_matches!(&new_val.inner.read().repr, HashedCacheableRefRepr::Cache {reference,value} => {
-            assert_eq!(*value, StoreSerialized(1));
-            *reference
-        });
+        let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
 
-        // Store migrated reference and load it
-        let blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
-        let new_val2: TestRef = blob_store::load_from_store(&to_store, blob_loc).unwrap();
+        // Assert migrated reference
+        assert_matches!(&new_val.inner.read().repr, HashedCacheableRefRepr::Cache {value, ..} => {
+            assert_eq!(*value, StoreSerialized(1));
+        });
+        assert_eq!(new_val.with_value(&to_store, |val| Ok(val.0)).unwrap(), 1);
+
+        // Load migrate reference and assert
+        let new_val2: TestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
         assert_eq!(new_val2.with_value(&to_store, |val| Ok(val.0)).unwrap(), 1);
     }
 
@@ -681,11 +683,20 @@ mod tests {
         let val = HashedCacheableRef::new(HashedCacheableRef::new(StoreSerialized(1u64)));
         blob_store::store_to_store(&mut from_store, &val);
 
-        // Migrate to destination blob store and store it
+        // Migrate to destination blob store
         let new_val = val.migrate(&from_store, &mut to_store).unwrap();
         let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
 
-        // Load migrated reference
+        // Assert migrated reference
+        assert_eq!(
+            new_val
+                .with_value(&to_store, |val_ref| val_ref
+                    .with_value(&to_store, |val| Ok(val.0)))
+                .unwrap(),
+            1
+        );
+
+        // Load migrated reference and assert
         let new_val2: NestedTestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
         assert_eq!(
             new_val2
