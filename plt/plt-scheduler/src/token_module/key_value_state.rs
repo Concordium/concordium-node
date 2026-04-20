@@ -1,7 +1,10 @@
 //! Internal constants and utilities for token key-value state.
 
-use crate::roles::Roles;
-use crate::util;
+use super::roles::Roles;
+use super::util;
+use crate::token_module::token_kernel_interface::{
+    TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
+};
 use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
@@ -9,9 +12,6 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
-use plt_scheduler_interface::token_kernel_interface::{
-    TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
-};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Little-endian prefix used to distinguish module state keys.
