@@ -1,8 +1,7 @@
-use crate::token_kernel::TokenOperationContext;
-use crate::token_module::module::TokenAmountDecimalsMismatchError;
-use crate::token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
-    TokenStateInvariantError, TokenTransferError,
+use crate::token_context::TokenOperationContext;
+use crate::token_module::errors::{
+    InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
+    TokenBurnError, TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::{key_value_state, util};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
@@ -42,7 +41,7 @@ pub enum TokenUpdateError {
     StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
-/// Execute a token update transaction using the token kernel to
+/// Execute a token update transaction using the token context to
 /// update state and produce events.
 ///
 /// The caller must ensure to rollback state changes in case of
@@ -58,7 +57,7 @@ pub enum TokenUpdateError {
 ///    - Check that the recipient is valid.
 ///    - Check allow and deny list restrictions.
 ///    - Transfer the amount from the sender to the recipient, if the sender's balance is
-///      sufficient (checked by the kernel).
+///      sufficient (checked by the context).
 ///
 /// - For each list update operation:
 ///
@@ -76,7 +75,7 @@ pub enum TokenUpdateError {
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows minting.
 ///    - Mint the amount to the sender, if the resulting circulating supply is
-///      within representable range (checked by the kernel).
+///      within representable range (checked by the context).
 ///
 /// - For each burn operation:
 ///
@@ -86,7 +85,7 @@ pub enum TokenUpdateError {
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows burning.
 ///    - Burn the amount from the sender, if the sender's balance is
-///      sufficient (checked by the kernel).
+///      sufficient (checked by the context).
 ///
 /// - For each pause/unpause operation:
 ///
@@ -99,7 +98,7 @@ pub enum TokenUpdateError {
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
     let operations: Vec<TokenOperation> = util::cbor_decode(&token_operations).map_err(|err| {
@@ -111,12 +110,12 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
     })?;
 
     for (index, operation) in operations.into_iter().enumerate() {
-        execute_token_update_operation_at_index(transaction_execution, kernel, index, &operation)?;
+        execute_token_update_operation_at_index(transaction_execution, context, index, &operation)?;
     }
     Ok(())
 }
 
-/// Execute a token update operation using the token kernel to
+/// Execute a token update operation using the token context to
 /// update state and produce events.
 ///
 /// The caller must ensure to rollback state changes in case of
@@ -132,7 +131,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 ///    - Check that the recipient is valid.
 ///    - Check allow and deny list restrictions.
 ///    - Transfer the amount from the sender to the recipient, if the sender's balance is
-///      sufficient (checked by the kernel).
+///      sufficient (checked by the context).
 ///
 /// - For a list update operation:
 ///
@@ -150,7 +149,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows minting.
 ///    - Mint the amount to the sender, if the resulting circulating supply is
-///      within representable range (checked by the kernel).
+///      within representable range (checked by the context).
 ///
 /// - For a burn operation:
 ///
@@ -160,7 +159,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows burning.
 ///    - Burn the amount from the sender, if the sender's balance is
-///      sufficient (checked by the kernel).
+///      sufficient (checked by the context).
 ///
 /// - For a pause/unpause operation:
 ///
@@ -176,17 +175,17 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 /// # Arguments
 ///
 /// - `transaction_execution`: the transaction execution context
-/// - `kernel`: the token kernel operations interface
+/// - `context`: the token context operations interface
 /// - `index`: the index of the operation in the transaction, used for error reporting
 /// - `operation`: the token operation to execute
 pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     index: usize,
     operation: &TokenOperation,
 ) -> Result<(), TokenUpdateError> {
-    execute_token_update_operation(transaction_execution, kernel, operation).map_err(
-        |err| match err {
+    execute_token_update_operation(transaction_execution, context, operation).map_err(|err| {
+        match err {
             TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                 TokenUpdateError::TokenModuleReject(make_reject_reason(
                     TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
@@ -209,8 +208,14 @@ pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
                     TokenModuleRejectReason::TokenBalanceInsufficient(
                         TokenBalanceInsufficientRejectReason {
                             index: index as u64,
-                            available_balance: util::to_token_amount(kernel, err.available),
-                            required_balance: util::to_token_amount(kernel, err.required),
+                            available_balance: util::to_token_amount(
+                                context.token_configuration,
+                                err.available,
+                            ),
+                            required_balance: util::to_token_amount(
+                                context.token_configuration,
+                                err.required,
+                            ),
                         },
                     ),
                 ))
@@ -219,10 +224,16 @@ pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
                 TokenUpdateError::TokenModuleReject(make_reject_reason(
                     TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
                         index: index as u64,
-                        requested_amount: util::to_token_amount(kernel, err.requested_amount),
-                        current_supply: util::to_token_amount(kernel, err.current_supply),
+                        requested_amount: util::to_token_amount(
+                            context.token_configuration,
+                            err.requested_amount,
+                        ),
+                        current_supply: util::to_token_amount(
+                            context.token_configuration,
+                            err.current_supply,
+                        ),
                         max_representable_amount: util::to_token_amount(
-                            kernel,
+                            context.token_configuration,
                             err.max_representable_amount,
                         ),
                     }),
@@ -264,8 +275,8 @@ pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
                     ),
                 ))
             }
-        },
-    )
+        }
+    })
 }
 
 fn operation_name(operation: &TokenOperation) -> &'static str {
@@ -349,7 +360,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 
 fn execute_token_update_operation<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -364,41 +375,41 @@ fn execute_token_update_operation<BSO: BlockStateOperations>(
     // Execute operation
     match token_operation {
         TokenOperation::Transfer(transfer) => {
-            execute_token_transfer(transaction_execution, kernel, transfer)
+            execute_token_transfer(transaction_execution, context, transfer)
         }
-        TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, kernel, mint),
-        TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
-        TokenOperation::Pause(_) => execute_token_pause(transaction_execution, kernel),
-        TokenOperation::Unpause(_) => execute_token_unpause(transaction_execution, kernel),
+        TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, context, mint),
+        TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, context, burn),
+        TokenOperation::Pause(_) => execute_token_pause(transaction_execution, context),
+        TokenOperation::Unpause(_) => execute_token_unpause(transaction_execution, context),
         TokenOperation::AddAllowList(list_operation) => {
-            execute_add_allow_list(transaction_execution, kernel, list_operation)
+            execute_add_allow_list(transaction_execution, context, list_operation)
         }
         TokenOperation::RemoveAllowList(list_operation) => {
-            execute_remove_allow_list(transaction_execution, kernel, list_operation)
+            execute_remove_allow_list(transaction_execution, context, list_operation)
         }
         TokenOperation::AddDenyList(list_operation) => {
-            execute_add_deny_list(transaction_execution, kernel, list_operation)
+            execute_add_deny_list(transaction_execution, context, list_operation)
         }
         TokenOperation::RemoveDenyList(list_operation) => {
-            execute_remove_deny_list(transaction_execution, kernel, list_operation)
+            execute_remove_deny_list(transaction_execution, context, list_operation)
         }
         TokenOperation::AssignAdminRoles(operation) => {
-            if kernel.support_rbac() {
-                execute_assign_admin_roles(transaction_execution, kernel, operation)
+            if context.support_rbac() {
+                execute_assign_admin_roles(transaction_execution, context, operation)
             } else {
                 Err(WRONG_PROTOCOL_ERROR)
             }
         }
         TokenOperation::RevokeAdminRoles(operation) => {
-            if kernel.support_rbac() {
-                execute_revoke_admin_roles(transaction_execution, kernel, operation)
+            if context.support_rbac() {
+                execute_revoke_admin_roles(transaction_execution, context, operation)
             } else {
                 Err(WRONG_PROTOCOL_ERROR)
             }
         }
         TokenOperation::UpdateMetadata(operation) => {
-            if kernel.support_updating_metadata() {
-                execute_update_metadata(transaction_execution, kernel, operation)
+            if context.support_updating_metadata() {
+                execute_update_metadata(transaction_execution, context, operation)
             } else {
                 Err(WRONG_PROTOCOL_ERROR)
             }
@@ -426,9 +437,9 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
 }
 
 fn check_not_paused<BSO: BlockStateOperations>(
-    kernel: &TokenOperationContext<'_, BSO>,
+    context: &TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if key_value_state::is_paused(kernel) {
+    if key_value_state::is_paused(context) {
         return Err(TokenUpdateErrorInternal::Paused);
     }
     Ok(())
@@ -437,15 +448,15 @@ fn check_not_paused<BSO: BlockStateOperations>(
 /// Ensure the sender account from the transaction context is authorized to perform the operation.
 fn check_authorized<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &TokenOperationContext<'_, BSO>,
+    context: &TokenOperationContext<'_, BSO>,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if kernel.support_rbac() {
+    if context.support_rbac() {
         // Ensure the sender holds the specified role.
-        let sender_index = kernel
+        let sender_index = context
             .block_state
             .account_index(transaction_execution.sender_account());
-        let account_roles = key_value_state::get_account_roles(kernel, sender_index)?;
+        let account_roles = key_value_state::get_account_roles(context, sender_index)?;
         if !account_roles.has(required_role) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transaction_execution.sender_account_address()),
@@ -454,10 +465,10 @@ fn check_authorized<BSO: BlockStateOperations>(
         }
     } else {
         // Ensure the sender is the governance account.
-        let sender_index = kernel
+        let sender_index = context
             .block_state
             .account_index(transaction_execution.sender_account());
-        let gov_index = key_value_state::get_governance_account_index(kernel)?;
+        let gov_index = key_value_state::get_governance_account_index(context)?;
         if gov_index != sender_index {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transaction_execution.sender_account_address()),
@@ -470,29 +481,33 @@ fn check_authorized<BSO: BlockStateOperations>(
 
 fn execute_token_transfer<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
-    let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
+    let raw_amount =
+        util::to_raw_token_amount(context.token_configuration, transfer_operation.amount)?;
 
     // operation execution
-    check_not_paused(kernel)?;
+    check_not_paused(context)?;
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
-    let receiver = kernel
+    let receiver = context
         .block_state
         .account_by_address(&transfer_operation.recipient.address)?;
 
-    if key_value_state::is_allow_list_enabled(kernel) {
-        if !key_value_state::get_allow_list_for(kernel, kernel.block_state.account_index(sender)) {
+    if key_value_state::has_allow_list(context) {
+        if !key_value_state::get_allow_list_for(context, context.block_state.account_index(sender))
+        {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender not in allow list",
             });
         }
-        if !key_value_state::get_allow_list_for(kernel, kernel.block_state.account_index(&receiver))
-        {
+        if !key_value_state::get_allow_list_for(
+            context,
+            context.block_state.account_index(&receiver),
+        ) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient not in allow list",
@@ -500,14 +515,15 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
         }
     }
 
-    if key_value_state::has_deny_list(kernel) {
-        if key_value_state::get_deny_list_for(kernel, kernel.block_state.account_index(sender)) {
+    if key_value_state::has_deny_list(context) {
+        if key_value_state::get_deny_list_for(context, context.block_state.account_index(sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender in deny list",
             });
         }
-        if key_value_state::get_deny_list_for(kernel, kernel.block_state.account_index(&receiver)) {
+        if key_value_state::get_deny_list_for(context, context.block_state.account_index(&receiver))
+        {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient in deny list",
@@ -515,7 +531,7 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
         }
     }
 
-    kernel.transfer(
+    context.transfer(
         sender,
         sender_address,
         &receiver,
@@ -528,22 +544,22 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
 
 fn execute_token_mint<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
-    let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
+    let raw_amount = util::to_raw_token_amount(context.token_configuration, mint_operation.amount)?;
 
     // operation execution
-    if !key_value_state::is_mintable(kernel) {
+    if !key_value_state::is_mintable(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     };
-    check_authorized(transaction_execution, kernel, TokenAdminRole::Mint)?;
-    check_not_paused(kernel)?;
+    check_authorized(transaction_execution, context, TokenAdminRole::Mint)?;
+    check_not_paused(context)?;
 
-    kernel.mint(
+    context.mint(
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
@@ -553,22 +569,22 @@ fn execute_token_mint<BSO: BlockStateOperations>(
 
 fn execute_token_burn<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
-    let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
+    let raw_amount = util::to_raw_token_amount(context.token_configuration, burn_operation.amount)?;
 
     // operation execution
-    if !key_value_state::is_burnable(kernel) {
+    if !key_value_state::is_burnable(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
-    check_authorized(transaction_execution, kernel, TokenAdminRole::Burn)?;
-    check_not_paused(kernel)?;
+    check_authorized(transaction_execution, context, TokenAdminRole::Burn)?;
+    check_not_paused(context)?;
 
-    kernel.burn(
+    context.burn(
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
@@ -578,168 +594,180 @@ fn execute_token_burn<BSO: BlockStateOperations>(
 
 fn execute_token_pause<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
+    check_authorized(transaction_execution, context, TokenAdminRole::Pause)?;
 
-    key_value_state::set_paused(kernel, true);
+    key_value_state::set_paused(context, true);
 
     let (event_type, details) = TokenModuleEvent::Pause(TokenPauseEventDetails {}).encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }
 
 fn execute_token_unpause<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
+    check_authorized(transaction_execution, context, TokenAdminRole::Pause)?;
 
-    key_value_state::set_paused(kernel, false);
+    key_value_state::set_paused(context, false);
 
     let (event_type, details) = TokenModuleEvent::Unpause(TokenPauseEventDetails {}).encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }
 
 fn execute_add_allow_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if !key_value_state::is_allow_list_enabled(kernel) {
+    if !key_value_state::has_allow_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateAllowList,
     )?;
-    let account = kernel
+    let account = context
         .block_state
         .account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_allow_list_for(kernel, kernel.block_state.account_index(&account), true);
+    context
+        .block_state
+        .touch_token_account(context.token, &account);
+    key_value_state::set_allow_list_for(context, context.block_state.account_index(&account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
     };
     let (event_type, details) = TokenModuleEvent::AddAllowList(event_details).encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
 
     Ok(())
 }
 
 fn execute_add_deny_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if !key_value_state::has_deny_list(kernel) {
+    if !key_value_state::has_deny_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateDenyList,
     )?;
 
-    let account = kernel
+    let account = context
         .block_state
         .account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_deny_list_for(kernel, kernel.block_state.account_index(&account), true);
+    context
+        .block_state
+        .touch_token_account(context.token, &account);
+    key_value_state::set_deny_list_for(context, context.block_state.account_index(&account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
     };
     let (event_type, details) = TokenModuleEvent::AddDenyList(event_details).encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
 
     Ok(())
 }
 
 fn execute_remove_allow_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if !key_value_state::is_allow_list_enabled(kernel) {
+    if !key_value_state::has_allow_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateAllowList,
     )?;
 
-    let account = kernel
+    let account = context
         .block_state
         .account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_allow_list_for(kernel, kernel.block_state.account_index(&account), false);
+    context
+        .block_state
+        .touch_token_account(context.token, &account);
+    key_value_state::set_allow_list_for(
+        context,
+        context.block_state.account_index(&account),
+        false,
+    );
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
     };
     let (event_type, details) = TokenModuleEvent::RemoveAllowList(event_details).encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
 
     Ok(())
 }
 
 fn execute_remove_deny_list<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if !key_value_state::has_deny_list(kernel) {
+    if !key_value_state::has_deny_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
     }
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateDenyList,
     )?;
 
-    let account = kernel
+    let account = context
         .block_state
         .account_by_address(&list_operation.target.address)?;
 
-    kernel.touch_account(&account);
-    key_value_state::set_deny_list_for(kernel, kernel.block_state.account_index(&account), false);
+    context
+        .block_state
+        .touch_token_account(context.token, &account);
+    key_value_state::set_deny_list_for(context, context.block_state.account_index(&account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
     };
     let (event_type, details) = TokenModuleEvent::RemoveDenyList(event_details).encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
 
     Ok(())
 }
 
 fn check_roles_supported<BSO: BlockStateOperations>(
-    kernel: &TokenOperationContext<'_, BSO>,
+    context: &TokenOperationContext<'_, BSO>,
     roles: &[TokenAdminRole],
 ) -> Result<(), TokenUpdateErrorInternal> {
     for role in roles {
         let supported = match role {
             TokenAdminRole::UpdateAdminRoles => true,
-            TokenAdminRole::Mint => key_value_state::is_mintable(kernel),
-            TokenAdminRole::Burn => key_value_state::is_burnable(kernel),
-            TokenAdminRole::UpdateAllowList => key_value_state::is_allow_list_enabled(kernel),
-            TokenAdminRole::UpdateDenyList => key_value_state::has_deny_list(kernel),
+            TokenAdminRole::Mint => key_value_state::is_mintable(context),
+            TokenAdminRole::Burn => key_value_state::is_burnable(context),
+            TokenAdminRole::UpdateAllowList => key_value_state::has_allow_list(context),
+            TokenAdminRole::UpdateDenyList => key_value_state::has_deny_list(context),
             TokenAdminRole::Pause => true,
             TokenAdminRole::UpdateMetadata => true,
         };
@@ -754,21 +782,21 @@ fn check_roles_supported<BSO: BlockStateOperations>(
 
 fn execute_assign_admin_roles<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateAdminRoles,
     )?;
-    check_roles_supported(kernel, &operation.roles)?;
-    let account = kernel
+    check_roles_supported(context, &operation.roles)?;
+    let account = context
         .block_state
         .account_by_address(&operation.account.address)?;
     key_value_state::assign_account_roles(
-        kernel,
-        kernel.block_state.account_index(&account),
+        context,
+        context.block_state.account_index(&account),
         &operation.roles,
     )?;
     let event = TokenModuleEvent::AssignAdminRoles(TokenUpdateAdminRolesEventDetails {
@@ -776,27 +804,27 @@ fn execute_assign_admin_roles<BSO: BlockStateOperations>(
         account: operation.account.clone(),
     });
     let (event_type, details) = event.encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }
 
 fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateAdminRoles,
     )?;
-    check_roles_supported(kernel, &operation.roles)?;
-    let account = kernel
+    check_roles_supported(context, &operation.roles)?;
+    let account = context
         .block_state
         .account_by_address(&operation.account.address)?;
-    let account_index = kernel.block_state.account_index(&account);
+    let account_index = context.block_state.account_index(&account);
     if account_index
-        == kernel
+        == context
             .block_state
             .account_index(transaction_execution.sender_account())
         && operation.roles.contains(&TokenAdminRole::UpdateAdminRoles)
@@ -806,19 +834,19 @@ fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
             reason: "Sender not allowed to remove own update-admin-role role",
         });
     }
-    key_value_state::revoke_account_roles(kernel, account_index, &operation.roles)?;
+    key_value_state::revoke_account_roles(context, account_index, &operation.roles)?;
     let event = TokenModuleEvent::RevokeAdminRoles(TokenUpdateAdminRolesEventDetails {
         roles: operation.roles.clone(),
         account: operation.account.clone(),
     });
     let (event_type, details) = event.encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }
 
 fn execute_update_metadata<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
-    kernel: &mut TokenOperationContext<'_, BSO>,
+    context: &mut TokenOperationContext<'_, BSO>,
     metadata_url: &MetadataUrl,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if !metadata_url.additional.is_empty() {
@@ -828,14 +856,14 @@ fn execute_update_metadata<BSO: BlockStateOperations>(
     }
     check_authorized(
         transaction_execution,
-        kernel,
+        context,
         TokenAdminRole::UpdateMetadata,
     )?;
-    key_value_state::set_metadata_url(kernel, metadata_url);
+    key_value_state::set_metadata_url(context, metadata_url);
     let event = TokenModuleEvent::UpdateMetadata(TokenUpdateMetadataEventDetails {
         metadata_url: metadata_url.clone(),
     });
     let (event_type, details) = event.encode_event();
-    kernel.log_token_event(event_type.to_type_discriminator(), details);
+    context.log_token_event(event_type.to_type_discriminator(), details);
     Ok(())
 }

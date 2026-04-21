@@ -1,6 +1,6 @@
-//! Implementation of the protocol-level token kernel.
+//! Context for running queries and operations on protocol-level tokens.
 
-use crate::token_module::token_kernel_interface::{
+use crate::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
     TokenStateInvariantError, TokenTransferError,
 };
@@ -8,7 +8,7 @@ use concordium_base::base::ProtocolVersion;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::TokenConfiguration;
+use plt_block_state::block_state::types::{TokenConfiguration, TokenStateKey, TokenStateValue};
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
@@ -42,36 +42,6 @@ pub struct TokenOperationContext<'a, BSQ: BlockStateQuery> {
 }
 
 impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
-    /// Read the token balance of an account for the token being invoked.
-    pub fn account_token_balance(&self, account: &BSO::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
-    }
-
-    /// Read the decimals of the token being invoked.
-    pub fn decimals(&self) -> u8 {
-        self.token_configuration.decimals
-    }
-
-    /// Whether the protocol version of the block supports RBAC token feature.
-    pub fn support_rbac(&self) -> bool {
-        self.block_state.protocol_version() >= ProtocolVersion::P11
-    }
-
-    /// Whether the protocol version of the block supports updating the token metadata.
-    pub fn support_updating_metadata(&self) -> bool {
-        self.block_state.protocol_version() >= ProtocolVersion::P11
-    }
-
-    /// Initialize the balance of the given account to zero if it didn't have a balance before.
-    /// It has the observable effect that the token is then returned when querying the tokens
-    /// for an account. Should be called if the token module account state is set,
-    /// in order to make sure the token is returned when querying token account info.
-    ///
-    /// If the account already has a balance for the token in context, the operation has no effect.
-    pub fn touch_account(&mut self, account: &BSO::Account) {
-        self.block_state.touch_token_account(self.token, account);
-    }
-
     /// Mint a specified amount and deposit it in the account.
     ///
     /// # Events
@@ -150,7 +120,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
                 RawTokenAmountDelta::Subtract(amount),
             )
             .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: self.account_token_balance(account),
+                available: self.block_state.account_token_balance(account, self.token),
                 required: amount,
             })?;
 
@@ -203,7 +173,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
             .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: self.account_token_balance(from),
+                available: self.block_state.account_token_balance(from, self.token),
                 required: amount,
             })?;
 
@@ -233,6 +203,13 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         Ok(())
     }
 
+    /// Set or clear a value in the token key-value state at the corresponding key.
+    pub fn update_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
+        *self.token_module_state_dirty = true;
+        self.block_state
+            .update_token_state_value(self.token_module_state, &key, value);
+    }
+
     /// Log a token module event with the specified type and details.
     ///
     /// # Events
@@ -249,5 +226,15 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
                 event_type,
                 details,
             }))
+    }
+
+    /// Whether the protocol version of the block supports RBAC token feature.
+    pub fn support_rbac(&self) -> bool {
+        self.block_state.protocol_version() >= ProtocolVersion::P11
+    }
+
+    /// Whether the protocol version of the block supports updating the token metadata.
+    pub fn support_updating_metadata(&self) -> bool {
+        self.block_state.protocol_version() >= ProtocolVersion::P11
     }
 }

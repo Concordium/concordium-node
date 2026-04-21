@@ -1,6 +1,6 @@
-use crate::token_kernel::TokenQueryContext;
+use crate::token_context::TokenQueryContext;
+use crate::token_module::errors::TokenStateInvariantError;
 use crate::token_module::key_value_state;
-use crate::token_module::token_kernel_interface::TokenStateInvariantError;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -17,26 +17,26 @@ pub enum QueryTokenModuleError {
 
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<BSQ: BlockStateQuery>(
-    kernel: &TokenQueryContext<'_, BSQ>,
+    context: &TokenQueryContext<'_, BSQ>,
 ) -> Result<RawCbor, QueryTokenModuleError> {
-    let state = query_token_module_state_impl(kernel)?;
+    let state = query_token_module_state_impl(context)?;
 
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
 fn query_token_module_state_impl<BSQ: BlockStateQuery>(
-    kernel: &TokenQueryContext<'_, BSQ>,
+    context: &TokenQueryContext<'_, BSQ>,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
-    let name = key_value_state::get_token_name(kernel)?;
-    let metadata = key_value_state::get_metadata(kernel)?;
-    let allow_list = key_value_state::is_allow_list_enabled(kernel);
-    let deny_list = key_value_state::has_deny_list(kernel);
-    let mintable = key_value_state::is_mintable(kernel);
-    let burnable = key_value_state::is_burnable(kernel);
-    let paused = key_value_state::is_paused(kernel);
+    let name = key_value_state::get_token_name(context)?;
+    let metadata = key_value_state::get_metadata(context)?;
+    let allow_list = key_value_state::has_allow_list(context);
+    let deny_list = key_value_state::has_deny_list(context);
+    let mintable = key_value_state::is_mintable(context);
+    let burnable = key_value_state::is_burnable(context);
+    let paused = key_value_state::is_paused(context);
 
-    let governance_account_index = key_value_state::get_governance_account_index(kernel)?;
-    let governance_account = kernel
+    let governance_account_index = key_value_state::get_governance_account_index(context)?;
+    let governance_account = context
         .block_state
         .account_by_index(governance_account_index)
         .map_err(|_| {
@@ -64,26 +64,26 @@ fn query_token_module_state_impl<BSQ: BlockStateQuery>(
 
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<BSQ: BlockStateQuery>(
-    kernel: &TokenQueryContext<'_, BSQ>,
+    context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
 ) -> RawCbor {
-    let state = query_token_module_account_state_impl(kernel, account);
+    let state = query_token_module_account_state_impl(context, account);
     RawCbor::from(cbor::cbor_encode(&state))
 }
 
 fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
-    kernel: &TokenQueryContext<'_, BSQ>,
+    context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
 ) -> TokenModuleAccountState {
-    let has_allow_list = key_value_state::is_allow_list_enabled(kernel);
+    let has_allow_list = key_value_state::has_allow_list(context);
     let allow_list = if has_allow_list {
-        key_value_state::get_allow_list_for(kernel, account).into()
+        key_value_state::get_allow_list_for(context, account).into()
     } else {
         None
     };
-    let has_deny_list = key_value_state::has_deny_list(kernel);
+    let has_deny_list = key_value_state::has_deny_list(context);
     let deny_list = if has_deny_list {
-        key_value_state::get_deny_list_for(kernel, account).into()
+        key_value_state::get_deny_list_for(context, account).into()
     } else {
         None
     };
@@ -96,9 +96,9 @@ fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
 
 /// Get authorization roles and assigned accounts for the token.
 pub fn query_token_authorizations<BSQ: BlockStateQuery>(
-    kernel: &TokenQueryContext<'_, BSQ>,
+    context: &TokenQueryContext<'_, BSQ>,
 ) -> Result<RawCbor, QueryTokenModuleError> {
     Ok(RawCbor::from(cbor::cbor_encode(
-        &key_value_state::get_token_authorizations(kernel)?,
+        &key_value_state::get_token_authorizations(context)?,
     )))
 }

@@ -1,6 +1,6 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::token_kernel::TokenQueryContext;
+use crate::token_context::TokenQueryContext;
 use crate::token_module;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
@@ -40,12 +40,12 @@ pub fn query_token_info(
 
     let token_module_state = block_state.mutable_token_key_value_state(&token);
 
-    let kernel = TokenQueryContext {
+    let context = TokenQueryContext {
         block_state,
         token_module_state: &token_module_state,
     };
 
-    let module_state = token_module::query_token_module_state(&kernel)?;
+    let module_state = token_module::query_token_module_state(&context)?;
 
     let token_state = TokenState {
         token_module_ref: token_configuration.module_ref,
@@ -78,12 +78,12 @@ where
 
             let token_module_state = block_state.mutable_token_key_value_state(&token);
 
-            let kernel = TokenQueryContext {
+            let context = TokenQueryContext {
                 block_state,
                 token_module_state: &token_module_state,
             };
             let module_state = token_module::query_token_module_account_state(
-                &kernel,
+                &context,
                 block_state.account_index(&account),
             );
 
@@ -112,11 +112,11 @@ pub fn query_token_authorizations(
 ) -> Result<TokenAuthorizations, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
     let token_module_state = block_state.mutable_token_key_value_state(&token);
-    let kernel = TokenQueryContext {
+    let context = TokenQueryContext {
         block_state,
         token_module_state: &token_module_state,
     };
-    let details = token_module::query_token_authorizations(&kernel)?;
+    let details = token_module::query_token_authorizations(&context)?;
     let token_configuration = block_state.token_configuration(&token);
     Ok(TokenAuthorizations {
         token_id: token_configuration.token_id,
