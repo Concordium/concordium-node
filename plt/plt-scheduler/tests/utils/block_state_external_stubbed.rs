@@ -34,15 +34,15 @@ use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
-type ExecutionTimePltBlockStateWithExternalStateStubbed =
+type ExecutionTimeBlockStateWithExternalStubbed =
     ExecutionTimeBlockState<MutableBlockState, UnreachableBlobStore, ExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
+type Token = <ExecutionTimeBlockStateWithExternalStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
 /// state is implemented by a stub.
 #[derive(Debug)]
 pub struct BlockStateWithExternalStateStubbed {
-    block_state: ExecutionTimePltBlockStateWithExternalStateStubbed,
+    block_state: ExecutionTimeBlockStateWithExternalStubbed,
 }
 
 /// Stubbed block state representing the Haskell maintained part of the block state.
@@ -93,12 +93,12 @@ impl BlockStateWithExternalStateStubbed {
     }
 
     /// Access to the underlying block state.
-    pub fn state(&self) -> &ExecutionTimePltBlockStateWithExternalStateStubbed {
+    pub fn state(&self) -> &ExecutionTimeBlockStateWithExternalStubbed {
         &self.block_state
     }
 
     /// Mutable access to the underlying block state.
-    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithExternalStateStubbed {
+    pub fn state_mut(&mut self) -> &mut ExecutionTimeBlockStateWithExternalStubbed {
         &mut self.block_state
     }
 
