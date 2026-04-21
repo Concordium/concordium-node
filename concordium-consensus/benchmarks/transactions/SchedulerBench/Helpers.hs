@@ -60,6 +60,27 @@ getResults = map $ Bifunctor.second Types.tsResult
 simpleTransferCost :: Types.Energy
 simpleTransferCost = Cost.baseCost (Types.transactionHeaderSize + 41) 1 + Cost.simpleTransferCost
 
+-- | Call a function for each protocol version, returning a list of results.
+--  Notice the return type for the function must be independent of the protocol version.
+--
+--  This is used to run a test against every protocol version.
+forEveryProtocolVersion ::
+    (forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> a) ->
+    [a]
+forEveryProtocolVersion check =
+    [ check Types.SP1 "P1",
+      check Types.SP2 "P2",
+      check Types.SP3 "P3",
+      check Types.SP4 "P4",
+      check Types.SP5 "P5",
+      check Types.SP6 "P6",
+      check Types.SP7 "P7",
+      check Types.SP8 "P8",
+      check Types.SP9 "P9",
+      check Types.SP10 "P10",
+      check Types.SP11 "P11"
+    ]
+
 -- | Monad that implements the necessary constraints to be used for running the scheduler.
 newtype PersistentBSM pv a = PersistentBSM
     { _runPersistentBSM ::
