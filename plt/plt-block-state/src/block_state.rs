@@ -5,9 +5,7 @@ use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
 use crate::block_state::migration::Migrate;
-use crate::block_state::state::protocol_level_tokens::{
-    ProtocolLevelTokens, SimplisticTokenKeyValueState,
-};
+use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
 use crate::block_state::types::AccountWithCanonicalAddress;
 use crate::block_state::types::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
@@ -30,8 +28,9 @@ pub mod blob_store;
 pub mod cacheable;
 pub mod external;
 pub mod hash;
-mod lfmb_tree;
+pub mod lfmb_tree;
 pub mod migration;
+mod smart_contract_trie;
 mod state;
 pub mod types;
 mod utils;
@@ -189,7 +188,7 @@ impl HasBlockState for MutableBlockState {
 impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
 {
-    type TokenKeyValueState = SimplisticTokenKeyValueState;
+    type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = AccountIndex;
     type Token = TokenIndex;
 
@@ -210,7 +209,10 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
             .ok_or_else(|| TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
+    fn mutable_token_key_value_state(
+        &self,
+        token: &Self::Token,
+    ) -> Self::MutableTokenKeyValueState {
         // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
             .block_state()
@@ -239,19 +241,43 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
 
     fn lookup_token_state_value(
         &self,
-        token_key_value_state: &Self::TokenKeyValueState,
+        token_key_value: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
-        token_key_value_state.lookup_value(key)
+        token_key_value
+            .lookup_value(&self.blob_store_load, &key.0)
+            .map(TokenStateValue)
+    }
+
+    fn iter_token_state_prefix<'a>(
+        &'a self,
+        token_key_value: &Self::MutableTokenKeyValueState,
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, IntState, Load, ExtState>
+    {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        token_key_value
+            .iter_prefix(&self.blob_store_load, &prefix.0)
+            .unwrap()
+            .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
 
     fn update_token_state_value(
         &self,
-        token_key_value_state: &mut Self::TokenKeyValueState,
+        token_key_value_state: &mut Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
-        token_key_value_state.update_value(key, value)
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        if let Some(value) = value {
+            token_key_value_state
+                .insert_value(&self.blob_store_load, &key.0, value.0)
+                .unwrap();
+        } else {
+            token_key_value_state
+                .delete_value(&self.blob_store_load, &key.0)
+                .unwrap();
+        }
     }
 
     fn account_by_address(
@@ -303,14 +329,6 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
 
     fn protocol_version(&self) -> ProtocolVersion {
         self.protocol_version
-    }
-
-    fn iter_token_state_prefix<'a>(
-        &self,
-        token_key_value_state: &'a Self::TokenKeyValueState,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
-        token_key_value_state.iter_prefix(prefix)
     }
 }
 
@@ -371,7 +389,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
     fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
+        token_key_value_state: Self::MutableTokenKeyValueState,
     ) {
         // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
