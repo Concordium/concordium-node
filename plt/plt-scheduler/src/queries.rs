@@ -79,7 +79,6 @@ where
             let token_configuration = block_state.token_configuration(&token);
 
             let token_module_state = block_state.mutable_token_key_value_state(&token);
-
             let kernel = TokenKernelQueriesImpl {
                 block_state,
                 token: &token,
