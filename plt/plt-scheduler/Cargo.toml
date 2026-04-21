@@ -11,8 +11,6 @@ ffi = ["dep:libc"]
 # Workspace dependencies
 plt-block-state.workspace = true
 plt-scheduler-types.workspace = true
-plt-scheduler-interface.workspace = true
-plt-token-module.workspace = true
 
 # Concordium dependencies
 concordium_base.workspace = true

@@ -1,14 +1,13 @@
 //! Implementation of queries related to protocol-level tokens.
 
 use crate::token_kernel::TokenKernelQueriesImpl;
+use crate::token_module;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
-use plt_token_module::token_module;
-use plt_token_module::token_module::QueryTokenModuleError;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -19,7 +18,7 @@ pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenInfoError {
     #[error("Error returned when querying the token module: {0}")]
-    QueryTokenModule(#[from] QueryTokenModuleError),
+    QueryTokenModule(#[from] token_module::QueryTokenModuleError),
     #[error("{0}")]
     TokenDoesNotExist(#[from] TokenNotFoundByIdError),
 }

@@ -1,5 +1,9 @@
 //! Implementation of the protocol-level token kernel.
 
+use crate::token_module::token_kernel_interface::{
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
+};
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
@@ -11,10 +15,6 @@ use plt_block_state::block_state::types::protocol_level_tokens::{
 use plt_block_state::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, OverflowError, RawTokenAmountDelta,
-};
-use plt_scheduler_interface::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
 use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
