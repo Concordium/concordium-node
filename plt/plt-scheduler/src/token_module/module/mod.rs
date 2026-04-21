@@ -11,10 +11,3 @@ mod update;
 pub use initialize::*;
 pub use queries::*;
 pub use update::*;
-
-#[derive(Debug, thiserror::Error)]
-#[error("Token amount decimals mismatch: expected {expected}, found {found}")]
-pub struct TokenAmountDecimalsMismatchError {
-    pub expected: u8,
-    pub found: u8,
-}

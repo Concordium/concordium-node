@@ -1,7 +1,16 @@
-//! Token kernel interface for protocol-level tokens. This is the interface seen
-//! by the token module. The kernel handles all operations affecting token
-//! balance and supply and manages the state and events related to balances and supply.
+//! Errors used in the token module.
+
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+/// Token amount decimals mismatch
+#[derive(Debug, thiserror::Error)]
+#[error("Token amount decimals mismatch: expected {expected}, found {found}")]
+pub struct TokenAmountDecimalsMismatchError {
+    /// Expected decimals
+    pub expected: u8,
+    /// Actual decimals
+    pub found: u8,
+}
 
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]
