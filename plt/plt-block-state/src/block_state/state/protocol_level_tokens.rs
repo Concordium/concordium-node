@@ -45,11 +45,9 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
     ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
         self.tokens.values(loader, |_token_index, token| {
-            token.configuration.with_value(loader, |conf| {
-                Ok(match conf {
-                    OwnedOrBorrowed::Owned(v) => v.0.token_id,
-                    OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
-                })
+            Ok(match token.configuration.value(loader)? {
+                OwnedOrBorrowed::Owned(v) => v.0.token_id,
+                OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
             })
         })
     }
@@ -67,9 +65,7 @@ impl ProtocolLevelTokens {
     ) -> BlockStateResult<smart_contract_trie::MutableState> {
         self.tokens
             .lookup_value(loader, token_index, |token| {
-                token
-                    .key_value_state
-                    .with_value(loader, |key_value_state| Ok(key_value_state.thaw()))
+                Ok(token.key_value_state.value(loader)?.thaw())
             })
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
@@ -83,9 +79,7 @@ impl ProtocolLevelTokens {
     ) -> BlockStateResult<TokenConfiguration> {
         self.tokens
             .lookup_value(loader, token_index, |token| {
-                token
-                    .configuration
-                    .with_value(loader, |conf| Ok(conf.into_owned().0))
+                Ok(token.configuration.value(loader)?.into_owned().0)
             })
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
@@ -201,9 +195,8 @@ impl Loadable for ProtocolLevelTokens {
         // rather wait until it is cached in memory before constructing the map.
         let token_id_map = tokens
             .values(loader, |token_index, plt| {
-                plt.configuration.with_value(loader, |conf| {
-                    Ok((normalize_token_id(&conf.0.token_id), token_index))
-                })
+                let conf = plt.configuration.value(loader)?;
+                Ok((normalize_token_id(&conf.0.token_id), token_index))
             })
             .collect::<BlockStateResult<im::HashMap<_, _>>>()?;
 

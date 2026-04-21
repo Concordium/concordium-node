@@ -442,7 +442,7 @@ impl<V> Subtree<V> {
                         key
                     )));
                 }
-                val_ref.with_value(loader, read)
+                read(val_ref.value(loader)?)
             }
             Subtree::Node(height, left_ref, right_ref) => {
                 // The height'th bit in key decides if we should follow left `0`
@@ -450,11 +450,11 @@ impl<V> Subtree<V> {
                 // This allows us to check the invariant that the key must be identical to 0
                 // when we reach the leaf for the key.
                 if is_nth_bit_set(*height, key) {
-                    right_ref.with_value(loader, |right| {
-                        right.lookup_value(loader, flip_nth_bit(*height, key), read)
-                    })
+                    right_ref
+                        .value(loader)?
+                        .lookup_value(loader, flip_nth_bit(*height, key), read)
                 } else {
-                    left_ref.with_value(loader, |left| left.lookup_value(loader, key, read))
+                    left_ref.value(loader)?.lookup_value(loader, key, read)
                 }
             }
         }
@@ -545,14 +545,12 @@ impl<V> Subtree<V> {
                     )
                 } else {
                     // There is still room in the right branch of the tree, so insert the new value in the right branch.
-                    let new_right = right_ref.with_value(loader, |right| {
-                        right.insert_value(
-                            loader,
-                            Some(right_ref),
-                            node_size - left_branch_size,
-                            new_value,
-                        )
-                    })?;
+                    let new_right = right_ref.value(loader)?.insert_value(
+                        loader,
+                        Some(right_ref),
+                        node_size - left_branch_size,
+                        new_value,
+                    )?;
                     Subtree::Node(
                         *height,
                         left_ref.clone(),
@@ -589,7 +587,7 @@ impl<V> Subtree<V> {
                         key
                     )));
                 }
-                let new_value = val_ref.with_value(loader, update)?;
+                let new_value = update(val_ref.value(loader)?)?;
                 Subtree::Leaf(HashedCacheableRef::new(new_value))
             }
             Subtree::Node(height, left_ref, right_ref) => {
@@ -598,9 +596,11 @@ impl<V> Subtree<V> {
                 // This allows us to check the invariant that the key must be identical to 0
                 // when we reach the leaf for the key.
                 if is_nth_bit_set(*height, key) {
-                    let new_right = right_ref.with_value(loader, |right| {
-                        right.update_value(loader, flip_nth_bit(*height, key), update)
-                    })?;
+                    let new_right = right_ref.value(loader)?.update_value(
+                        loader,
+                        flip_nth_bit(*height, key),
+                        update,
+                    )?;
 
                     Subtree::Node(
                         *height,
@@ -608,8 +608,7 @@ impl<V> Subtree<V> {
                         HashedCacheableRef::new(new_right),
                     )
                 } else {
-                    let new_left = left_ref
-                        .with_value(loader, |left| left.update_value(loader, key, update))?;
+                    let new_left = left_ref.value(loader)?.update_value(loader, key, update)?;
 
                     Subtree::Node(
                         *height,
@@ -682,7 +681,11 @@ where
             }
             let key = self.next_key;
             self.next_key.0 += 1;
-            Some(next_value.with_value(self.loader, |value| (self.read)(key, value)))
+            Some(
+                next_value
+                    .value(self.loader)
+                    .and_then(|val| (self.read)(key, val)),
+            )
         } else if let Some(next_node_ref) = self.node_stack.pop() {
             if self.next_key.0 == self.tree_size {
                 return Some(Err(BlockStateFailure::Invariant(
@@ -728,13 +731,13 @@ fn next_value_push_right_branches<L: BlobStoreLoad, F, V: Loadable, T>(
 where
     F: FnMut(SubtreeKey, OwnedOrBorrowed<'_, V>) -> BlockStateResult<T>,
 {
-    node_ref.with_value(loader, |node| match &*node {
-        Subtree::Leaf(value) => value.with_value(loader, |value| read(key, value)),
+    match &*node_ref.value(loader)? {
+        Subtree::Leaf(value) => read(key, value.value(loader)?),
         Subtree::Node(_, left_ref, right_ref) => {
             node_stack.push(right_ref.clone());
             next_value_push_right_branches(key, loader, left_ref, node_stack, read)
         }
-    })
+    }
 }
 
 impl<K, V: Loadable> Loadable for LfmbTree<K, V> {
@@ -1325,8 +1328,8 @@ mod tests {
     ) {
         match (subtree1, subtree2) {
             (Subtree::Leaf(val_ref1), Subtree::Leaf(val_ref2)) => {
-                let val1 = val_ref1.clone_or_load_value(loader1).unwrap();
-                let val2 = val_ref2.clone_or_load_value(loader2).unwrap();
+                let val1 = &*val_ref1.value(loader1).unwrap();
+                let val2 = &*val_ref2.value(loader2).unwrap();
                 assert_eq!(val1, val2, "{}: leaf value", context);
             }
             (
@@ -1334,12 +1337,12 @@ mod tests {
                 Subtree::Node(height2, left_ref2, right_ref2),
             ) => {
                 assert_eq!(height1, height2);
-                let left1 = left_ref1.clone_or_load_value(loader1).unwrap();
-                let right1 = right_ref1.clone_or_load_value(loader1).unwrap();
-                let left2 = left_ref2.clone_or_load_value(loader2).unwrap();
-                let right2 = right_ref2.clone_or_load_value(loader2).unwrap();
-                assert_subtrees_eq(loader1, loader2, &left1, &left2, context.clone());
-                assert_subtrees_eq(loader1, loader2, &right1, &right2, context.clone());
+                let left1 = &*left_ref1.value(loader1).unwrap();
+                let right1 = &*right_ref1.value(loader1).unwrap();
+                let left2 = &*left_ref2.value(loader2).unwrap();
+                let right2 = &*right_ref2.value(loader2).unwrap();
+                assert_subtrees_eq(loader1, loader2, left1, left2, context.clone());
+                assert_subtrees_eq(loader1, loader2, right1, right2, context.clone());
             }
             (_, _) => {
                 panic!("subtrees not equal: {:?}, {:?}", subtree1, subtree2);
