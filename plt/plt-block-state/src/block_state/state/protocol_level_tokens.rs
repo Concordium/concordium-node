@@ -279,11 +279,8 @@ impl Hashable for Token {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let config = self.configuration.hash(loader)?;
         let key_value_state = self.key_value_state.hash(loader)?;
-        let circulating_supply = self.circulating_supply.hash(loader)?;
+        let state = hash::hash_of_serialization((key_value_state, self.circulating_supply.0));
 
-        Ok(hash::hash_of_hashes(
-            config,
-            hash::hash_of_hashes(key_value_state, circulating_supply),
-        ))
+        Ok(hash::hash_of_hashes(config, state))
     }
 }
