@@ -181,10 +181,6 @@ impl HasQueryableBlockState for &PltBlockStateSavepoint {
 impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimePltBlockState<IntState, Load, ExtState>
 {
-    type TokenKeyValueState = SimplisticTokenKeyValueState;
-    type Account = AccountIndex;
-    type Token = TokenIndex;
-
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
         self.internal_block_state
             .block_state()
@@ -193,7 +189,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
             .map(|token| token.configuration.token_id.clone())
     }
 
-    fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
+    fn token_by_id(&self, token_id: &TokenId) -> Result<TokenIndex, TokenNotFoundByIdError> {
         self.internal_block_state
             .block_state()
             .tokens
@@ -214,13 +210,13 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
             .ok_or(TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
+    fn mutable_token_key_value_state(&self, token: TokenIndex) -> SimplisticTokenKeyValueState {
         self.internal_block_state.block_state().tokens[token.0 as usize]
             .key_value_state
             .clone()
     }
 
-    fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
+    fn token_configuration(&self, token: TokenIndex) -> TokenConfiguration {
         let configuration = self.internal_block_state.block_state().tokens[token.0 as usize]
             .configuration
             .clone();
@@ -232,13 +228,13 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
         }
     }
 
-    fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
+    fn token_circulating_supply(&self, token: TokenIndex) -> RawTokenAmount {
         self.internal_block_state.block_state().tokens[token.0 as usize].circulating_supply
     }
 
     fn lookup_token_state_value(
         &self,
-        token_key_value_state: &Self::TokenKeyValueState,
+        token_key_value_state: &SimplisticTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
         token_key_value_state.state.get(key).cloned()
@@ -246,7 +242,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
 
     fn update_token_state_value(
         &self,
-        token_key_value_state: &mut Self::TokenKeyValueState,
+        token_key_value_state: &mut SimplisticTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
@@ -260,7 +256,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
+    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
         let index = self
             .external_block_state
             .account_index_by_account_address(address)?;
@@ -271,7 +267,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
+    ) -> Result<AccountWithCanonicalAddress<AccountIndex>, AccountNotFoundByIndexError> {
         let canonical_account_address = self
             .external_block_state
             .account_canonical_address_by_account_index(index)?;
@@ -282,25 +278,17 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
         })
     }
 
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        *account
-    }
-
-    fn account_token_balance(
-        &self,
-        account: &Self::Account,
-        token: &Self::Token,
-    ) -> RawTokenAmount {
+    fn account_token_balance(&self, account: AccountIndex, token: TokenIndex) -> RawTokenAmount {
         self.external_block_state
-            .read_token_account_balance(*account, *token)
+            .read_token_account_balance(account, token)
     }
 
     fn token_account_states(
         &self,
-        account: &Self::Account,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
+        account: AccountIndex,
+    ) -> impl Iterator<Item = (TokenIndex, TokenAccountState)> {
         self.external_block_state
-            .token_account_states(*account)
+            .token_account_states(account)
             .into_iter()
     }
 
@@ -310,7 +298,7 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
 
     fn iter_token_state_prefix<'a>(
         &self,
-        token_key_value_state: &'a Self::TokenKeyValueState,
+        token_key_value_state: &'a SimplisticTokenKeyValueState,
         prefix: TokenStateKey,
     ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
         token_key_value_state.iter_prefix(prefix)
@@ -322,14 +310,14 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
 {
     fn set_token_circulating_supply(
         &mut self,
-        token: &Self::Token,
+        token: TokenIndex,
         circulating_supply: RawTokenAmount,
     ) {
         self.internal_block_state.state.tokens[token.0 as usize].circulating_supply =
             circulating_supply;
     }
 
-    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
+    fn create_token(&mut self, configuration: TokenConfiguration) -> TokenIndex {
         let token_index = TokenIndex(self.internal_block_state.state.tokens.len() as u64);
         let token = Token {
             key_value_state: Default::default(),
@@ -342,17 +330,17 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
 
     fn update_token_account_balance(
         &mut self,
-        token: &Self::Token,
-        account: &Self::Account,
+        token: TokenIndex,
+        account: AccountIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
         self.external_block_state
-            .update_token_account_balance(*account, *token, amount_delta)
+            .update_token_account_balance(account, token, amount_delta)
     }
 
-    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
+    fn touch_token_account(&mut self, token: TokenIndex, account: AccountIndex) {
         self.external_block_state
-            .touch_token_account(*account, *token);
+            .touch_token_account(account, token);
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
@@ -362,8 +350,8 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
 
     fn set_token_key_value_state(
         &mut self,
-        token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
+        token: TokenIndex,
+        token_key_value_state: SimplisticTokenKeyValueState,
     ) {
         self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
             token_key_value_state;

@@ -47,7 +47,7 @@ fn test_token_metadata_updates() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -70,7 +70,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let account2 = stub.create_account();
 
     // Assign the updateMetadata role to account2.
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -82,7 +82,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -95,7 +95,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let account2_addr = stub.account_canonical_address(&account2);
+    let account2_addr = stub.account_canonical_address(account2);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
@@ -126,7 +126,7 @@ fn test_role_authorization_update_metadata() {
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
 
     // Remove updateMetadata role from governance account.
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -138,7 +138,7 @@ fn test_role_authorization_update_metadata() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -151,7 +151,7 @@ fn test_role_authorization_update_metadata() {
         checksum_sha_256: Some([5u8; 32].into()),
         additional: Default::default(),
     };
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
@@ -176,7 +176,7 @@ fn test_role_authorization_update_metadata() {
             reason: Some(reason)
         }) => {
             assert_eq!(&reason, "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(gov_account)));
         }
     );
 }
@@ -198,7 +198,7 @@ fn test_update_metadata_rejects_with_additional_data() {
         )]
         .into(),
     };
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(

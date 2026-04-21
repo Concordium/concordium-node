@@ -1,8 +1,10 @@
 use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenStateKey,
+    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey,
     TokenStateValue,
 };
-use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use crate::block_state::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, SimplisticTokenKeyValueState,
+};
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -27,18 +29,6 @@ pub struct TokenNotFoundByIdError(pub TokenId);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    /// Opaque type that represents the module managed key-value map.
-    /// It defines a dynamic data model defined by the module.
-    type TokenKeyValueState;
-
-    /// Opaque type that represents an account on chain.
-    /// The account is guaranteed to exist on chain, when holding an instance of this type.
-    type Account;
-
-    /// Opaque type that represents a token on chain.
-    /// The token is guaranteed to exist on chain, when holding an instance of this type.
-    type Token;
-
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
     /// If the protocol version does not support protocol-level tokens, this will return the empty
@@ -50,8 +40,8 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `token_id` The token id to get the [`Self::Token`] of.
-    fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
+    /// - `token_id` The token id to get the [`TokenIndex`] of.
+    fn token_by_id(&self, token_id: &TokenId) -> Result<TokenIndex, TokenNotFoundByIdError>;
 
     /// Convert a persistent token key-value state to a mutable one that can be updated by the scheduler.
     ///
@@ -60,21 +50,21 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `token` The token to get the token key-value state for.
-    fn mutable_token_key_value_state(&self, token: &Self::Token) -> Self::TokenKeyValueState;
+    fn mutable_token_key_value_state(&self, token: TokenIndex) -> SimplisticTokenKeyValueState;
 
     /// Get the configuration of a protocol-level token.
     ///
     /// # Arguments
     ///
     /// - `token` The token to get the config for.
-    fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration;
+    fn token_configuration(&self, token: TokenIndex) -> TokenConfiguration;
 
     /// Get the circulating supply of a protocol-level token.
     ///
     /// # Arguments
     ///
     /// - `token` The token to get the circulating supply.
-    fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount;
+    fn token_circulating_supply(&self, token: TokenIndex) -> RawTokenAmount;
 
     /// Lookup the value for the given key in the given token key-value state. Returns `None` if
     /// no value exists for the given key.
@@ -85,7 +75,7 @@ pub trait BlockStateQuery {
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
-        token_key_value: &Self::TokenKeyValueState,
+        token_key_value: &SimplisticTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
@@ -97,7 +87,7 @@ pub trait BlockStateQuery {
     /// - `prefix` The token state key prefix to iterate over.
     fn iter_token_state_prefix<'a>(
         &self,
-        token_key_value: &'a Self::TokenKeyValueState,
+        token_key_value: &'a SimplisticTokenKeyValueState,
         prefix: TokenStateKey,
     ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)>;
 
@@ -111,7 +101,7 @@ pub trait BlockStateQuery {
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_state_value(
         &self,
-        token_key_value: &mut Self::TokenKeyValueState,
+        token_key_value: &mut SimplisticTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     );
@@ -120,31 +110,37 @@ pub trait BlockStateQuery {
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError>;
+    ) -> Result<AccountIndex, AccountNotFoundByAddressError>;
 
     /// Lookup the account using an account index. Returns both the opaque account
     /// representation and the account canonical address.
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
-
-    /// Get the account index for the account.
-    fn account_index(&self, account: &Self::Account) -> AccountIndex;
+    ) -> Result<AccountWithCanonicalAddress<AccountIndex>, AccountNotFoundByIndexError>;
 
     /// Get the token balance of the account.
-    fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)
-    -> RawTokenAmount;
+    fn account_token_balance(&self, account: AccountIndex, token: TokenIndex) -> RawTokenAmount;
 
     /// Get token account states. It returns states for all tokens
     /// that the account holds.
     fn token_account_states(
         &self,
-        account: &Self::Account,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)>;
+        account: AccountIndex,
+    ) -> impl Iterator<Item = (TokenIndex, TokenAccountState)>;
 
     /// Query the protocol version of the block state.
     fn protocol_version(&self) -> ProtocolVersion;
+
+    /// Whether the protocol version of the block supports RBAC token feature.
+    fn support_rbac(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
+
+    /// Whether the protocol version of the block supports updating the token metadata.
+    fn support_updating_metadata(&self) -> bool {
+        self.protocol_version() >= ProtocolVersion::P11
+    }
 }
 
 /// Operations on the state of a block in the chain.
@@ -159,7 +155,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - `circulation_supply` The new total circulating supply for the token.
     fn set_token_circulating_supply(
         &mut self,
-        token: &Self::Token,
+        token: TokenIndex,
         circulating_supply: RawTokenAmount,
     );
 
@@ -177,7 +173,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - The `token` of the given configuration MUST NOT already be in use by a protocol-level
     ///   token, i.e. `assert_eq!(s.get_token_index(configuration.token_id), None)`.
-    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token;
+    fn create_token(&mut self, configuration: TokenConfiguration) -> TokenIndex;
 
     /// Update the token balance of an account.
     ///
@@ -193,8 +189,8 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///   the token balance on the account.
     fn update_token_account_balance(
         &mut self,
-        token: &Self::Token,
-        account: &Self::Account,
+        token: TokenIndex,
+        account: AccountIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError>;
 
@@ -209,7 +205,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - `token` The token to touch state for in the account.
     /// - `account` The account to touch token state for.
-    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account);
+    fn touch_token_account(&mut self, token: TokenIndex, account: AccountIndex);
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
@@ -226,8 +222,8 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - `mutable_token_module_state` The mutated state to set as the current token state.
     fn set_token_key_value_state(
         &mut self,
-        token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
+        token: TokenIndex,
+        token_key_value_state: SimplisticTokenKeyValueState,
     );
 }
 

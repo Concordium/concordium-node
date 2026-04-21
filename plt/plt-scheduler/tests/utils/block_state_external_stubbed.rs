@@ -45,7 +45,6 @@ impl BackingStoreLoad for BlobStoreLoadStub {
 
 type ExecutionTimePltBlockStateWithExternalStateStubbed =
     ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
 /// state is implemented by a stub.
@@ -58,20 +57,20 @@ pub struct BlockStateWithExternalStateStubbed {
 #[derive(Debug)]
 pub struct ExternalBlockStateStub {
     /// List of accounts in the stub.
-    accounts: Vec<Account<Token>>,
+    accounts: Vec<Account>,
     /// PLT update instruction sequence number
     plt_update_instruction_sequence_number: u64,
 }
 
 /// Internal representation of an account in [`BlockStateWithExternalStateStubbed`].
 #[derive(Debug)]
-pub struct Account<Token> {
+pub struct Account {
     /// The index of the account
     index: AccountIndex,
     /// The canonical account address of the account.
     address: AccountAddress,
     /// Tokens the account is holding
-    tokens: BTreeMap<Token, AccountToken>,
+    tokens: BTreeMap<TokenIndex, AccountToken>,
 }
 
 /// Internal representation of a token in an account.
@@ -129,7 +128,7 @@ impl BlockStateWithExternalStateStubbed {
         stub_index
     }
 
-    pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
+    pub fn account_canonical_address(&self, account: AccountIndex) -> AccountAddress {
         self.block_state.external_block_state.accounts[account.index as usize].address
     }
 
@@ -141,10 +140,10 @@ impl BlockStateWithExternalStateStubbed {
         params: TokenInitTestParams,
         decimals: u8,
         initial_supply: Option<RawTokenAmount>,
-    ) -> (Token, AccountIndex) {
+    ) -> (TokenIndex, AccountIndex) {
         let gov_account = self.create_account();
         let gov_holder_account =
-            CborHolderAccount::from(self.account_canonical_address(&gov_account));
+            CborHolderAccount::from(self.account_canonical_address(gov_account));
         let metadata = MetadataUrl::from("https://plt.token".to_string());
         let parameters = TokenModuleInitializationParameters {
             name: Some("Protocol-level token".to_owned()),
@@ -177,17 +176,17 @@ impl BlockStateWithExternalStateStubbed {
     pub fn increment_account_balance(
         &mut self,
         account: AccountIndex,
-        token: Token,
+        token: TokenIndex,
         balance: RawTokenAmount,
     ) {
-        let token_configuration = self.state().token_configuration(&token);
+        let token_configuration = self.state().token_configuration(token);
         let operations = vec![
             TokenOperation::Mint(TokenSupplyUpdateDetails {
                 amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
             }),
             TokenOperation::Transfer(TokenTransfer {
                 amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
-                recipient: CborHolderAccount::from(self.account_canonical_address(&account)),
+                recipient: CborHolderAccount::from(self.account_canonical_address(account)),
                 memo: None,
             }),
         ];
@@ -229,7 +228,7 @@ impl BlockStateWithExternalStateStubbed {
             token_id: token_id.clone(),
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
-        let gov_addr = self.account_canonical_address(&gov_account);
+        let gov_addr = self.account_canonical_address(gov_account);
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
@@ -248,7 +247,7 @@ impl BlockStateWithExternalStateStubbed {
             token_id: token_id.clone(),
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
-        let gov_addr = self.account_canonical_address(&gov_account);
+        let gov_addr = self.account_canonical_address(gov_account);
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
@@ -272,7 +271,7 @@ impl BlockStateWithExternalStateStubbed {
             token_id: token_id.clone(),
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
-        let sender_addr = self.account_canonical_address(&sender);
+        let sender_addr = self.account_canonical_address(sender);
         let result = scheduler::execute_transaction(
             sender,
             sender_addr,

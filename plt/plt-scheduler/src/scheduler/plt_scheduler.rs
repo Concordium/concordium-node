@@ -39,7 +39,7 @@ use plt_scheduler_types::types::reject_reasons::{
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
@@ -63,14 +63,14 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
         }
     };
 
-    let token_configuration = block_state.token_configuration(&token);
+    let token_configuration = block_state.token_configuration(token);
 
     let mut events = Vec::new();
-    let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+    let mut token_module_state = block_state.mutable_token_key_value_state(token);
     let mut token_module_state_dirty = false;
     let mut kernel = TokenOperationContext {
         block_state,
-        token: &token,
+        token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: &mut token_module_state_dirty,
@@ -88,7 +88,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
         Ok(()) => {
             // Update token module state if dirty
             if token_module_state_dirty {
-                block_state.set_token_key_value_state(&token, token_module_state);
+                block_state.set_token_key_value_state(token, token_module_state);
             }
 
             // Return events
@@ -135,7 +135,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BSO,
     payload: MetaUpdatePayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
@@ -173,12 +173,12 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                     }
                 };
 
-                let token_configuration = block_state.token_configuration(&token);
-                let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+                let token_configuration = block_state.token_configuration(token);
+                let mut token_module_state = block_state.mutable_token_key_value_state(token);
                 let mut token_module_state_dirty = false;
                 let mut kernel = TokenOperationContext {
                     block_state,
-                    token: &token,
+                    token,
                     token_configuration: &token_configuration,
                     token_module_state: &mut token_module_state,
                     token_module_state_dirty: &mut token_module_state_dirty,
@@ -193,7 +193,7 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                 match token_update_result {
                     Ok(()) => {
                         if token_module_state_dirty {
-                            block_state.set_token_key_value_state(&token, token_module_state);
+                            block_state.set_token_key_value_state(token, token_module_state);
                         }
                     }
                     Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
@@ -246,7 +246,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(&payload.token_id) {
         return Ok(ChainUpdateOutcome::Failed(FailureKind::DuplicateTokenId(
-            block_state.token_configuration(&existing_token).token_id,
+            block_state.token_configuration(existing_token).token_id,
         )));
     }
 
@@ -271,11 +271,11 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
         payload: payload.clone(),
     }));
 
-    let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+    let mut token_module_state = block_state.mutable_token_key_value_state(token);
     let mut token_module_state_dirty = false;
     let mut context = TokenOperationContext {
         block_state,
-        token: &token,
+        token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: &mut token_module_state_dirty,
@@ -293,7 +293,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
             // Update token module state if dirty
             if token_module_state_dirty {
-                block_state.set_token_key_value_state(&token, token_module_state);
+                block_state.set_token_key_value_state(token, token_module_state);
             }
 
             // Return events

@@ -35,7 +35,7 @@ fn test_rbac_initial_governance_account_have_every_role() {
     )
     .unwrap();
 
-    let gov = stub.account_canonical_address(&gov_account);
+    let gov = stub.account_canonical_address(gov_account);
     assert!(
         auth.update_admin_roles
             .unwrap()
@@ -69,8 +69,8 @@ fn test_rbac_assign_roles() {
     let account2 = stub.create_account();
 
     // Assign mint and burn to account2.
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -97,7 +97,7 @@ fn test_rbac_assign_roles() {
     )
     .unwrap();
 
-    let gov = stub.account_canonical_address(&gov_account);
+    let gov = stub.account_canonical_address(gov_account);
     assert!(
         auth.update_admin_roles
             .as_ref()
@@ -118,7 +118,7 @@ fn test_rbac_assign_roles() {
             .contains(&gov.into())
     );
 
-    let acc = stub.account_canonical_address(&account2).into();
+    let acc = stub.account_canonical_address(account2).into();
     assert!(
         !auth
             .update_admin_roles
@@ -156,8 +156,8 @@ fn test_rbac_assign_same_roles() {
     let account2 = stub.create_account();
 
     // Assign mint and burn to account2.
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -178,7 +178,7 @@ fn test_rbac_assign_same_roles() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Assign mint to account2 again.
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -205,7 +205,7 @@ fn test_rbac_assign_same_roles() {
     )
     .unwrap();
 
-    let acc = stub.account_canonical_address(&account2).into();
+    let acc = stub.account_canonical_address(account2).into();
     assert!(
         !auth
             .update_admin_roles
@@ -240,8 +240,8 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
     );
     let account2 = stub.create_account();
 
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&account2);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(account2);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -275,8 +275,8 @@ fn test_rbac_assign_rejects_p10() {
     );
     let account2 = stub.create_account();
 
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&account2);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(account2);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -311,7 +311,7 @@ fn test_rbac_assign_role_works_when_paused() {
     let account2 = stub.create_account();
 
     // Pause the token.
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Pause(
@@ -329,8 +329,8 @@ fn test_rbac_assign_role_works_when_paused() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Assign mint and burn to account2 while paused.
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -357,7 +357,7 @@ fn test_rbac_assign_role_works_when_paused() {
     )
     .unwrap();
 
-    let acc = stub.account_canonical_address(&account2).into();
+    let acc = stub.account_canonical_address(account2).into();
     assert!(
         !auth
             .update_admin_roles
@@ -384,8 +384,8 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
     );
     let account2 = stub.create_account();
 
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&account2);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(account2);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -422,8 +422,8 @@ fn test_rbac_revoke_roles() {
     );
 
     // Revoke mint and burn from gov_account.
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -450,7 +450,7 @@ fn test_rbac_revoke_roles() {
     )
     .unwrap();
 
-    let gov = stub.account_canonical_address(&gov_account).into();
+    let gov = stub.account_canonical_address(gov_account).into();
     assert!(auth.update_admin_roles.unwrap().accounts.contains(&gov));
     assert!(!auth.mint.as_ref().unwrap().accounts.contains(&gov));
     assert!(!auth.burn.as_ref().unwrap().accounts.contains(&gov));
@@ -482,8 +482,8 @@ fn test_rbac_revoke_same_roles() {
     );
 
     // Revoke mint and burn.
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -504,7 +504,7 @@ fn test_rbac_revoke_same_roles() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Revoke mint again.
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -531,7 +531,7 @@ fn test_rbac_revoke_same_roles() {
     )
     .unwrap();
 
-    let gov = stub.account_canonical_address(&gov_account).into();
+    let gov = stub.account_canonical_address(gov_account).into();
     assert!(
         auth.update_admin_roles
             .as_ref()
@@ -572,8 +572,8 @@ fn test_rbac_revoke_rejects_without_admin_role() {
     let account2 = stub.create_account();
 
     // account2 tries to revoke from gov — no admin role.
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&account2);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(account2);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -606,8 +606,8 @@ fn test_rbac_revoke_rejects_p10() {
         None,
     );
 
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -641,7 +641,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     );
 
     // Pause the token.
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Pause(
@@ -659,8 +659,8 @@ fn test_rbac_revoke_role_works_when_paused() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Revoke mint and burn while paused.
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -687,7 +687,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     )
     .unwrap();
 
-    let acc = stub.account_canonical_address(&gov_account).into();
+    let acc = stub.account_canonical_address(gov_account).into();
     assert!(
         auth.update_admin_roles
             .as_ref()
@@ -715,8 +715,8 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
     let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
 
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -749,8 +749,8 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
         None,
     );
 
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -785,8 +785,8 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let account2 = stub.create_account();
 
     // Assign updateAdminRoles to account2.
-    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(&account2));
-    let sender_addr = stub.account_canonical_address(&gov_account);
+    let account2_addr = CborHolderAccount::from(stub.account_canonical_address(account2));
+    let sender_addr = stub.account_canonical_address(gov_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
@@ -807,8 +807,8 @@ fn test_rbac_admin_role_rotation_succeeds() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // account2 revokes updateAdminRoles from gov.
-    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
-    let sender_addr = stub.account_canonical_address(&account2);
+    let gov_addr = CborHolderAccount::from(stub.account_canonical_address(gov_account));
+    let sender_addr = stub.account_canonical_address(account2);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
@@ -834,7 +834,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
             .details,
     )
     .unwrap();
-    let gov_acc = stub.account_canonical_address(&gov_account).into();
+    let gov_acc = stub.account_canonical_address(gov_account).into();
     assert!(
         !auth
             .update_admin_roles
@@ -843,7 +843,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
             .accounts
             .contains(&gov_acc)
     );
-    let acc = stub.account_canonical_address(&account2).into();
+    let acc = stub.account_canonical_address(account2).into();
     assert!(
         auth.update_admin_roles
             .as_ref()

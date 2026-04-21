@@ -97,7 +97,7 @@ pub enum TokenUpdateError {
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
@@ -179,7 +179,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
 /// - `index`: the index of the operation in the transaction, used for error reporting
 /// - `operation`: the token operation to execute
 pub fn execute_token_update_operation_at_index<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     index: usize,
     operation: &TokenOperation,
@@ -359,7 +359,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 }
 
 fn execute_token_update_operation<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -447,15 +447,13 @@ fn check_not_paused<BSO: BlockStateOperations>(
 
 /// Ensure the sender account from the transaction context is authorized to perform the operation.
 fn check_authorized<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &TokenOperationContext<'_, BSO>,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if context.support_rbac() {
         // Ensure the sender holds the specified role.
-        let sender_index = context
-            .block_state
-            .account_index(transaction_execution.sender_account());
+        let sender_index = transaction_execution.sender_account();
         let account_roles = key_value_state::get_account_roles(context, sender_index)?;
         if !account_roles.has(required_role) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -465,9 +463,7 @@ fn check_authorized<BSO: BlockStateOperations>(
         }
     } else {
         // Ensure the sender is the governance account.
-        let sender_index = context
-            .block_state
-            .account_index(transaction_execution.sender_account());
+        let sender_index = transaction_execution.sender_account();
         let gov_index = key_value_state::get_governance_account_index(context)?;
         if gov_index != sender_index {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -480,7 +476,7 @@ fn check_authorized<BSO: BlockStateOperations>(
 }
 
 fn execute_token_transfer<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -497,17 +493,13 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
         .account_by_address(&transfer_operation.recipient.address)?;
 
     if key_value_state::has_allow_list(context) {
-        if !key_value_state::get_allow_list_for(context, context.block_state.account_index(sender))
-        {
+        if !key_value_state::get_allow_list_for(context, sender) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender not in allow list",
             });
         }
-        if !key_value_state::get_allow_list_for(
-            context,
-            context.block_state.account_index(&receiver),
-        ) {
+        if !key_value_state::get_allow_list_for(context, receiver) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient not in allow list",
@@ -516,14 +508,13 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
     }
 
     if key_value_state::has_deny_list(context) {
-        if key_value_state::get_deny_list_for(context, context.block_state.account_index(sender)) {
+        if key_value_state::get_deny_list_for(context, sender) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender in deny list",
             });
         }
-        if key_value_state::get_deny_list_for(context, context.block_state.account_index(&receiver))
-        {
+        if key_value_state::get_deny_list_for(context, receiver) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient in deny list",
@@ -534,7 +525,7 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
     context.transfer(
         sender,
         sender_address,
-        &receiver,
+        receiver,
         transfer_operation.recipient.address,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
@@ -543,7 +534,7 @@ fn execute_token_transfer<BSO: BlockStateOperations>(
 }
 
 fn execute_token_mint<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -568,7 +559,7 @@ fn execute_token_mint<BSO: BlockStateOperations>(
 }
 
 fn execute_token_burn<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -593,7 +584,7 @@ fn execute_token_burn<BSO: BlockStateOperations>(
 }
 
 fn execute_token_pause<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, context, TokenAdminRole::Pause)?;
@@ -606,7 +597,7 @@ fn execute_token_pause<BSO: BlockStateOperations>(
 }
 
 fn execute_token_unpause<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, context, TokenAdminRole::Pause)?;
@@ -619,7 +610,7 @@ fn execute_token_unpause<BSO: BlockStateOperations>(
 }
 
 fn execute_add_allow_list<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -639,8 +630,8 @@ fn execute_add_allow_list<BSO: BlockStateOperations>(
 
     context
         .block_state
-        .touch_token_account(context.token, &account);
-    key_value_state::set_allow_list_for(context, context.block_state.account_index(&account), true);
+        .touch_token_account(context.token, account);
+    key_value_state::set_allow_list_for(context, account, true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -652,7 +643,7 @@ fn execute_add_allow_list<BSO: BlockStateOperations>(
 }
 
 fn execute_add_deny_list<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -673,8 +664,8 @@ fn execute_add_deny_list<BSO: BlockStateOperations>(
 
     context
         .block_state
-        .touch_token_account(context.token, &account);
-    key_value_state::set_deny_list_for(context, context.block_state.account_index(&account), true);
+        .touch_token_account(context.token, account);
+    key_value_state::set_deny_list_for(context, account, true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -686,7 +677,7 @@ fn execute_add_deny_list<BSO: BlockStateOperations>(
 }
 
 fn execute_remove_allow_list<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -707,12 +698,8 @@ fn execute_remove_allow_list<BSO: BlockStateOperations>(
 
     context
         .block_state
-        .touch_token_account(context.token, &account);
-    key_value_state::set_allow_list_for(
-        context,
-        context.block_state.account_index(&account),
-        false,
-    );
+        .touch_token_account(context.token, account);
+    key_value_state::set_allow_list_for(context, account, false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -724,7 +711,7 @@ fn execute_remove_allow_list<BSO: BlockStateOperations>(
 }
 
 fn execute_remove_deny_list<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -745,8 +732,8 @@ fn execute_remove_deny_list<BSO: BlockStateOperations>(
 
     context
         .block_state
-        .touch_token_account(context.token, &account);
-    key_value_state::set_deny_list_for(context, context.block_state.account_index(&account), false);
+        .touch_token_account(context.token, account);
+    key_value_state::set_deny_list_for(context, account, false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -781,7 +768,7 @@ fn check_roles_supported<BSO: BlockStateOperations>(
 }
 
 fn execute_assign_admin_roles<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -794,11 +781,7 @@ fn execute_assign_admin_roles<BSO: BlockStateOperations>(
     let account = context
         .block_state
         .account_by_address(&operation.account.address)?;
-    key_value_state::assign_account_roles(
-        context,
-        context.block_state.account_index(&account),
-        &operation.roles,
-    )?;
+    key_value_state::assign_account_roles(context, account, &operation.roles)?;
     let event = TokenModuleEvent::AssignAdminRoles(TokenUpdateAdminRolesEventDetails {
         roles: operation.roles.clone(),
         account: operation.account.clone(),
@@ -809,7 +792,7 @@ fn execute_assign_admin_roles<BSO: BlockStateOperations>(
 }
 
 fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -819,14 +802,10 @@ fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
         TokenAdminRole::UpdateAdminRoles,
     )?;
     check_roles_supported(context, &operation.roles)?;
-    let account = context
+    let account_index = context
         .block_state
         .account_by_address(&operation.account.address)?;
-    let account_index = context.block_state.account_index(&account);
-    if account_index
-        == context
-            .block_state
-            .account_index(transaction_execution.sender_account())
+    if account_index == transaction_execution.sender_account()
         && operation.roles.contains(&TokenAdminRole::UpdateAdminRoles)
     {
         return Err(TokenUpdateErrorInternal::OperationNotPermitted {
@@ -845,7 +824,7 @@ fn execute_revoke_admin_roles<BSO: BlockStateOperations>(
 }
 
 fn execute_update_metadata<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution,
     context: &mut TokenOperationContext<'_, BSO>,
     metadata_url: &MetadataUrl,
 ) -> Result<(), TokenUpdateErrorInternal> {

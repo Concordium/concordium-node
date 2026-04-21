@@ -31,8 +31,8 @@ fn test_query_plt_list() {
     let (token2, _) =
         stub.create_and_init_token(token_id2, TokenInitTestParams::default(), 4, None);
 
-    let token_id1 = stub.state().token_configuration(&token1).token_id;
-    let token_id2 = stub.state().token_configuration(&token2).token_id;
+    let token_id1 = stub.state().token_configuration(token1).token_id;
+    let token_id2 = stub.state().token_configuration(token2).token_id;
 
     let plts = queries::query_plt_list(stub.state());
     assert_eq!(plts, vec![token_id1, token_id2]);
@@ -120,7 +120,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     );
 
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_canonical_address(&account)),
+        target: CborHolderAccount::from(stub.account_canonical_address(account)),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -128,7 +128,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),

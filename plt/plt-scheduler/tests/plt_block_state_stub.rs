@@ -16,7 +16,7 @@ fn test_account_lookup_address() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let account = stub.create_account();
 
-    let address = stub.account_canonical_address(&account);
+    let address = stub.account_canonical_address(account);
     stub.state()
         .account_by_address(&address)
         .expect("Account is expected to exist");
@@ -58,11 +58,11 @@ fn test_account_balance() {
     stub.increment_account_balance(account0, token, RawTokenAmount(245));
 
     assert_eq!(
-        stub.state().account_token_balance(&account0, &token),
+        stub.state().account_token_balance(account0, token),
         RawTokenAmount(245)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account1, &token),
+        stub.state().account_token_balance(account1, token),
         RawTokenAmount(0)
     );
 }
@@ -73,14 +73,11 @@ fn test_account_by_alias() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let account = stub.create_account();
-    let account_address = stub.account_canonical_address(&account);
+    let account_address = stub.account_canonical_address(account);
     let account_by_alias = stub
         .state()
         .account_by_address(&account_address.get_alias(0).unwrap())
         .unwrap();
 
-    assert_eq!(
-        stub.state().account_index(&account),
-        stub.state().account_index(&account_by_alias)
-    );
+    assert_eq!(account, account_by_alias);
 }

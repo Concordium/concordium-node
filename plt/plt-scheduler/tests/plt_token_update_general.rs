@@ -37,7 +37,7 @@ fn test_update_token_decode_failure() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -63,7 +63,7 @@ fn test_update_token_additional_fields() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
         memo: None,
     })];
 
@@ -86,7 +86,7 @@ fn test_update_token_additional_fields() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -120,12 +120,12 @@ fn test_multiple_operations() {
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
             memo: None,
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(2000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
             memo: None,
         }),
     ];
@@ -135,7 +135,7 @@ fn test_multiple_operations() {
     };
     let result = scheduler::execute_transaction(
         sender,
-        stub.account_canonical_address(&sender),
+        stub.account_canonical_address(sender),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -144,11 +144,11 @@ fn test_multiple_operations() {
 
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(5000)
     );
 }
@@ -177,7 +177,7 @@ fn test_single_failing_operation() {
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
             memo: None,
         }),
     ];
@@ -187,7 +187,7 @@ fn test_single_failing_operation() {
     };
     let result = scheduler::execute_transaction(
         sender,
-        stub.account_canonical_address(&sender),
+        stub.account_canonical_address(sender),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -220,7 +220,7 @@ fn test_energy_charge() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -229,7 +229,7 @@ fn test_energy_charge() {
     };
     let result = scheduler::execute_transaction(
         sender,
-        stub.account_canonical_address(&sender),
+        stub.account_canonical_address(sender),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(1000),
@@ -258,7 +258,7 @@ fn test_out_of_energy_error() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -268,7 +268,7 @@ fn test_out_of_energy_error() {
     // 50 energy is less than the 300 lookup cost.
     let result = scheduler::execute_transaction(
         sender,
-        stub.account_canonical_address(&sender),
+        stub.account_canonical_address(sender),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(50),

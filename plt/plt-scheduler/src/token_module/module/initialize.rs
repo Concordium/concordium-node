@@ -92,10 +92,9 @@ fn initialize_token_impl<BSO: BlockStateOperations>(
         enabled_roles.push(TokenAdminRole::Burn);
     }
 
-    let governance_account = context
+    let governance_account_index = context
         .block_state
         .account_by_address(&cbor_governance_account.address)?;
-    let governance_account_index = context.block_state.account_index(&governance_account);
     key_value_state::set_governance_account(context, governance_account_index);
     if context.support_rbac() {
         key_value_state::assign_account_roles(context, governance_account_index, &enabled_roles)?;
@@ -104,7 +103,7 @@ fn initialize_token_impl<BSO: BlockStateOperations>(
         let mint_amount = util::to_raw_token_amount(context.token_configuration, initial_supply)?;
 
         context.mint(
-            &governance_account,
+            governance_account_index,
             cbor_governance_account.address,
             mint_amount,
         )?;

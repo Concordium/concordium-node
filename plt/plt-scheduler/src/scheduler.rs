@@ -2,7 +2,7 @@
 //! transaction and update instruction payloads.
 
 use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -43,7 +43,7 @@ pub enum TransactionExecutionError {
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_transaction<BSO: BlockStateOperations>(
-    sender_account: BSO::Account,
+    sender_account: AccountIndex,
     sender_account_address: AccountAddress,
     block_state: &mut BSO,
     payload: Payload,

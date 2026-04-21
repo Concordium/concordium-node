@@ -43,7 +43,7 @@ fn test_burn() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -52,7 +52,7 @@ fn test_burn() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(4000)
     );
 
@@ -66,7 +66,7 @@ fn test_burn() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -75,7 +75,7 @@ fn test_burn() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(2000)
     );
 }
@@ -103,7 +103,7 @@ fn test_unauthorized_burn() {
     };
     let result = scheduler::execute_transaction(
         non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
+        stub.account_canonical_address(non_governance_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -123,7 +123,7 @@ fn test_unauthorized_burn() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_canonical_address(non_governance_account)
                 ))
             );
         }
@@ -151,7 +151,7 @@ fn test_burn_insufficient_balance() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -188,7 +188,7 @@ fn test_burn_decimals_mismatch() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -229,7 +229,7 @@ fn test_burn_paused() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -265,7 +265,7 @@ fn test_not_burnable() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -305,7 +305,7 @@ fn test_burn_event() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -318,7 +318,7 @@ fn test_burn_event() {
         assert_eq!(burn.token_id, token_id);
         assert_eq!(burn.amount.amount, RawTokenAmount(1000));
         assert_eq!(burn.amount.decimals, 2);
-        assert_eq!(burn.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(burn.target, TokenHolder::Account(stub.account_canonical_address(gov_account)));
     });
 }
 
@@ -340,13 +340,13 @@ fn test_role_authorization_burn() {
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Burn],
-                account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+                account: CborHolderAccount::from(stub.account_canonical_address(gov_account)),
             },
         )])),
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -365,7 +365,7 @@ fn test_role_authorization_burn() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -382,7 +382,7 @@ fn test_role_authorization_burn() {
             reason: Some(reason),
         }) => {
             assert_eq!(reason, "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(gov_account)));
         }
     );
 }
@@ -408,13 +408,13 @@ fn test_new_account_with_role_succeeds_burn() {
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Burn],
-                account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+                account: CborHolderAccount::from(stub.account_canonical_address(account2)),
             },
         )])),
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -433,7 +433,7 @@ fn test_new_account_with_role_succeeds_burn() {
     };
     let result = scheduler::execute_transaction(
         account2,
-        stub.account_canonical_address(&account2),
+        stub.account_canonical_address(account2),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -442,11 +442,11 @@ fn test_new_account_with_role_succeeds_burn() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(10000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        stub.state().account_token_balance(account2, token),
         RawTokenAmount(4800)
     );
 }

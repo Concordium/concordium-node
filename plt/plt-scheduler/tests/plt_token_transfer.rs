@@ -38,8 +38,8 @@ fn test_transfer() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
     stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
+    let receiver_addr = stub.account_canonical_address(receiver);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -61,11 +61,11 @@ fn test_transfer() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(3000)
     );
 }
@@ -85,8 +85,8 @@ fn test_transfer_with_memo() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
     let memo = CborMemo::Cbor(Memo::try_from(cbor::cbor_encode("testvalue")).unwrap());
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
+    let receiver_addr = stub.account_canonical_address(receiver);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -108,11 +108,11 @@ fn test_transfer_with_memo() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(1000)
     );
 }
@@ -130,7 +130,7 @@ fn test_transfer_self() {
     let sender = stub.create_account();
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let sender_addr = stub.account_canonical_address(&sender);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -152,7 +152,7 @@ fn test_transfer_self() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(5000)
     );
 }
@@ -171,8 +171,8 @@ fn test_transfer_insufficient_balance() {
     let receiver = stub.create_account();
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
+    let receiver_addr = stub.account_canonical_address(receiver);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -215,8 +215,8 @@ fn test_transfer_decimals_mismatch() {
     let receiver = stub.create_account();
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
+    let receiver_addr = stub.account_canonical_address(receiver);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -257,7 +257,7 @@ fn test_transfer_to_non_existing_receiver() {
     let sender = stub.create_account();
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
 
-    let sender_addr = stub.account_canonical_address(&sender);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -298,7 +298,7 @@ fn test_transfer_allow_list_success() {
     let receiver = stub.create_account();
 
     // Gov is NOT auto-added to allow list — must add explicitly.
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -306,7 +306,7 @@ fn test_transfer_allow_list_success() {
             target: CborHolderAccount::from(gov_addr),
         })],
     );
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let receiver_addr = stub.account_canonical_address(receiver);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -336,11 +336,11 @@ fn test_transfer_allow_list_success() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(1000)
     );
 }
@@ -361,7 +361,7 @@ fn test_transfer_deny_list_success() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
     stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    let denied_addr = stub.account_canonical_address(&denied);
+    let denied_addr = stub.account_canonical_address(denied);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -370,8 +370,8 @@ fn test_transfer_deny_list_success() {
         })],
     );
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let sender_addr = stub.account_canonical_address(sender);
+    let receiver_addr = stub.account_canonical_address(receiver);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -393,11 +393,11 @@ fn test_transfer_deny_list_success() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(3000)
     );
 }
@@ -415,7 +415,7 @@ fn test_transfer_sender_not_in_allow_list() {
     let sender = stub.create_account();
     let receiver = stub.create_account();
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let receiver_addr = stub.account_canonical_address(receiver);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -424,7 +424,7 @@ fn test_transfer_sender_not_in_allow_list() {
         })],
     );
 
-    let sender_addr = stub.account_canonical_address(&sender);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -471,7 +471,7 @@ fn test_transfer_recipient_not_in_allow_list() {
 
     // Gov is NOT auto-added to allow list — add gov so it can transfer,
     // but do NOT add receiver — transfer should fail with "recipient not in allow list".
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -480,7 +480,7 @@ fn test_transfer_recipient_not_in_allow_list() {
         })],
     );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let receiver_addr = stub.account_canonical_address(receiver);
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
@@ -512,11 +512,11 @@ fn test_transfer_recipient_not_in_allow_list() {
         }
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(0)
     );
 }
@@ -536,7 +536,7 @@ fn test_transfer_sender_in_deny_list() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
     stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    let sender_addr = stub.account_canonical_address(&sender);
+    let sender_addr = stub.account_canonical_address(sender);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -545,7 +545,7 @@ fn test_transfer_sender_in_deny_list() {
         })],
     );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let receiver_addr = stub.account_canonical_address(receiver);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -577,11 +577,11 @@ fn test_transfer_sender_in_deny_list() {
         }
     );
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(2000)
     );
 }
@@ -601,7 +601,7 @@ fn test_transfer_recipient_in_deny_list() {
     stub.increment_account_balance(sender, token, RawTokenAmount(5000));
     stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let receiver_addr = stub.account_canonical_address(receiver);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -610,7 +610,7 @@ fn test_transfer_recipient_in_deny_list() {
         })],
     );
 
-    let sender_addr = stub.account_canonical_address(&sender);
+    let sender_addr = stub.account_canonical_address(sender);
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
@@ -642,11 +642,11 @@ fn test_transfer_recipient_in_deny_list() {
         }
     );
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        stub.state().account_token_balance(sender, token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(2000)
     );
 }
@@ -664,7 +664,7 @@ fn test_transfer_paused() {
     let receiver = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     let pause_ops = vec![TokenOperation::Pause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -680,7 +680,7 @@ fn test_transfer_paused() {
     .expect("pause");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
+    let receiver_addr = stub.account_canonical_address(receiver);
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,

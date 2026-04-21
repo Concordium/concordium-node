@@ -2,6 +2,7 @@
 
 use crate::token_context::TokenQueryContext;
 use crate::token_module;
+use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use plt_scheduler_types::types::queries::{
@@ -30,15 +31,15 @@ pub fn query_token_info(
 ) -> Result<TokenInfo, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
 
-    let token_configuration = block_state.token_configuration(&token);
-    let circulating_supply = block_state.token_circulating_supply(&token);
+    let token_configuration = block_state.token_configuration(token);
+    let circulating_supply = block_state.token_circulating_supply(token);
 
     let total_supply = TokenAmount {
         amount: circulating_supply,
         decimals: token_configuration.decimals,
     };
 
-    let token_module_state = block_state.mutable_token_key_value_state(&token);
+    let token_module_state = block_state.mutable_token_key_value_state(token);
 
     let context = TokenQueryContext {
         block_state,
@@ -66,26 +67,23 @@ pub fn query_token_info(
 /// Get the list of tokens on an account
 pub fn query_token_account_infos<BSQ>(
     block_state: &BSQ,
-    account: BSQ::Account,
+    account: AccountIndex,
 ) -> Vec<TokenAccountInfo>
 where
     BSQ: BlockStateQuery,
 {
     block_state
-        .token_account_states(&account)
+        .token_account_states(account)
         .map(|(token, state)| {
-            let token_configuration = block_state.token_configuration(&token);
+            let token_configuration = block_state.token_configuration(token);
 
-            let token_module_state = block_state.mutable_token_key_value_state(&token);
+            let token_module_state = block_state.mutable_token_key_value_state(token);
 
             let context = TokenQueryContext {
                 block_state,
                 token_module_state: &token_module_state,
             };
-            let module_state = token_module::query_token_module_account_state(
-                &context,
-                block_state.account_index(&account),
-            );
+            let module_state = token_module::query_token_module_account_state(&context, account);
 
             let balance = TokenAmount {
                 amount: state.balance,
@@ -111,13 +109,13 @@ pub fn query_token_authorizations(
     token_id: &TokenId,
 ) -> Result<TokenAuthorizations, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
-    let token_module_state = block_state.mutable_token_key_value_state(&token);
+    let token_module_state = block_state.mutable_token_key_value_state(token);
     let context = TokenQueryContext {
         block_state,
         token_module_state: &token_module_state,
     };
     let details = token_module::query_token_authorizations(&context)?;
-    let token_configuration = block_state.token_configuration(&token);
+    let token_configuration = block_state.token_configuration(token);
     Ok(TokenAuthorizations {
         token_id: token_configuration.token_id,
         details,

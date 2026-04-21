@@ -35,7 +35,7 @@ fn test_allow_list_updates() {
     // Target account not yet touched
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
-    let target_addr = stub.account_canonical_address(&target_account);
+    let target_addr = stub.account_canonical_address(target_account);
 
     // Add to allow list
     let events = stub.execute_token_operations(
@@ -94,7 +94,7 @@ fn test_deny_list_updates() {
     // Target account not yet touched
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
-    let target_addr = stub.account_canonical_address(&target_account);
+    let target_addr = stub.account_canonical_address(target_account);
 
     // Add to deny list
     let events = stub.execute_token_operations(
@@ -151,8 +151,8 @@ fn test_add_allow_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let target_addr = stub.account_canonical_address(&target_account);
+    let sender_addr = stub.account_canonical_address(sender);
+    let target_addr = stub.account_canonical_address(target_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AddAllowList(
@@ -202,8 +202,8 @@ fn test_remove_allow_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let target_addr = stub.account_canonical_address(&target_account);
+    let sender_addr = stub.account_canonical_address(sender);
+    let target_addr = stub.account_canonical_address(target_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RemoveAllowList(
@@ -252,8 +252,8 @@ fn test_add_deny_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let target_addr = stub.account_canonical_address(&target_account);
+    let sender_addr = stub.account_canonical_address(sender);
+    let target_addr = stub.account_canonical_address(target_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AddDenyList(
@@ -302,8 +302,8 @@ fn test_remove_deny_list_reject_non_governance() {
     let sender = stub.create_account();
     let target_account = stub.create_account();
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let target_addr = stub.account_canonical_address(&target_account);
+    let sender_addr = stub.account_canonical_address(sender);
+    let target_addr = stub.account_canonical_address(target_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RemoveDenyList(
@@ -353,7 +353,7 @@ fn test_add_allow_list_touches_account() {
 
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
-    let target_addr = stub.account_canonical_address(&target_account);
+    let target_addr = stub.account_canonical_address(target_account);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -380,7 +380,7 @@ fn test_remove_allow_list_touches_account() {
 
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
-    let target_addr = stub.account_canonical_address(&target_account);
+    let target_addr = stub.account_canonical_address(target_account);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -407,7 +407,7 @@ fn test_add_deny_list_touches_account() {
 
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
-    let target_addr = stub.account_canonical_address(&target_account);
+    let target_addr = stub.account_canonical_address(target_account);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -434,7 +434,7 @@ fn test_remove_deny_list_touches_account() {
 
     assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
 
-    let target_addr = stub.account_canonical_address(&target_account);
+    let target_addr = stub.account_canonical_address(target_account);
     stub.execute_token_operations(
         &token_id,
         gov_account,
@@ -459,7 +459,7 @@ fn test_add_to_not_enabled_allow_list() {
     );
     let allow_account = stub.create_account();
 
-    let allow_addr = stub.account_canonical_address(&allow_account);
+    let allow_addr = stub.account_canonical_address(allow_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AddAllowList(
@@ -470,7 +470,7 @@ fn test_add_to_not_enabled_allow_list() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -502,7 +502,7 @@ fn test_remove_from_not_enabled_allow_list() {
     );
     let allow_account = stub.create_account();
 
-    let allow_addr = stub.account_canonical_address(&allow_account);
+    let allow_addr = stub.account_canonical_address(allow_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RemoveAllowList(
@@ -513,7 +513,7 @@ fn test_remove_from_not_enabled_allow_list() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -545,7 +545,7 @@ fn test_add_to_not_enabled_deny_list() {
     );
     let deny_account = stub.create_account();
 
-    let deny_addr = stub.account_canonical_address(&deny_account);
+    let deny_addr = stub.account_canonical_address(deny_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AddDenyList(
@@ -556,7 +556,7 @@ fn test_add_to_not_enabled_deny_list() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -588,7 +588,7 @@ fn test_remove_from_not_enabled_deny_list() {
     );
     let deny_account = stub.create_account();
 
-    let deny_addr = stub.account_canonical_address(&deny_account);
+    let deny_addr = stub.account_canonical_address(deny_account);
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RemoveDenyList(
@@ -599,7 +599,7 @@ fn test_remove_from_not_enabled_deny_list() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -630,7 +630,7 @@ fn test_reject_add_denylist_without_role() {
         None,
     );
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     // Revoke updateDenyList role from governance account.
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -696,7 +696,7 @@ fn test_reject_add_allowlist_without_role() {
         None,
     );
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     // Revoke updateAllowList role.
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -762,7 +762,7 @@ fn test_reject_remove_denylist_without_role() {
         None,
     );
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     // First add gov to deny list, then revoke the role.
     stub.execute_token_operations(
         &token_id,
@@ -836,7 +836,7 @@ fn test_reject_remove_allowlist_without_role() {
         None,
     );
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_addr = stub.account_canonical_address(gov_account);
     // First add gov to allow list, then revoke the role.
     stub.execute_token_operations(
         &token_id,
@@ -911,8 +911,8 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
     );
     let account2 = stub.create_account();
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
-    let account2_addr = stub.account_canonical_address(&account2);
+    let gov_addr = stub.account_canonical_address(gov_account);
+    let account2_addr = stub.account_canonical_address(account2);
 
     // Assign updateDenyList role to account2.
     let payload = TokenOperationsPayload {
@@ -972,8 +972,8 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
     );
     let account2 = stub.create_account();
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
-    let account2_addr = stub.account_canonical_address(&account2);
+    let gov_addr = stub.account_canonical_address(gov_account);
+    let account2_addr = stub.account_canonical_address(account2);
 
     // Assign updateAllowList role to account2.
     let payload = TokenOperationsPayload {

@@ -27,8 +27,8 @@ fn test_meta_update_transaction() {
     // Set up initial accounts.
     let account_index_1 = stub.create_account();
     let account_index_2 = stub.create_account();
-    let account_1 = stub.account_canonical_address(&account_index_1);
-    let account_2 = stub.account_canonical_address(&account_index_2);
+    let account_1 = stub.account_canonical_address(account_index_1);
+    let account_2 = stub.account_canonical_address(account_index_2);
 
     // Set up PLT `pltX`.
     let plt_x: TokenId = "pltX".parse().unwrap();

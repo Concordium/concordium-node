@@ -44,7 +44,7 @@ fn test_plt_transfer() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(3000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -54,7 +54,7 @@ fn test_plt_transfer() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -64,17 +64,17 @@ fn test_plt_transfer() {
 
     // Assert circulating supply unchanged
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
 
     // Assert balance of sender and receiver
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        stub.state().account_token_balance(account2, token),
         RawTokenAmount(3000)
     );
 
@@ -84,8 +84,8 @@ fn test_plt_transfer() {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount.amount, RawTokenAmount(3000));
         assert_eq!(transfer.amount.decimals, 4);
-        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
-        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(&account2)));
+        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(gov_account)));
+        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(account2)));
         assert_eq!(transfer.memo, None);
     });
 
@@ -94,7 +94,7 @@ fn test_plt_transfer() {
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account3)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account3)),
         memo: Some(CborMemo::Cbor(memo.clone())),
     })];
     let payload = TokenOperationsPayload {
@@ -104,7 +104,7 @@ fn test_plt_transfer() {
 
     let result = scheduler::execute_transaction(
         account2,
-        stub.account_canonical_address(&account2),
+        stub.account_canonical_address(account2),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -114,17 +114,17 @@ fn test_plt_transfer() {
 
     // Assert circulating supply unchanged
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
 
     // Assert balance of sender and receiver
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        stub.state().account_token_balance(account2, token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account3, &token),
+        stub.state().account_token_balance(account3, token),
         RawTokenAmount(1000)
     );
 
@@ -134,8 +134,8 @@ fn test_plt_transfer() {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
         assert_eq!(transfer.amount.decimals, 4);
-        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(&account2)));
-        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(&account3)));
+        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(account2)));
+        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(account3)));
         assert_eq!(transfer.memo, Some(memo));
     });
 }
@@ -154,11 +154,11 @@ fn test_plt_transfer_using_aliases() {
     let account2 = stub.create_account();
 
     let gov_account_address_alias = stub
-        .account_canonical_address(&gov_account)
+        .account_canonical_address(gov_account)
         .get_alias(5)
         .unwrap();
     let account2_alias_address = stub
-        .account_canonical_address(&account2)
+        .account_canonical_address(account2)
         .get_alias(10)
         .unwrap();
 
@@ -186,11 +186,11 @@ fn test_plt_transfer_using_aliases() {
 
     // Assert balance of sender and receiver
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        stub.state().account_token_balance(account2, token),
         RawTokenAmount(3000)
     );
 
@@ -221,7 +221,7 @@ fn test_plt_transfer_reject() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -231,7 +231,7 @@ fn test_plt_transfer_reject() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -241,15 +241,15 @@ fn test_plt_transfer_reject() {
 
     // Assert circulating supply and account balances unchanged
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        stub.state().account_token_balance(account2, token),
         RawTokenAmount(0)
     );
 
@@ -278,7 +278,7 @@ fn test_plt_transfer_allow_list_flow() {
 
     // Add only the sender to the allow list.
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+        target: CborHolderAccount::from(stub.account_canonical_address(gov_account)),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -286,7 +286,7 @@ fn test_plt_transfer_allow_list_flow() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -299,13 +299,13 @@ fn test_plt_transfer_allow_list_flow() {
         assert_eq!(event.token_id, token_id);
         assert_eq!(event.event_type, TokenModuleEventType::AddAllowList.to_type_discriminator());
         let details: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
-        assert_eq!(details.target, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+        assert_eq!(details.target, CborHolderAccount::from(stub.account_canonical_address(gov_account)));
     });
 
     // Transfer fails because the receiver is not allow-listed yet.
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -314,7 +314,7 @@ fn test_plt_transfer_allow_list_flow() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -323,15 +323,15 @@ fn test_plt_transfer_allow_list_flow() {
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(0)
     );
 
@@ -343,14 +343,14 @@ fn test_plt_transfer_allow_list_flow() {
             reason: Some(reason),
             ..
         }) => {
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(receiver)));
             assert_eq!(reason, "recipient not in allow list");
         }
     );
 
     // Add the receiver to the allow list.
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        target: CborHolderAccount::from(stub.account_canonical_address(receiver)),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -358,7 +358,7 @@ fn test_plt_transfer_allow_list_flow() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -371,13 +371,13 @@ fn test_plt_transfer_allow_list_flow() {
         assert_eq!(event.token_id, token_id);
         assert_eq!(event.event_type, TokenModuleEventType::AddAllowList.to_type_discriminator());
         let details: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
-        assert_eq!(details.target, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
+        assert_eq!(details.target, CborHolderAccount::from(stub.account_canonical_address(receiver)));
     });
 
     // Transfer succeeds once both accounts are allow-listed.
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(receiver)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -386,7 +386,7 @@ fn test_plt_transfer_allow_list_flow() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -395,15 +395,15 @@ fn test_plt_transfer_allow_list_flow() {
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        stub.state().account_token_balance(receiver, token),
         RawTokenAmount(1000)
     );
 
@@ -412,8 +412,8 @@ fn test_plt_transfer_allow_list_flow() {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
         assert_eq!(transfer.amount.decimals, 4);
-        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
-        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(&receiver)));
+        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(gov_account)));
+        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(receiver)));
         assert_eq!(transfer.memo, None);
     });
 }
@@ -427,7 +427,7 @@ fn test_plt_allow_list_disabled() {
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
 
     let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+        target: CborHolderAccount::from(stub.account_canonical_address(gov_account)),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -435,7 +435,7 @@ fn test_plt_allow_list_disabled() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -479,7 +479,7 @@ fn test_plt_mint() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -489,13 +489,13 @@ fn test_plt_mint() {
 
     // Assert circulating supply increased
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(1000)
     );
 
     // Assert account balance increased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(1000)
     );
 
@@ -505,7 +505,7 @@ fn test_plt_mint() {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount.amount, RawTokenAmount(1000));
         assert_eq!(mint.amount.decimals, 4);
-        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(gov_account)));
     });
 }
 
@@ -522,7 +522,7 @@ fn test_plt_mint_using_alias() {
     );
 
     let gov_account_address_alias = stub
-        .account_canonical_address(&gov_account)
+        .account_canonical_address(gov_account)
         .get_alias(5)
         .unwrap();
 
@@ -546,13 +546,13 @@ fn test_plt_mint_using_alias() {
 
     // Assert circulating supply increased
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(1000)
     );
 
     // Assert account balance increased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(1000)
     );
 
@@ -588,7 +588,7 @@ fn test_plt_mint_reject() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -598,11 +598,11 @@ fn test_plt_mint_reject() {
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(5000)
     );
 
@@ -633,7 +633,7 @@ fn test_plt_mint_unauthorized() {
 
     let result = scheduler::execute_transaction(
         non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
+        stub.account_canonical_address(non_governance_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -643,12 +643,12 @@ fn test_plt_mint_unauthorized() {
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(0)
     );
     assert_eq!(
         stub.state()
-            .account_token_balance(&non_governance_account, &token),
+            .account_token_balance(non_governance_account, token),
         RawTokenAmount(0)
     );
 
@@ -664,7 +664,7 @@ fn test_plt_mint_unauthorized() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_canonical_address(non_governance_account)
                 ))
             );
             assert_eq!(reason.as_deref(), Some("sender is not authorized to perform the operation for this token"));
@@ -694,7 +694,7 @@ fn test_plt_burn() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -704,13 +704,13 @@ fn test_plt_burn() {
 
     // Assert circulating supply decreased
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(4000)
     );
 
     // Assert account balance decreased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(4000)
     );
 
@@ -720,7 +720,7 @@ fn test_plt_burn() {
         assert_eq!(burn.token_id, token_id);
         assert_eq!(burn.amount.amount, RawTokenAmount(1000));
         assert_eq!(burn.amount.decimals, 4);
-        assert_eq!(burn.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(burn.target, TokenHolder::Account(stub.account_canonical_address(gov_account)));
     });
 }
 
@@ -737,7 +737,7 @@ fn test_plt_burn_using_alias() {
     );
 
     let gov_account_address_alias = stub
-        .account_canonical_address(&gov_account)
+        .account_canonical_address(gov_account)
         .get_alias(5)
         .unwrap();
 
@@ -761,13 +761,13 @@ fn test_plt_burn_using_alias() {
 
     // Assert circulating supply decreased
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(4000)
     );
 
     // Assert account balance decreased
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(4000)
     );
 
@@ -803,7 +803,7 @@ fn test_plt_burn_reject() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -813,11 +813,11 @@ fn test_plt_burn_reject() {
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(5000)
     );
 
@@ -849,7 +849,7 @@ fn test_plt_multiple_operations() {
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 4),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+            recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
             memo: None,
         }),
     ];
@@ -860,7 +860,7 @@ fn test_plt_multiple_operations() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -870,15 +870,15 @@ fn test_plt_multiple_operations() {
 
     // Assert circulating supply and accout balances
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(3000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        stub.state().account_token_balance(account2, token),
         RawTokenAmount(1000)
     );
 
@@ -888,14 +888,14 @@ fn test_plt_multiple_operations() {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount.amount, RawTokenAmount(3000));
         assert_eq!(mint.amount.decimals, 4);
-        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(gov_account)));
     });
     assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
         assert_eq!(transfer.amount.decimals, 4);
-        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
-        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(&account2)));
+        assert_eq!(transfer.from, TokenHolder::Account(stub.account_canonical_address(gov_account)));
+        assert_eq!(transfer.to, TokenHolder::Account(stub.account_canonical_address(account2)));
         assert_eq!(transfer.memo, None);
     });
 }
@@ -917,7 +917,7 @@ fn test_plt_pause() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -943,7 +943,7 @@ fn test_plt_pause() {
     let account1 = stub.create_account();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account1)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account1)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -953,7 +953,7 @@ fn test_plt_pause() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -987,7 +987,7 @@ fn test_plt_unpause() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1013,7 +1013,7 @@ fn test_non_existing_token_id() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
         memo: None,
     })];
     let token_id: TokenId = "tokenid1".parse().unwrap();
@@ -1024,7 +1024,7 @@ fn test_non_existing_token_id() {
 
     let result = scheduler::execute_transaction(
         account1,
-        stub.account_canonical_address(&account1),
+        stub.account_canonical_address(account1),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1056,7 +1056,7 @@ fn test_energy_charge() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(3000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1066,7 +1066,7 @@ fn test_energy_charge() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1097,7 +1097,7 @@ fn test_energy_charge_at_reject() {
     // which will be the cause of the rejection.
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1107,7 +1107,7 @@ fn test_energy_charge_at_reject() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1138,7 +1138,7 @@ fn test_out_of_energy_error() {
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(3000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(account2)),
         memo: None,
     })];
     let payload = TokenOperationsPayload {
@@ -1148,7 +1148,7 @@ fn test_out_of_energy_error() {
 
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(150), // needs 300 + 100 to succeed

@@ -4,11 +4,14 @@ use crate::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
     TokenStateInvariantError, TokenTransferError,
 };
-use concordium_base::base::ProtocolVersion;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{TokenConfiguration, TokenStateKey, TokenStateValue};
+use plt_block_state::block_state::SimplisticTokenKeyValueState;
+use plt_block_state::block_state::types::{
+    TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
+};
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
@@ -22,7 +25,7 @@ pub struct TokenQueryContext<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a BSQ,
     /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::TokenKeyValueState,
+    pub token_module_state: &'a SimplisticTokenKeyValueState,
 }
 
 /// Context for running token operations with a specific token in context.
@@ -30,11 +33,11 @@ pub struct TokenOperationContext<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a mut BSQ,
     /// Token in context
-    pub token: &'a BSQ::Token,
+    pub token: TokenIndex,
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSQ::TokenKeyValueState,
+    pub token_module_state: &'a mut SimplisticTokenKeyValueState,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far
@@ -54,7 +57,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     pub fn mint(
         &mut self,
-        account: &BSO::Account,
+        account: AccountIndex,
         account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError> {
@@ -108,7 +111,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
     pub fn burn(
         &mut self,
-        account: &BSO::Account,
+        account: AccountIndex,
         account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
@@ -162,9 +165,9 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
     pub fn transfer(
         &mut self,
-        from: &BSO::Account,
+        from: AccountIndex,
         from_address: AccountAddress,
-        to: &BSO::Account,
+        to: AccountIndex,
         to_address: AccountAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,

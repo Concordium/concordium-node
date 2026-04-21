@@ -52,7 +52,7 @@ fn test_initialize_token_parameters_missing() {
     let parameters = TokenModuleInitializationParameters {
         name: None,
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_canonical_address(gov_account).into()),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -88,7 +88,7 @@ fn test_initialize_token_additional_parameter() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_canonical_address(gov_account).into()),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -129,7 +129,7 @@ fn test_initialize_token_additional_parameter() {
 fn test_initialize_token_default_values() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -169,7 +169,7 @@ fn test_initialize_token_default_values() {
     // Assert governance account balance
     let token = stub.state().token_by_id(&token_id).unwrap();
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(0)
     );
 }
@@ -179,7 +179,7 @@ fn test_initialize_token_default_values() {
 fn test_initialize_token_no_minting() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -219,7 +219,7 @@ fn test_initialize_token_no_minting() {
     // Assert governance account balance
     let token = stub.state().token_by_id(&token_id).unwrap();
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(0)
     );
 }
@@ -229,7 +229,7 @@ fn test_initialize_token_no_minting() {
 fn test_initialize_token_with_minting() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -269,11 +269,11 @@ fn test_initialize_token_with_minting() {
     // Assert governance account balance and circulating supply
     let token = stub.state().token_by_id(&token_id).unwrap();
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(500000)
     );
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(500000)
     );
 }
@@ -287,7 +287,7 @@ fn test_initialize_token_excessive_mint_decimals() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_canonical_address(gov_account).into()),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 6)),
@@ -325,7 +325,7 @@ fn test_initialize_token_insufficient_mint_decimals() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_canonical_address(gov_account).into()),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),

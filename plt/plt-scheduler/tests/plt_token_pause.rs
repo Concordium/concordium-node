@@ -60,7 +60,7 @@ fn test_token_pause_state() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -99,7 +99,7 @@ fn test_double_pause() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -147,7 +147,7 @@ fn test_redundant_unpause() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -182,7 +182,7 @@ fn test_unauthorized_pause() {
     };
     let result = scheduler::execute_transaction(
         non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
+        stub.account_canonical_address(non_governance_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -202,7 +202,7 @@ fn test_unauthorized_pause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_canonical_address(non_governance_account)
                 ))
             );
         }
@@ -245,7 +245,7 @@ fn test_unauthorized_unpause() {
     };
     let result = scheduler::execute_transaction(
         non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
+        stub.account_canonical_address(non_governance_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -265,7 +265,7 @@ fn test_unauthorized_unpause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_canonical_address(non_governance_account)
                 ))
             );
         }
@@ -308,7 +308,7 @@ fn test_pause_multiple_ops() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -328,7 +328,7 @@ fn test_pause_multiple_ops() {
 
     // No tokens minted
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(0)
     );
     // Token is NOT paused (local state was discarded on rejection)
@@ -376,7 +376,7 @@ fn test_unpause_multiple_ops() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -397,7 +397,7 @@ fn test_unpause_multiple_ops() {
         state.paused.unwrap_or(false)
     });
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(1000)
     );
 }
@@ -416,13 +416,13 @@ fn test_role_authorization_pause() {
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Pause],
-                account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+                account: CborHolderAccount::from(stub.account_canonical_address(gov_account)),
             },
         )])),
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -439,7 +439,7 @@ fn test_role_authorization_pause() {
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -456,7 +456,7 @@ fn test_role_authorization_pause() {
             reason: Some(reason),
         }) => {
             assert_eq!(reason, "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(gov_account)));
         }
     );
     // Token must remain unpaused.
@@ -482,13 +482,13 @@ fn test_new_account_with_role_succeeds_pause() {
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Pause],
-                account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+                account: CborHolderAccount::from(stub.account_canonical_address(account2)),
             },
         )])),
     };
     let result = scheduler::execute_transaction(
         gov_account,
-        stub.account_canonical_address(&gov_account),
+        stub.account_canonical_address(gov_account),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -505,7 +505,7 @@ fn test_new_account_with_role_succeeds_pause() {
     };
     let result = scheduler::execute_transaction(
         account2,
-        stub.account_canonical_address(&account2),
+        stub.account_canonical_address(account2),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),

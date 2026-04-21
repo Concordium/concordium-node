@@ -28,7 +28,7 @@ fn test_plt_create() {
     let token_id: TokenId = "testtokenid".parse().unwrap();
 
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -57,20 +57,20 @@ fn test_plt_create() {
 
     // Assert token module state
     let token = stub.state().token_by_id(&token_id).expect("created token");
-    assert_eq!(stub.state().token_configuration(&token).token_id, token_id);
-    assert_eq!(stub.state().token_configuration(&token).decimals, 4);
+    assert_eq!(stub.state().token_configuration(token).token_id, token_id);
+    assert_eq!(stub.state().token_configuration(token).decimals, 4);
     assert_eq!(
-        stub.state().token_configuration(&token).module_ref,
+        stub.state().token_configuration(token).module_ref,
         TOKEN_MODULE_REF
     );
 
     // Assert circulating supply and governance account balance
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(0)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(0)
     );
 
@@ -90,7 +90,7 @@ fn test_plt_create_with_minting() {
     let token_id: TokenId = "testtokenid".parse().unwrap();
 
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -120,11 +120,11 @@ fn test_plt_create_with_minting() {
     // Assert circulating supply and governance account balance
     let token = stub.state().token_by_id(&token_id).expect("created token");
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        stub.state().token_circulating_supply(token),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        stub.state().account_token_balance(gov_account, token),
         RawTokenAmount(5000)
     );
 
@@ -137,7 +137,7 @@ fn test_plt_create_with_minting() {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount.amount, RawTokenAmount(5000));
         assert_eq!(mint.amount.decimals, 4);
-        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(mint.target, TokenHolder::Account(stub.account_canonical_address(gov_account)));
     });
 }
 
@@ -148,7 +148,7 @@ fn test_plt_create_duplicate_id() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -202,7 +202,7 @@ fn test_plt_create_unknown_token_module_reference() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -243,7 +243,7 @@ fn test_plt_create_token_module_initialization_error() {
     let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
 
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         // No name specified
