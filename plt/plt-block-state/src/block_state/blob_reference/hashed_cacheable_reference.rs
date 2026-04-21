@@ -374,10 +374,12 @@ mod tests {
         // Migrate to destination blob store
         let new_val = val.migrate(&from_store, &mut to_store).unwrap();
         let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
+        drop(val);
 
         // Assert migrated reference
         assert_cached_repr(&new_val);
         assert_eq!(*new_val.value(&to_store).unwrap(), StoreSerialized(1));
+        drop(new_val);
 
         // Load migrated reference and assert
         let new_val2: TestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
@@ -600,12 +602,14 @@ mod tests {
         // Migrate to destination blob store
         let new_val = val.migrate(&from_store, &mut to_store).unwrap();
         let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
+        drop(val);
 
         // Assert migrated reference
         assert_eq!(
             *new_val.value(&to_store).unwrap().value(&to_store).unwrap(),
             StoreSerialized(1)
         );
+        drop(new_val);
 
         // Load migrated reference and assert
         let new_val2: NestedTestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();

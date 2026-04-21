@@ -492,10 +492,12 @@ mod test {
         // Migrate trie to new store
         let new_state = state.migrate(&from_store, &mut to_store).unwrap();
         let new_blob_loc = blob_store::store_to_store(&mut to_store, &state);
+        drop(state);
 
         // Lookup values in migrated state
         assert_eq!(new_state.lookup_value(&to_store, &[0, 1]), Some(vec![1, 1]));
         assert_eq!(new_state.lookup_value(&to_store, &[0, 2]), Some(vec![2, 2]));
+        drop(new_state);
 
         // Load migrate state from destination store
         let new_state2: PersistentState =

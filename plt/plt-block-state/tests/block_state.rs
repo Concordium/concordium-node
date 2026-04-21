@@ -363,6 +363,7 @@ fn test_migrate_plts() {
         new_store.clone(),
         &new_immutable_state,
     );
+    drop(block_state);
 
     // Assert migrated state
     let token1 = new_block_state
@@ -373,7 +374,7 @@ fn test_migrate_plts() {
         new_block_state.token_circulating_supply(&token1),
         RawTokenAmount(100)
     );
-    assert_eq!(block_state.token_configuration(&token1), configuration1);
+    assert_eq!(new_block_state.token_configuration(&token1), configuration1);
     let key_value_state1 = new_block_state.mutable_token_key_value_state(&token1);
     let value =
         new_block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
@@ -389,6 +390,7 @@ fn test_migrate_plts() {
         RawTokenAmount(0)
     );
     assert_eq!(new_block_state.token_configuration(&token2), configuration2);
+    drop(new_block_state);
 
     // Load migrated block state
     let new_immutable_state2 = blob_store::load_from_store::<BlockState>(&new_store, new_blob_loc)
@@ -408,7 +410,10 @@ fn test_migrate_plts() {
         new_block_state2.token_circulating_supply(&token1),
         RawTokenAmount(100)
     );
-    assert_eq!(block_state.token_configuration(&token1), configuration1);
+    assert_eq!(
+        new_block_state2.token_configuration(&token1),
+        configuration1
+    );
     let key_value_state1 = new_block_state2.mutable_token_key_value_state(&token1);
     let value =
         new_block_state2.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));

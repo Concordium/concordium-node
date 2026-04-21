@@ -1147,6 +1147,7 @@ mod tests {
                 &new_tree,
                 format!("loaded tree of size {}", i),
             );
+            drop(new_tree);
 
             // Load migrated tree from destination store
             let new_tree2: TestTree = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
