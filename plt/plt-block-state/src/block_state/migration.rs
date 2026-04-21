@@ -1,30 +1,31 @@
 //! Definition of the [`Migrate`] trait that defines migration of block state values
 //! from the blob store of the current protocol version blob store to the blob store of the next
-//! protocol version.
+//! protocol version (each protocol version has its own blob store).
 
 use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, StoreSerialized};
 use crate::block_state_interface::BlockStateResult;
 use concordium_base::common::Serial;
 
 /// Trait implemented by block state values to support migration when protocol version increments.
-/// Migration must
+/// The migration must,
 ///
-/// 1. copy the value from the blob store of the current protocol version to the blob store
-///    of the next protocol version
-/// 2. apply any changes to the representation of the block state value (data model migration)
+/// * recursively store all [blob references](super::blob_reference) into the new blob store
+///   of we migrate to (the blob store of the new protocol version)
+/// * apply any changes to the representation of the block state value (data model migration)
 ///
-/// Step 1. must always be performed, even if there are no changes to the representation of the
-/// value in the blob store.
+/// Since each protocol version has its own blob store, migration is always needed at
+/// protocol update, even if the block state value has no data model changes.
 pub trait Migrate {
     /// Migrate the value from the blob store it is currently stored in
-    /// (`from_loader`) to the blob store for the next protocol version (`to_storer`).
-    /// Returns a copy of the value, that is stored in the destination blob store.
-    /// The migration must
+    /// (`from_loader`), to the new blob store for the next protocol version (`to_storer`).
+    /// Migration must:
     ///
-    /// 1. load any needed data that is not already in memory via `from_loader`
-    /// 2. make a copy of the value, while applying changes to the representation of the value
-    ///    if needed by the protocol update
-    /// 3. store the new value to the destination blob store
+    /// * recursively migrate all [blob references](super::blob_reference) the value is composed of
+    ///   to the new blob store, including storing the referenced values in the new blob store
+    /// * apply any changes to the value (data model migration)
+    ///
+    /// The function returns the new, migrated value, that represents the value on the new protocol
+    /// version, and whose [blob references](super::blob_reference) points to the new blob store.
     ///
     /// The implementation must recursively make sure the same operations are applied to any
     /// block state components, the value may be composed of.

@@ -1148,10 +1148,10 @@ mod tests {
                 format!("loaded tree of size {}", i),
             );
 
-            // Load migrated tree
+            // Load migrated tree from destination store
             let new_tree2: TestTree = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
 
-            // Assert loaded tree is equal to the tree we started with
+            // Assert tree loaded from destination store is equal to the tree we started with
             assert_trees_eq(
                 &from_store,
                 &to_store,

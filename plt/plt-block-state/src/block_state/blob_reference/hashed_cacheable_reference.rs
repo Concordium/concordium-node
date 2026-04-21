@@ -379,7 +379,7 @@ mod tests {
         assert_cached_repr(&new_val);
         assert_eq!(*new_val.value(&to_store).unwrap(), StoreSerialized(1));
 
-        // Load migrate reference and assert
+        // Load migrated reference and assert
         let new_val2: TestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
         assert_eq!(*new_val2.value(&to_store).unwrap(), StoreSerialized(1));
     }
