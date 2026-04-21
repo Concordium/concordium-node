@@ -64,9 +64,7 @@ impl ProtocolLevelTokens {
     ) -> BlockStateResult<smart_contract_trie::MutableState> {
         self.tokens
             .lookup_value(loader, token_index, |token| {
-                token
-                    .key_value_state
-                    .with_value(loader, |key_value_state| Ok(key_value_state.thaw()))
+                Ok(token.key_value_state.value(loader)?.thaw())
             })
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
