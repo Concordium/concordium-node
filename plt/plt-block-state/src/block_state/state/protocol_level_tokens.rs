@@ -5,19 +5,16 @@ use crate::block_state::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
 };
 use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash;
 use crate::block_state::hash::Hashable;
 use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
-use crate::block_state::types::protocol_level_tokens::{
-    TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
-};
+use crate::block_state::types::protocol_level_tokens::{TokenConfiguration, TokenIndex};
 use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use concordium_base::common::{Buffer, Serialize};
+use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use std::collections::BTreeMap;
 use std::io::Read;
 
 /// Block state for protocol level tokens
@@ -66,13 +63,12 @@ impl ProtocolLevelTokens {
         &self,
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
-    ) -> BlockStateResult<SimplisticTokenKeyValueState> {
+    ) -> BlockStateResult<smart_contract_trie::MutableState> {
         self.tokens
             .lookup_value(loader, token_index, |token| {
-                Ok(match token {
-                    OwnedOrBorrowed::Owned(v) => v.key_value_state.0,
-                    OwnedOrBorrowed::Borrowed(r) => r.key_value_state.0.clone(),
-                })
+                token
+                    .key_value_state
+                    .with_value(loader, |key_value_state| Ok(key_value_state.thaw()))
             })
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
@@ -141,8 +137,8 @@ impl ProtocolLevelTokens {
 
         let token = Token {
             configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
-            key_value_state: Default::default(),
-            circulating_supply: Default::default(),
+            key_value_state: HashedCacheableRef::new(smart_contract_trie::PersistentState::empty()),
+            circulating_supply: StoreSerialized(RawTokenAmount(0)),
         };
 
         let (token_index, tokens) = self.tokens.insert_value(loader, token)?;
@@ -163,14 +159,16 @@ impl ProtocolLevelTokens {
         self,
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
-        token_key_value_state: SimplisticTokenKeyValueState,
+        mut token_key_value_state: smart_contract_trie::MutableState,
     ) -> BlockStateResult<ProtocolLevelTokens> {
+        let frozen_key_value_state = token_key_value_state.freeze(loader);
+
         Ok(ProtocolLevelTokens {
             tokens: self
                 .tokens
                 .update_value(loader, token_index, |token| {
                     Ok(Token {
-                        key_value_state: StoreSerialized(token_key_value_state),
+                        key_value_state: HashedCacheableRef::new(frozen_key_value_state),
                         ..token.into_owned()
                     })
                 })
@@ -240,7 +238,7 @@ impl LfmbTreeKey for TokenIndex {
 #[derive(Debug, Clone)]
 pub struct Token {
     configuration: HashedCacheableRef<StoreSerialized<TokenConfiguration>>,
-    key_value_state: StoreSerialized<SimplisticTokenKeyValueState>,
+    key_value_state: HashedCacheableRef<smart_contract_trie::PersistentState>,
     circulating_supply: StoreSerialized<RawTokenAmount>,
 }
 
@@ -271,7 +269,9 @@ impl Loadable for Token {
 
 impl Cacheable for Token {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.configuration.cache_reference_values(loader)
+        self.configuration.cache_reference_values(loader)?;
+        self.key_value_state.cache_reference_values(loader)?;
+        Ok(())
     }
 }
 
@@ -279,48 +279,8 @@ impl Hashable for Token {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let config = self.configuration.hash(loader)?;
         let key_value_state = self.key_value_state.hash(loader)?;
-        let circulating_supply = self.circulating_supply.hash(loader)?;
+        let state = hash::hash_of_serialization((key_value_state, self.circulating_supply.0));
 
-        Ok(hash::hash_of_hashes(
-            config,
-            hash::hash_of_hashes(key_value_state, circulating_supply),
-        ))
-    }
-}
-
-// todo do real implementation of key-value store as part of ar/psr-84-use-smart-contract-trie-for-key-value-store
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct SimplisticTokenKeyValueState {
-    state: BTreeMap<TokenStateKey, TokenStateValue>,
-}
-
-impl SimplisticTokenKeyValueState {
-    pub fn lookup_value(&self, key: &TokenStateKey) -> Option<TokenStateValue> {
-        self.state.get(key).cloned()
-    }
-
-    pub fn update_value(&mut self, key: &TokenStateKey, value: Option<TokenStateValue>) {
-        if let Some(value) = value {
-            self.state.insert(key.clone(), value);
-        } else {
-            self.state.remove(key);
-        }
-    }
-}
-
-impl SimplisticTokenKeyValueState {
-    pub fn iter_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
-        // This is just a temporary implementation and will not scale.
-        // However implementation should be trivial once using the actual trie.
-        let mut out = Vec::new();
-        for (key, value) in self.state.iter() {
-            if key.starts_with(prefix.as_slice()) {
-                out.push((key, value));
-            }
-        }
-        out.into_iter()
+        Ok(hash::hash_of_hashes(config, state))
     }
 }
