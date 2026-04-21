@@ -164,6 +164,10 @@ impl<V> HashedCacheableRefRepr<V> {
                 blob_location,
                 value_lock,
             } => {
+                // When OnceLock::get_mut_or_try_init is stable, we can use that instead of the
+                // get/set pattern used here. get_mut_or_try_init imposes a critical region such
+                // that two threads will not load the value for caching. Right now we just log
+                // if it happens.
                 match value_lock.get() {
                     None => {
                         let value: V = blob_store::load_from_store(loader, *blob_location)?;
@@ -239,6 +243,10 @@ impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
 
 impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        // When OnceLock::get_mut_or_try_init is stable, we can use that instead of the
+        // get/set pattern used here. get_mut_or_try_init imposes a critical region such
+        // that two threads will not hash the value. Right now we just log
+        // if it happens.
         match self.inner.hash.get() {
             Some(hash) => Ok(*hash),
             None => {
