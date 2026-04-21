@@ -16,17 +16,24 @@ import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Types.Tokens
 
+import Concordium.Crypto.SHA256
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState
+import Control.Monad.IO.Class
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16.Lazy as B16
+import Data.Either
+import qualified Data.FixedByteString as FBS
+import Data.Maybe
 
 -- | Generate a 'TokenRawAmount' value.
 genTokenRawAmount :: Gen TokenRawAmount
 genTokenRawAmount = TokenRawAmount <$> arbitrary
 
 -- | Run an action in the 'MemBlobStoreT' monad transformer from an empty store.
-runBlobStore :: MemBlobStoreT IO a -> IO a
-runBlobStore a = do
+runWithNewMemBlobStore :: MemBlobStoreT IO a -> IO a
+runWithNewMemBlobStore a = do
     mbs <- newMemBlobStore
     runMemBlobStoreT a mbs
 
@@ -56,7 +63,7 @@ emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForStateVersion 'PLTSt
 emptyPLTPV = emptyProtocolLevelTokensForStateVersion
 
 testCreateToken :: Assertion
-testCreateToken = runBlobStore $ do
+testCreateToken = runWithNewMemBlobStore $ do
     (idx, tokens) <- createToken configABC =<< emptyPLTPV
     checks0 idx tokens
     (idx', tokens') <- createToken configDEF tokens
@@ -90,7 +97,7 @@ testCreateToken = runBlobStore $ do
             =<< getTokenConfiguration idx' tokens'
 
 testSetTokenCirculatingSupply :: Assertion
-testSetTokenCirculatingSupply = runBlobStore $ do
+testSetTokenCirculatingSupply = runWithNewMemBlobStore $ do
     (idxABC, tokens0) <- createToken configABC =<< emptyPLTPV
     (idxDEF, tokens1) <- createToken configDEF tokens0
     tokens2 <- setTokenCirculatingSupply idxABC 100 tokens1
@@ -125,7 +132,7 @@ testSetTokenCirculatingSupply = runBlobStore $ do
     lift $ assertEqual "Hash of tokens3 and tokens6 should be the same" hash3 hash6
 
 testUpdateTokenState :: Assertion
-testUpdateTokenState = runBlobStore $ do
+testUpdateTokenState = runWithNewMemBlobStore $ do
     (idxABC, tokens0) <- createToken configABC =<< emptyPLTPV
     (idxDEF, tokens1) <- createToken configDEF tokens0
     mutableStateABC <- getMutableTokenState idxABC tokens1
@@ -189,8 +196,110 @@ testUpdateTokenState = runBlobStore $ do
     hash3 <- uncond <$> getHashM tokens3
     lift $ assertEqual "Hash of tokens2 and tokens3 should be the same" hash2 hash3
 
+-- | Asserts "shapshot" of hash of empty 'ProtocolLevelTokens' to make sure it does not change.
+snapshotTestHashEmpty :: Assertion
+snapshotTestHashEmpty = runWithNewMemBlobStore $ do
+    tokensState <- emptyPLTPV
+
+    -- Assert hash
+    (hash1 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokensState
+    liftIO $ show hash1 `shouldBe` "c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05"
+
+-- | Asserts "shapshot" of hash of 'ProtocolLevelTokens' with some simple PLTs to make sure it does not change.
+snapshotTestHashSimple :: Assertion
+snapshotTestHashSimple = runWithNewMemBlobStore $ do
+    tokensState1 <- emptyPLTPV
+
+    -- Create tokens
+    let config1 =
+            PLTConfiguration
+                { _pltTokenId = TokenId "token1",
+                  _pltModule = TokenModuleRef $ Hash $ FBS.pack (replicate 32 5),
+                  _pltDecimals = 2
+                }
+    (tokenIndex1, tokensState2) <- createToken config1 tokensState1
+    tokensState3 <- setTokenCirculatingSupply tokenIndex1 100 tokensState2
+    mutableKeyValueState1 <- getMutableTokenState tokenIndex1 tokensState3
+    _ <- updateTokenState (BS.pack [0, 1]) (Just (BS.pack [0, 0])) mutableKeyValueState1
+    _ <- updateTokenState (BS.pack [0, 2]) (Just (BS.pack [1, 1])) mutableKeyValueState1
+    tokensState4 <- setTokenState tokenIndex1 mutableKeyValueState1 tokensState3
+    let config2 =
+            PLTConfiguration
+                { _pltTokenId = TokenId "token2",
+                  _pltModule = TokenModuleRef $ Hash $ FBS.pack (replicate 32 5),
+                  _pltDecimals = 4
+                }
+    (_tokenIndex2, tokensState5) <- createToken config2 tokensState4
+
+    -- Assert hash
+    (hash1 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokensState5
+    liftIO $ show hash1 `shouldBe` "d202e9153fea3fdd22c594be21d471c07e9619abc0baad3faca5c81f0bb1504b"
+
+-- | Load empty PLTs state from storage fixture, to make sure we stay compatible.
+fixtureTestLoadEmpty :: Assertion
+fixtureTestLoadEmpty = runWithNewMemBlobStore $ do
+    mbs1 <- liftIO $ newMemBlobStoreWithBytes $ fromRight undefined $ B16.decode "00000000000000080000000000000000"
+    flip
+        runMemBlobStoreT
+        mbs1
+        ( do
+            -- Load empty PLTs state
+            (emptyStateV0 :: ProtocolLevelTokens) <-
+                loadDirect $ BlobRef 0
+            emptyState <- ProtocolLevelTokensV0 <$> refMake emptyStateV0
+
+            -- Assert empty
+            pltList <- getPLTList emptyState
+            liftIO $ assertEqual "PLTList" (length pltList) 0
+        )
+
+-- | Load PLTs state with some simple PLTs from storage fixture, to make sure we stay compatible.
+fixtureTestLoadSimple :: Assertion
+fixtureTestLoadSimple = runWithNewMemBlobStore $ do
+    mbs1 <- liftIO $ newMemBlobStoreWithBytes $ fromRight undefined $ B16.decode "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155"
+    flip
+        runMemBlobStoreT
+        mbs1
+        ( do
+            -- Load simple PLTs state
+            (simpleStateV0 :: ProtocolLevelTokens) <-
+                loadDirect $ BlobRef 358
+            simpleState <- ProtocolLevelTokensV0 <$> refMake simpleStateV0
+
+            -- Assert token state
+            pltList <- getPLTList simpleState
+            liftIO $ assertEqual "PLTList" (length pltList) 2
+            let expectedConfig1 =
+                    PLTConfiguration
+                        { _pltTokenId = TokenId "token1",
+                          _pltModule = TokenModuleRef $ Hash $ FBS.pack (replicate 32 5),
+                          _pltDecimals = 2
+                        }
+            tokenIndex1 <- fromJust <$> getTokenIndex (TokenId "token1") simpleState
+            config1 <- getTokenConfiguration tokenIndex1 simpleState
+            liftIO $ assertEqual "config1" config1 expectedConfig1
+            keyValueState1 <- getMutableTokenState tokenIndex1 simpleState
+            value1 <- lookupTokenState (BS.pack [0, 1]) keyValueState1
+            liftIO $ assertEqual "value1" value1 (Just $ BS.pack [0, 0])
+            value2 <- lookupTokenState (BS.pack [0, 2]) keyValueState1
+            liftIO $ assertEqual "value1" value2 (Just $ BS.pack [1, 1])
+            let expectedConfig2 =
+                    PLTConfiguration
+                        { _pltTokenId = TokenId "token2",
+                          _pltModule = TokenModuleRef $ Hash $ FBS.pack (replicate 32 5),
+                          _pltDecimals = 4
+                        }
+            tokenIndex2 <- fromJust <$> getTokenIndex (TokenId "token2") simpleState
+            config2 <- getTokenConfiguration tokenIndex2 simpleState
+            liftIO $ assertEqual "config2" config2 expectedConfig2
+        )
+
 tests :: Spec
 tests = describe "GlobalStateTests.ProtocolLevelTokens" $ do
     it "createToken" testCreateToken
     it "setTokenCirculatingSupply" testSetTokenCirculatingSupply
     it "updateTokenState" testUpdateTokenState
+    it "snapshotHashEmpty" snapshotTestHashEmpty
+    it "snapshotHashSimple" snapshotTestHashSimple
+    it "fixtureLoadEmpty" fixtureTestLoadEmpty
+    it "fixtureLoadSimple" fixtureTestLoadSimple

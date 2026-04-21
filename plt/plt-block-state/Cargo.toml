@@ -13,6 +13,7 @@ plt-scheduler-types.workspace = true
 
 # Concordium dependencies
 concordium_base.workspace = true
+concordium-smart-contract-engine.workspace = true
 
 # Third party dependencies
 assert_matches.workspace = true
