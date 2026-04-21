@@ -25,8 +25,8 @@ impl<'a, T> OwnedOrBorrowed<'a, T> {
         }
     }
 
-    /// Return [`Self`] with new lifetime, if it is owned, else `None`.
-    pub fn new_lifetime_if_owned<'b>(self) -> Option<OwnedOrBorrowed<'b, T>> {
+    /// Return [`Self`] with new, unconstrained lifetime, if it is owned, else `None`.
+    pub fn unconstrained_lifetime_if_owned<'b>(self) -> Option<OwnedOrBorrowed<'b, T>> {
         match self {
             OwnedOrBorrowed::Owned(v) => Some(OwnedOrBorrowed::Owned(v)),
             OwnedOrBorrowed::Borrowed(_) => None,
