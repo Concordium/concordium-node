@@ -27,7 +27,7 @@ pub mod blob_store;
 pub mod cacheable;
 pub mod external;
 pub mod hash;
-mod lfmb_tree;
+pub mod lfmb_tree;
 mod smart_contract_trie;
 mod state;
 pub mod types;

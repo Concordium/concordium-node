@@ -17,7 +17,7 @@ use std::io::Read;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Immutable (persistent) trie. The internal structure may be changed via interior mutability,
-/// but the entries in the trie never changes. This is the frozen/persistent dual to [`MutableState`].
+/// but the entries in the trie never change. This is the frozen/persistent dual to [`MutableState`].
 #[derive(Debug)]
 pub struct PersistentState(RwLock<trie::PersistentState>);
 
