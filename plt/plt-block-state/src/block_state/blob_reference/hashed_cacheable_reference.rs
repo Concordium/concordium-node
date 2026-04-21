@@ -39,7 +39,7 @@ use std::sync::{Arc, OnceLock};
 #[derive(Debug)]
 pub struct HashedCacheableRef<V> {
     /// The representation is wrapped in a [`Arc`] to allow cheap cloning and
-    /// interior mutability of a shared instance.
+    /// interior mutability of the shared inner value.
     inner: Arc<HashedBufferedRefInner<V>>,
 }
 
@@ -67,7 +67,7 @@ impl<V> HashedCacheableRef<V> {
 
     /// Access the referenced value. If the value is already in memory, the value
     /// is returned as borrowed. If it is not in memory, it is loaded from the
-    /// blob store, and passed owned to the closure as owned.
+    /// blob store, and returned as owned.
     ///
     /// Loading from the blob store will not make the value cached in the reference.
     ///
@@ -95,27 +95,31 @@ impl<V> Clone for HashedCacheableRef<V> {
 /// The [`HashedCacheableRef`] behind the `Arc`.
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
-    /// Lazily calculated hash. If set, it is the hash of `value`.
+    /// Lazily calculated hash. If set, it is the hash of the referenced value.
     hash: OnceLock<Hash>,
     /// Representation of the value.
     repr: HashedCacheableRefRepr<V>,
 }
 
 /// The possible representations of the referenced value.
+///
+/// Notice that the two variants decide where the value was represented, when the reference
+/// was created (in blob store or in memory). But both of the variants `Store` and `Memory`
+/// can represent a value that is in memory and stored at the same time.
 #[derive(Debug)]
 enum HashedCacheableRefRepr<V> {
     /// The value is in the blob store, and is maybe cached.
     Store {
         /// Location of the value in the blob store
         blob_location: BlobStoreLocation,
-        /// In-memory value. Is set if the value is currently represented in memory.
+        /// In-memory value. Is set if the value is currently cached in memory.
         value_lock: OnceLock<V>,
     },
     /// The value is in memory, and is maybe also stored (the same as cached)
     Memory {
         /// In-memory value.
         value: V,
-        /// Location of the value in the blob store. Is set if the value is stored in the blob store.
+        /// Location of the value in the blob store. Is set if the value is also stored in the blob store.
         blob_location_lock: OnceLock<BlobStoreLocation>,
     },
 }
@@ -167,7 +171,7 @@ impl<V> HashedCacheableRefRepr<V> {
                             .set(value)
                             .inspect_err(|_| eprintln!("HashedCacheableRef: Value loaded by two threads at the same time"))
                             .ok();
-                        value_lock.get().expect("value just set")
+                        value_lock.get().expect("HashedCacheableRefRepr::get_or_cache_value: value not present though just set in lock")
                     }
                     Some(value) => value,
                 }

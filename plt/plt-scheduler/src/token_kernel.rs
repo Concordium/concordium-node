@@ -28,7 +28,7 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     /// Token in context
     pub token: &'a BSQ::Token,
     /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::TokenKeyValueState,
+    pub token_module_state: &'a BSQ::MutableTokenKeyValueState,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -72,9 +72,9 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -87,7 +87,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSQ::TokenKeyValueState,
+    pub token_module_state: &'a mut BSQ::MutableTokenKeyValueState,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far
@@ -287,8 +287,8 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }

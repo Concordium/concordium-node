@@ -105,7 +105,7 @@ pub trait TokenKernelQueries {
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)>;
 
     /// Query the protocol version for this block.
     fn protocol_version(&self) -> ProtocolVersion;
