@@ -1,6 +1,7 @@
 use std::cell::UnsafeCell;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
+use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::{fmt, hint};
 
@@ -100,7 +101,29 @@ impl<T> RacingOnceLock<T> {
     }
 }
 
-// todo ar sync, send, unwindsafe, drop
+impl<T> Drop for RacingOnceLock<T> {
+    fn drop(&mut self) {
+        if self.state.load(Ordering::Acquire) == State::Initialized as u8 {
+            // Data-race safety: Reading the value happens-after writing it in Self::try_insert,
+            // because the acquire load of state happens-after the release store of state in
+            // Self::try_insert.
+            // Initialization safety: By the same argument, the value has been
+            // initialized in Self::try_insert.
+            unsafe { (&mut *self.value.get()).assume_init_drop() }
+        }
+    }
+}
+
+unsafe impl<T: Send> Send for RacingOnceLock<T> {}
+
+unsafe impl<T: Send + Sync> Sync for RacingOnceLock<T> {}
+
+impl<T: UnwindSafe> UnwindSafe for RacingOnceLock<T> {}
+
+impl<T: RefUnwindSafe + UnwindSafe> RefUnwindSafe for RacingOnceLock<T> {}
+
+// todo ar miri test
+// todo ar integrate and bench
 
 impl<T: Debug> Debug for RacingOnceLock<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
