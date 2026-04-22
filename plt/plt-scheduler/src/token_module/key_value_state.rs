@@ -36,7 +36,7 @@ const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
 ///
 /// Allows defining functions which works for both [`TokenQueryContext`] and
 /// [`TokenOperationContext`].
-pub trait ReadTokenState {
+pub trait ReadTokenKeyValueState {
     /// Lookup a key in the token key-value state.
     fn lookup_token_state_value(&self, key: &TokenStateKey) -> Option<TokenStateValue>;
 
@@ -47,7 +47,7 @@ pub trait ReadTokenState {
     ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
 }
 
-impl<'a, BSQ> ReadTokenState for TokenQueryContext<'a, BSQ>
+impl<'a, BSQ> ReadTokenKeyValueState for TokenQueryContext<'a, BSQ>
 where
     BSQ: BlockStateQuery,
 {
@@ -65,7 +65,7 @@ where
     }
 }
 
-impl<'a, BSO> ReadTokenState for TokenOperationContext<'a, BSO>
+impl<'a, BSO> ReadTokenKeyValueState for TokenOperationContext<'a, BSO>
 where
     BSO: BlockStateOperations,
 {
@@ -93,7 +93,7 @@ fn module_state_key(key: &[u8]) -> TokenStateKey {
 }
 
 /// Get value from the token module state at the given key.
-fn get_module_state(context: &impl ReadTokenState, key: &[u8]) -> Option<TokenStateValue> {
+fn get_module_state(context: &impl ReadTokenKeyValueState, key: &[u8]) -> Option<TokenStateValue> {
     context.lookup_token_state_value(&module_state_key(key))
 }
 
@@ -118,7 +118,7 @@ fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
 
 /// Lookup a value from the account section of the token state.
 fn lookup_account_state(
-    context: &impl ReadTokenState,
+    context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
     key: &[u8],
 ) -> Option<TokenStateValue> {
@@ -146,7 +146,7 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
 
 /// Lookup a value from the account roles section of the token state.
 fn get_account_roles_state(
-    context: &impl ReadTokenState,
+    context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
 ) -> Result<Roles, TokenStateInvariantError> {
     Roles::try_from_state_value(context.lookup_token_state_value(&account_roles_state_key(account)))
@@ -169,12 +169,12 @@ fn update_account_roles_state<BSO: BlockStateOperations>(
 
 /// Get whether the balance-affecting operations on the token are currently
 /// paused.
-pub fn is_paused(context: &impl ReadTokenState) -> bool {
+pub fn is_paused(context: &impl ReadTokenKeyValueState) -> bool {
     get_module_state(context, STATE_KEY_PAUSED).is_some()
 }
 
 /// Get whether the token has allow lists enabled.
-pub fn has_allow_list(context: &impl ReadTokenState) -> bool {
+pub fn has_allow_list(context: &impl ReadTokenKeyValueState) -> bool {
     get_module_state(context, STATE_KEY_ALLOW_LIST).is_some()
 }
 
@@ -184,7 +184,7 @@ pub fn set_allow_list_enabled<BSO: BlockStateOperations>(context: &mut TokenOper
 }
 
 /// Get whether the token has deny lists enabled.
-pub fn has_deny_list(context: &impl ReadTokenState) -> bool {
+pub fn has_deny_list(context: &impl ReadTokenKeyValueState) -> bool {
     get_module_state(context, STATE_KEY_DENY_LIST).is_some()
 }
 
@@ -194,7 +194,7 @@ pub fn set_deny_list_enabled<BSO: BlockStateOperations>(context: &mut TokenOpera
 }
 
 /// Get whether the token allows minting.
-pub fn is_mintable(context: &impl ReadTokenState) -> bool {
+pub fn is_mintable(context: &impl ReadTokenKeyValueState) -> bool {
     get_module_state(context, STATE_KEY_MINTABLE).is_some()
 }
 
@@ -204,7 +204,7 @@ pub fn set_mintable_enabled<BSO: BlockStateOperations>(context: &mut TokenOperat
 }
 
 /// Get whether the token allows burning.
-pub fn is_burnable(context: &impl ReadTokenState) -> bool {
+pub fn is_burnable(context: &impl ReadTokenKeyValueState) -> bool {
     get_module_state(context, STATE_KEY_BURNABLE).is_some()
 }
 
@@ -234,7 +234,9 @@ pub fn set_token_name<BSO: BlockStateOperations>(
 }
 
 /// Get the name of the token.
-pub fn get_token_name(context: &impl ReadTokenState) -> Result<String, TokenStateInvariantError> {
+pub fn get_token_name(
+    context: &impl ReadTokenKeyValueState,
+) -> Result<String, TokenStateInvariantError> {
     get_module_state(context, STATE_KEY_NAME)
         .ok_or_else(|| TokenStateInvariantError("Name not present".to_string()))
         .and_then(|value| {
@@ -246,7 +248,7 @@ pub fn get_token_name(context: &impl ReadTokenState) -> Result<String, TokenStat
 
 /// Get the URL metadata of the token.
 pub fn get_metadata(
-    context: &impl ReadTokenState,
+    context: &impl ReadTokenKeyValueState,
 ) -> Result<MetadataUrl, TokenStateInvariantError> {
     let metadata_cbor = get_module_state(context, STATE_KEY_METADATA)
         .ok_or_else(|| TokenStateInvariantError("Metadata not present".to_string()))?;
@@ -267,7 +269,7 @@ pub fn set_metadata_url<BSO: BlockStateOperations>(
 
 /// Get the account index of the governance account for the token.
 pub fn get_governance_account_index(
-    context: &impl ReadTokenState,
+    context: &impl ReadTokenKeyValueState,
 ) -> Result<AccountIndex, TokenStateInvariantError> {
     let governance_account_index = AccountIndex::from(
         get_module_state(context, STATE_KEY_GOVERNANCE_ACCOUNT)
@@ -286,7 +288,7 @@ pub fn get_governance_account_index(
 
 /// Get the authorization roles for an account from state.
 pub fn get_account_roles(
-    context: &impl ReadTokenState,
+    context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
 ) -> Result<Roles, TokenStateInvariantError> {
     get_account_roles_state(context, account)
@@ -398,7 +400,7 @@ pub fn set_paused<BSO: BlockStateOperations>(
 }
 
 /// Get the allow-list state for the account at the given account.
-pub fn get_allow_list_for(context: &impl ReadTokenState, account: AccountIndex) -> bool {
+pub fn get_allow_list_for(context: &impl ReadTokenKeyValueState, account: AccountIndex) -> bool {
     lookup_account_state(context, account, STATE_KEY_ALLOW_LIST).is_some()
 }
 
@@ -413,7 +415,7 @@ pub fn set_allow_list_for<BSO: BlockStateOperations>(
 }
 
 /// Get the deny-list state for the account at the given account.
-pub fn get_deny_list_for(context: &impl ReadTokenState, account: AccountIndex) -> bool {
+pub fn get_deny_list_for(context: &impl ReadTokenKeyValueState, account: AccountIndex) -> bool {
     lookup_account_state(context, account, STATE_KEY_DENY_LIST).is_some()
 }
 
