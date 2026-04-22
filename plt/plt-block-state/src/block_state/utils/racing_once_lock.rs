@@ -99,6 +99,15 @@ impl<T> RacingOnceLock<T> {
             }
         }
     }
+
+    /// Initialize the lock with the given value and return a reference
+    /// to the value in the lock. The result may be setting
+    /// the value, or doing nothing, because the lock has already
+    /// been initialized. In any case, it is guaranteed that when this function returns,
+    /// the lock has been initialized, and a reference to the initialized value is returned.
+    pub fn insert(&self, value: T) -> &T {
+        self.try_insert(value).unwrap_or_else(|err| err.0)
+    }
 }
 
 impl<T> Drop for RacingOnceLock<T> {
@@ -137,20 +146,36 @@ impl<T: Debug> Debug for RacingOnceLock<T> {
 #[cfg(test)]
 mod test {
     use crate::block_state::utils::racing_once_lock::RacingOnceLock;
-    use std::hint;
     use std::thread;
+    use std::time::Duration;
 
     type TestLock = RacingOnceLock<u64>;
 
     #[test]
-    fn test_get_insert_get() {
+    fn test_get_try_insert_get() {
         let lock = TestLock::new();
 
         // Get before initialized
         assert_eq!(lock.get(), None);
 
         // Insert value to initialize
-        lock.try_insert(4).expect("should insert");
+        assert_eq!(*lock.try_insert(4).expect("should insert"), 4);
+
+        // Get value
+        assert_eq!(lock.get().copied(), Some(4));
+    }
+
+    #[test]
+    fn test_try_insert_twice() {
+        let lock = TestLock::new();
+
+        // Insert value to initialize
+        assert_eq!(*lock.try_insert(4).expect("should insert"), 4);
+
+        // Insert again
+        let ret = lock.try_insert(5).expect_err("should not insert");
+        assert_eq!(*ret.0, 4);
+        assert_eq!(ret.1, 5);
 
         // Get value
         assert_eq!(lock.get().copied(), Some(4));
@@ -161,12 +186,10 @@ mod test {
         let lock = TestLock::new();
 
         // Insert value to initialize
-        lock.try_insert(4).expect("should insert");
+        assert_eq!(*lock.insert(4), 4);
 
         // Insert again
-        let res = lock.try_insert(5).expect_err("should not insert");
-        assert_eq!(*res.0, 4);
-        assert_eq!(res.1, 5);
+        assert_eq!(*lock.insert(5), 4);
 
         // Get value
         assert_eq!(lock.get().copied(), Some(4));
@@ -187,7 +210,24 @@ mod test {
                 lock.try_insert(4).unwrap();
             });
             s.spawn(|| {
-                lock.get();
+                if let Some(v) = lock.get().copied() {
+                    assert_eq!(v, 4);
+                };
+            });
+        });
+    }
+
+    #[test]
+    fn test_racing_insert_insert() {
+        let lock = TestLock::new();
+
+        thread::scope(|s| {
+            thread::sleep(Duration::from_millis(10));
+            s.spawn(|| {
+                lock.try_insert(4).unwrap();
+            });
+            s.spawn(|| {
+                assert_eq!(*lock.insert(5), 4);
             });
         });
     }

@@ -8,11 +8,12 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::racing_once_lock::RacingOnceLock;
 use crate::block_state_interface::BlockStateResult;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -53,10 +54,10 @@ impl<V> HashedCacheableRef<V> {
     /// Create a new value represented in memory.
     pub fn new(value: V) -> Self {
         let inner = HashedBufferedRefInner {
-            hash: OnceLock::new(),
+            hash: RacingOnceLock::new(),
             repr: HashedCacheableRefRepr::Memory {
                 value,
-                blob_location_lock: OnceLock::new(),
+                blob_location_lock: RacingOnceLock::new(),
             },
         };
 
@@ -96,7 +97,7 @@ impl<V> Clone for HashedCacheableRef<V> {
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
     /// Lazily calculated hash. If set, it is the hash of `value`.
-    hash: OnceLock<Hash>,
+    hash: RacingOnceLock<Hash>,
     /// Representation of the value.
     repr: HashedCacheableRefRepr<V>,
 }
@@ -109,14 +110,14 @@ enum HashedCacheableRefRepr<V> {
         /// Location of the value in the blob store
         blob_location: BlobStoreLocation,
         /// In-memory value. Is set if the value is currently represented in memory.
-        value_lock: OnceLock<V>,
+        value_lock: RacingOnceLock<V>,
     },
     /// The value is in memory, and is maybe also stored (the same as cached)
     Memory {
         /// In-memory value.
         value: V,
         /// Location of the value in the blob store. Is set if the value is stored in the blob store.
-        blob_location_lock: OnceLock<BlobStoreLocation>,
+        blob_location_lock: RacingOnceLock<BlobStoreLocation>,
     },
 }
 
@@ -159,19 +160,13 @@ impl<V> HashedCacheableRefRepr<V> {
             HashedCacheableRefRepr::Store {
                 blob_location,
                 value_lock,
-            } => {
-                match value_lock.get() {
-                    None => {
-                        let value: V = blob_store::load_from_store(loader, *blob_location)?;
-                        value_lock
-                            .set(value)
-                            .inspect_err(|_| eprintln!("HashedCacheableRef: Value loaded by two threads at the same time"))
-                            .ok();
-                        value_lock.get().expect("value just set")
-                    }
-                    Some(value) => value,
+            } => match value_lock.get() {
+                None => {
+                    let value: V = blob_store::load_from_store(loader, *blob_location)?;
+                    value_lock.insert(value)
                 }
-            }
+                Some(value) => value,
+            },
             HashedCacheableRefRepr::Memory { value, .. } => value,
         })
     }
@@ -192,7 +187,9 @@ impl<V> HashedCacheableRefRepr<V> {
             } => match blob_location_lock.get() {
                 Some(blob_location) => *blob_location,
                 None => {
-                    *blob_location_lock.get_or_init(|| blob_store::store_to_store(storer, value))
+                    let blob_location = blob_store::store_to_store(storer, value);
+                    blob_location_lock.insert(blob_location);
+                    blob_location
                 }
             },
         }
@@ -206,10 +203,10 @@ impl<V> Loadable for HashedCacheableRef<V> {
     ) -> BlockStateResult<Self> {
         let blob_location: BlobStoreLocation = buffer.get().map_parse_err_to_block_state_err()?;
         let inner = HashedBufferedRefInner {
-            hash: OnceLock::new(),
+            hash: RacingOnceLock::new(),
             repr: HashedCacheableRefRepr::Store {
                 blob_location,
-                value_lock: OnceLock::new(),
+                value_lock: RacingOnceLock::new(),
             },
         };
 
@@ -240,15 +237,7 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
             None => {
                 let value = self.inner.repr.get_or_load_value(loader)?;
                 let hash = value.hash(loader)?;
-                self.inner
-                    .hash
-                    .set(hash)
-                    .inspect_err(|_| {
-                        eprintln!(
-                            "HashedCacheableRef: Hash calculated by two threads at the same time"
-                        )
-                    })
-                    .ok();
+                self.inner.hash.insert(hash);
                 Ok(hash)
             }
         }
