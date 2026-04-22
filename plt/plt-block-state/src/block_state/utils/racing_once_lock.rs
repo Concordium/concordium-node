@@ -145,6 +145,9 @@ impl<T: Debug> Debug for RacingOnceLock<T> {
 
 #[cfg(test)]
 mod test {
+    // unsafe soundness tests with miri:
+    // MIRIFLAGS="-Zmiri-many-seeds -Zmiri-preemption-rate=0.5" cargo +nightly miri test --lib racing_once_lock
+
     use crate::block_state::utils::racing_once_lock::RacingOnceLock;
     use std::thread;
     use std::time::Duration;
