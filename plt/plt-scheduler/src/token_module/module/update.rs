@@ -1,6 +1,10 @@
-use crate::key_value_state;
-use crate::token_module::TokenAmountDecimalsMismatchError;
-use crate::util;
+use crate::token_module::module::TokenAmountDecimalsMismatchError;
+use crate::token_module::token_kernel_interface::{
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
+};
+use crate::token_module::{key_value_state, util};
+use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -14,13 +18,6 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::block_state::AccountNotFoundByAddressError;
-use plt_scheduler_interface::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
-};
-use plt_scheduler_interface::transaction_execution_interface::{
-    OutOfEnergyError, TransactionExecution,
-};
 
 /// Details provided by the token module in the event of rejecting a
 /// transaction.
@@ -98,11 +95,8 @@ pub enum TokenUpdateError {
 /// If the state stored in the token module contains data that breaks the invariants
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
 /// is returned. This is an unrecoverable error and should never happen.
-pub fn execute_token_update_transaction<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_token_update_transaction<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
@@ -183,11 +177,8 @@ pub fn execute_token_update_transaction<
 /// - `kernel`: the token kernel operations interface
 /// - `index`: the index of the operation in the transaction, used for error reporting
 /// - `operation`: the token operation to execute
-pub fn execute_token_update_operation_at_index<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_token_update_operation_at_index<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     index: usize,
     operation: &TokenOperation,
@@ -354,11 +345,8 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
     }
 }
 
-fn execute_token_update_operation<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_token_update_operation<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -445,8 +433,8 @@ fn check_not_paused<TK: TokenKernelOperations>(
 }
 
 /// Ensure the sender account from the transaction context is authorized to perform the operation.
-fn check_authorized<TK: TokenKernelQueries, TE: TransactionExecution<Account = TK::Account>>(
-    transaction_execution: &mut TE,
+fn check_authorized<TK: TokenKernelQueries>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &TK,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -474,11 +462,8 @@ fn check_authorized<TK: TokenKernelQueries, TE: TransactionExecution<Account = T
     Ok(())
 }
 
-fn execute_token_transfer<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_token_transfer<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -532,11 +517,8 @@ fn execute_token_transfer<
     Ok(())
 }
 
-fn execute_token_mint<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_token_mint<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -560,11 +542,8 @@ fn execute_token_mint<
     Ok(())
 }
 
-fn execute_token_burn<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_token_burn<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -588,11 +567,8 @@ fn execute_token_burn<
     Ok(())
 }
 
-fn execute_token_pause<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_token_pause<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
@@ -604,11 +580,8 @@ fn execute_token_pause<
     Ok(())
 }
 
-fn execute_token_unpause<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_token_unpause<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel, TokenAdminRole::Pause)?;
@@ -620,11 +593,8 @@ fn execute_token_unpause<
     Ok(())
 }
 
-fn execute_add_allow_list<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_add_allow_list<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -652,11 +622,8 @@ fn execute_add_allow_list<
     Ok(())
 }
 
-fn execute_add_deny_list<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_add_deny_list<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -685,11 +652,8 @@ fn execute_add_deny_list<
     Ok(())
 }
 
-fn execute_remove_allow_list<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_remove_allow_list<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -718,11 +682,8 @@ fn execute_remove_allow_list<
     Ok(())
 }
 
-fn execute_remove_deny_list<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_remove_deny_list<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -775,11 +736,8 @@ fn check_roles_supported(
     Ok(())
 }
 
-fn execute_assign_admin_roles<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_assign_admin_roles<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -804,11 +762,8 @@ fn execute_assign_admin_roles<
     Ok(())
 }
 
-fn execute_revoke_admin_roles<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_revoke_admin_roles<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -838,11 +793,8 @@ fn execute_revoke_admin_roles<
     Ok(())
 }
 
-fn execute_update_metadata<
-    TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
->(
-    transaction_execution: &mut TE,
+fn execute_update_metadata<TK: TokenKernelOperations>(
+    transaction_execution: &mut TransactionExecution<TK::Account>,
     kernel: &mut TK,
     metadata_url: &MetadataUrl,
 ) -> Result<(), TokenUpdateErrorInternal> {
