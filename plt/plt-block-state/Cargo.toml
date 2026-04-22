@@ -8,14 +8,31 @@ default = ["ffi"]
 ffi = ["dep:libc"]
 
 [dependencies]
+# Workspace dependencies
 plt-scheduler-types.workspace = true
 
+# Concordium dependencies
 concordium_base.workspace = true
+concordium-smart-contract-engine.workspace = true
+
+# Third party dependencies
+assert_matches.workspace = true
+either.workspace = true
+hex.workspace = true
+im.workspace = true
+libc = { workspace = true, optional = true }
 sha2.workspace = true
 thiserror.workspace = true
-libc = { workspace = true, optional = true }
-hex.workspace = true
 
 [dev-dependencies]
-assert_matches.workspace = true
+divan.workspace = true
 hex.workspace = true
+rand.workspace = true
+
+[[bench]]
+name = "lfmb_tree"
+harness = false
+
+[[bench]]
+name = "hashed_cacheable_reference"
+harness = false

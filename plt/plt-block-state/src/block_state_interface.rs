@@ -1,8 +1,7 @@
-use crate::block_state::types::{
-    AccountWithCanonicalAddress, TokenAccountState, TokenConfiguration, TokenStateKey,
-    TokenStateValue,
+use crate::block_state::types::AccountWithCanonicalAddress;
+use crate::block_state::types::protocol_level_tokens::{
+    TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
 };
-use crate::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -25,11 +24,43 @@ pub enum RawTokenAmountDelta {
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
 
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);
+
+/// Unrecoverable failure accessing the block state. This is generally an error that
+/// should never happen and is unrecoverable.
+///
+/// If returned when **applying a block item to the block state**,
+/// it may leave the block state in an indeterminate state. E.g. can parts of the effects
+/// of processing the block item be applied, an others not. Hence, the resulting block
+/// state should not be used.
+///
+/// If returned when **querying the block state**, the query itself fails,
+/// but the block state is still in a valid state.
+#[derive(Debug, thiserror::Error)]
+pub enum BlockStateFailure {
+    /// An error happened when decoding a block state value from the blob store.
+    #[error("Error decoding state from blob store: {0}")]
+    BlobStoreDecode(String),
+    /// An invariant that must be true is broken. The invariant can either be in the
+    /// stored block state or a runtime logical invariant related to the in-memory block state.
+    #[error("State invariant broken: {0}")]
+    Invariant(String),
+}
+
+pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
+
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    /// Opaque type that represents the module managed key-value map.
-    /// It defines a dynamic data model defined by the module.
-    type TokenKeyValueState;
+    /// Opaque type that represents the thawed (mutable) token key-value map.
+    type MutableTokenKeyValueState;
 
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -43,7 +74,7 @@ pub trait BlockStateQuery {
     ///
     /// If the protocol version does not support protocol-level tokens, this will return the empty
     /// list.
-    fn plt_list(&self) -> impl Iterator<Item = TokenId>;
+    fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId>;
 
     /// Get the token associated with a [`TokenId`] (if it exists).
     /// The token ID is case-insensitive when looking up tokens by token ID.
@@ -53,14 +84,15 @@ pub trait BlockStateQuery {
     /// - `token_id` The token id to get the [`Self::Token`] of.
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
 
-    /// Convert a persistent token key-value state to a mutable one that can be updated by the scheduler.
+    /// Convert a persistent token key-value state to a mutable (thawed) one that can be updated by the scheduler.
     ///
     /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
     ///
     /// # Arguments
     ///
-    /// - `token` The token to get the token key-value state for.
-    fn mutable_token_key_value_state(&self, token: &Self::Token) -> Self::TokenKeyValueState;
+    /// - `token` The token to thaw the token key-value state for.
+    fn mutable_token_key_value_state(&self, token: &Self::Token)
+    -> Self::MutableTokenKeyValueState;
 
     /// Get the configuration of a protocol-level token.
     ///
@@ -81,37 +113,38 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `token_key_value` The token module state to look up the value in.
+    /// - `token_key_value` The token key-value state to look up the value in.
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
-        token_key_value: &Self::TokenKeyValueState,
+        token_key_value: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
-    /// Get iterator over key-value pairs with a shared prefix.
+    /// Get iterator over key-value pairs with the given prefix in the
+    /// token key-value state.
     ///
     /// # Arguments
     ///
-    /// - `token_key_value` The token module state to look up the value in.
+    /// - `token_key_value` The token key-value state to iterator values in.
     /// - `prefix` The token state key prefix to iterate over.
     fn iter_token_state_prefix<'a>(
-        &self,
-        token_key_value: &'a Self::TokenKeyValueState,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)>;
+        &'a self,
+        token_key_value: &Self::MutableTokenKeyValueState,
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, Self>;
 
-    /// Update the value for the given key in the given token key-value state. If `None` is
+    /// Update the value for the given key in the given thawed token key-value state. If `None` is
     /// specified as value, the entry is removed.
     ///
     /// # Arguments
     ///
-    /// - `token_key_value` The token module state to update the value in.
+    /// - `token_key_value` The thawed (mutable) token module state to update the value in.
     /// - `key` The token state key.
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_state_value(
         &self,
-        token_key_value: &mut Self::TokenKeyValueState,
+        token_key_value: &mut Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     );
@@ -216,9 +249,9 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
 
-    /// Convert a mutable token key-value state to a persistent one and store it in the block state.
+    /// Convert a mutable token key-value state into a persistent state and store it in the block state.
     ///
-    /// To ensure this is future-proof, the mutable state should not be used after this call.
+    /// The mutable state should not be used after this call.
     ///
     /// # Arguments
     ///
@@ -227,7 +260,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
+        token_key_value_state: Self::MutableTokenKeyValueState,
     );
 }
 

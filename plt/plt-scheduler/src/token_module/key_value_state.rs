@@ -9,7 +9,7 @@ use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
 use concordium_base::{base::AccountIndex, common::Serial};
-use plt_block_state::block_state::types::{TokenStateKey, TokenStateValue};
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenStateKey, TokenStateValue};
 use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 
 /// Little-endian prefix used to distinguish module state keys.
@@ -43,8 +43,8 @@ pub trait ReadTokenKeyValueState {
     /// Get an iterator over key-value pairs that share the given prefix.
     fn iter_token_state_prefix(
         &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)>;
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)>;
 }
 
 impl<'a, BSQ> ReadTokenKeyValueState for TokenQueryContext<'a, BSQ>
@@ -58,8 +58,8 @@ where
 
     fn iter_token_state_prefix(
         &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
             .iter_token_state_prefix(self.token_module_state, prefix)
     }
@@ -76,8 +76,8 @@ where
 
     fn iter_token_state_prefix(
         &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
             .iter_token_state_prefix(self.token_module_state, prefix)
     }
@@ -89,7 +89,7 @@ fn module_state_key(key: &[u8]) -> TokenStateKey {
     let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + key.len());
     module_key.extend_from_slice(&MODULE_STATE_PREFIX);
     module_key.extend_from_slice(key);
-    module_key
+    TokenStateKey(module_key)
 }
 
 /// Get value from the token module state at the given key.
@@ -113,7 +113,7 @@ fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
     account_key.extend_from_slice(&ACCOUNT_STATE_PREFIX);
     account_index.serial(&mut account_key);
     account_key.extend_from_slice(key);
-    account_key
+    TokenStateKey(account_key)
 }
 
 /// Lookup a value from the account section of the token state.
@@ -141,7 +141,7 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
         Vec::with_capacity(ACCOUNT_ROLES_STATE_PREFIX.len() + size_of::<AccountIndex>());
     account_key.extend_from_slice(&ACCOUNT_ROLES_STATE_PREFIX);
     account_index.serial(&mut account_key);
-    account_key
+    TokenStateKey(account_key)
 }
 
 /// Lookup a value from the account roles section of the token state.
@@ -149,13 +149,17 @@ fn get_account_roles_state(
     context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
 ) -> Result<Roles, TokenStateInvariantError> {
-    Roles::try_from_state_value(context.lookup_token_state_value(&account_roles_state_key(account)))
-        .map_err(|err| {
-            TokenStateInvariantError(format!(
-                "Stored account authorization roles cannot be decoded: {}",
-                err
-            ))
-        })
+    Roles::try_from_state_value(
+        context
+            .lookup_token_state_value(&account_roles_state_key(account))
+            .as_ref(),
+    )
+    .map_err(|err| {
+        TokenStateInvariantError(format!(
+            "Stored account authorization roles cannot be decoded: {}",
+            err
+        ))
+    })
 }
 
 /// Update a value in the account section of the token state.
@@ -180,7 +184,7 @@ pub fn has_allow_list(context: &impl ReadTokenKeyValueState) -> bool {
 
 /// Enabled 'allowList' feature for the token.
 pub fn set_allow_list_enabled<BSO: BlockStateOperations>(context: &mut TokenOperationContext<BSO>) {
-    set_module_state(context, STATE_KEY_ALLOW_LIST, Some(vec![]));
+    set_module_state(context, STATE_KEY_ALLOW_LIST, Some(TokenStateValue(vec![])));
 }
 
 /// Get whether the token has deny lists enabled.
@@ -190,7 +194,7 @@ pub fn has_deny_list(context: &impl ReadTokenKeyValueState) -> bool {
 
 /// Enabled 'DenyList' feature for the token.
 pub fn set_deny_list_enabled<BSO: BlockStateOperations>(context: &mut TokenOperationContext<BSO>) {
-    set_module_state(context, STATE_KEY_DENY_LIST, Some(vec![]));
+    set_module_state(context, STATE_KEY_DENY_LIST, Some(TokenStateValue(vec![])));
 }
 
 /// Get whether the token allows minting.
@@ -200,7 +204,7 @@ pub fn is_mintable(context: &impl ReadTokenKeyValueState) -> bool {
 
 /// Enabled 'Mintable' feature for the token.
 pub fn set_mintable_enabled<BSO: BlockStateOperations>(context: &mut TokenOperationContext<BSO>) {
-    set_module_state(context, STATE_KEY_MINTABLE, Some(vec![]));
+    set_module_state(context, STATE_KEY_MINTABLE, Some(TokenStateValue(vec![])));
 }
 
 /// Get whether the token allows burning.
@@ -210,7 +214,7 @@ pub fn is_burnable(context: &impl ReadTokenKeyValueState) -> bool {
 
 /// Enabled 'Burnable' feature for the token.
 pub fn set_burnable_enabled<BSO: BlockStateOperations>(context: &mut TokenOperationContext<BSO>) {
-    set_module_state(context, STATE_KEY_BURNABLE, Some(vec![]));
+    set_module_state(context, STATE_KEY_BURNABLE, Some(TokenStateValue(vec![])));
 }
 
 /// Set the token governance account in module state.
@@ -221,7 +225,7 @@ pub fn set_governance_account<BSO: BlockStateOperations>(
     set_module_state(
         context,
         STATE_KEY_GOVERNANCE_ACCOUNT,
-        Some(common::to_bytes(&account)),
+        Some(TokenStateValue(common::to_bytes(&account))),
     );
 }
 
@@ -230,7 +234,7 @@ pub fn set_token_name<BSO: BlockStateOperations>(
     context: &mut TokenOperationContext<BSO>,
     name: String,
 ) {
-    set_module_state(context, STATE_KEY_NAME, Some(name.into()));
+    set_module_state(context, STATE_KEY_NAME, Some(TokenStateValue(name.into())));
 }
 
 /// Get the name of the token.
@@ -240,7 +244,7 @@ pub fn get_token_name(
     get_module_state(context, STATE_KEY_NAME)
         .ok_or_else(|| TokenStateInvariantError("Name not present".to_string()))
         .and_then(|value| {
-            String::from_utf8(value).map_err(|err| {
+            String::from_utf8(value.0).map_err(|err| {
                 TokenStateInvariantError(format!("Stored name is invalid UTF-8: {}", err))
             })
         })
@@ -252,7 +256,7 @@ pub fn get_metadata(
 ) -> Result<MetadataUrl, TokenStateInvariantError> {
     let metadata_cbor = get_module_state(context, STATE_KEY_METADATA)
         .ok_or_else(|| TokenStateInvariantError("Metadata not present".to_string()))?;
-    let metadata: MetadataUrl = util::cbor_decode(metadata_cbor).map_err(|err| {
+    let metadata: MetadataUrl = util::cbor_decode(metadata_cbor.0).map_err(|err| {
         TokenStateInvariantError(format!("Stored metadata CBOR not decodable: {}", err))
     })?;
     Ok(metadata)
@@ -264,7 +268,11 @@ pub fn set_metadata_url<BSO: BlockStateOperations>(
     metadata: &MetadataUrl,
 ) {
     let encoded_metadata = common::cbor::cbor_encode(metadata);
-    set_module_state(context, STATE_KEY_METADATA, Some(encoded_metadata));
+    set_module_state(
+        context,
+        STATE_KEY_METADATA,
+        Some(TokenStateValue(encoded_metadata)),
+    );
 }
 
 /// Get the account index of the governance account for the token.
@@ -275,7 +283,7 @@ pub fn get_governance_account_index(
         get_module_state(context, STATE_KEY_GOVERNANCE_ACCOUNT)
             .ok_or_else(|| TokenStateInvariantError("Governance account not present".to_string()))
             .and_then(|value| {
-                common::from_bytes_complete::<u64>(&mut value.as_slice()).map_err(|err| {
+                common::from_bytes_complete::<u64>(value.0.as_slice()).map_err(|err| {
                     TokenStateInvariantError(format!(
                         "Stored governance account index cannot be decoded: {}",
                         err
@@ -334,9 +342,12 @@ pub fn get_token_authorizations<BSQ: BlockStateQuery>(
     let mut pause = TokenRoleAuthorizations::default();
     let mut update_metadata = TokenRoleAuthorizations::default();
 
-    for (key, roles) in context.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into()) {
+    for (key, roles) in
+        context.iter_token_state_prefix(&TokenStateKey(ACCOUNT_ROLES_STATE_PREFIX.into()))
+    {
         let account_index_bytes =
-            key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
+            key.0
+                .strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
                 .ok_or_else(|| {
                     TokenStateInvariantError(
                         "Iterator over account roles state produced invalid key".to_string(),
@@ -359,7 +370,7 @@ pub fn get_token_authorizations<BSQ: BlockStateQuery>(
                 ))
             })?
             .canonical_account_address;
-        let roles = Roles::try_from_state_value(Some(roles.clone())).map_err(|err| {
+        let roles = Roles::try_from_state_value(Some(&roles)).map_err(|err| {
             TokenStateInvariantError(format!(
                 "Stored account authorization roles cannot be decoded: {}",
                 err
@@ -395,7 +406,7 @@ pub fn set_paused<BSO: BlockStateOperations>(
     context: &mut TokenOperationContext<BSO>,
     value: bool,
 ) {
-    let state_value = value.then_some(vec![]);
+    let state_value = value.then_some(TokenStateValue(vec![]));
     set_module_state(context, STATE_KEY_PAUSED, state_value)
 }
 
@@ -410,7 +421,7 @@ pub fn set_allow_list_for<BSO: BlockStateOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = value.then_some(vec![]);
+    let state_value = value.then_some(TokenStateValue(vec![]));
     update_account_state(context, account, STATE_KEY_ALLOW_LIST, state_value)
 }
 
@@ -425,7 +436,7 @@ pub fn set_deny_list_for<BSO: BlockStateOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = value.then_some(vec![]);
+    let state_value = value.then_some(TokenStateValue(vec![]));
     update_account_state(context, account, STATE_KEY_DENY_LIST, state_value)
 }
 
@@ -437,13 +448,16 @@ mod test {
     #[test]
     fn test_module_state_key() {
         let key = module_state_key(&[1, 2, 3]);
-        assert_eq!(key, vec![0, 0, 1, 2, 3]);
+        assert_eq!(key, TokenStateKey(vec![0, 0, 1, 2, 3]));
     }
 
     /// Test that the account state key is formed correctly
     #[test]
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
-        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+        assert_eq!(
+            key,
+            TokenStateKey(vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3])
+        );
     }
 }
