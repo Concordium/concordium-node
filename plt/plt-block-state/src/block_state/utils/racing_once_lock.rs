@@ -103,7 +103,7 @@ impl<T> RacingOnceLock<T> {
 
 impl<T> Drop for RacingOnceLock<T> {
     fn drop(&mut self) {
-        if self.state.load(Ordering::Relaxed) == State::Initialized as u8 {
+        if *self.state.get_mut() == State::Initialized as u8 {
             // Data-race safety: We have unique ownership of the lock, hence
             // reading the value happens-after writing it.
             // Initialization safety: By the same argument, the value has been
@@ -121,7 +121,6 @@ impl<T: UnwindSafe> UnwindSafe for RacingOnceLock<T> {}
 
 impl<T: RefUnwindSafe + UnwindSafe> RefUnwindSafe for RacingOnceLock<T> {}
 
-// todo ar miri test
 // todo ar integrate and bench
 
 impl<T: Debug> Debug for RacingOnceLock<T> {
@@ -137,8 +136,9 @@ impl<T: Debug> Debug for RacingOnceLock<T> {
 
 #[cfg(test)]
 mod test {
-    use std::thread;
     use crate::block_state::utils::racing_once_lock::RacingOnceLock;
+    use std::hint;
+    use std::thread;
 
     type TestLock = RacingOnceLock<u64>;
 
@@ -155,7 +155,6 @@ mod test {
         // Get value
         assert_eq!(lock.get().copied(), Some(4));
     }
-
 
     #[test]
     fn test_insert_twice() {
@@ -174,7 +173,13 @@ mod test {
     }
 
     #[test]
-    fn test_multithread_insert_get() {
+    fn test_drop_uninitialized_lock() {
+        let lock = RacingOnceLock::<String>::new();
+        drop(lock);
+    }
+
+    #[test]
+    fn test_racing_insert_get() {
         let lock = TestLock::new();
 
         thread::scope(|s| {
@@ -185,6 +190,5 @@ mod test {
                 lock.get();
             });
         });
-
     }
 }
