@@ -3,21 +3,21 @@
 
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
-use concordium_base::protocol_level_tokens::TokenOperationsPayload;
+use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
+use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
+use concordium_base::protocol_level_tokens::{
+    TokenOperationsPayload,
+    meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
+};
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
-use plt_scheduler_interface::transaction_execution_interface::{
-    OutOfEnergyError, TransactionExecution,
-};
 use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
-use plt_token_module::token_module::{TokenInitializationError, TokenUpdateError};
-use plt_token_module::{TOKEN_MODULE_REF, token_module};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
@@ -38,11 +38,8 @@ use plt_token_module::{TOKEN_MODULE_REF, token_module};
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_token_update_transaction<
-    BSO: BlockStateOperations,
-    TE: TransactionExecution<Account = BSO::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
@@ -116,6 +113,115 @@ pub fn execute_token_update_transaction<
             TransactionExecutionError::StateInvariantBroken(err.to_string()),
         ),
     }
+}
+
+/// Execute a meta-update transaction payload modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a reject reason.
+/// Energy must be charged during execution by calling [`TransactionExecution::tick_energy`]. If
+/// execution is out of energy, the function `tick_energy` returns an error which means execution must be stopped,
+/// and the [`OutOfEnergy`](TransactionRejectReason::OutOfEnergy) reject reason must be returned.
+///
+/// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
+///
+/// # Arguments
+///
+/// - `transaction_execution` Context of transaction execution that allows accessing sending account
+///   and charging energy.
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The meta-update transaction payload to execute.
+///
+/// # Errors
+///
+/// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
+///   Returning this error will terminate the scheduler.
+pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    block_state: &mut BSO,
+    payload: MetaUpdatePayload,
+) -> Result<TransactionOutcome, TransactionExecutionError> {
+    // Charge energy
+    if let Err(err) =
+        transaction_execution.tick_energy(transactions::cost::META_UPDATE_TRANSACTIONS)
+    {
+        let _: OutOfEnergyError = err; // assert type of error
+        return Ok(TransactionOutcome::Rejected(
+            TransactionRejectReason::OutOfEnergy,
+        ));
+    }
+
+    let mut events = Vec::new();
+
+    let operations: Vec<MetaUpdateOperation> = match payload.decode_operations() {
+        Ok(payload) => payload.operations,
+        Err(_) => {
+            return Ok(TransactionOutcome::Rejected(
+                TransactionRejectReason::SerializationFailure,
+            ));
+        }
+    };
+
+    for (index, operation) in operations.into_iter().enumerate() {
+        match operation.into() {
+            MetaUpdateOperationKind::Token((token_id, operation)) => {
+                // Lookup token
+                let token = match block_state.token_by_id(&token_id) {
+                    Ok(token) => token,
+                    Err(TokenNotFoundByIdError(_)) => {
+                        return Ok(TransactionOutcome::Rejected(
+                            TransactionRejectReason::NonExistentTokenId(token_id),
+                        ));
+                    }
+                };
+
+                let token_configuration = block_state.token_configuration(&token);
+                let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+                let mut token_module_state_dirty = false;
+                let mut kernel = TokenKernelOperationsImpl {
+                    block_state,
+                    token: &token,
+                    token_configuration: &token_configuration,
+                    token_module_state: &mut token_module_state,
+                    token_module_state_dirty: &mut token_module_state_dirty,
+                    events: &mut events,
+                };
+                let token_update_result = token_module::execute_token_update_operation_at_index(
+                    transaction_execution,
+                    &mut kernel,
+                    index,
+                    &operation,
+                );
+                match token_update_result {
+                    Ok(()) => {
+                        if token_module_state_dirty {
+                            block_state.set_token_key_value_state(&token, token_module_state);
+                        }
+                    }
+                    Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
+                        return Ok(TransactionOutcome::Rejected(
+                            TransactionRejectReason::TokenUpdateTransactionFailed(
+                                EncodedTokenModuleRejectReason {
+                                    token_id,
+                                    reason_type: reject_reason.reason_type,
+                                    details: reject_reason.details,
+                                },
+                            ),
+                        ));
+                    }
+                    Err(TokenUpdateError::OutOfEnergy(_)) => {
+                        return Ok(TransactionOutcome::Rejected(
+                            TransactionRejectReason::OutOfEnergy,
+                        ));
+                    }
+                    Err(TokenUpdateError::StateInvariantViolation(err)) => {
+                        return Err(TransactionExecutionError::StateInvariantBroken(
+                            err.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(TransactionOutcome::Success(events))
 }
 
 /// Execute a create protocol-level token chain update modifying `block_state` accordingly.

@@ -24,6 +24,7 @@ import qualified Foreign as FFI
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.HashableTo as Hashable
+import qualified Control.Monad as Monad
 import qualified Data.FixedByteString as FixedByteString
 
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
@@ -85,11 +86,22 @@ instance (BlobStore.MonadBlobStore m, Types.MonadProtocolVersion m) => BlobStore
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
-                blockState <- ffiLoadPLTBlockState loadCallback (sProtocolVersionToWord64 $ Types.protocolVersion @(Types.MPV m)) blobRef
-                wrapFFIPtr blockState
+                FFI.alloca $ \blockStateDestPtr -> do
+                    status <-
+                        ffiLoadPLTBlockState
+                            loadCallback
+                            blobRef
+                            (sProtocolVersionToWord64 $ Types.protocolVersion @(Types.MPV m))
+                            blockStateDestPtr
+                    Monad.unless (status == 0) $ error "Unexpected panic when loading a block state"
+                    blockState <- FFI.peek blockStateDestPtr
+                    wrapFFIPtr blockState
     storeUpdate pltBlockState = do
         storeCallback <- snd <$> BlobStore.getCallbacks
-        blobRef <- liftIO $ withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback
+        blobRef <- liftIO $ FFI.alloca $ \blobRefDestPtr -> do
+            status <- withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback blobRefDestPtr
+            Monad.unless (status == 0) $ error "Unexpected panic when storing a block state"
+            BlobStore.BlobRef @RustPLTBlockState <$> FFI.peek blobRefDestPtr
         return (S.put blobRef, pltBlockState)
 
 -- | Load PLT block state from the given disk reference.
@@ -99,12 +111,14 @@ foreign import ccall "ffi_load_plt_block_state"
     ffiLoadPLTBlockState ::
         -- | Called to read data from blob store.
         FFI.LoadCallback ->
-        -- | Protocol version of the block.
-        FFI.Word64 ->
         -- | Reference in the blob store.
         BlobStore.BlobRef RustPLTBlockState ->
-        -- | Pointer to the loaded block state.
-        IO (FFI.Ptr RustPLTBlockState)
+        -- | Protocol version of the block.
+        FFI.Word64 ->
+        -- | Destination pointer for the loaded block state.
+        FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
+        -- | Status code
+        IO FFI.Word8
 
 -- | Write out the block state using the provided callback, and return a `BlobRef`.
 --
@@ -113,15 +127,18 @@ foreign import ccall "ffi_store_plt_block_state"
     ffiStorePLTBlockState ::
         -- | The provided closure is called to write data to blob store.
         FFI.StoreCallback ->
+        -- | Destination for the new reference in the blob store.
+        FFI.Ptr FFI.Word64 ->
         -- | Pointer to the block state to write.
         FFI.Ptr RustPLTBlockState ->
-        -- | New reference in the blob store.
-        IO (BlobStore.BlobRef RustPLTBlockState)
+        -- | Status code
+        IO FFI.Word8
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
     cache blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
-        liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
+        status <- liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
+        Monad.unless (status == 0) $ error "Unexpected panic when caching a block state"
         return blockState
 
 -- | Cache block state into memory.
@@ -133,7 +150,7 @@ foreign import ccall "ffi_cache_plt_block_state"
         FFI.LoadCallback ->
         -- | Pointer to the block state to cache into memory.
         FFI.Ptr RustPLTBlockState ->
-        IO ()
+        IO FFI.Word8
 
 -- | The hash of protocol-levels tokens state.
 newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelTokensHash :: SHA256.Hash}
@@ -147,8 +164,10 @@ instance
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
             liftIO $
-                withPLTBlockState blockState $
-                    FixedByteString.createWith . ffiHashPLTBlockState loadCallback
+                withPLTBlockState blockState $ \blockStatePtr ->
+                    FixedByteString.createWith $ \hashDestPtr -> do
+                        status <- ffiHashPLTBlockState loadCallback blockStatePtr hashDestPtr
+                        Monad.unless (status == 0) $ error "Unexpected panic when hashing a block state"
         return $ ProtocolLevelTokensHash (SHA256.Hash hash)
 
 -- | Compute the hash of the block state.
@@ -162,7 +181,8 @@ foreign import ccall "ffi_hash_plt_block_state"
         FFI.Ptr RustPLTBlockState ->
         -- | Pointer to write destination of the hash
         FFI.Ptr FFI.Word8 ->
-        IO ()
+        -- | Status code
+        IO FFI.Word8
 
 -- | Run migration during a protocol update.
 migrate ::
@@ -178,9 +198,17 @@ migrate currentState = do
     oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
     newStoreCallback <- snd <$> BlobStore.getCallbacks
     let newSProtocolVersion = Types.protocolVersion @(Types.MPV (t m))
-    newState <- liftIO $ withPLTBlockState currentState $ \fromRustBlockState ->
-        ffiMigratePLTBlockState oldLoadCallback newStoreCallback fromRustBlockState (sProtocolVersionToWord64 newSProtocolVersion)
-    liftIO $ wrapFFIPtr newState
+    liftIO $ FFI.alloca $ \newStateDestPtr -> do
+        status <-
+            withPLTBlockState currentState $
+                ffiMigratePLTBlockState
+                    oldLoadCallback
+                    newStoreCallback
+                    (sProtocolVersionToWord64 newSProtocolVersion)
+                    newStateDestPtr
+        Monad.unless (status == 0) $ error "Unexpected panic when migrating a block state"
+        newState <- FFI.peek newStateDestPtr
+        wrapFFIPtr newState
 
 -- | Migrate PLT block state from one blob store to another.
 --
@@ -191,9 +219,11 @@ foreign import ccall "ffi_migrate_plt_block_state"
         FFI.LoadCallback ->
         -- | Called to write data to the blob store being migrated to.
         FFI.StoreCallback ->
-        -- | Pointer to the block state being migrated from.
-        FFI.Ptr RustPLTBlockState ->
         -- | Protocol version of the block being migrated to.
         FFI.Word64 ->
         -- | Pointer to the new block state.
-        IO (FFI.Ptr RustPLTBlockState)
+        FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
+        -- | Block state to migrate
+        FFI.Ptr RustPLTBlockState ->
+        -- | Status code
+        IO FFI.Word8

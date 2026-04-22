@@ -25,9 +25,10 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 ///
 /// Returns a byte representing the result:
 ///
-/// - `0`: Transaction execution succeeded and transaction was applied to block state.
-/// - `1`: Transaction was rejected with a reject reason. Block state changes applied
+/// - [`status::FfiStatusCode::Success`]: Transaction execution succeeded and transaction was applied to block state.
+/// - [`status::FfiStatusCode::Failed`]: Transaction was rejected with a reject reason. Block state changes applied
 ///   via callbacks must be rolled back.
+/// - [`status::FfiStatusCode::Panic`]: Execution of the transaction resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
@@ -46,12 +47,13 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
-///   The block state is only written if return value is `0`.
+///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
 ///   The pointer written is to a uniquely owned instance.
 ///   The caller must free the written block state using `ffi_free_plt_block_state` when it is no longer used.
 /// - `used_energy_out` Location for writing the energy used by the execution.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is either serialized events or reject reason.
-///   If the return value is `0`, the data is a list of block item events. If the return value is `1`, it is a transaction reject reason.
+///   If the return value is [`status::FfiStatusCode::Success`], the data is a list of block item events. If the return value
+///   is [`status::FfiStatusCode::Failed`], it is a transaction reject reason.
 ///   The pointer written is to a uniquely owned array.
 ///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
@@ -183,9 +185,10 @@ extern "C" fn ffi_execute_transaction(
 ///
 /// Returns a byte representing the result:
 ///
-/// - `0`: Chain update execution succeeded and update was applied to block state.
-/// - `1`: Chain update failed. Block state changes applied
+/// - [`status::FfiStatusCode::Success`]: Chain update execution succeeded and update was applied to block state.
+/// - [`status::FfiStatusCode::Failed`]: Chain update failed. Block state changes applied
 ///   via callbacks must be rolled back.
+/// - [`status::FfiStatusCode::Panic`]: Execution of the chain update resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
@@ -201,11 +204,12 @@ extern "C" fn ffi_execute_transaction(
 /// - `payload` Shared pointer to chain update payload bytes.
 /// - `payload_len` Byte length of chain update payload.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
-///   The block state is only written if return value is `0`.
+///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
 ///   The pointer written is to a uniquely owned instance.
 ///   The caller must free the written block state using `ffi_free_plt_block_state` when it is no longer used.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is either serialized events or a failure kind.
-///   If the return value is `0`, the data is a list of block item events. If the return value is `1`, it is a failure kind.
+///   If the return value is [`status::FfiStatusCode::Success`], the data is a list of block item events. If the return value
+///   is [`status::FfiStatusCode::Failed`], it is a failure kind.
 ///   The pointer written is to a uniquely owned array.
 ///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
@@ -214,7 +218,7 @@ extern "C" fn ffi_execute_transaction(
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`plt_block_state::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `block_state_out` must be a non-null and valid pointer for writing

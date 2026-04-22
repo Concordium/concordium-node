@@ -1,16 +1,4 @@
-/// Returned status code used in FFI calls into this library.
-///
-/// This must match the `FFIStatusCode` type defined on the haskell side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum FfiStatusCode {
-    /// The call succeeded.
-    Success = 0,
-    /// The call failed gracefully.
-    Failed = 1,
-    /// The call resulted in a (caught) panic.
-    Panic = 2,
-}
+pub use plt_block_state::ffi::status::FfiStatusCode;
 
 /// Helper function for wrapping calls with [`std::panic::catch_unwind`] then mapping a panic to the
 /// correct status code and extracting the panic message.
@@ -18,9 +6,10 @@ pub enum FfiStatusCode {
 /// # Arguments
 ///
 /// - `function` The closure which might panic
-pub fn catch_unwind<F: FnOnce() -> (FfiStatusCode, Vec<u8>) + std::panic::UnwindSafe>(
-    function: F,
-) -> (FfiStatusCode, Vec<u8>) {
+pub fn catch_unwind<F>(function: F) -> (FfiStatusCode, Vec<u8>)
+where
+    F: FnOnce() -> (FfiStatusCode, Vec<u8>) + std::panic::UnwindSafe,
+{
     std::panic::catch_unwind(function).unwrap_or_else(|err| {
         let data_out = if let Some(message) = err.downcast_ref::<String>() {
             message.clone().into_bytes()

@@ -10,11 +10,11 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler::scheduler;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
-use plt_token_module::TOKEN_MODULE_REF;
 use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;

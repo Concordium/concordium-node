@@ -21,7 +21,8 @@ use plt_block_state::ffi::memory;
 ///
 /// Returns a byte representing the result:
 ///
-/// - `0`: Query succeeded
+/// - [`status::FfiStatusCode::Success`]: Query succeeded
+/// - [`status::FfiStatusCode::Panic`]: Execution of the query resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
@@ -32,7 +33,7 @@ use plt_block_state::ffi::memory;
 /// - `get_token_account_states_callback` External function for getting token account states.
 /// - `block_state` Shared pointer to a block state to use for queries.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is serialized tokens ids.
-///   If the return value is `0`, the data is a list of token ids.
+///   If the return value is [`status::FfiStatusCode::Success`], the data is a list of token ids.
 ///   The pointer written is to a uniquely owned array.
 ///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
@@ -41,7 +42,7 @@ use plt_block_state::ffi::memory;
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
@@ -94,8 +95,9 @@ extern "C" fn ffi_query_plt_list(
 ///
 /// Returns a byte representing the result:
 ///
-/// - `0`: Query succeeded
-/// - `1`: Token does not exist
+/// - [`status::FfiStatusCode::Success`]: Query succeeded
+/// - [`status::FfiStatusCode::Failed`]: Token does not exist
+/// - [`status::FfiStatusCode::Panic`]: Execution of the query resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
@@ -108,8 +110,8 @@ extern "C" fn ffi_query_plt_list(
 /// - `token_id` Shared pointer to token id UTF-8 bytes.
 /// - `token_id_len` Byte length of token id UTF-8 bytes.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is the serialized token info.
-///   If the return value is `0`, the data is the token info.
-///   If the return value is `1`, the data is empty (zero bytes).
+///   If the return value is [`status::FfiStatusCode::Success`], the data is the token info.
+///   If the return value is [`status::FfiStatusCode::Failed`], the data is empty (zero bytes).
 ///   The pointer written is to a uniquely owned array.
 ///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
@@ -118,7 +120,7 @@ extern "C" fn ffi_query_plt_list(
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `token_id` must be non-null and valid for reads for `token_id_len` many bytes.
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
@@ -189,8 +191,9 @@ extern "C" fn ffi_query_token_info(
 ///
 /// Returns a byte representing the result:
 ///
-/// - `0`: Query succeeded
-/// - `1`: Token does not exist
+/// - [`status::FfiStatusCode::Success`]: Query succeeded
+/// - [`status::FfiStatusCode::Failed`]: Token does not exist
+/// - [`status::FfiStatusCode::Panic`]: Execution of the query resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
@@ -203,8 +206,8 @@ extern "C" fn ffi_query_token_info(
 /// - `token_id` Shared pointer to token id UTF-8 bytes.
 /// - `token_id_len` Byte length of token id UTF-8 bytes.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is the serialized token info.
-///   If the return value is `0`, the data is the token info.
-///   If the return value is `1`, the data is empty (zero bytes).
+///   If the return value is [`status::FfiStatusCode::Success`], the data is the token info.
+///   If the return value is [`status::FfiStatusCode::Failed`], the data is empty (zero bytes).
 ///   The pointer written is to a uniquely owned array.
 ///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
@@ -213,7 +216,7 @@ extern "C" fn ffi_query_token_info(
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `token_id` must be non-null and valid for reads for `token_id_len` many bytes.
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
@@ -284,7 +287,8 @@ extern "C" fn ffi_query_token_authorizations(
 ///
 /// Returns a byte representing the result:
 ///
-/// - `0`: Query succeeded
+/// - [`status::FfiStatusCode::Success`]: Query succeeded
+/// - [`status::FfiStatusCode::Panic`]: Execution of the query resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
@@ -296,7 +300,7 @@ extern "C" fn ffi_query_token_authorizations(
 /// - `block_state` Shared pointer to a block state to use for queries.
 /// - `account_index` Index of the account to find token account infos for. The account must exist.
 /// - `return_data_out` Location for writing pointer to array containing return data, which is the serialized token account infos.
-///   If the return value is `0`, the data is the serialized list of token account infos.
+///   If the return value is [`status::FfiStatusCode::Success`], the data is the serialized list of token account infos.
 ///   The pointer written is to a uniquely owned array.
 ///   The caller must free the written array using `free_array_len_2` when it is no longer used.
 /// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
@@ -305,7 +309,7 @@ extern "C" fn ffi_query_token_authorizations(
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PltBlockStateSavepoint`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing

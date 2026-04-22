@@ -81,18 +81,18 @@ impl Roles {
         if self.has_none() {
             None
         } else {
-            Some(common::to_bytes(&self))
+            Some(TokenStateValue(common::to_bytes(&self)))
         }
     }
 
     /// Convert from token state value representation.
     ///
     /// State value of `None` results in the empty set of roles.
-    pub fn try_from_state_value(value: Option<TokenStateValue>) -> common::ParseResult<Self> {
+    pub fn try_from_state_value(value: Option<&TokenStateValue>) -> common::ParseResult<Self> {
         let Some(value) = value else {
             return Ok(Roles::none());
         };
-        common::from_bytes_complete(value)
+        common::from_bytes_complete(&value.0)
     }
 
     /// Iterate the roles assigned.

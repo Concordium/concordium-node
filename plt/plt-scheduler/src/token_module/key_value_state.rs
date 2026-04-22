@@ -1,16 +1,16 @@
 //! Internal constants and utilities for token key-value state.
 
-use crate::roles::Roles;
-use crate::util;
+use super::roles::Roles;
+use super::util;
+use crate::token_module::token_kernel_interface::{
+    TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
+};
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::types::protocol_level_tokens::{TokenStateKey, TokenStateValue};
-use plt_scheduler_interface::token_kernel_interface::{
-    TokenKernelOperations, TokenKernelQueries, TokenStateInvariantError,
-};
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
@@ -72,13 +72,16 @@ pub trait KernelQueriesExt: TokenKernelQueries {
         &self,
         account: AccountIndex,
     ) -> Result<Roles, TokenStateInvariantError> {
-        Roles::try_from_state_value(self.lookup_token_state_value(account_roles_state_key(account)))
-            .map_err(|err| {
-                TokenStateInvariantError(format!(
-                    "Stored account authorization roles cannot be decoded: {}",
-                    err
-                ))
-            })
+        Roles::try_from_state_value(
+            self.lookup_token_state_value(account_roles_state_key(account))
+                .as_ref(),
+        )
+        .map_err(|err| {
+            TokenStateInvariantError(format!(
+                "Stored account authorization roles cannot be decoded: {}",
+                err
+            ))
+        })
     }
 }
 
@@ -90,7 +93,7 @@ fn module_state_key(key: &[u8]) -> TokenStateKey {
     let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + key.len());
     module_key.extend_from_slice(&MODULE_STATE_PREFIX);
     module_key.extend_from_slice(key);
-    module_key
+    TokenStateKey(module_key)
 }
 
 fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
@@ -99,7 +102,7 @@ fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
     account_key.extend_from_slice(&ACCOUNT_STATE_PREFIX);
     account_index.serial(&mut account_key);
     account_key.extend_from_slice(key);
-    account_key
+    TokenStateKey(account_key)
 }
 
 fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
@@ -107,7 +110,7 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
         Vec::with_capacity(ACCOUNT_ROLES_STATE_PREFIX.len() + size_of::<AccountIndex>());
     account_key.extend_from_slice(&ACCOUNT_ROLES_STATE_PREFIX);
     account_index.serial(&mut account_key);
-    account_key
+    TokenStateKey(account_key)
 }
 
 /// Get whether the balance-affecting operations on the token are currently
@@ -142,7 +145,7 @@ pub fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, TokenStateIn
         .get_module_state(STATE_KEY_NAME)
         .ok_or_else(|| TokenStateInvariantError("Name not present".to_string()))
         .and_then(|value| {
-            String::from_utf8(value).map_err(|err| {
+            String::from_utf8(value.0).map_err(|err| {
                 TokenStateInvariantError(format!("Stored name is invalid UTF-8: {}", err))
             })
         })
@@ -155,7 +158,7 @@ pub fn get_metadata(
     let metadata_cbor = kernel
         .get_module_state(STATE_KEY_METADATA)
         .ok_or_else(|| TokenStateInvariantError("Metadata not present".to_string()))?;
-    let metadata: MetadataUrl = util::cbor_decode(metadata_cbor).map_err(|err| {
+    let metadata: MetadataUrl = util::cbor_decode(metadata_cbor.0).map_err(|err| {
         TokenStateInvariantError(format!("Stored metadata CBOR not decodable: {}", err))
     })?;
     Ok(metadata)
@@ -164,7 +167,7 @@ pub fn get_metadata(
 /// Set the metadata URL.
 pub fn set_metadata_url<TK: TokenKernelOperations>(kernel: &mut TK, metadata: &MetadataUrl) {
     let encoded_metadata = common::cbor::cbor_encode(metadata);
-    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata));
+    kernel.set_module_state(STATE_KEY_METADATA, Some(TokenStateValue(encoded_metadata)));
 }
 
 /// Get the account index of the governance account for the token.
@@ -176,7 +179,7 @@ pub fn get_governance_account_index(
             .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
             .ok_or_else(|| TokenStateInvariantError("Governance account not present".to_string()))
             .and_then(|value| {
-                common::from_bytes_complete::<u64>(&mut value.as_slice()).map_err(|err| {
+                common::from_bytes_complete::<u64>(value.0.as_slice()).map_err(|err| {
                     TokenStateInvariantError(format!(
                         "Stored governance account index cannot be decoded: {}",
                         err
@@ -235,9 +238,12 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
     let mut pause = TokenRoleAuthorizations::default();
     let mut update_metadata = TokenRoleAuthorizations::default();
 
-    for (key, roles) in kernel.iter_token_state_prefix(ACCOUNT_ROLES_STATE_PREFIX.into()) {
+    for (key, roles) in
+        kernel.iter_token_state_prefix(TokenStateKey(ACCOUNT_ROLES_STATE_PREFIX.into()))
+    {
         let account_index_bytes =
-            key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
+            key.0
+                .strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
                 .ok_or_else(|| {
                     TokenStateInvariantError(
                         "Iterator over account roles state produced invalid key".to_string(),
@@ -259,7 +265,7 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
                 ))
             })?
             .canonical_account_address;
-        let roles = Roles::try_from_state_value(Some(roles.clone())).map_err(|err| {
+        let roles = Roles::try_from_state_value(Some(&roles)).map_err(|err| {
             TokenStateInvariantError(format!(
                 "Stored account authorization roles cannot be decoded: {}",
                 err
@@ -292,7 +298,7 @@ pub fn get_token_authorizations<TK: TokenKernelQueries>(
 
 /// Sets the puased state of the token module.
 pub fn set_paused<TK: TokenKernelOperations>(kernel: &mut TK, value: bool) {
-    let state_value = value.then_some(vec![]);
+    let state_value = value.then_some(TokenStateValue(vec![]));
     kernel.set_module_state(STATE_KEY_PAUSED, state_value)
 }
 
@@ -309,7 +315,7 @@ pub fn set_allow_list_for<TK: TokenKernelOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = value.then_some(vec![]);
+    let state_value = value.then_some(TokenStateValue(vec![]));
     kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
 }
 
@@ -326,7 +332,7 @@ pub fn set_deny_list_for<TK: TokenKernelOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = value.then_some(vec![]);
+    let state_value = value.then_some(TokenStateValue(vec![]));
     kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
 }
 
@@ -338,13 +344,16 @@ mod test {
     #[test]
     fn test_module_state_key() {
         let key = module_state_key(&[1, 2, 3]);
-        assert_eq!(key, vec![0, 0, 1, 2, 3]);
+        assert_eq!(key, TokenStateKey(vec![0, 0, 1, 2, 3]));
     }
 
     /// Test that the account state key is formed correctly
     #[test]
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
-        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+        assert_eq!(
+            key,
+            TokenStateKey(vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3])
+        );
     }
 }

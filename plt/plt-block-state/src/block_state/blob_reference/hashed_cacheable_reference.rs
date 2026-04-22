@@ -39,7 +39,7 @@ use std::sync::{Arc, OnceLock};
 #[derive(Debug)]
 pub struct HashedCacheableRef<V> {
     /// The representation is wrapped in a [`Arc`] to allow cheap cloning and
-    /// interior mutability of a shared instance.
+    /// interior mutability of the shared inner value.
     inner: Arc<HashedBufferedRefInner<V>>,
 }
 
@@ -67,7 +67,7 @@ impl<V> HashedCacheableRef<V> {
 
     /// Access the referenced value. If the value is already in memory, the value
     /// is returned as borrowed. If it is not in memory, it is loaded from the
-    /// blob store, and passed owned to the closure as owned.
+    /// blob store, and returned as owned.
     ///
     /// Loading from the blob store will not make the value cached in the reference.
     ///
@@ -82,7 +82,7 @@ impl<V> HashedCacheableRef<V> {
     }
 }
 
-/// Implement [`Clone`] directly, such that clonability does not depend on
+/// Implement [`Clone`] explicitly, such that clonability does not depend on
 /// if `V` is clonable.
 impl<V> Clone for HashedCacheableRef<V> {
     fn clone(&self) -> Self {
@@ -95,28 +95,32 @@ impl<V> Clone for HashedCacheableRef<V> {
 /// The [`HashedCacheableRef`] behind the `Arc`.
 #[derive(Debug)]
 struct HashedBufferedRefInner<V> {
-    /// Lazily calculated hash. If set, it is the hash of `value`.
-    hash: OnceLock<Hash>, // todo ar racing once lock
+    /// Lazily calculated hash. If set, it is the hash of the referenced value.
+    hash: OnceLock<Hash>,
     /// Representation of the value.
     repr: HashedCacheableRefRepr<V>,
 }
 
 /// The possible representations of the referenced value.
+///
+/// Notice that the two variants decide where the value was represented, when the reference
+/// was created (in blob store or in memory). But both of the variants `Store` and `Memory`
+/// can represent a value that is in memory and stored at the same time.
 #[derive(Debug)]
 enum HashedCacheableRefRepr<V> {
     /// The value is in the blob store, and is maybe cached.
     Store {
         /// Location of the value in the blob store
         blob_location: BlobStoreLocation,
-        /// In-memory value. Is set if the value is currently represented in memory.
-        value_lock: OnceLock<V>, // todo ar racing once lock
+        /// In-memory value. Is set if the value is currently cached in memory.
+        value_lock: OnceLock<V>,
     },
     /// The value is in memory, and is maybe also stored (the same as cached)
     Memory {
         /// In-memory value.
         value: V,
-        /// Location of the value in the blob store. Is set if the value is stored in the blob store.
-        blob_location_lock: OnceLock<BlobStoreLocation>, // todo ar atomic blob store location
+        /// Location of the value in the blob store. Is set if the value is also stored in the blob store.
+        blob_location_lock: OnceLock<BlobStoreLocation>,
     },
 }
 
@@ -159,14 +163,23 @@ impl<V> HashedCacheableRefRepr<V> {
             HashedCacheableRefRepr::Store {
                 blob_location,
                 value_lock,
-            } => match value_lock.get() {
-                None => {
-                    let value: V = blob_store::load_from_store(loader, *blob_location)?;
-                    // todo ar get_or_try_init?
-                    value_lock.get_or_init(|| value)
+            } => {
+                // When OnceLock::get_mut_or_try_init is stable, we can use that instead of the
+                // get/set pattern used here. get_mut_or_try_init imposes a critical region such
+                // that two threads will not load the value for caching. Right now we just log
+                // if it happens.
+                match value_lock.get() {
+                    None => {
+                        let value: V = blob_store::load_from_store(loader, *blob_location)?;
+                        value_lock
+                            .set(value)
+                            .inspect_err(|_| eprintln!("HashedCacheableRef: Value loaded by two threads at the same time"))
+                            .ok();
+                        value_lock.get().expect("HashedCacheableRefRepr::get_or_cache_value: value not present though just set in lock")
+                    }
+                    Some(value) => value,
                 }
-                Some(value) => value,
-            },
+            }
             HashedCacheableRefRepr::Memory { value, .. } => value,
         })
     }
@@ -230,13 +243,24 @@ impl<V: Cacheable + Loadable> Cacheable for HashedCacheableRef<V> {
 
 impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        // When OnceLock::get_mut_or_try_init is stable, we can use that instead of the
+        // get/set pattern used here. get_mut_or_try_init imposes a critical region such
+        // that two threads will not hash the value. Right now we just log
+        // if it happens.
         match self.inner.hash.get() {
             Some(hash) => Ok(*hash),
             None => {
                 let value = self.inner.repr.get_or_load_value(loader)?;
                 let hash = value.hash(loader)?;
-                // todo ar get_or_try_init?
-                self.inner.hash.get_or_init(|| hash);
+                self.inner
+                    .hash
+                    .set(hash)
+                    .inspect_err(|_| {
+                        eprintln!(
+                            "HashedCacheableRef: Hash calculated by two threads at the same time"
+                        )
+                    })
+                    .ok();
                 Ok(hash)
             }
         }

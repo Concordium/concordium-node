@@ -1,60 +1,15 @@
 //! Entry points to calling the scheduler. The scheduler is responsible for executing
 //! transaction and update instruction payloads.
 
-use concordium_base::base::Energy;
+use crate::transaction_execution::TransactionExecution;
+use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
-use plt_scheduler_interface::transaction_execution_interface::{
-    OutOfEnergyError, TransactionExecution,
-};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 
 mod plt_scheduler;
-
-/// Tracks the energy remaining and some context during the execution.
-struct TransactionExecutionImpl<Account> {
-    /// Limit for how much energy the execution can use. An [`OutOfEnergy`] error is
-    /// returned if the limit is reached.
-    energy_limit: Energy,
-    /// Energy used so far by execution. Energy is always charged in advance for each step executed.
-    energy_used: Energy,
-    /// The account which signed as the sender of the transaction.
-    sender_account: Account,
-    /// The address of the account which signed as the sender of the transaction. This need not be
-    /// the canonical address of the account, it can be an account alias.
-    sender_account_address: AccountAddress,
-}
-
-impl<Account> TransactionExecution for TransactionExecutionImpl<Account> {
-    type Account = Account;
-
-    fn sender_account(&self) -> &Self::Account {
-        &self.sender_account
-    }
-
-    fn sender_account_address(&self) -> AccountAddress {
-        self.sender_account_address
-    }
-
-    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        // self.energy_limit - self.energy_used should never underflow, but we safeguard with checked_sub
-        if self
-            .energy_limit
-            .checked_sub(self.energy_used)
-            .ok_or(OutOfEnergyError)?
-            >= energy
-        {
-            self.energy_used = self.energy_used + energy;
-            Ok(())
-        } else {
-            // Charge all available energy in case of limit is reached
-            self.energy_used = self.energy_limit;
-            Err(OutOfEnergyError)
-        }
-    }
-}
 
 /// Unrecoverable error executing transaction. This represents the
 /// return value of [`execute_transaction`] for transactions that cannot
@@ -94,12 +49,8 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     payload: Payload,
     energy_limit: Energy,
 ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-    let mut execution = TransactionExecutionImpl {
-        energy_limit,
-        energy_used: Energy::default(),
-        sender_account,
-        sender_account_address,
-    };
+    let mut execution =
+        TransactionExecution::new(energy_limit, sender_account, sender_account_address);
 
     match payload {
         Payload::TokenUpdate { payload } => {
@@ -111,7 +62,21 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
 
             Ok(TransactionExecutionSummary {
                 outcome,
-                energy_used: execution.energy_used,
+                energy_used: execution.energy_used(),
+            })
+        }
+        Payload::MetaUpdate { payload }
+            if block_state.protocol_version() >= ProtocolVersion::P11 =>
+        {
+            let outcome = plt_scheduler::execute_meta_update_transaction(
+                &mut execution,
+                block_state,
+                payload,
+            )?;
+
+            Ok(TransactionExecutionSummary {
+                outcome,
+                energy_used: execution.energy_used(),
             })
         }
         _ => Err(TransactionExecutionError::UnexpectedPayload),
