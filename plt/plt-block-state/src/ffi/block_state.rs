@@ -120,8 +120,8 @@ extern "C" fn ffi_hash_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
     load_callback: LoadCallback,
-    protocol_version: u64,
     blob_ref: BlobStoreLocation,
+    protocol_version: u64,
     block_state_out: *mut *mut BlockState,
 ) -> status::FfiStatusCode {
     assert!(

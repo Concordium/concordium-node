@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
@@ -198,7 +199,14 @@ data ProtocolLevelTokensForStateVersion (pltsv :: PLTStateVersion) where
     ProtocolLevelTokensV0 :: (HashedBufferedRef' ProtocolLevelTokensHash ProtocolLevelTokens) -> ProtocolLevelTokensForStateVersion 'PLTStateV0
     ProtocolLevelTokensV1 :: RustBS.ForeignPLTBlockStatePtr -> ProtocolLevelTokensForStateVersion 'PLTStateV1
 
-instance (MonadBlobStore m, MonadProtocolVersion m, IsPLTStateVersion pltsv) => BlobStorable m (ProtocolLevelTokensForStateVersion pltsv) where
+instance
+    forall m pltsv.
+    ( MonadBlobStore m,
+      MonadProtocolVersion m,
+      pltsv ~ PltStateVersionFor (MPV m)
+    ) =>
+    BlobStorable m (ProtocolLevelTokensForStateVersion pltsv)
+    where
     load = case pltStateVersion @pltsv of
         SPLTStateNone -> return $ return ProtocolLevelTokensNone
         SPLTStateV0 -> fmap ProtocolLevelTokensV0 <$> load
@@ -250,10 +258,12 @@ makeRustPLTBlockState = ProtocolLevelTokensV1
 
 -- | An empty 'ProtocolLevelTokensForStateVersion' with no tokens.
 emptyProtocolLevelTokensForStateVersion ::
-    forall m pltsv.
-    (IsPLTStateVersion pltsv, MonadBlobStore m, MonadProtocolVersion m) =>
-    m (ProtocolLevelTokensForStateVersion pltsv)
-emptyProtocolLevelTokensForStateVersion = case pltStateVersion @pltsv of
+    forall m.
+    ( MonadBlobStore m,
+      MonadProtocolVersion m
+    ) =>
+    m (ProtocolLevelTokensForStateVersion (PltStateVersionFor (MPV m)))
+emptyProtocolLevelTokensForStateVersion = case pltStateVersion @(PltStateVersionFor (MPV m)) of
     SPLTStateNone -> return $ ProtocolLevelTokensNone
     SPLTStateV0 -> storePLTs emptyProtocolLevelTokens
     SPLTStateV1 -> ProtocolLevelTokensV1 <$> RustBS.empty
