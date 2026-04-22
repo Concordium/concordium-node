@@ -4,7 +4,7 @@ mod key_value_state;
 mod module;
 mod roles;
 pub mod token_kernel_interface;
-mod util;
+pub(crate) mod util;
 
 pub use module::*;
 
