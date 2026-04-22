@@ -1,3 +1,6 @@
+//! [Execution time block state](ExecutionTimeBlockState) where externally (Haskell)
+//! managed block stated is stubbed.
+
 // Allow items in this file to be unused. This is needed because it is imported from multiple
 // compile targets (each of the integration tests), and some of the targets may not use all
 // items in the file.
@@ -14,18 +17,16 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state::blob_store::{BackingStoreLoad, Reference};
+use plt_block_state::block_state::blob_store::test_stub::UnreachableBlobStore;
+use plt_block_state::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation};
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_block_state::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
-use plt_block_state::block_state::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExecutionTimePltBlockState,
-    PltBlockState, PltBlockStateSavepoint,
-};
+use plt_block_state::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
+use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState, MutableBlockState};
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
 use plt_scheduler_types::types::events::BlockItemEvent;
@@ -33,25 +34,15 @@ use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
-/// Block store load stub for tests.
-#[derive(Debug)]
-pub struct BlobStoreLoadStub;
-
-impl BackingStoreLoad for BlobStoreLoadStub {
-    fn load_raw(&mut self, location: Reference) -> Vec<u8> {
-        unimplemented!("should not be called")
-    }
-}
-
-type ExecutionTimePltBlockStateWithExternalStateStubbed =
-    ExecutionTimePltBlockState<PltBlockState, BlobStoreLoadStub, ExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
+type ExecutionTimeBlockStateWithExternalStubbed =
+    ExecutionTimeBlockState<MutableBlockState, UnreachableBlobStore, ExternalBlockStateStub>;
+type Token = <ExecutionTimeBlockStateWithExternalStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
 /// state is implemented by a stub.
 #[derive(Debug)]
 pub struct BlockStateWithExternalStateStubbed {
-    block_state: ExecutionTimePltBlockStateWithExternalStateStubbed,
+    block_state: ExecutionTimeBlockStateWithExternalStubbed,
 }
 
 /// Stubbed block state representing the Haskell maintained part of the block state.
@@ -82,20 +73,19 @@ struct AccountToken {
 }
 
 impl BlockStateWithExternalStateStubbed {
-    /// Create block state stub
-    #[allow(clippy::new_without_default)]
+    /// Create fresh block state stub
     pub fn new(protocol_version: ProtocolVersion) -> Self {
-        let inner_block_state = PltBlockStateSavepoint::empty().mutable_state();
+        let inner_block_state = BlockState::empty().into_mutable();
 
         let external_block_state = ExternalBlockStateStub {
             accounts: Default::default(),
             plt_update_instruction_sequence_number: 0,
         };
 
-        let block_state = ExecutionTimePltBlockState {
+        let block_state = ExecutionTimeBlockState {
             protocol_version,
             internal_block_state: inner_block_state,
-            backing_store_load: BlobStoreLoadStub,
+            blob_store_load: UnreachableBlobStore,
             external_block_state,
         };
 
@@ -103,12 +93,12 @@ impl BlockStateWithExternalStateStubbed {
     }
 
     /// Access to the underlying block state.
-    pub fn state(&self) -> &ExecutionTimePltBlockStateWithExternalStateStubbed {
+    pub fn state(&self) -> &ExecutionTimeBlockStateWithExternalStubbed {
         &self.block_state
     }
 
     /// Mutable access to the underlying block state.
-    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithExternalStateStubbed {
+    pub fn state_mut(&mut self) -> &mut ExecutionTimeBlockStateWithExternalStubbed {
         &mut self.block_state
     }
 

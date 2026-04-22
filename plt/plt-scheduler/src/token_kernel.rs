@@ -8,12 +8,13 @@ use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::{
-    AccountWithCanonicalAddress, TokenConfiguration, TokenStateKey, TokenStateValue,
+use plt_block_state::block_state::types::AccountWithCanonicalAddress;
+use plt_block_state::block_state::types::protocol_level_tokens::{
+    TokenConfiguration, TokenStateKey, TokenStateValue,
 };
-use plt_block_state::block_state::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
 use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
@@ -27,7 +28,7 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     /// Token in context
     pub token: &'a BSQ::Token,
     /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::TokenKeyValueState,
+    pub token_module_state: &'a BSQ::MutableTokenKeyValueState,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -71,9 +72,9 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -86,7 +87,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSQ::TokenKeyValueState,
+    pub token_module_state: &'a mut BSQ::MutableTokenKeyValueState,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far
@@ -286,8 +287,8 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
     fn iter_token_state_prefix(
         &self,
         prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }

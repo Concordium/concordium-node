@@ -17,7 +17,7 @@ use concordium_base::protocol_level_tokens::{
     TokenUpdateMetadataEventDetails, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::AccountNotFoundByAddressError;
+use plt_block_state::block_state_interface::AccountNotFoundByAddressError;
 
 /// Details provided by the token module in the event of rejecting a
 /// transaction.
