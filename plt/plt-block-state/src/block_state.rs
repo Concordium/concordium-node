@@ -1,147 +1,159 @@
-//! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
+//! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
+use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::types::{
-    AccountWithCanonicalAddress, LockConfiguration, TokenAccountState, TokenConfiguration,
-    TokenIndex, TokenStateKey, TokenStateValue,
+use crate::block_state::hash::Hashable;
+use crate::block_state::state::protocol_level_locks::ProtocolLevelLocks;
+use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
+use crate::block_state::types::AccountWithCanonicalAddress;
+use crate::block_state::types::protocol_level_locks::LockConfiguration;
+use crate::block_state::types::protocol_level_tokens::{
+    TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, LockNotFoundByIdError, OverflowError,
-    RawTokenAmountDelta, TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, BlockStateResult, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
+    TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
-use concordium_base::common;
-use concordium_base::common::Serialize;
-use concordium_base::constants::SHA256;
+use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use sha2::Digest;
-use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
+use std::mem;
 
+pub mod blob_reference;
 pub mod blob_store;
+pub mod cacheable;
 pub mod external;
+pub mod hash;
+pub mod lfmb_tree;
+mod smart_contract_trie;
+mod state;
 pub mod types;
+mod utils;
 
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
-
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
-
-/// Marker for PLT block state hash type.
-pub enum PltBlockStateHashMarker {}
-/// Hash of PLT block state
-pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHashMarker>;
-
-/// Immutable block state save-point.
+/// Immutable block state. The block state is immutable in the sense,
+/// that the state it represents never changes during the lifetime of values of type [`BlockState`].
+/// In order to perform mutating operations on the block state, a new [`BlockState`]
+/// must be created.
 ///
-/// This is a wrapper around a [`PltBlockState`] ensuring further mutations can only be done by
-/// unwrapping using [`PltBlockStateSavepoint::mutable_state`].
-#[derive(Debug)]
-pub struct PltBlockStateSavepoint {
-    /// The inner block state, which will not be mutated.
-    block_state: PltBlockState,
+/// The internal representation in [`BlockState`] may change during the lifetime via interior mutability.
+/// This happens if state are cached, stored or hashes are lazily calculated.
+#[derive(Debug, Clone, Default)]
+pub struct BlockState {
+    /// Protocol-level tokens
+    tokens: ProtocolLevelTokens,
+    /// Protocol-level locks
+    locks: ProtocolLevelLocks,
 }
 
-impl PltBlockStateSavepoint {
-    /// Initialize a new block state.
+impl BlockState {
+    /// Construct an empty block state.
     pub fn empty() -> Self {
-        Self {
-            block_state: PltBlockState::empty(),
+        BlockState {
+            tokens: ProtocolLevelTokens::empty(),
+            locks: ProtocolLevelLocks::empty(),
         }
     }
 
-    /// Compute the hash.
-    pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
-        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        if self.block_state.state.tokens.is_empty() {
-            // For empty state, use a hash equal to the Haskell side. Else test suites in consensus must be updated
-            // with new hashes. Also, eventually, our hashing must be compatible with Haskell PLT state anyway.
-            PltBlockStateHash::from(
-                <[u8; SHA256]>::try_from(
-                    hex::decode("c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05")
-                        .unwrap(),
-                )
-                .unwrap(),
-            )
-        } else {
-            let block_state_bytes = common::to_bytes(&self.block_state.state);
-            PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
-                &block_state_bytes,
-            )))
-        }
-    }
-
-    /// Store a PLT block state in a blob store.
-    pub fn store_update(&self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
-        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let block_state_bytes = common::to_bytes(&self.block_state.state);
-        storer.store_raw(&block_state_bytes)
+    /// Consume the immutable block state and create a mutable block state.
+    pub fn into_mutable(self) -> MutableBlockState {
+        MutableBlockState::new(self)
     }
 
     /// Migrate the PLT block state from one blob store to another.
-    pub fn migrate(
-        &self,
-        _loader: &mut impl BackingStoreLoad,
-        _storer: &mut impl BackingStoreStore,
-    ) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+    pub fn migrate(&self, _loader: &impl BlobStoreLoad, _storer: &mut impl BlobStoreStore) -> Self {
+        // todo implement as part of https://linear.app/concordium/issue/PSR-67/implement-p10-to-p11-migration-for-plt-state
         todo!()
-    }
-
-    /// Cache the block state in memory.
-    pub fn cache(&self, _loader: &mut impl BackingStoreLoad) {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-    }
-
-    /// Construct a mutable block state which can be mutated without affecting this
-    /// save-point.
-    pub fn mutable_state(&self) -> PltBlockState {
-        self.block_state.clone()
     }
 }
 
-impl blob_store::Loadable for PltBlockStateSavepoint {
-    fn load(
-        _loader: &mut impl BackingStoreLoad,
-        source: impl AsRef<[u8]>,
-    ) -> Result<Self, DecodeError> {
-        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-        let state: SimplisticPltBlockState = common::from_bytes_complete(source)
-            .map_err(|err| DecodeError::Decode(err.to_string()))?;
+impl Loadable for BlockState {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
+        let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
 
+        // todo load locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
         Ok(Self {
-            block_state: PltBlockState { state },
+            tokens,
+            locks: Default::default(),
         })
     }
 }
 
-/// Block state providing the various block state operations.
-#[derive(Debug, Clone)]
-pub struct PltBlockState {
-    // todo implement real block state as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-    /// Simplistic state that is used as a temporary implementation of the block state
-    state: SimplisticPltBlockState,
+impl Storable for BlockState {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        // todo store locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
+
+        self.tokens.store_to_buffer(&mut buffer, storer);
+    }
 }
 
-impl PltBlockState {
-    /// Construct an empty block state.
-    fn empty() -> Self {
-        PltBlockState {
-            state: Default::default(),
+impl Cacheable for BlockState {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        // todo cache locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
+
+        self.tokens.cache_reference_values(loader)?;
+        Ok(())
+    }
+}
+
+impl Hashable for BlockState {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        // todo hash locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
+
+        self.tokens.hash(loader)
+    }
+}
+
+/// Mutable block state. In contrast to the immutable block state [`BlockState`],
+/// operations on the mutable block state changes the state that
+/// the value represents.
+#[derive(Debug, Clone)]
+pub struct MutableBlockState {
+    /// Immutable block state value. The block state represented by [`MutableBlockState`] is
+    /// mutated simply by setting a new value for the immutable block state [`BlockState`].
+    immutable_state: BlockState,
+}
+
+impl MutableBlockState {
+    /// Create mutable block state from immutable block state.
+    fn new(mutable_state: BlockState) -> Self {
+        Self {
+            immutable_state: mutable_state,
         }
     }
 
-    /// Consume the mutable block state and create an immutable save-point.
-    pub fn savepoint(self) -> PltBlockStateSavepoint {
-        PltBlockStateSavepoint { block_state: self }
+    /// Consume the mutable block state and create an immutable block state.
+    pub fn into_immutable(self) -> BlockState {
+        self.immutable_state
+    }
+
+    /// Update the block state using `update` closure and return
+    /// the additional value of type `T` returned by the closure.
+    fn update_block_state<T>(
+        &mut self,
+        update: impl FnOnce(BlockState) -> BlockStateResult<(T, BlockState)>,
+    ) -> BlockStateResult<T> {
+        let ret;
+        (ret, self.immutable_state) = update(mem::take(&mut self.immutable_state))?;
+        Ok(ret)
+    }
+
+    /// Update the block state using `update` closure.
+    fn update_block_state_(
+        &mut self,
+        update: impl FnOnce(BlockState) -> BlockStateResult<BlockState>,
+    ) -> BlockStateResult<()> {
+        self.immutable_state = update(mem::take(&mut self.immutable_state))?;
+        Ok(())
     }
 }
 
@@ -151,111 +163,126 @@ impl PltBlockState {
 /// In addition to the PLT block state, this type contains callbacks
 /// for the parts of the state that is managed on the Haskell side.
 #[derive(Debug)]
-pub struct ExecutionTimePltBlockState<IntState, Load, ExtState> {
+pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
     /// The protocol version of the block state.
     pub protocol_version: ProtocolVersion,
     /// The library block state implementation.
     pub internal_block_state: IntState,
     /// External function for reading from the blob store.
-    pub backing_store_load: Load,
+    pub blob_store_load: Load,
     /// Part of block state that is managed externally.
     pub external_block_state: ExtState,
 }
 
 /// Provides access needed for querying block state (but not to do operations on the block state).
-trait HasQueryableBlockState {
-    fn block_state(&self) -> &SimplisticPltBlockState;
+trait HasBlockState {
+    fn block_state(&self) -> &BlockState;
 }
 
-impl HasQueryableBlockState for PltBlockState {
-    fn block_state(&self) -> &SimplisticPltBlockState {
-        &self.state
+impl HasBlockState for &BlockState {
+    fn block_state(&self) -> &BlockState {
+        self
     }
 }
 
-impl HasQueryableBlockState for &PltBlockStateSavepoint {
-    fn block_state(&self) -> &SimplisticPltBlockState {
-        &self.block_state.state
+impl HasBlockState for MutableBlockState {
+    fn block_state(&self) -> &BlockState {
+        &self.immutable_state
     }
 }
 
-impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: ExternalBlockStateQuery>
-    BlockStateQuery for ExecutionTimePltBlockState<IntState, Load, ExtState>
+impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
+    BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
 {
-    type TokenKeyValueState = SimplisticTokenKeyValueState;
+    type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = AccountIndex;
     type Token = TokenIndex;
-    type Lock = LockId;
 
-    fn plt_list(&self) -> impl Iterator<Item = TokenId> {
+    fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
             .block_state()
             .tokens
-            .iter()
-            .map(|token| token.configuration.token_id.clone())
+            .plt_list(&self.blob_store_load)
+            .map(|item| item.unwrap())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
         self.internal_block_state
             .block_state()
             .tokens
-            .iter()
-            .enumerate()
-            .find_map(|(i, token)| {
-                if token
-                    .configuration
-                    .token_id
-                    .as_ref()
-                    .eq_ignore_ascii_case(token_id.as_ref())
-                {
-                    Some(TokenIndex(i as u64))
-                } else {
-                    None
-                }
-            })
-            .ok_or(TokenNotFoundByIdError(token_id.clone()))
+            .token_by_id(token_id)
+            .ok_or_else(|| TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_key_value_state(&self, token: &TokenIndex) -> Self::TokenKeyValueState {
-        self.internal_block_state.block_state().tokens[token.0 as usize]
-            .key_value_state
-            .clone()
+    fn mutable_token_key_value_state(
+        &self,
+        token: &Self::Token,
+    ) -> Self::MutableTokenKeyValueState {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .mutable_token_key_value_state(&self.blob_store_load, *token)
+            .unwrap()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        let configuration = self.internal_block_state.block_state().tokens[token.0 as usize]
-            .configuration
-            .clone();
-
-        TokenConfiguration {
-            token_id: configuration.token_id,
-            module_ref: configuration.module_ref,
-            decimals: configuration.decimals,
-        }
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .token_configuration(&self.blob_store_load, *token)
+            .unwrap()
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        self.internal_block_state.block_state().tokens[token.0 as usize].circulating_supply
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .block_state()
+            .tokens
+            .token_circulating_supply(&self.blob_store_load, *token)
+            .unwrap()
     }
 
     fn lookup_token_state_value(
         &self,
-        token_key_value_state: &Self::TokenKeyValueState,
+        token_key_value: &Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
-        token_key_value_state.state.get(key).cloned()
+        token_key_value
+            .lookup_value(&self.blob_store_load, &key.0)
+            .map(TokenStateValue)
+    }
+
+    fn iter_token_state_prefix<'a>(
+        &'a self,
+        token_key_value: &Self::MutableTokenKeyValueState,
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, IntState, Load, ExtState>
+    {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        token_key_value
+            .iter_prefix(&self.blob_store_load, &prefix.0)
+            .unwrap()
+            .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
 
     fn update_token_state_value(
         &self,
-        token_key_value_state: &mut Self::TokenKeyValueState,
+        token_key_value_state: &mut Self::MutableTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         if let Some(value) = value {
-            token_key_value_state.state.insert(key.clone(), value);
+            token_key_value_state
+                .insert_value(&self.blob_store_load, &key.0, value.0)
+                .unwrap();
         } else {
-            token_key_value_state.state.remove(key);
+            token_key_value_state
+                .delete_value(&self.blob_store_load, &key.0)
+                .unwrap();
         }
     }
 
@@ -310,19 +337,13 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
         self.protocol_version
     }
 
-    fn iter_token_state_prefix<'a>(
-        &self,
-        token_key_value_state: &'a Self::TokenKeyValueState,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&'a TokenStateKey, &'a TokenStateValue)> {
-        token_key_value_state.iter_prefix(prefix)
-    }
-
-    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError> {
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
         if self
             .internal_block_state
             .block_state()
             .locks
+            .locks
+            .0
             .contains_key(lock_id)
         {
             return Ok(lock_id.clone());
@@ -331,44 +352,53 @@ impl<IntState: HasQueryableBlockState, Load: BackingStoreLoad, ExtState: Externa
         Err(LockNotFoundByIdError(lock_id.clone()))
     }
 
-    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration {
-        self.internal_block_state.block_state().locks[lock]
+    fn lock_configuration(&self, lock: &LockId) -> LockConfiguration {
+        self.internal_block_state.block_state().locks.locks.0[lock]
             .configuration
             .clone()
     }
 
-    fn lock_balances(
-        &self,
-        lock: &Self::Lock,
-    ) -> impl Iterator<Item = (Self::Account, Self::Token)> {
-        self.internal_block_state.block_state().locks[lock]
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        self.internal_block_state.block_state().locks.locks.0[lock]
             .locked_balances
             .iter()
             .cloned()
     }
 }
 
-impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
-    for ExecutionTimePltBlockState<PltBlockState, Load, ExtState>
+impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
+    for ExecutionTimeBlockState<MutableBlockState, Load, ExtState>
 {
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        self.internal_block_state.state.tokens[token.0 as usize].circulating_supply =
-            circulating_supply;
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state_(|state| {
+                Ok(BlockState {
+                    tokens: state.tokens.set_token_circulating_supply(
+                        &self.blob_store_load,
+                        *token,
+                        circulating_supply,
+                    )?,
+                    ..state
+                })
+            })
+            .unwrap();
     }
 
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        let token_index = TokenIndex(self.internal_block_state.state.tokens.len() as u64);
-        let token = Token {
-            key_value_state: Default::default(),
-            configuration,
-            circulating_supply: Default::default(),
-        };
-        self.internal_block_state.state.tokens.push(token);
-        token_index
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state(|state| {
+                let (token_index, tokens) = state
+                    .tokens
+                    .create_token(&self.blob_store_load, configuration)?;
+                Ok((token_index, BlockState { tokens, ..state }))
+            })
+            .unwrap()
     }
 
     fn update_token_account_balance(
@@ -394,79 +424,35 @@ impl<Load: BackingStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateO
     fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_key_value_state: Self::TokenKeyValueState,
+        token_key_value_state: Self::MutableTokenKeyValueState,
     ) {
-        self.internal_block_state.state.tokens[token.0 as usize].key_value_state =
-            token_key_value_state;
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state_(|state| {
+                Ok(BlockState {
+                    tokens: state.tokens.set_token_key_value_state(
+                        &self.blob_store_load,
+                        *token,
+                        token_key_value_state,
+                    )?,
+                    ..state
+                })
+            })
+            .unwrap();
     }
 
     // TODO: lock creation implemented as part of COR-2302
-    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> Self::Lock {
+    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> LockId {
         todo!()
     }
 
     // TODO: Implement as part of COR-2305.
     fn add_lock_balance_ref(
         &mut self,
-        _lock: &Self::Lock,
+        _lock: &LockId,
         _account: &Self::Account,
         _token: &Self::Token,
     ) {
         todo!()
     }
-}
-
-/// Simplistic implementation of the block state that serializes as a flat sequence of bytes.
-// todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
-#[derive(Debug, Default, Clone, Serialize)]
-struct SimplisticPltBlockState {
-    /// The block state for protocol-level tokens.
-    tokens: Vec<Token>,
-    /// The block state for protocol-level locks.
-    locks: BTreeMap<LockId, Lock>,
-}
-
-/// The block state for a single protocol-level token.
-#[derive(Debug, Clone, Serialize)]
-struct Token {
-    /// The key-value state associated with the token defined by its `configuration`.
-    key_value_state: SimplisticTokenKeyValueState,
-    /// The configuration parameters for this token.
-    configuration: TokenConfiguration,
-    /// The current circulating supply of this token.
-    circulating_supply: RawTokenAmount,
-}
-
-/// A simplistic key-value store for token state, backed by a [`BTreeMap`].
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct SimplisticTokenKeyValueState {
-    /// The underlying map from state keys to state values.
-    state: BTreeMap<TokenStateKey, TokenStateValue>,
-}
-
-impl SimplisticTokenKeyValueState {
-    fn iter_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (&TokenStateKey, &TokenStateValue)> {
-        // This is just a temporary implementation and will not scale.
-        // However implementation should be trivial once using the actual trie.
-        let mut out = Vec::new();
-        for (key, value) in self.state.iter() {
-            if key.starts_with(prefix.as_slice()) {
-                out.push((key, value));
-            }
-        }
-        out.into_iter()
-    }
-}
-
-/// The block state for a single protocol-level lock.
-#[derive(Debug, Clone, Serialize)]
-struct Lock {
-    /// Contains references to the tokens with balances locked within this lock
-    #[set_size_length = 4]
-    locked_balances: BTreeSet<(AccountIndex, TokenIndex)>,
-    /// The configuration parameters for the lock.
-    configuration: LockConfiguration,
 }

@@ -65,7 +65,7 @@ pub trait LockController {
     ) -> Result<(), LockControllerRejectReason>;
 
     /// Query controller configuration and state as CBOR.
-    fn query_info<BSQ: BlockStateQuery>(&self, bsq: &BSQ, lock: &BSQ::Lock) -> LockInfo;
+    fn query_info<BSQ: BlockStateQuery>(&self, bsq: &BSQ, lock: &LockId) -> LockInfo;
 }
 
 impl LockController for LockControllerConfig {
@@ -82,7 +82,7 @@ impl LockController for LockControllerConfig {
         }
     }
 
-    fn query_info<BSQ: BlockStateQuery>(&self, bsq: &BSQ, lock: &BSQ::Lock) -> LockInfo {
+    fn query_info<BSQ: BlockStateQuery>(&self, bsq: &BSQ, lock: &LockId) -> LockInfo {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
                 lock_controller_simple_v0.query_info(bsq, lock)

@@ -1,3 +1,4 @@
+use concordium_base::protocol_level_locks::LockId;
 use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler_types::types::locks::LockControllerSimpleV0;
 
@@ -17,7 +18,7 @@ impl LockController for LockControllerSimpleV0 {
     }
 
     // TODO: implemented as part of COR-2309
-    fn query_info<BSQ: BlockStateQuery>(&self, _bsq: &BSQ, _lock: &BSQ::Lock) -> LockInfo {
+    fn query_info<BSQ: BlockStateQuery>(&self, _bsq: &BSQ, _lock: &LockId) -> LockInfo {
         todo!()
     }
 }
