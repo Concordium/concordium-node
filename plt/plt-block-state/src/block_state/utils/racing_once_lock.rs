@@ -103,10 +103,9 @@ impl<T> RacingOnceLock<T> {
 
 impl<T> Drop for RacingOnceLock<T> {
     fn drop(&mut self) {
-        if self.state.load(Ordering::Acquire) == State::Initialized as u8 {
-            // Data-race safety: Reading the value happens-after writing it in Self::try_insert,
-            // because the acquire load of state happens-after the release store of state in
-            // Self::try_insert.
+        if self.state.load(Ordering::Relaxed) == State::Initialized as u8 {
+            // Data-race safety: We have unique ownership of the lock, hence
+            // reading the value happens-after writing it.
             // Initialization safety: By the same argument, the value has been
             // initialized in Self::try_insert.
             unsafe { (&mut *self.value.get()).assume_init_drop() }
@@ -133,5 +132,59 @@ impl<T: Debug> Debug for RacingOnceLock<T> {
             None => d.field(&format_args!("<uninit>")),
         };
         d.finish()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::thread;
+    use crate::block_state::utils::racing_once_lock::RacingOnceLock;
+
+    type TestLock = RacingOnceLock<u64>;
+
+    #[test]
+    fn test_get_insert_get() {
+        let lock = TestLock::new();
+
+        // Get before initialized
+        assert_eq!(lock.get(), None);
+
+        // Insert value to initialize
+        lock.try_insert(4).expect("should insert");
+
+        // Get value
+        assert_eq!(lock.get().copied(), Some(4));
+    }
+
+
+    #[test]
+    fn test_insert_twice() {
+        let lock = TestLock::new();
+
+        // Insert value to initialize
+        lock.try_insert(4).expect("should insert");
+
+        // Insert again
+        let res = lock.try_insert(5).expect_err("should not insert");
+        assert_eq!(*res.0, 4);
+        assert_eq!(res.1, 5);
+
+        // Get value
+        assert_eq!(lock.get().copied(), Some(4));
+    }
+
+    #[test]
+    fn test_multithread_insert_get() {
+        let lock = TestLock::new();
+
+        thread::scope(|s| {
+            s.spawn(|| {
+                lock.try_insert(4).unwrap();
+            });
+            s.spawn(|| {
+                lock.get();
+            });
+        });
+
     }
 }
