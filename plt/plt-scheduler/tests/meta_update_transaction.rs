@@ -239,7 +239,9 @@ fn test_meta_update_transaction_cbor_extra_fields() {
     let payload = MetaUpdatePayload {
         operations: RawCbor::from_str("81a1687472616e73666572a5646d656d6f440102030465746f6b656e68746f6b656e69643166616d6f756e74c482211a000186a069726563697069656e74d99d73a201d99d71a1011903970358200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2064626c616801").unwrap(),
     };
-    payload.decode_operations().expect("should decode successfully even with extra fields in the CBOR");
+    payload
+        .decode_operations()
+        .expect("should decode successfully even with extra fields in the CBOR");
     let result = scheduler::execute_transaction(
         account_index_1,
         account_1,
