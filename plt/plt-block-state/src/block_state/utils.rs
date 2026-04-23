@@ -8,7 +8,9 @@ use std::ops::Deref;
 /// `T` to implement `Clone` which `Cow` does.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum OwnedOrBorrowed<'a, T> {
+    /// Value is owned
     Owned(T),
+    /// Value is borrowed
     Borrowed(&'a T),
 }
 
@@ -22,23 +24,6 @@ impl<'a, T> OwnedOrBorrowed<'a, T> {
         match self {
             OwnedOrBorrowed::Owned(v) => v,
             OwnedOrBorrowed::Borrowed(r) => r.clone(),
-        }
-    }
-
-    // todo ar remove
-    /// Return [`Self`] with new, unconstrained lifetime, if it is owned, else `None`.
-    pub fn unconstrained_lifetime_if_owned<'b>(self) -> Option<OwnedOrBorrowed<'b, T>> {
-        match self {
-            OwnedOrBorrowed::Owned(v) => Some(OwnedOrBorrowed::Owned(v)),
-            OwnedOrBorrowed::Borrowed(_) => None,
-        }
-    }
-
-    /// Return the value if it is owned, else `None`.
-    pub fn into_owned(self) -> Option<T> {
-        match self {
-            OwnedOrBorrowed::Owned(v) => Some(v),
-            OwnedOrBorrowed::Borrowed(_) => None,
         }
     }
 }
