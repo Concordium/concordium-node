@@ -1,14 +1,13 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::token_kernel::TokenKernelQueriesImpl;
+use crate::token_context::TokenQueryContext;
+use crate::token_module;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
-use plt_token_module::token_module;
-use plt_token_module::token_module::QueryTokenModuleError;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -19,7 +18,7 @@ pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenInfoError {
     #[error("Error returned when querying the token module: {0}")]
-    QueryTokenModule(#[from] QueryTokenModuleError),
+    QueryTokenModule(#[from] token_module::QueryTokenModuleError),
     #[error("{0}")]
     TokenDoesNotExist(#[from] TokenNotFoundByIdError),
 }
@@ -41,13 +40,12 @@ pub fn query_token_info(
 
     let token_module_state = block_state.mutable_token_key_value_state(&token);
 
-    let kernel = TokenKernelQueriesImpl {
+    let context = TokenQueryContext {
         block_state,
-        token: &token,
         token_module_state: &token_module_state,
     };
 
-    let module_state = token_module::query_token_module_state(&kernel)?;
+    let module_state = token_module::query_token_module_state(&context)?;
 
     let token_state = TokenState {
         token_module_ref: token_configuration.module_ref,
@@ -79,13 +77,13 @@ where
             let token_configuration = block_state.token_configuration(&token);
 
             let token_module_state = block_state.mutable_token_key_value_state(&token);
-            let kernel = TokenKernelQueriesImpl {
+
+            let context = TokenQueryContext {
                 block_state,
-                token: &token,
                 token_module_state: &token_module_state,
             };
             let module_state = token_module::query_token_module_account_state(
-                &kernel,
+                &context,
                 block_state.account_index(&account),
             );
 
@@ -114,12 +112,11 @@ pub fn query_token_authorizations(
 ) -> Result<TokenAuthorizations, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
     let token_module_state = block_state.mutable_token_key_value_state(&token);
-    let kernel = TokenKernelQueriesImpl {
+    let context = TokenQueryContext {
         block_state,
-        token: &token,
         token_module_state: &token_module_state,
     };
-    let details = token_module::query_token_authorizations(&kernel)?;
+    let details = token_module::query_token_authorizations(&context)?;
     let token_configuration = block_state.token_configuration(&token);
     Ok(TokenAuthorizations {
         token_id: token_configuration.token_id,

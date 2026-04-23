@@ -768,7 +768,7 @@ class
     -- This is a Low-level interface needed for foreign function interface access.
     getRustPLTBlockState ::
         (PVSupportsRustManagedPLT (MPV m)) =>
-        BlockState m -> m RustBS.ForeignPLTBlockStatePtr
+        BlockState m -> m (RustBS.ForeignPLTBlockStatePtr (MPV m))
 
     -- | Lifts 'MonadBlobStore' action into the 'BlockStateOperations' monad.
     --
@@ -1769,14 +1769,14 @@ class
     -- This is a Low-level interface needed for foreign function interface access.
     bsoGetRustPLTBlockState ::
         (PVSupportsRustManagedPLT (MPV m)) =>
-        UpdatableBlockState m -> m RustBS.ForeignPLTBlockStatePtr
+        UpdatableBlockState m -> m (RustBS.ForeignPLTBlockStatePtr (MPV m))
 
     -- | Set the foreign pointer to the Rust managed PLT state.
     --
     -- This is a Low-level interface needed for foreign function interface access.
     bsoSetRustPLTBlockState ::
         (PVSupportsRustManagedPLT (MPV m)) =>
-        UpdatableBlockState m -> RustBS.ForeignPLTBlockStatePtr -> m (UpdatableBlockState m)
+        UpdatableBlockState m -> (RustBS.ForeignPLTBlockStatePtr (MPV m)) -> m (UpdatableBlockState m)
 
     -- | Allows construction of an IO action in a context where 'BlockStateOperations' actions
     -- can be unlifted into the IO monad. The resulting IO action is then lifted

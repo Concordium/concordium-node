@@ -1,85 +1,34 @@
-//! Implementation of the protocol-level token kernel.
+//! Context for running queries and operations on protocol-level tokens.
 
-use concordium_base::base::{AccountIndex, ProtocolVersion};
+use crate::token_module::errors::{
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
+    TokenStateInvariantError, TokenTransferError,
+};
+use concordium_base::base::ProtocolVersion;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::AccountWithCanonicalAddress;
 use plt_block_state::block_state::types::protocol_level_tokens::{
     TokenConfiguration, TokenStateKey, TokenStateValue,
 };
 use plt_block_state::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, OverflowError, RawTokenAmountDelta,
-};
-use plt_scheduler_interface::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenTransferError,
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
 use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
-/// Implementation of token kernel queries with a specific token in context.
-pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
+/// Context for running token queries with a specific token in context.
+pub struct TokenQueryContext<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a BSQ,
-    /// Token in context
-    pub token: &'a BSQ::Token,
     /// Token module state for the token in context
     pub token_module_state: &'a BSQ::MutableTokenKeyValueState,
 }
 
-impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
-    type Account = BSQ::Account;
-
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
-    }
-
-    fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index)
-    }
-
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
-    }
-
-    fn decimals(&self) -> u8 {
-        self.block_state.token_configuration(self.token).decimals
-    }
-
-    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
-        self.block_state
-            .lookup_token_state_value(self.token_module_state, &key)
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.block_state.protocol_version()
-    }
-
-    fn iter_token_state_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
-        self.block_state
-            .iter_token_state_prefix(self.token_module_state, &prefix)
-    }
-}
-
-/// Implementation of token kernel operations with a specific token in context.
-pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
+/// Context for running token operations with a specific token in context.
+pub struct TokenOperationContext<'a, BSQ: BlockStateQuery> {
     /// The block state
     pub block_state: &'a mut BSQ,
     /// Token in context
@@ -94,14 +43,20 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     pub events: &'a mut Vec<BlockItemEvent>,
 }
 
-impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
-    fn touch_account(&mut self, account: &Self::Account) {
-        self.block_state.touch_token_account(self.token, account);
-    }
-
-    fn mint(
+impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
+    /// Mint a specified amount and deposit it in the account.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenMintEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
+    pub fn mint(
         &mut self,
-        account: &Self::Account,
+        account: &BSO::Account,
         account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError> {
@@ -143,9 +98,19 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn burn(
+    /// Burn a specified amount from the account.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenBurnEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenBurnError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
+    pub fn burn(
         &mut self,
-        account: &Self::Account,
+        account: &BSO::Account,
         account_address: AccountAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
@@ -157,7 +122,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
                 RawTokenAmountDelta::Subtract(amount),
             )
             .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: self.account_token_balance(account),
+                available: self.block_state.account_token_balance(account, self.token),
                 required: amount,
             })?;
 
@@ -187,11 +152,21 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn transfer(
+    /// Transfer a token amount from one account to another, with an optional memo.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenTransferEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
+    pub fn transfer(
         &mut self,
-        from: &Self::Account,
+        from: &BSO::Account,
         from_address: AccountAddress,
-        to: &Self::Account,
+        to: &BSO::Account,
         to_address: AccountAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,
@@ -200,7 +175,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
             .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: self.account_token_balance(from),
+                available: self.block_state.account_token_balance(from, self.token),
                 required: amount,
             })?;
 
@@ -230,13 +205,23 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
+    /// Set or clear a value in the token key-value state at the corresponding key.
+    pub fn update_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
         *self.token_module_state_dirty = true;
         self.block_state
             .update_token_state_value(self.token_module_state, &key, value);
     }
 
-    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
+    /// Log a token module event with the specified type and details.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenModuleEvent` in the logs.
+    pub fn log_token_event(
+        &mut self,
+        event_type: TokenModuleCborTypeDiscriminator,
+        details: RawCbor,
+    ) {
         self.events
             .push(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
                 token_id: self.token_configuration.token_id.clone(),
@@ -244,51 +229,14 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
                 details,
             }))
     }
-}
 
-impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSO> {
-    type Account = BSO::Account;
-
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
+    /// Whether the protocol version of the block supports RBAC token feature.
+    pub fn support_rbac(&self) -> bool {
+        self.block_state.protocol_version() >= ProtocolVersion::P11
     }
 
-    fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index)
-    }
-
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
-    }
-
-    fn decimals(&self) -> u8 {
-        self.block_state.token_configuration(self.token).decimals
-    }
-
-    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
-        self.block_state
-            .lookup_token_state_value(self.token_module_state, &key)
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.block_state.protocol_version()
-    }
-
-    fn iter_token_state_prefix(
-        &self,
-        prefix: TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
-        self.block_state
-            .iter_token_state_prefix(self.token_module_state, &prefix)
+    /// Whether the protocol version of the block supports updating the token metadata.
+    pub fn support_updating_metadata(&self) -> bool {
+        self.block_state.protocol_version() >= ProtocolVersion::P11
     }
 }
