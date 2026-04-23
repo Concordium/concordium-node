@@ -62,6 +62,7 @@ pub struct BlockStateData {
     locks: ProtocolLevelLocks,
 }
 
+/// The actual data in [`BlockState`]
 impl BlockStateData {
     pub fn empty() -> Self {
         BlockStateData {
@@ -102,10 +103,13 @@ impl BlockState {
         todo!()
     }
 
+    /// If protocol-level locks are supported by the block state.
     fn support_locks(&self) -> bool {
         support_locks_for_pv(self.protocol_version)
     }
 
+    /// See [`blob_store::load_from_store`]. This function only differs by taking
+    /// protocol version as argument.
     pub fn load_from_store(
         loader: &impl BlobStoreLoad,
         location: BlobStoreLocation,
@@ -123,6 +127,8 @@ impl BlockState {
         Ok(value)
     }
 
+    /// See [`Loadable::load_from_buffer`]. This function only differs by taking
+    /// protocol version as argument.
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -142,6 +148,7 @@ impl BlockState {
     }
 }
 
+/// If protocol-level locks are supported by the protocol version.
 fn support_locks_for_pv(protocol_version: ProtocolVersion) -> bool {
     protocol_version >= ProtocolVersion::P11
 }
