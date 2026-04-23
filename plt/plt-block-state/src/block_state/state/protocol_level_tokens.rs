@@ -86,7 +86,7 @@ impl ProtocolLevelTokens {
             })?
             .configuration
             .value(loader)?
-            .into_owned()
+            .into_owned_or_clone()
             .0)
     }
 
@@ -117,7 +117,7 @@ impl ProtocolLevelTokens {
                 .update_value(loader, token_index, |token| {
                     Ok(Token {
                         circulating_supply: StoreSerialized(circulating_supply),
-                        ..token.into_owned()
+                        ..token.into_owned_or_clone()
                     })
                 })
                 .ok_or_else(|| {
@@ -171,7 +171,7 @@ impl ProtocolLevelTokens {
                 .update_value(loader, token_index, |token| {
                     Ok(Token {
                         key_value_state: HashedCacheableRef::new(frozen_key_value_state),
-                        ..token.into_owned()
+                        ..token.into_owned_or_clone()
                     })
                 })
                 .ok_or_else(|| {

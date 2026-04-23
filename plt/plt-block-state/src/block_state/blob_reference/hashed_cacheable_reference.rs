@@ -82,6 +82,24 @@ impl<V> HashedCacheableRef<V> {
     }
 }
 
+impl<'b, V> OwnedOrBorrowed<'b, HashedCacheableRef<V>> {
+    // todo ar doc and test
+    pub fn value_if_owned_not_in_memory(
+        self,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Option<OwnedOrBorrowed<'b, V>>>
+    where
+        V: Loadable,
+    {
+        Ok(match self {
+            OwnedOrBorrowed::Owned(hcr) => {
+                hcr.value(loader)?.into_owned().map(OwnedOrBorrowed::Owned)
+            }
+            OwnedOrBorrowed::Borrowed(hcr) => Some(hcr.value(loader)?),
+        })
+    }
+}
+
 /// Implement [`Clone`] explicitly, such that clonability does not depend on
 /// if `V` is clonable.
 impl<V> Clone for HashedCacheableRef<V> {

@@ -446,6 +446,24 @@ enum SubtreeWithValues<'b, V> {
     ),
 }
 
+/// [`Subtree`] where blob references are wrapped in [`OwnedOrBorrowed`].
+/// Used as return value for [`OwnedOrBorrowed<Subtree>::transpose_owned_or_borrowed`].
+#[derive(Debug)]
+enum SubtreeOfOwnedOrBorrowed<'b, V> {
+    /// Leaf with value. See [`Subtree::Leaf`]
+    Leaf(OwnedOrBorrowed<'b, HashedCacheableRef<V>>),
+    /// Node with two subtrees/branches.
+    /// See [`Subtree::Node`]
+    Node(
+        /// Height of tree
+        u64,
+        /// Left branch
+        OwnedOrBorrowed<'b, HashedCacheableRef<Subtree<V>>>,
+        /// Right branch
+        OwnedOrBorrowed<'b, HashedCacheableRef<Subtree<V>>>,
+    ),
+}
+
 /// Check if `nth` bit is set in `key`.
 const fn is_nth_bit_set(nth: u64, key: SubtreeKey) -> bool {
     let bit = 1u64 << nth;
@@ -506,6 +524,35 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
         })
     }
 
+    /// Move [`OwnedOrBorrowed`] inside the subtree wrapping blob references directly.
+    fn transpose_owned_or_borrowed(self) -> SubtreeOfOwnedOrBorrowed<'b, V>
+    where
+        V: Loadable,
+    {
+        match self {
+            OwnedOrBorrowed::Borrowed(Subtree::Leaf(value_ref)) => {
+                SubtreeOfOwnedOrBorrowed::Leaf(OwnedOrBorrowed::Borrowed(value_ref))
+            }
+            OwnedOrBorrowed::Borrowed(Subtree::Node(height, left_ref, right_ref)) => {
+                SubtreeOfOwnedOrBorrowed::Node(
+                    *height,
+                    OwnedOrBorrowed::Borrowed(left_ref),
+                    OwnedOrBorrowed::Borrowed(right_ref),
+                )
+            }
+            OwnedOrBorrowed::Owned(Subtree::Leaf(value_ref)) => {
+                SubtreeOfOwnedOrBorrowed::Leaf(OwnedOrBorrowed::Owned(value_ref))
+            }
+            OwnedOrBorrowed::Owned(Subtree::Node(height, left_ref, right_ref)) => {
+                SubtreeOfOwnedOrBorrowed::Node(
+                    height,
+                    OwnedOrBorrowed::Owned(left_ref),
+                    OwnedOrBorrowed::Owned(right_ref),
+                )
+            }
+        }
+    }
+
     /// Get the value for the given `key` in the subtree.
     ///
     /// # Arguments
@@ -523,8 +570,8 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
     where
         V: Loadable,
     {
-        match self.with_referenced_values(loader)? {
-            SubtreeWithValues::Leaf(val) => {
+        Ok(match self.transpose_owned_or_borrowed() {
+            SubtreeOfOwnedOrBorrowed::Leaf(val_ref) => {
                 // When we reach the leaf for the key, the key must be 0.
                 if key != SubtreeKey(0) {
                     return Err(BlockStateFailure::Invariant(format!(
@@ -532,20 +579,28 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
                         key
                     )));
                 }
-                Ok(val)
+                val_ref
+                    .value_if_owned_not_in_memory(loader)?
+                    .expect("Owned reference has value loaded in memory")
             }
-            SubtreeWithValues::Node(height, left, right) => {
+            SubtreeOfOwnedOrBorrowed::Node(height, left_ref, right_ref) => {
                 // The height'th bit in key decides if we should follow left `0`
                 // or right branch `1`. Additionally, when going right, we set the bit to 0.
                 // This allows us to check the invariant that the key must be identical to 0
                 // when we reach the leaf for the key.
                 if is_nth_bit_set(height, key) {
-                    right.lookup_value(loader, flip_nth_bit(height, key))
+                    right_ref
+                        .value_if_owned_not_in_memory(loader)?
+                        .expect("Owned reference has value loaded in memory")
+                        .lookup_value(loader, flip_nth_bit(height, key))?
                 } else {
-                    left.lookup_value(loader, key)
+                    left_ref
+                        .value_if_owned_not_in_memory(loader)?
+                        .expect("Owned reference has value loaded in memory")
+                        .lookup_value(loader, key)?
                 }
             }
-        }
+        })
     }
 }
 
@@ -782,10 +837,18 @@ fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     subtree: OwnedOrBorrowed<'b, Subtree<V>>,
     node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
 ) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
-    Ok(match subtree.with_referenced_values(loader)? {
-        SubtreeWithValues::Leaf(value) => value,
-        SubtreeWithValues::Node(_, left, right) => {
+    Ok(match subtree.transpose_owned_or_borrowed() {
+        SubtreeOfOwnedOrBorrowed::Leaf(val_ref) => val_ref
+            .value_if_owned_not_in_memory(loader)?
+            .expect("Owned reference has value loaded in memory"),
+        SubtreeOfOwnedOrBorrowed::Node(_, left_ref, right_ref) => {
+            let right = right_ref
+                .value_if_owned_not_in_memory(loader)?
+                .expect("Owned reference has value loaded in memory");
             node_stack.push(right);
+            let left = left_ref
+                .value_if_owned_not_in_memory(loader)?
+                .expect("Owned reference has value loaded in memory");
             next_value_push_right_branches(loader, left, node_stack)?
         }
     })
