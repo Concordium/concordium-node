@@ -425,24 +425,6 @@ impl<V> Clone for Subtree<V> {
     }
 }
 
-/// [`Subtree`] where blob references have had their values loaded.
-/// Used as return value for [`OwnedOrBorrowed<Subtree>::with_referenced_values`].
-#[derive(Debug)]
-enum SubtreeWithValues<'b, V> {
-    /// Leaf with value. See [`Subtree::Leaf`]
-    Leaf(OwnedOrBorrowed<'b, V>),
-    /// Node with two subtrees/branches.
-    /// See [`Subtree::Node`]
-    Node(
-        /// Height of tree
-        u64,
-        /// Left branch
-        OwnedOrBorrowed<'b, Subtree<V>>,
-        /// Right branch
-        OwnedOrBorrowed<'b, Subtree<V>>,
-    ),
-}
-
 /// [`Subtree`] where blob references are wrapped in [`OwnedOrBorrowed`].
 /// Used as return value for [`OwnedOrBorrowed<Subtree>::transpose_owned_or_borrowed`].
 #[derive(Debug)]
