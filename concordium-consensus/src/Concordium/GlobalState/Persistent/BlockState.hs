@@ -833,7 +833,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       --  used for rewarding bakers at the end of epochs.
       bspRewardDetails :: !(BlockRewardDetails pv),
       -- | The global state of protocol-level tokens.
-      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForStateVersion pv)
+      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForPV pv)
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
@@ -992,7 +992,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     releaseSchedule <- emptyReleaseSchedule
     acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
-    plts <- PLT.emptyProtocolLevelTokensForStateVersion
+    plts <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -1034,7 +1034,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
     bspAccounts <- Accounts.emptyAccounts
-    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForStateVersion
+    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -4999,7 +4999,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
     logEvent GlobalState LLTrace "Migrating protocol-level tokens"
-    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForStateVersion migration bspProtocolLevelTokens
+    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
     return $!
         BlockStatePointers
             { bspAccounts = newAccounts,
