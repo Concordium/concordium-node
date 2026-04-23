@@ -4,19 +4,23 @@ use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, St
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
+use crate::block_state::state::protocol_level_locks::ProtocolLevelLocks;
 use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
 use crate::block_state::types::AccountWithCanonicalAddress;
+use crate::block_state::types::protocol_level_locks::LockConfiguration;
 use crate::block_state::types::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
+    BlockStateQuery, BlockStateResult, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
+    TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::hashes::Hash;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
@@ -52,12 +56,15 @@ pub struct BlockState {
 pub struct BlockStateData {
     /// Protocol-level tokens
     tokens: ProtocolLevelTokens,
+    /// Protocol-level locks
+    locks: ProtocolLevelLocks,
 }
 
 impl BlockStateData {
     pub fn empty() -> Self {
         BlockStateData {
             tokens: ProtocolLevelTokens::empty(),
+            locks: ProtocolLevelLocks::empty(),
         }
     }
 }
@@ -92,35 +99,39 @@ impl BlockState {
         // todo ar
         todo!()
     }
-}
 
-impl Loadable for BlockStateData {
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-    ) -> BlockStateResult<Self> {
-        let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
-
-        Ok(Self { tokens })
+    fn support_locks(&self) -> bool {
+        self.protocol_version >= ProtocolVersion::P11
     }
 }
 
 impl Storable for BlockState {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.data.tokens.store_to_buffer(&mut buffer, storer);
+        if self.support_locks() {
+            self.data.locks.store_to_buffer(&mut buffer, storer);
+        }
     }
 }
 
 impl Cacheable for BlockState {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.data.tokens.cache_reference_values(loader)?;
+        if self.support_locks() {
+            self.data.locks.cache_reference_values(loader)?;
+        }
         Ok(())
     }
 }
 
 impl Hashable for BlockState {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        self.data.tokens.hash(loader)
+        let mut hash = self.data.tokens.hash(loader)?;
+        if self.support_locks() {
+            hash = hash::hash_of_hashes(hash, self.data.locks.hash(loader)?)
+        }
+
+        Ok(hash)
     }
 }
 
@@ -365,6 +376,34 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
     fn protocol_version(&self) -> ProtocolVersion {
         self.internal_block_state.protocol_version()
     }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
+        if self
+            .internal_block_state
+            .block_state()
+            .locks
+            .locks
+            .0
+            .contains_key(lock_id)
+        {
+            return Ok(lock_id.clone());
+        }
+
+        Err(LockNotFoundByIdError(lock_id.clone()))
+    }
+
+    fn lock_configuration(&self, lock: &LockId) -> LockConfiguration {
+        self.internal_block_state.block_state().locks.locks.0[lock]
+            .configuration
+            .clone()
+    }
+
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        self.internal_block_state.block_state().locks.locks.0[lock]
+            .locked_balances
+            .iter()
+            .cloned()
+    }
 }
 
 impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -384,6 +423,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                         *token,
                         circulating_supply,
                     )?,
+                    ..state
                 })
             })
             .unwrap();
@@ -396,7 +436,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                 let (token_index, tokens) = state
                     .tokens
                     .create_token(&self.blob_store_load, configuration)?;
-                Ok((token_index, BlockStateData { tokens }))
+                Ok((token_index, BlockStateData { tokens, ..state }))
             })
             .unwrap()
     }
@@ -435,8 +475,24 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                         *token,
                         token_key_value_state,
                     )?,
+                    ..state
                 })
             })
             .unwrap();
+    }
+
+    // TODO: lock creation implemented as part of COR-2302
+    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> LockId {
+        todo!()
+    }
+
+    // TODO: Implement as part of COR-2305.
+    fn add_lock_balance_ref(
+        &mut self,
+        _lock: &LockId,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
+        todo!()
     }
 }
