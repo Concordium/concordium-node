@@ -6,6 +6,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
+use crate::block_state::migration::Migrate;
 use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
 use crate::block_state::types::AccountWithCanonicalAddress;
 use crate::block_state::types::protocol_level_tokens::{
@@ -31,6 +32,7 @@ pub mod cacheable;
 pub mod external;
 pub mod hash;
 pub mod lfmb_tree;
+pub mod migration;
 mod smart_contract_trie;
 mod state;
 pub mod types;
@@ -80,23 +82,6 @@ impl BlockState {
         MutableBlockState::new(self)
     }
 
-    /// Migrate the PLT block state from one blob store to another.
-    ///
-    /// # Arguments
-    ///
-    /// - `from_loader` Blob store loader for the blob store we are migrating from.
-    /// - `to_storer` Blob store storer for the blob store we are migrating to.
-    /// - `to_protocol_version` Protocol version for the block state to migrate to.
-    pub fn migrate(
-        &self,
-        _from_loader: impl BlobStoreLoad,
-        _to_storer: impl BlobStoreStore,
-        _to_protocol_version: ProtocolVersion,
-    ) -> Self {
-        // todo ar
-        todo!()
-    }
-
     /// See [`blob_store::load_from_store`]. This function only differs by taking
     /// protocol version as argument.
     pub fn load_from_store(
@@ -128,6 +113,25 @@ impl BlockState {
         Ok(Self {
             protocol_version,
             data: BlockStateData { tokens },
+        })
+    }
+
+    /// See [`Migrate::migrate`]. This function only differs by taking
+    /// protocol version as argument.
+    pub fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+        to_protocol_version: ProtocolVersion,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.data.tokens.migrate(from_loader, to_storer)?;
+
+        Ok(Self {
+            protocol_version: to_protocol_version,
+            data: BlockStateData { tokens: new_tokens },
         })
     }
 }

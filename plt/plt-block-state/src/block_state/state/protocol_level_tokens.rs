@@ -7,6 +7,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
+use crate::block_state::migration::Migrate;
 use crate::block_state::types::protocol_level_tokens::{TokenConfiguration, TokenIndex};
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state::{hash, smart_contract_trie};
@@ -206,6 +207,25 @@ impl Loadable for ProtocolLevelTokens {
     }
 }
 
+impl Migrate for ProtocolLevelTokens {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.tokens.migrate(from_loader, to_storer)?;
+        let new_token_id_map = self.token_id_map.clone();
+
+        Ok(Self {
+            tokens: new_tokens,
+            token_id_map: new_token_id_map,
+        })
+    }
+}
+
 impl Cacheable for ProtocolLevelTokens {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.tokens.cache_reference_values(loader)
@@ -256,6 +276,27 @@ impl Loadable for Token {
             configuration,
             key_value_state,
             circulating_supply,
+        })
+    }
+}
+
+impl Migrate for Token {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_configuration = self.configuration.migrate(from_loader, to_storer)?;
+        let new_key_value_state = self.key_value_state.migrate(from_loader, to_storer)?;
+        let new_circulating_supply = self.circulating_supply.migrate(from_loader, to_storer)?;
+
+        Ok(Self {
+            configuration: new_configuration,
+            key_value_state: new_key_value_state,
+            circulating_supply: new_circulating_supply,
         })
     }
 }

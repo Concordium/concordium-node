@@ -7,6 +7,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
+use crate::block_state::migration::Migrate;
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::BlockStateResult;
 use concordium_base::common::{Buffer, Get, Put};
@@ -267,6 +268,22 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     }
 }
 
+impl<V: Migrate + Storable + Loadable> Migrate for HashedCacheableRef<V> {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let migrated_value = self.value(from_loader)?.migrate(from_loader, to_storer)?;
+        let new_hcr = Self::new(migrated_value);
+        new_hcr.inner.repr.get_reference_or_store(to_storer);
+        Ok(new_hcr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +355,35 @@ mod tests {
         let (val_tmp, val_ref_tmp) = assert_cached_repr(&val2);
         assert_eq!(*val_tmp, StoreSerialized(1));
         assert_eq!(val_ref_tmp, val_ref);
+    }
+
+    /// Test migrate a value:
+    ///
+    /// * create value in source blob store
+    /// * migrate to new blob store
+    /// * load the new value from the new blob store
+    #[test]
+    fn test_migrate() {
+        let mut from_store = BlobStoreStub::default();
+        let mut to_store = BlobStoreStub::default();
+
+        // Create new value and store it in the source blob store
+        let val = TestRef::new(StoreSerialized(1u64));
+        blob_store::store_to_store(&mut from_store, &val);
+
+        // Migrate to destination blob store
+        let new_val = val.migrate(&from_store, &mut to_store).unwrap();
+        let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
+        drop(val);
+
+        // Assert migrated reference
+        assert_cached_repr(&new_val);
+        assert_eq!(*new_val.value(&to_store).unwrap(), StoreSerialized(1));
+        drop(new_val);
+
+        // Load migrated reference and assert
+        let new_val2: TestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
+        assert_eq!(*new_val2.value(&to_store).unwrap(), StoreSerialized(1));
     }
 
     /// Test storing cached value.
@@ -515,11 +561,11 @@ mod tests {
         );
     }
 
+    type NestedTestRef = HashedCacheableRef<HashedCacheableRef<StoreSerialized<u64>>>;
+
     /// Test store, load and cache a reference with a nested reference.
     #[test]
     fn test_nested_reference_store_load_and_cache() {
-        type NestedTestRef = HashedCacheableRef<HashedCacheableRef<StoreSerialized<u64>>>;
-
         let mut store = BlobStoreStub::default();
         let val1 = HashedCacheableRef::new(HashedCacheableRef::new(StoreSerialized(1u64)));
 
@@ -541,5 +587,35 @@ mod tests {
         let (val_tmp, val_ref_tmp) = assert_cached_repr(val_nested2);
         assert_eq!(*val_tmp, StoreSerialized(1));
         assert_eq!(val_ref_tmp, val_nested_blob_ref);
+    }
+
+    /// Test migrate a reference with a nested reference.
+    #[test]
+    fn test_nested_reference_migrate() {
+        let mut from_store = BlobStoreStub::default();
+        let mut to_store = BlobStoreStub::default();
+
+        // Create new value and store it in the source blob store
+        let val = HashedCacheableRef::new(HashedCacheableRef::new(StoreSerialized(1u64)));
+        blob_store::store_to_store(&mut from_store, &val);
+
+        // Migrate to destination blob store
+        let new_val = val.migrate(&from_store, &mut to_store).unwrap();
+        let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_val);
+        drop(val);
+
+        // Assert migrated reference
+        assert_eq!(
+            *new_val.value(&to_store).unwrap().value(&to_store).unwrap(),
+            StoreSerialized(1)
+        );
+        drop(new_val);
+
+        // Load migrated reference and assert
+        let new_val2: NestedTestRef = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
+        assert_eq!(
+            *new_val2.value(&to_store).unwrap().value(&to_store).unwrap(),
+            StoreSerialized(1)
+        );
     }
 }

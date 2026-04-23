@@ -313,6 +313,122 @@ fn test_store_and_load_plts() {
     assert_eq!(block_state.token_configuration(&token2), configuration2);
 }
 
+/// Migrate PLTs from one blob store to another.
+#[test]
+fn test_migrate_plts() {
+    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P10);
+
+    // Create tokens
+    let configuration1 = TokenConfiguration {
+        token_id: "token1".parse().unwrap(),
+        module_ref: TokenModuleRef::from([5; 32]),
+        decimals: 2,
+    };
+    let token1 = block_state.create_token(configuration1.clone());
+    block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
+    let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
+    block_state.update_token_state_value(
+        &mut key_value_state1,
+        &TokenStateKey(vec![0, 1]),
+        Some(TokenStateValue(vec![0, 0])),
+    );
+    block_state.update_token_state_value(
+        &mut key_value_state1,
+        &TokenStateKey(vec![0, 2]),
+        Some(TokenStateValue(vec![1, 1])),
+    );
+    block_state.set_token_key_value_state(&token1, key_value_state1);
+    let configuration2 = TokenConfiguration {
+        token_id: "token2".parse().unwrap(),
+        module_ref: TokenModuleRef::from([5; 32]),
+        decimals: 4,
+    };
+    block_state.create_token(configuration2.clone());
+
+    // Migrate block state
+    let mut new_store = BlobStoreStub::default();
+    let new_immutable_state = block_state
+        .internal_block_state
+        .clone()
+        .into_immutable()
+        .migrate(
+            &block_state.blob_store_load,
+            &mut new_store,
+            ProtocolVersion::P11,
+        )
+        .unwrap();
+    let new_blob_loc = blob_store::store_to_store(&mut new_store, &new_immutable_state);
+    let new_block_state =
+        block_state_no_external::with_block_state(new_store.clone(), new_immutable_state);
+    drop(block_state);
+
+    // Assert migrated state
+    let token1 = new_block_state
+        .token_by_id(&"token1".parse().unwrap())
+        .unwrap();
+    assert_eq!(new_block_state.plt_list().len(), 2);
+    assert_eq!(
+        new_block_state.token_circulating_supply(&token1),
+        RawTokenAmount(100)
+    );
+    assert_eq!(new_block_state.token_configuration(&token1), configuration1);
+    let key_value_state1 = new_block_state.mutable_token_key_value_state(&token1);
+    let value =
+        new_block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
+    assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
+    let value =
+        new_block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
+    assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
+    let token2 = new_block_state
+        .token_by_id(&"token2".parse().unwrap())
+        .unwrap();
+    assert_eq!(
+        new_block_state.token_circulating_supply(&token2),
+        RawTokenAmount(0)
+    );
+    assert_eq!(new_block_state.token_configuration(&token2), configuration2);
+    drop(new_block_state);
+
+    // Load migrated block state
+    let new_immutable_state2 =
+        BlockState::load_from_store(&new_store, new_blob_loc, ProtocolVersion::P11)
+            .expect("load block state");
+    let new_block_state2 =
+        block_state_no_external::with_block_state(new_store, new_immutable_state2);
+
+    // Assert loaded state
+    let token1 = new_block_state2
+        .token_by_id(&"token1".parse().unwrap())
+        .unwrap();
+    assert_eq!(new_block_state2.plt_list().len(), 2);
+    assert_eq!(
+        new_block_state2.token_circulating_supply(&token1),
+        RawTokenAmount(100)
+    );
+    assert_eq!(
+        new_block_state2.token_configuration(&token1),
+        configuration1
+    );
+    let key_value_state1 = new_block_state2.mutable_token_key_value_state(&token1);
+    let value =
+        new_block_state2.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
+    assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
+    let value =
+        new_block_state2.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
+    assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
+    let token2 = new_block_state2
+        .token_by_id(&"token2".parse().unwrap())
+        .unwrap();
+    assert_eq!(
+        new_block_state2.token_circulating_supply(&token2),
+        RawTokenAmount(0)
+    );
+    assert_eq!(
+        new_block_state2.token_configuration(&token2),
+        configuration2
+    );
+}
+
 /// Assert that hash of an empty block state matches a fixed/snapshot hash. The hash
 /// must remain stable.
 #[test]
