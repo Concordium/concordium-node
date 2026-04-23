@@ -10,20 +10,41 @@ use crate::block_state::{BlockState, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use concordium_base::base::ProtocolVersion;
 
-/// Allocate a new empty PLT block state and returns it.
+/// Allocate a new empty PLT block state.
 ///
-/// The returned pointer is to a uniquely owned instance.
-/// It must be freed by calling [`ffi_free_plt_block_state`].
+/// - [`status::FfiStatusCode::Success`]: Creating the block state was successful.
+/// - [`status::FfiStatusCode::Panic`]: Creating the block state resulted in an unrecoverable error or panic.
 ///
 /// # Arguments
 ///
 /// - `protocol_version` Protocol version for the block state to create.
+/// - `block_state_out`: Location for writing the pointer of the new, empty block state.
+///   The new block state is only written if return value is [`status::FfiStatusCode::Success`].
+///   The pointer written is to a uniquely owned instance.
+///   The caller must free the written block state using `ffi_free_plt_block_state` when it is no longer used.
+///
+/// # Safety
+///
+/// - Argument `block_state_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
-extern "C" fn ffi_empty_plt_block_state(protocol_version: u64) -> *mut BlockState {
-    let protocol_version =
-        ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-    let block_state = BlockState::empty(protocol_version);
-    Box::into_raw(Box::new(block_state))
+extern "C" fn ffi_empty_plt_block_state(
+    protocol_version: u64,
+    block_state_out: *mut *mut BlockState,
+) -> status::FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        let protocol_version =
+            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
+        let block_state = BlockState::empty(protocol_version);
+        unsafe {
+            *block_state_out = Box::into_raw(Box::new(block_state));
+        }
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
+    }
 }
 
 /// Deallocate the PLT block state.
