@@ -23,7 +23,9 @@ use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
 use plt_block_state::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
-use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState, MutableBlockState};
+use plt_block_state::block_state::{
+    BlockState, BlockStateData, ExecutionTimeBlockState, MutableBlockState,
+};
 use plt_block_state::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
@@ -40,11 +42,10 @@ pub struct NoExternalBlockStateStub;
 pub fn new_mutable_block_state(
     protocol_version: ProtocolVersion,
 ) -> ExecutionTimeBlockState<MutableBlockState, BlobStoreStub, NoExternalBlockStateStub> {
-    let inner_block_state = BlockState::empty().into_mutable();
+    let inner_block_state = BlockState::empty(protocol_version).into_mutable();
     let blob_store = BlobStoreStub::default();
 
     ExecutionTimeBlockState {
-        protocol_version,
         internal_block_state: inner_block_state,
         blob_store_load: blob_store,
         external_block_state: NoExternalBlockStateStub,
@@ -53,12 +54,10 @@ pub fn new_mutable_block_state(
 
 /// Create execution time block state from immutable block state and blob store.
 pub fn with_block_state(
-    protocol_version: ProtocolVersion,
     blob_store: BlobStoreStub,
-    block_state: &BlockState,
-) -> ExecutionTimeBlockState<&BlockState, BlobStoreStub, NoExternalBlockStateStub> {
+    block_state: BlockState,
+) -> ExecutionTimeBlockState<BlockState, BlobStoreStub, NoExternalBlockStateStub> {
     ExecutionTimeBlockState {
-        protocol_version,
         internal_block_state: block_state,
         blob_store_load: blob_store,
         external_block_state: NoExternalBlockStateStub,
