@@ -2,7 +2,9 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
-use crate::token_kernel::TokenKernelOperationsImpl;
+use crate::token_context::TokenOperationContext;
+use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
+use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
@@ -11,16 +13,11 @@ use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
-use plt_scheduler_interface::transaction_execution_interface::{
-    OutOfEnergyError, TransactionExecution,
-};
 use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
-use plt_token_module::token_module::{TokenInitializationError, TokenUpdateError};
-use plt_token_module::{TOKEN_MODULE_REF, token_module};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
@@ -41,11 +38,8 @@ use plt_token_module::{TOKEN_MODULE_REF, token_module};
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_token_update_transaction<
-    BSO: BlockStateOperations,
-    TE: TransactionExecution<Account = BSO::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
@@ -74,7 +68,7 @@ pub fn execute_token_update_transaction<
     let mut events = Vec::new();
     let mut token_module_state = block_state.mutable_token_key_value_state(&token);
     let mut token_module_state_dirty = false;
-    let mut kernel = TokenKernelOperationsImpl {
+    let mut kernel = TokenOperationContext {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
@@ -140,11 +134,8 @@ pub fn execute_token_update_transaction<
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_meta_update_transaction<
-    BSO: BlockStateOperations,
-    TE: TransactionExecution<Account = BSO::Account>,
->(
-    transaction_execution: &mut TE,
+pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
     payload: MetaUpdatePayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {
@@ -185,7 +176,7 @@ pub fn execute_meta_update_transaction<
                 let token_configuration = block_state.token_configuration(&token);
                 let mut token_module_state = block_state.mutable_token_key_value_state(&token);
                 let mut token_module_state_dirty = false;
-                let mut kernel = TokenKernelOperationsImpl {
+                let mut kernel = TokenOperationContext {
                     block_state,
                     token: &token,
                     token_configuration: &token_configuration,
@@ -282,7 +273,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
     let mut token_module_state = block_state.mutable_token_key_value_state(&token);
     let mut token_module_state_dirty = false;
-    let mut kernel = TokenKernelOperationsImpl {
+    let mut context = TokenOperationContext {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
@@ -293,7 +284,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
     // Initialize token in token module
     let token_initialize_result =
-        token_module::initialize_token(&mut kernel, payload.initialization_parameters);
+        token_module::initialize_token(&mut context, payload.initialization_parameters);
 
     match token_initialize_result {
         Ok(()) => {

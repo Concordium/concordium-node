@@ -28,22 +28,21 @@ use plt_block_state::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
-use plt_scheduler::{queries, scheduler};
+use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use plt_token_module::TOKEN_MODULE_REF;
 use std::collections::BTreeMap;
 
-type ExecutionTimePltBlockStateWithExternalStateStubbed =
+type ExecutionTimeBlockStateWithExternalStubbed =
     ExecutionTimeBlockState<MutableBlockState, UnreachableBlobStore, ExternalBlockStateStub>;
-type Token = <ExecutionTimePltBlockStateWithExternalStateStubbed as BlockStateQuery>::Token;
+type Token = <ExecutionTimeBlockStateWithExternalStubbed as BlockStateQuery>::Token;
 
 /// Block state where external interactions with the Haskell maintained block
 /// state is implemented by a stub.
 #[derive(Debug)]
 pub struct BlockStateWithExternalStateStubbed {
-    block_state: ExecutionTimePltBlockStateWithExternalStateStubbed,
+    block_state: ExecutionTimeBlockStateWithExternalStubbed,
 }
 
 /// Stubbed block state representing the Haskell maintained part of the block state.
@@ -76,7 +75,7 @@ struct AccountToken {
 impl BlockStateWithExternalStateStubbed {
     /// Create fresh block state stub
     pub fn new(protocol_version: ProtocolVersion) -> Self {
-        let inner_block_state = BlockState::empty().into_mutable();
+        let inner_block_state = BlockState::empty(protocol_version).into_mutable();
 
         let external_block_state = ExternalBlockStateStub {
             accounts: Default::default(),
@@ -84,7 +83,6 @@ impl BlockStateWithExternalStateStubbed {
         };
 
         let block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state: inner_block_state,
             blob_store_load: UnreachableBlobStore,
             external_block_state,
@@ -94,12 +92,12 @@ impl BlockStateWithExternalStateStubbed {
     }
 
     /// Access to the underlying block state.
-    pub fn state(&self) -> &ExecutionTimePltBlockStateWithExternalStateStubbed {
+    pub fn state(&self) -> &ExecutionTimeBlockStateWithExternalStubbed {
         &self.block_state
     }
 
     /// Mutable access to the underlying block state.
-    pub fn state_mut(&mut self) -> &mut ExecutionTimePltBlockStateWithExternalStateStubbed {
+    pub fn state_mut(&mut self) -> &mut ExecutionTimeBlockStateWithExternalStubbed {
         &mut self.block_state
     }
 
