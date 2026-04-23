@@ -56,7 +56,7 @@ queryPLTList bs = do
     queryPLTListInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
         -- The list of token ids
@@ -164,7 +164,7 @@ queryTokenInfo bs tokenId = do
     queryTokenInfoInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
         -- The token info.
@@ -284,7 +284,7 @@ queryTokenAuthorizations bs tokenId = do
     queryTokenAuthorizationsInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
         -- The token info.
@@ -404,7 +404,7 @@ queryTokenAccountInfos bs accountIndex = do
     queryTokenAccountInfosInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
         -- The token account infos.

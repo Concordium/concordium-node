@@ -100,7 +100,6 @@ module Concordium.GlobalState.Persistent.BlobStore (
     makeHashedBufferedRef,
     migrateHashedBufferedRef,
     migrateHashedBufferedRefKeepHash,
-    getHBRRefIfBlobbed,
     HashedBufferedRefO,
 
     -- ** 'EagerlyHashedBufferedRef'
@@ -1074,14 +1073,6 @@ makeBufferedRef v = liftIO $ do
 blobRefToBufferedRef :: BlobRef a -> BufferedRef a
 blobRefToBufferedRef = BRBlobbed
 
--- | Get the 'BlobRef' if the value in the reference is stored in the blob store. Else
--- 'Nothing' is returned.
-getBRRefIfBlobbed ::
-    BufferedRef a -> Maybe (BlobRef a)
-getBRRefIfBlobbed (BRBlobbed ref) = Just ref
-getBRRefIfBlobbed (BRMemory _ _) = Nothing
-getBRRefIfBlobbed (BRBoth ref _) = Just ref
-
 instance (Show a) => Show (BufferedRef a) where
     show (BRBlobbed r) = show r
     show (BRMemory _ v) = "{" ++ show v ++ "}"
@@ -1698,12 +1689,6 @@ makeHashedBufferedRef val = do
     br <- makeBufferedRef val
     hashRef <- liftIO $ newIORef Null
     return $ HashedBufferedRef br hashRef
-
--- | Get the 'BlobRef' if value in the reference is stored in the blob store. Else
--- 'Nothing' is returned.
-getHBRRefIfBlobbed ::
-    HashedBufferedRef' h a -> Maybe (BlobRef a)
-getHBRRefIfBlobbed (HashedBufferedRef br _) = getBRRefIfBlobbed br
 
 instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedBufferedRef' h a) where
     getHashM HashedBufferedRef{..} =

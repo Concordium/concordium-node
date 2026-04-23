@@ -143,7 +143,7 @@ executeTransaction depositContext tokenUpdate =
         -- Block protocol version
         Types.SProtocolVersion pv ->
         -- Block state to mutate.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr pv ->
         -- Callbacks need for block state queries on the state maintained by Haskell.
         BlockStateQueryCallbacks ->
         -- Callbacks need for block state operations on the state maintained by Haskell.
@@ -155,7 +155,7 @@ executeTransaction depositContext tokenUpdate =
         -- Remaining energy.
         Types.Energy ->
         -- Outcome of the execution
-        m' (TransactionExecutionSummary PLTBlockState.ForeignPLTBlockStatePtr)
+        m' (TransactionExecutionSummary (PLTBlockState.ForeignPLTBlockStatePtr pv))
     executeTransactionInBlobStoreMonad
         spv
         blockState
@@ -385,13 +385,13 @@ executeChainUpdate updateHeader createPLT =
         -- Block protocol version
         Types.SProtocolVersion pv ->
         -- Block state to mutate.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr pv ->
         -- Callbacks need for block state queries on the state maintained by Haskell.
         BlockStateQueryCallbacks ->
         -- Callbacks need for block state operations on the state maintained by Haskell.
         BlockStateOperationCallbacks ->
         -- Outcome of the execution
-        m' (ChainUpdateExecutionOutcome PLTBlockState.ForeignPLTBlockStatePtr)
+        m' (ChainUpdateExecutionOutcome (PLTBlockState.ForeignPLTBlockStatePtr pv))
     executeChainUpdateInBlobStoreMonad
         spv
         blockState
