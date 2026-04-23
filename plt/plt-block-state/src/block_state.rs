@@ -59,6 +59,7 @@ pub struct BlockStateData {
     tokens: ProtocolLevelTokens,
 }
 
+/// The actual data in [`BlockState`]
 impl BlockStateData {
     pub fn empty() -> Self {
         BlockStateData {
@@ -81,6 +82,8 @@ impl BlockState {
         MutableBlockState::new(self)
     }
 
+    /// See [`blob_store::load_from_store`]. This function only differs by taking
+    /// protocol version as argument.
     pub fn load_from_store(
         loader: &impl BlobStoreLoad,
         location: BlobStoreLocation,
@@ -98,6 +101,8 @@ impl BlockState {
         Ok(value)
     }
 
+    /// See [`Loadable::load_from_buffer`]. This function only differs by taking
+    /// protocol version as argument.
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
