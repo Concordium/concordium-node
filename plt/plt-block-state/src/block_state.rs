@@ -32,7 +32,7 @@ pub mod hash;
 pub mod lfmb_tree;
 mod state;
 pub mod types;
-mod utils;
+pub mod utils;
 
 /// Immutable block state. The block state is immutable in the sense,
 /// that the state it represents never changes during the lifetime of values of type [`BlockState`].

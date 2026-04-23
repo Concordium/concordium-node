@@ -36,7 +36,6 @@ impl<T> RacingOnceLock<T> {
         Self {
             state: AtomicU8::from(State::Uninitialized as u8),
             value: UnsafeCell::new(MaybeUninit::uninit()),
-            // _marker: PhantomData,
         }
     }
 
@@ -110,6 +109,24 @@ impl<T> RacingOnceLock<T> {
     }
 }
 
+/// The type parameter `T` should make it clear that we are dropping `T`.
+/// See <https://doc.rust-lang.org/nomicon/phantom-data.html#generic-parameters-and-drop-checking>
+///
+/// ```compile_fail,E0597
+/// use plt_block_state::block_state::utils::racing_once_lock::RacingOnceLock;
+///
+/// struct A<'a>(&'a str);
+///
+/// impl<'a> Drop for A<'a> {
+///     fn drop(&mut self) {}
+/// }
+///
+/// let cell = RacingOnceLock::new();
+/// {
+///     let s = String::new();
+///     let _ = cell.insert(A(&s));
+/// }
+/// ```
 impl<T> Drop for RacingOnceLock<T> {
     fn drop(&mut self) {
         if *self.state.get_mut() == State::Initialized as u8 {
@@ -122,6 +139,12 @@ impl<T> Drop for RacingOnceLock<T> {
     }
 }
 
+impl<T> Default for RacingOnceLock<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 unsafe impl<T: Send> Send for RacingOnceLock<T> {}
 
 unsafe impl<T: Send + Sync> Sync for RacingOnceLock<T> {}
@@ -129,8 +152,6 @@ unsafe impl<T: Send + Sync> Sync for RacingOnceLock<T> {}
 impl<T: UnwindSafe> UnwindSafe for RacingOnceLock<T> {}
 
 impl<T: RefUnwindSafe + UnwindSafe> RefUnwindSafe for RacingOnceLock<T> {}
-
-// todo ar integrate and bench
 
 impl<T: Debug> Debug for RacingOnceLock<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -196,6 +217,23 @@ mod test {
 
         // Get value
         assert_eq!(lock.get().copied(), Some(4));
+    }
+
+    #[test]
+    fn test_drop_is_called_on_value() {
+        let lock = RacingOnceLock::new();
+
+        let mut a = 0;
+        struct A<'a>(&'a mut u32);
+        impl Drop for A<'_> {
+            fn drop(&mut self) {
+                *self.0 += 1;
+            }
+        }
+        lock.insert(A(&mut a));
+        drop(lock);
+
+        assert_eq!(a, 1);
     }
 
     #[test]
