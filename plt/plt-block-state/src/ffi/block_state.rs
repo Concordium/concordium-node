@@ -6,7 +6,7 @@ use super::status;
 use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::{BlockState, BlockStateData, blob_store};
+use crate::block_state::{BlockState, blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use concordium_base::base::ProtocolVersion;
 
@@ -131,12 +131,8 @@ extern "C" fn ffi_load_plt_block_state(
     let panic_message = status::catch_unwind(move || {
         let protocol_version =
             ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-        let data: BlockStateData = blob_store::load_from_store(&load_callback, blob_ref)
+        let block_state = BlockState::load_from_store(&load_callback, blob_ref, protocol_version)
             .expect("Failed loading the block state");
-        let block_state = BlockState {
-            protocol_version,
-            data,
-        };
         unsafe {
             *block_state_out = Box::into_raw(Box::new(block_state));
         }
