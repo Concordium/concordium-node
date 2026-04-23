@@ -2,7 +2,7 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
-use crate::token_kernel::TokenKernelOperationsImpl;
+use crate::token_context::TokenOperationContext;
 use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::protocol_level_tokens::meta_operations::MetaUpdateOperations;
@@ -69,7 +69,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
     let mut events = Vec::new();
     let mut token_module_state = block_state.mutable_token_key_value_state(&token);
     let mut token_module_state_dirty = false;
-    let mut kernel = TokenKernelOperationsImpl {
+    let mut kernel = TokenOperationContext {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
@@ -178,7 +178,7 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                 let token_configuration = block_state.token_configuration(&token);
                 let mut token_module_state = block_state.mutable_token_key_value_state(&token);
                 let mut token_module_state_dirty = false;
-                let mut kernel = TokenKernelOperationsImpl {
+                let mut kernel = TokenOperationContext {
                     block_state,
                     token: &token,
                     token_configuration: &token_configuration,
@@ -275,7 +275,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
     let mut token_module_state = block_state.mutable_token_key_value_state(&token);
     let mut token_module_state_dirty = false;
-    let mut kernel = TokenKernelOperationsImpl {
+    let mut context = TokenOperationContext {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
@@ -286,7 +286,7 @@ pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
 
     // Initialize token in token module
     let token_initialize_result =
-        token_module::initialize_token(&mut kernel, payload.initialization_parameters);
+        token_module::initialize_token(&mut context, payload.initialization_parameters);
 
     match token_initialize_result {
         Ok(()) => {

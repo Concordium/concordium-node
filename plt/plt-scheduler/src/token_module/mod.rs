@@ -1,9 +1,9 @@
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
+pub mod errors;
 mod key_value_state;
 mod module;
 mod roles;
-pub mod token_kernel_interface;
 pub(crate) mod util;
 
 pub use module::*;
