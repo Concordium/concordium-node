@@ -1,6 +1,8 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::block_state::blob_store::{
+    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
+};
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
@@ -10,8 +12,9 @@ use crate::block_state::types::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
+    BlockStateOperations, BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta,
+    TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
@@ -20,7 +23,7 @@ use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-use std::mem;
+use std::{any, mem};
 
 pub mod blob_reference;
 pub mod blob_store;
@@ -92,16 +95,35 @@ impl BlockState {
         // todo ar
         todo!()
     }
-}
 
-impl Loadable for BlockStateData {
+    pub fn load_from_store(
+        loader: &impl BlobStoreLoad,
+        location: BlobStoreLocation,
+        protocol_version: ProtocolVersion,
+    ) -> BlockStateResult<Self> {
+        let bytes = loader.load_raw(location);
+        let mut bytes_slice = bytes.as_slice();
+        let value = Self::load_from_buffer(&mut bytes_slice, loader, protocol_version)?;
+        if !bytes_slice.is_empty() {
+            return Err(BlockStateFailure::BlobStoreDecode(format!(
+                "Bytes remaining after loading value of type {} from blob store",
+                any::type_name::<BlockState>()
+            )));
+        };
+        Ok(value)
+    }
+
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
+        protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
         let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
 
-        Ok(Self { tokens })
+        Ok(Self {
+            protocol_version,
+            data: BlockStateData { tokens },
+        })
     }
 }
 

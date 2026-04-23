@@ -54,14 +54,9 @@ pub fn new_mutable_block_state(
 
 /// Create execution time block state from immutable block state and blob store.
 pub fn with_block_state(
-    protocol_version: ProtocolVersion,
     blob_store: BlobStoreStub,
-    block_state_data: BlockStateData,
+    block_state: BlockState,
 ) -> ExecutionTimeBlockState<BlockState, BlobStoreStub, NoExternalBlockStateStub> {
-    let block_state = BlockState {
-        protocol_version,
-        data: block_state_data,
-    };
     ExecutionTimeBlockState {
         internal_block_state: block_state,
         blob_store_load: blob_store,
