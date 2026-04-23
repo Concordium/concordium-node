@@ -62,8 +62,14 @@ empty ::
     (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
     m (ForeignPLTBlockStatePtr pv)
 empty = liftIO $ do
-    state <- ffiEmptyPLTBlockState (sProtocolVersionToWord64 $ Types.protocolVersion @pv)
-    wrapFFIPtr state
+    FFI.alloca $ \blockStateDestPtr -> do
+        status <-
+            ffiEmptyPLTBlockState
+                (sProtocolVersionToWord64 $ Types.protocolVersion @pv)
+                blockStateDestPtr
+        Monad.unless (status == 0) $ error "Unexpected panic when creating a new block state"
+        blockState <- FFI.peek blockStateDestPtr
+        wrapFFIPtr blockState
 
 sProtocolVersionToWord64 ::
     Types.SProtocolVersion pv ->
@@ -77,8 +83,10 @@ foreign import ccall "ffi_empty_plt_block_state"
     ffiEmptyPLTBlockState ::
         -- | Protocol version of the block.
         FFI.Word64 ->
-        -- | New block state
-        IO (FFI.Ptr RustPLTBlockState)
+        -- | Destination pointer for the loaded block state.
+        FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
+        -- | Status code
+        IO FFI.Word8
 
 instance
     (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
