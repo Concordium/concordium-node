@@ -247,7 +247,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     updates <- Blob.refMakeFlushed persistentUpdates
 
     releaseSchedule <- ReleaseSchedule.emptyReleaseSchedule
-    protocolLevelTokens <- PLT.emptyProtocolLevelTokensForStateVersion
+    protocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         Blob.refMakeFlushed $
             BS.BlockStatePointers

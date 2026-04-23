@@ -21,6 +21,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Short as SBS
 import Data.Char (toUpper)
+import Data.Coerce (coerce)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
@@ -193,15 +194,21 @@ emptyProtocolLevelTokens =
 -- * 'PLTStateNone': No PLT state
 -- * 'PLTStateV0': Managed in Haskell
 -- * 'PLTStateV1': Managed in Rust
-data ProtocolLevelTokensForStateVersion (pv :: ProtocolVersion) where
-    ProtocolLevelTokensNone :: (PltStateVersionFor pv ~ 'PLTStateNone) => ProtocolLevelTokensForStateVersion pv
-    ProtocolLevelTokensV0 :: (PltStateVersionFor pv ~ 'PLTStateV0) => (HashedBufferedRef' ProtocolLevelTokensHash ProtocolLevelTokens) -> ProtocolLevelTokensForStateVersion pv
-    ProtocolLevelTokensV1 :: (PltStateVersionFor pv ~ 'PLTStateV1) => RustBS.ForeignPLTBlockStatePtr pv -> ProtocolLevelTokensForStateVersion pv
+data ProtocolLevelTokensForPV (pv :: ProtocolVersion) where
+    ProtocolLevelTokensNone ::
+        (PltStateVersionFor pv ~ 'PLTStateNone) =>
+        ProtocolLevelTokensForPV pv
+    ProtocolLevelTokensV0 ::
+        (PltStateVersionFor pv ~ 'PLTStateV0) =>
+        (HashedBufferedRef' ProtocolLevelTokensHash ProtocolLevelTokens) -> ProtocolLevelTokensForPV pv
+    ProtocolLevelTokensV1 ::
+        (PltStateVersionFor pv ~ 'PLTStateV1) =>
+        RustBS.ForeignPLTBlockStatePtr pv -> ProtocolLevelTokensForPV pv
 
 instance
     forall m pv.
     (MonadBlobStore m, IsProtocolVersion pv) =>
-    BlobStorable m (ProtocolLevelTokensForStateVersion pv)
+    BlobStorable m (ProtocolLevelTokensForPV pv)
     where
     load = case pltStateVersion @(PltStateVersionFor pv) of
         SPLTStateNone -> return $ return ProtocolLevelTokensNone
@@ -211,7 +218,7 @@ instance
     storeUpdate (ProtocolLevelTokensV0 hbref) = second ProtocolLevelTokensV0 <$> storeUpdate hbref
     storeUpdate (ProtocolLevelTokensV1 fstate) = second ProtocolLevelTokensV1 <$> storeUpdate fstate
 
-instance (MonadBlobStore m) => Cacheable m (ProtocolLevelTokensForStateVersion pv) where
+instance (MonadBlobStore m) => Cacheable m (ProtocolLevelTokensForPV pv) where
     cache = \case
         ProtocolLevelTokensNone -> return ProtocolLevelTokensNone
         ProtocolLevelTokensV0 hbref -> ProtocolLevelTokensV0 <$> cache hbref
@@ -219,47 +226,47 @@ instance (MonadBlobStore m) => Cacheable m (ProtocolLevelTokensForStateVersion p
 
 instance
     (MonadBlobStore m, b ~ PltStatePresent (PltStateVersionFor pv)) =>
-    MHashableTo m (Conditionally b ProtocolLevelTokensHash) (ProtocolLevelTokensForStateVersion pv)
+    MHashableTo m (Conditionally b ProtocolLevelTokensHash) (ProtocolLevelTokensForPV pv)
     where
     getHashM = \case
         ProtocolLevelTokensNone -> return CFalse
         ProtocolLevelTokensV0 hbref -> CTrue <$> getHashM hbref
         ProtocolLevelTokensV1 fstate -> CTrue <$> getHashM fstate
 
--- | Load a 'ProtocolLevelTokens' in the Haskell managed version of 'ProtocolLevelTokensForStateVersion'.
+-- | Load a 'ProtocolLevelTokens' in the Haskell managed version of 'ProtocolLevelTokensForPV'.
 loadPLTs ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     m ProtocolLevelTokens
 loadPLTs (ProtocolLevelTokensV0 hbref) = refLoad hbref
 
--- | Store a 'ProtocolLevelTokens' in the Haskell managed version of 'ProtocolLevelTokensForStateVersion'.
+-- | Store a 'ProtocolLevelTokens' in the Haskell managed version of 'ProtocolLevelTokensForPV'.
 storePLTs ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     ProtocolLevelTokens ->
-    m (ProtocolLevelTokensForStateVersion pv)
+    m (ProtocolLevelTokensForPV pv)
 storePLTs = fmap ProtocolLevelTokensV0 . refMake
 
--- | Get 'ForeignPLTBlockStatePtr' in the Rust managed version of 'ProtocolLevelTokensForStateVersion'.
+-- | Get 'ForeignPLTBlockStatePtr' in the Rust managed version of 'ProtocolLevelTokensForPV'.
 getRustPLTBlockState ::
     (PltStateVersionFor pv ~ 'PLTStateV1) =>
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     RustBS.ForeignPLTBlockStatePtr pv
 getRustPLTBlockState (ProtocolLevelTokensV1 state) = state
 
--- | Set 'ForeignPLTBlockStatePtr' in the Rust managed version of 'ProtocolLevelTokensForStateVersion'.
+-- | Set 'ForeignPLTBlockStatePtr' in the Rust managed version of 'ProtocolLevelTokensForPV'.
 makeRustPLTBlockState ::
     (PltStateVersionFor pv ~ 'PLTStateV1) =>
     RustBS.ForeignPLTBlockStatePtr pv ->
-    ProtocolLevelTokensForStateVersion pv
+    ProtocolLevelTokensForPV pv
 makeRustPLTBlockState = ProtocolLevelTokensV1
 
--- | An empty 'ProtocolLevelTokensForStateVersion' with no tokens.
-emptyProtocolLevelTokensForStateVersion ::
+-- | An empty 'ProtocolLevelTokensForPV' with no tokens.
+emptyProtocolLevelTokensForPV ::
     forall m pv.
     (MonadBlobStore m, IsProtocolVersion pv) =>
-    m (ProtocolLevelTokensForStateVersion pv)
-emptyProtocolLevelTokensForStateVersion = case pltStateVersion @(PltStateVersionFor pv) of
+    m (ProtocolLevelTokensForPV pv)
+emptyProtocolLevelTokensForPV = case pltStateVersion @(PltStateVersionFor pv) of
     SPLTStateNone -> return $ ProtocolLevelTokensNone
     SPLTStateV0 -> storePLTs emptyProtocolLevelTokens
     SPLTStateV1 -> ProtocolLevelTokensV1 <$> RustBS.empty
@@ -268,7 +275,7 @@ emptyProtocolLevelTokensForStateVersion = case pltStateVersion @(PltStateVersion
 --  This returns the empty list when the protocol version does not support PLTs.
 --
 -- This implementation is for the Haskell managed state version V0.
-getPLTList :: (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) => ProtocolLevelTokensForStateVersion pv -> m [TokenId]
+getPLTList :: (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) => ProtocolLevelTokensForPV pv -> m [TokenId]
 getPLTList pltsV0 = do
     plts <- loadPLTs pltsV0
     LFMBTree.mfold step [] (_pltTable plts)
@@ -284,7 +291,7 @@ getPLTList pltsV0 = do
 getTokenIndex ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenId ->
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     m (Maybe TokenIndex)
 getTokenIndex tokId = fmap (Map.lookup ntid . _pltMap) . loadPLTs
   where
@@ -298,7 +305,7 @@ getTokenIndex tokId = fmap (Map.lookup ntid . _pltMap) . loadPLTs
 lookupPLT ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenIndex ->
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     m PLT
 lookupPLT index pltsV0 = do
     plts <- loadPLTs pltsV0
@@ -317,7 +324,7 @@ lookupPLT index pltsV0 = do
 getMutableTokenState ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenIndex ->
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     m StateV1.MutableState
 getMutableTokenState index pltsV0 = do
     plt <- lookupPLT index pltsV0
@@ -334,8 +341,8 @@ setTokenState ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenIndex ->
     StateV1.MutableState ->
-    ProtocolLevelTokensForStateVersion pv ->
-    m (ProtocolLevelTokensForStateVersion pv)
+    ProtocolLevelTokensForPV pv ->
+    m (ProtocolLevelTokensForPV pv)
 setTokenState index mutableState pltsV0 = do
     plts <- loadPLTs pltsV0
     LFMBTree.update upd index (_pltTable plts) >>= \case
@@ -384,7 +391,7 @@ updateTokenState key maybeValue mutableState =
 getTokenConfiguration ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenIndex ->
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     m PLTConfiguration
 getTokenConfiguration index pltsV0 = do
     plt <- lookupPLT index pltsV0
@@ -398,14 +405,14 @@ getTokenConfiguration index pltsV0 = do
 getTokenCirculatingSupply ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenIndex ->
-    ProtocolLevelTokensForStateVersion pv ->
+    ProtocolLevelTokensForPV pv ->
     m TokenRawAmount
 getTokenCirculatingSupply index pltsV0 = do
     plt <- lookupPLT index pltsV0
     return $ _pltCirculatingSupply plt
 
 -- | Set the circulating supply of a token for a given 'TokenIndex'.
---  Returns the updated 'ProtocolLevelTokensForStateVersion'.
+--  Returns the updated 'ProtocolLevelTokensForPV'.
 --
 -- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
 --
@@ -414,8 +421,8 @@ setTokenCirculatingSupply ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     TokenIndex ->
     TokenRawAmount ->
-    ProtocolLevelTokensForStateVersion pv ->
-    m (ProtocolLevelTokensForStateVersion pv)
+    ProtocolLevelTokensForPV pv ->
+    m (ProtocolLevelTokensForPV pv)
 setTokenCirculatingSupply index newSupply pltsV0 = do
     plts <- loadPLTs pltsV0
     LFMBTree.update upd index (_pltTable plts) >>= \case
@@ -429,7 +436,7 @@ setTokenCirculatingSupply index newSupply pltsV0 = do
     upd plt = return ((), plt{_pltCirculatingSupply = newSupply})
 
 -- | Create a new token with the given configuration. The initial state will be empty and the
---  initial supply will be 0. Returns the token index and the updated 'ProtocolLevelTokensForStateVersion'.
+--  initial supply will be 0. Returns the token index and the updated 'ProtocolLevelTokensForPV'.
 --
 --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already exist in the
 --  'ProtocolLevelTokens'.
@@ -438,8 +445,8 @@ setTokenCirculatingSupply index newSupply pltsV0 = do
 createToken ::
     (MonadBlobStore m, PltStateVersionFor pv ~ 'PLTStateV0) =>
     PLTConfiguration ->
-    ProtocolLevelTokensForStateVersion pv ->
-    m (TokenIndex, ProtocolLevelTokensForStateVersion pv)
+    ProtocolLevelTokensForPV pv ->
+    m (TokenIndex, ProtocolLevelTokensForPV pv)
 createToken config pltsV0 = do
     plts <- loadPLTs pltsV0
     newConfigRef <- refMake config
@@ -479,32 +486,41 @@ migrateProtocolLevelTokens ProtocolLevelTokens{..} = do
                   _pltCirculatingSupply = _pltCirculatingSupply
                 }
 
--- | Migrate 'ProtocolLevelTokensForStateVersion'. Where the old protocol version did not support PLTs, and
---  the new protocol version does, this initializes the empty 'ProtocolLevelTokensForStateVersion'. Otherwise,
+-- | Migrate 'ProtocolLevelTokensForPV'. Where the old protocol version did not support PLTs, and
+--  the new protocol version does, this initializes the empty 'ProtocolLevelTokensForPV'. Otherwise,
 --  the PLTs are unchanged in the migration.
-migrateProtocolLevelTokensForStateVersion ::
+migrateProtocolLevelTokensForPV ::
     forall t m.
     ( SupportMigration m t,
       MonadProtocolVersion m,
       MonadProtocolVersion (t m)
     ) =>
     StateMigrationParameters (MPV m) (MPV (t m)) ->
-    ProtocolLevelTokensForStateVersion (MPV m) ->
-    t m (ProtocolLevelTokensForStateVersion (MPV (t m)))
-migrateProtocolLevelTokensForStateVersion _ ProtocolLevelTokensNone = do
+    ProtocolLevelTokensForPV (MPV m) ->
+    t m (ProtocolLevelTokensForPV (MPV (t m)))
+migrateProtocolLevelTokensForPV _ ProtocolLevelTokensNone = do
     -- When migrating from a version where there are no protocol-level tokens, we use the
     -- empty protocol level tokens (if the new state supports LTS).
-    emptyProtocolLevelTokensForStateVersion
-migrateProtocolLevelTokensForStateVersion migration oldPLTsV0@(ProtocolLevelTokensV0 _) =
+    emptyProtocolLevelTokensForPV
+migrateProtocolLevelTokensForPV migration oldPLTsV0@(ProtocolLevelTokensV0 oldPLTsRef) =
     case pltStateVersion @(PltStateVersionFor (MPV (t m))) of
         SPLTStateNone -> case migration of {}
         SPLTStateV0 -> do
             oldPLTs <- lift $ loadPLTs oldPLTsV0
             newPLTs <- migrateProtocolLevelTokens oldPLTs
             storePLTs newPLTs
-        -- todo implement P10 to P11 migration in https://linear.app/concordium/issue/COR-2218/implement-p10-to-p11-migration-for-plt-state
-        SPLTStateV1 -> undefined
-migrateProtocolLevelTokensForStateVersion migration (ProtocolLevelTokensV1 oldState) =
+        SPLTStateV1 -> do
+            -- Migrate from Haskell to Rust, by reloading the PLT state from the blob store and into Rust and then
+            -- migrate the newly loaded state in the Rust block state implementation.
+            let oldBlobRefMaybe = getHBRRefIfBlobbed oldPLTsRef
+            let oldBlobRef =
+                    maybe
+                        (error "Haskell maintained PLT state to migrate from does not have blob reference set")
+                        id
+                        oldBlobRefMaybe
+            (oldState :: ForeignPLTBlockStatePtr (MPV m)) <- lift $ loadDirect (coerce oldBlobRef)
+            ProtocolLevelTokensV1 <$> RustBS.migrate oldState
+migrateProtocolLevelTokensForPV migration (ProtocolLevelTokensV1 oldState) =
     case pltStateVersion @(PltStateVersionFor (MPV (t m))) of
         SPLTStateNone -> case migration of {}
         SPLTStateV0 -> case migration of {}
