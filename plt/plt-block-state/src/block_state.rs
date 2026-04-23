@@ -116,7 +116,8 @@ impl BlockState {
         })
     }
 
-    /// See [`Migrate::migrate`]
+    /// See [`Migrate::migrate`]. This function only differs by taking
+    /// protocol version as argument.
     pub fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,
