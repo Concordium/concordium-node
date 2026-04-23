@@ -49,25 +49,21 @@ queryPLTList ::
 queryPLTList bs = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
-    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
-    BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks protocolVersion
+    BS.liftBlobStore $ queryPLTListInBlobStoreMonad pltState queryCallbacks
   where
     -- Query the list of PLTs in the blob store monad. The function is a wrapper around an FFI call
     -- to the Rust PLT Scheduler library.
     queryPLTListInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
-        -- The protocol version of the block.
-        Types.ProtocolVersion ->
         -- The list of token ids
         m' [Types.TokenId]
     queryPLTListInBlobStoreMonad
         pltBlockState
-        queryCallbacks
-        protocolVersion =
+        queryCallbacks =
             do
                 loadCallbackPtr <- fst <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
@@ -85,7 +81,6 @@ queryPLTList bs = do
                                 getAccountAddressByIndexCallbackPtr
                                 getTokenAccountStatesCallbackPtr
                                 pltBlockStatePtr
-                                (Types.protocolVersionToWord64 protocolVersion)
                                 returnDataPtrOutPtr
                                 returnDataLenOutPtr
                         -- Free the function pointers we have just created
@@ -140,8 +135,6 @@ foreign import ccall "ffi_query_plt_list"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | Protocol version of the block.
-        Word.Word64 ->
         -- | Output location for array containing return data, which is a list of token ids.
         -- If the return value is `0`, the data is a serialized list of token ids.
         FFI.Ptr (FFI.Ptr Word.Word8) ->
@@ -164,25 +157,21 @@ queryTokenInfo ::
 queryTokenInfo bs tokenId = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
-    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
-    BS.liftBlobStore $ queryTokenInfoInBlobStoreMonad pltState queryCallbacks protocolVersion
+    BS.liftBlobStore $ queryTokenInfoInBlobStoreMonad pltState queryCallbacks
   where
     -- Get token info for the given token in the given block state. The function is a wrapper around an FFI call
     -- to the Rust PLT Scheduler library.
     queryTokenInfoInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
-        -- The protocol version of the block.
-        Types.ProtocolVersion ->
         -- The token info.
         m' (Maybe QueriesTypes.TokenInfo)
     queryTokenInfoInBlobStoreMonad
         pltBlockState
-        queryCallbacks
-        protocolVersion =
+        queryCallbacks =
             do
                 loadCallbackPtr <- fst <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
@@ -201,7 +190,6 @@ queryTokenInfo bs tokenId = do
                                     getAccountAddressByIndexCallbackPtr
                                     getTokenAccountStatesCallbackPtr
                                     pltBlockStatePtr
-                                    (Types.protocolVersionToWord64 protocolVersion)
                                     (FFI.castPtr tokenIdPtr)
                                     (fromIntegral tokenIdLen)
                                     returnDataPtrOutPtr
@@ -261,8 +249,6 @@ foreign import ccall "ffi_query_token_info"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | Protocol version of the block.
-        Word.Word64 ->
         -- | Pointer to token id UTF-8 bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of token id UTF-8.
@@ -291,25 +277,21 @@ queryTokenAuthorizations ::
 queryTokenAuthorizations bs tokenId = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
-    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
-    BS.liftBlobStore $ queryTokenAuthorizationsInBlobStoreMonad pltState queryCallbacks protocolVersion
+    BS.liftBlobStore $ queryTokenAuthorizationsInBlobStoreMonad pltState queryCallbacks
   where
     -- Get token Authorizations for the given token in the given block state. The function is a wrapper around an FFI call
     -- to the Rust PLT Scheduler library.
     queryTokenAuthorizationsInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
-        -- The protocol version of the block.
-        Types.ProtocolVersion ->
         -- The token info.
         m' (Maybe QueriesTypes.TokenAuthorizations)
     queryTokenAuthorizationsInBlobStoreMonad
         pltBlockState
-        queryCallbacks
-        protocolVersion =
+        queryCallbacks =
             do
                 loadCallbackPtr <- fst <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
@@ -328,7 +310,6 @@ queryTokenAuthorizations bs tokenId = do
                                     getAccountAddressByIndexCallbackPtr
                                     getTokenAccountStatesCallbackPtr
                                     pltBlockStatePtr
-                                    (Types.protocolVersionToWord64 protocolVersion)
                                     (FFI.castPtr tokenIdPtr)
                                     (fromIntegral tokenIdLen)
                                     returnDataPtrOutPtr
@@ -388,8 +369,6 @@ foreign import ccall "ffi_query_token_authorizations"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | Protocol version of the block.
-        Word.Word64 ->
         -- | Pointer to token id UTF-8 bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of token id UTF-8.
@@ -418,25 +397,21 @@ queryTokenAccountInfos ::
 queryTokenAccountInfos bs accountIndex = do
     queryCallbacks <- unliftBlockStateQueryCallbacks bs
     pltState <- BS.getRustPLTBlockState bs
-    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
-    BS.liftBlobStore $ queryTokenAccountInfosInBlobStoreMonad pltState queryCallbacks protocolVersion
+    BS.liftBlobStore $ queryTokenAccountInfosInBlobStoreMonad pltState queryCallbacks
   where
     -- Get token account infos for the given account in the given block state. The function is a wrapper around an FFI call
     -- to the Rust PLT Scheduler library.
     queryTokenAccountInfosInBlobStoreMonad ::
         (BlobStore.MonadBlobStore m') =>
         -- Block state to query.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr (Types.MPV m) ->
         -- Callback need for queries.
         BlockStateQueryCallbacks ->
-        -- The protocol version of the block.
-        Types.ProtocolVersion ->
         -- The token account infos.
         m' [QueriesTypes.Token]
     queryTokenAccountInfosInBlobStoreMonad
         pltBlockState
-        queryCallbacks
-        protocolVersion =
+        queryCallbacks =
             do
                 loadCallbackPtr <- fst <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
@@ -454,7 +429,6 @@ queryTokenAccountInfos bs accountIndex = do
                                 getAccountAddressByIndexCallbackPtr
                                 getTokenAccountStatesCallbackPtr
                                 pltBlockStatePtr
-                                (Types.protocolVersionToWord64 protocolVersion)
                                 (fromIntegral accountIndex)
                                 returnDataPtrOutPtr
                                 returnDataLenOutPtr
@@ -510,8 +484,6 @@ foreign import ccall "ffi_query_token_account_infos"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | Protocol version of the block.
-        Word.Word64 ->
         -- | The account index to get token account infos for.
         Word.Word64 ->
         -- | Output location for array containing return data, which is a list of token account infos.

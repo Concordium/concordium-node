@@ -59,7 +59,7 @@ configDEF =
           _pltDecimals = 0
         }
 
-emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForStateVersion 'PLTStateV0)
+emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForStateVersion 'P9)
 emptyPLTPV = emptyProtocolLevelTokensForStateVersion
 
 testCreateToken :: Assertion
@@ -246,7 +246,7 @@ fixtureTestLoadEmpty = runWithNewMemBlobStore $ do
             -- Load empty PLTs state
             (emptyStateV0 :: ProtocolLevelTokens) <-
                 loadDirect $ BlobRef 0
-            emptyState <- ProtocolLevelTokensV0 <$> refMake emptyStateV0
+            emptyState <- ProtocolLevelTokensV0 @'P9 <$> refMake emptyStateV0
 
             -- Assert empty
             pltList <- getPLTList emptyState
@@ -264,7 +264,7 @@ fixtureTestLoadSimple = runWithNewMemBlobStore $ do
             -- Load simple PLTs state
             (simpleStateV0 :: ProtocolLevelTokens) <-
                 loadDirect $ BlobRef 358
-            simpleState <- ProtocolLevelTokensV0 <$> refMake simpleStateV0
+            simpleState <- ProtocolLevelTokensV0 @'P9 <$> refMake simpleStateV0
 
             -- Assert token state
             pltList <- getPLTList simpleState

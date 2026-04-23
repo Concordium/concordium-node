@@ -833,7 +833,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       --  used for rewarding bakers at the end of epochs.
       bspRewardDetails :: !(BlockRewardDetails pv),
       -- | The global state of protocol-level tokens.
-      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForStateVersion (PltStateVersionFor pv))
+      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForStateVersion pv)
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
