@@ -14,6 +14,18 @@ pub enum LockControllerConfig {
     SimpleV0(LockControllerSimpleV0),
 }
 
+impl LockControllerConfig {
+    pub fn new_simple_v0<E>(
+        grants: impl Iterator<Item = Result<LockControllerSimpleV0Grant, E>>,
+        tokens: impl Iterator<Item = Result<TokenId, E>>,
+        keep_alive: bool,
+        memo: Option<CborMemo>,
+    ) -> Result<Self, E> {
+        LockControllerSimpleV0::new(grants, tokens, keep_alive, memo)
+            .map(LockControllerConfig::SimpleV0)
+    }
+}
+
 /// Configuration for a SimpleV0 lock controller.
 ///
 /// Contains the list of capability grants, which tokens are affected,
@@ -31,6 +43,22 @@ pub struct LockControllerSimpleV0 {
     pub keep_alive: bool,
     /// Optional memo attached to the lock.
     pub memo: Option<CborMemo>,
+}
+
+impl LockControllerSimpleV0 {
+    pub fn new<E>(
+        grants: impl Iterator<Item = Result<LockControllerSimpleV0Grant, E>>,
+        tokens: impl Iterator<Item = Result<TokenId, E>>,
+        keep_alive: bool,
+        memo: Option<CborMemo>,
+    ) -> Result<Self, E> {
+        Ok(Self {
+            grants: grants.collect::<Result<_, _>>()?,
+            tokens: tokens.collect::<Result<_, _>>()?,
+            keep_alive,
+            memo,
+        })
+    }
 }
 
 /// A grant of capabilities to a specific account for a SimpleV0 lock

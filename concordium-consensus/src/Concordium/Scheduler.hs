@@ -378,6 +378,7 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                           -- NB: We already account for the cost we used here.
                           _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + chrCheckHeaderCost,
                           _wtcTransactionIndex = tsIndex,
+                          _wtcTransactionSequenceNumber = thNonce meta,
                           ..
                         }
             -- Now pass the decoded payload to the respective transaction handler which contains

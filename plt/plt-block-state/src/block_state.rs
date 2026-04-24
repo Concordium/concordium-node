@@ -4,7 +4,7 @@ use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, St
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
-use crate::block_state::state::protocol_level_locks::ProtocolLevelLocks;
+use crate::block_state::state::protocol_level_locks::{Lock, ProtocolLevelLocks};
 use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
 use crate::block_state::types::AccountWithCanonicalAddress;
 use crate::block_state::types::protocol_level_locks::LockConfiguration;
@@ -442,8 +442,20 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
     }
 
     // TODO: lock creation implemented as part of COR-2302
-    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> LockId {
-        todo!()
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let prev = state.locks.locks.0.insert(
+                    lock_id,
+                    Lock {
+                        locked_balances: Default::default(),
+                        configuration,
+                    }
+                );
+                assert!(prev.is_none(), "Lock with the same id already exists in the block state");
+                Ok(state)
+            })
+            .unwrap()
     }
 
     // TODO: Implement as part of COR-2305.

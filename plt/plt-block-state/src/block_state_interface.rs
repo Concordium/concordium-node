@@ -295,7 +295,6 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 
     /// Create a new PLT lock with the given configuration. The initial state will be empty.
-    /// Returns representation of the created lock.
     ///
     /// # Arguments
     ///
@@ -309,7 +308,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
     ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
-    fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> LockId;
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
 
     /// Track that a lock holds a balance for the given account and token.
     ///

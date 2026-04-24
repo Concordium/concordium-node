@@ -5,6 +5,7 @@
 //! the charge of energy.
 
 use concordium_base::common::{Buffer, Put, Serial};
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 
 /// A reason for why a transaction was rejected.
@@ -16,6 +17,8 @@ use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTy
 /// Corresponding Haskell type: `Concordium.Types.Execution.RejectReason`
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TransactionRejectReason {
+    /// Account does not exist.
+    InvalidAccountReference(AccountAddress),
     /// The transaction payload could not be fully deserialized.
     SerializationFailure,
     /// We ran of out energy to process this transaction.
@@ -29,6 +32,10 @@ pub enum TransactionRejectReason {
 impl Serial for TransactionRejectReason {
     fn serial<B: Buffer>(&self, out: &mut B) {
         match self {
+            TransactionRejectReason::InvalidAccountReference(address) => {
+                out.put(&2u8);
+                out.put(address);
+            }
             TransactionRejectReason::SerializationFailure => {
                 out.put(&9u8);
             }
@@ -66,6 +73,20 @@ mod test {
     use crate::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
     use concordium_base::common;
     use concordium_base::protocol_level_tokens::RawCbor;
+
+    #[test]
+    fn test_invalid_account_reference_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::InvalidAccountReference(
+            "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+                .parse()
+                .unwrap(),
+        );
+        let bytes = common::to_bytes(&reject_reason);
+        assert_eq!(
+            hex::encode(&bytes),
+            "02010102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
+    }
 
     #[test]
     fn test_serialization_failure_reject_reason_serial() {

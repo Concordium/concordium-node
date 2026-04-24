@@ -2,7 +2,7 @@
 //! transaction and update instruction payloads.
 
 use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::{Energy, ProtocolVersion};
+use concordium_base::base::{Energy, Nonce, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -34,6 +34,8 @@ pub enum TransactionExecutionError {
 /// # Arguments
 ///
 /// - `sender_account` The account initiating the transaction (signer of the transaction)
+/// - `sender_account_address` The address of the account initiating the transaction (from the transaction header)
+/// - `transaction_sequence_number` The sequence number of the transaction
 /// - `block_state` Block state that can be queried and updated during execution.
 /// - `payload` The transaction payload to execute
 /// - `energy_limit` The payload to execute
@@ -45,12 +47,17 @@ pub enum TransactionExecutionError {
 pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
     sender_account_address: AccountAddress,
+    transaction_sequence_number: Nonce,
     block_state: &mut BSO,
     payload: Payload,
     energy_limit: Energy,
 ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-    let mut execution =
-        TransactionExecution::new(energy_limit, sender_account, sender_account_address);
+    let mut execution = TransactionExecution::new(
+        energy_limit,
+        sender_account,
+        sender_account_address,
+        transaction_sequence_number,
+    );
 
     match payload {
         Payload::TokenUpdate { payload } => {
