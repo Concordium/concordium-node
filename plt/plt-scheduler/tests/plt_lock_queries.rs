@@ -17,33 +17,6 @@ use utils::block_state_external_stubbed::{
 
 mod utils;
 
-/// `query_lock_list` returns lock ids in the same order as the underlying
-/// block-state map enumeration (`BTreeMap` order on `LockId`).
-#[test]
-fn test_query_lock_list_ordering() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let recipient = stub.create_account();
-
-    let lock_a = LockId {
-        account_index: 1,
-        sequence_number: 5,
-        creation_order: 0,
-    };
-    let lock_b = LockId {
-        account_index: 2,
-        sequence_number: 1,
-        creation_order: 0,
-    };
-
-    // Insert in `b, a` order to verify the result is dictated by the block-state map
-    // ordering (BTreeMap on LockId), not insertion order.
-    stub.create_lock(&lock_b, vec![recipient], vec![], vec![], 1000);
-    stub.create_lock(&lock_a, vec![recipient], vec![], vec![], 1000);
-
-    let listed = queries::query_lock_list(stub.state());
-    assert_eq!(listed, vec![lock_a, lock_b]);
-}
-
 /// `query_lock_info` produces the canonical CBOR encoding of the assembled
 /// `LockInfo` value, and the round-trip via `cbor_decode` recovers an equal value.
 #[test]

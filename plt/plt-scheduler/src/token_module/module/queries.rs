@@ -106,14 +106,6 @@ pub fn query_token_authorizations<BSQ: BlockStateQuery>(
 }
 
 /// Get the locked balance of `account` under `lock` for the token in context.
-///
-/// Reads the canonical `account_state(account) || "quanta" || lock` entry from the
-/// token-module key-value state. Returns `RawTokenAmount(0)` when no entry exists.
-///
-/// This is the source of truth for per-`(account, token, lock)` locked amounts
-/// surfaced by `lock-info` queries; callers iterating over `BlockStateQuery::lock_balances`
-/// should resolve each pair through this function rather than reading the account's
-/// total token balance.
 pub fn query_locked_balance<BSQ: BlockStateQuery>(
     context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,

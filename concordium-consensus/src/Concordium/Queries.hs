@@ -1214,8 +1214,7 @@ getTokenAuthorizations blockHashInput tokenId = liftSkovQueryStateBHI (queryToke
 getLockList :: BlockHashInput -> MVR finconf (BHIQueryResponse [Locks.LockId])
 getLockList = liftSkovQueryStateBHI queryLockList
 
--- | Get the CBOR-encoded `lock-info` payload for a given lock id, wrapped in the opaque
--- 'LockQueries.LockInfo' newtype.
+-- | Get the CBOR-encoded `lock-info` payload for a given lock id.
 getLockInfo :: BlockHashInput -> Locks.LockId -> MVR finconf (BHIQueryResponse (Either QueryLockError Locks.LockInfo))
 getLockInfo blockHashInput lockId = liftSkovQueryStateBHI (queryLockInfo lockId) blockHashInput
 

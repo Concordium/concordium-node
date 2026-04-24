@@ -144,11 +144,8 @@ pub enum QueryLockError {
     /// The requested lock does not exist in the block state.
     #[error("Lock does not exist")]
     LockDoesNotExist,
-    /// On-chain block / token-module state violates an invariant assumed by the
-    /// `lock-info` assembly path — e.g. an `AccountIndex` recorded in the lock
-    /// configuration or returned by `lock_balances` does not resolve, or a tracked
-    /// `(account, token)` pair has an undecodable `quanta` entry in the token-module
-    /// key-value state. These are unrecoverable for clients and surface as `Panic`
+    /// On-chain block state violates an invariant assumed by the
+    /// query assembly path. These are unrecoverable for clients and surface as `Panic`
     /// over FFI.
     #[error("State invariant violation while assembling lock info: {0}")]
     StateInvariantViolation(String),
@@ -166,14 +163,7 @@ impl From<LockNotFoundByIdError> for QueryLockError {
     }
 }
 
-/// Assemble the canonical [`LockInfo`] CBOR payload for a lock.
-///
-/// The function resolves the lock via [`BlockStateQuery::lock_by_id`], collects its
-/// [`BlockStateQuery::lock_configuration`] and per-`(account, token)`
-/// [`BlockStateQuery::account_token_balance`] entries, builds a
-/// [`concordium_base::protocol_level_locks::queries::LockInfo`] value, and CBOR-encodes
-/// it via the existing `CborSerialize` derive. The returned `Vec<u8>` is the canonical
-/// CBOR `lock-info` payload — callers MUST treat it as opaque.
+/// Assemble the [`LockInfo`] CBOR payload for a lock.
 pub fn query_lock_info<BSQ: BlockStateQuery>(
     block_state: &BSQ,
     lock_id: &LockId,

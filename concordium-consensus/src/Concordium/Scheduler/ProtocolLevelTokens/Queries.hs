@@ -232,7 +232,7 @@ queryLockList bs =
         SPLTStateV0 -> return []
         SPLTStateV1 -> RustQ.queryLockList bs
 
--- | Get the 'LockQueries.LockInfo' for a goven lock ID.
+-- | Get the 'LockQueries.LockInfo' for a given lock ID.
 queryLockInfo ::
     forall m.
     (BS.BlockStateQuery m) =>
