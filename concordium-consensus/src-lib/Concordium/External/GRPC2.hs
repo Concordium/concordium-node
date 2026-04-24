@@ -43,7 +43,7 @@ import Concordium.Crypto.SHA256 (Hash (Hash))
 import Concordium.External.Helpers
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryLockModuleError (..), QueryTokenModuleError (..))
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryLockError (..), QueryTokenModuleError (..))
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Types.Locks as Locks
 import qualified Concordium.Wasm as Wasm
@@ -261,16 +261,9 @@ getLockInfoV2 cptr blockType blockHashPtr lockIdPtr outHash outVec copierCbk = d
     lockId <- decodeLockId lockIdPtr
     res <- runMVR (Q.getLockInfo bhi lockId) mvr
     case res of
-        Q.BQRBlock _ (Left QLMEUnknownLock) -> do
+        Q.BQRBlock _ (Left QLEUnknownLock) -> do
             copyHashTo outHash res
             return $ queryResultCode QRNotFound
-        Q.BQRBlock _ (Left e@QLMEInternal{}) -> do
-            mvLog mvr Logger.External Logger.LLError $
-                "Internal error processing GetLockInfo: " ++ show e
-            return $ queryResultCode QRInternalError
-        Q.BQRBlock _ (Left QLMEUnavailable) -> do
-            copyHashTo outHash res
-            return $ queryResultCode QRUnavailable
         Q.BQRBlock _ (Right r) ->
             returnMessageWithBlock (copier outVec) outHash (res $> r)
         Q.BQRNoBlock ->

@@ -6,7 +6,7 @@
 
 module Concordium.Scheduler.ProtocolLevelTokens.Queries (
     QueryTokenModuleError (..),
-    QueryLockModuleError (..),
+    QueryLockError (..),
     queryTokenInfo,
     queryAccountTokens,
     queryPLTList,
@@ -210,26 +210,17 @@ queryPLTList bs =
         SPLTStateV0 -> BS.getPLTList bs
         SPLTStateV1 -> RustQ.queryPLTList bs
 
--- | An error that may occur as a result of 'queryLockInfo'.
-data QueryLockModuleError
+-- | An error that may occur as a result of a lock query.
+data QueryLockError
     = -- | The requested lock does not exist in the block.
-      QLMEUnknownLock
-    | -- | An internal error occurred during the lock query (currently unused; kept for parity
-      --   with 'QueryTokenModuleError' so future failure modes can be reported without
-      --   changing the public API).
-      QLMEInternal
-    | -- | The protocol version does not support the query.
-      QLMEUnavailable
+      QLEUnknownLock
     deriving (Eq)
 
-instance Show QueryLockModuleError where
-    show QLMEUnknownLock = "unknown lock"
-    show QLMEInternal = "internal error processing lock query"
-    show QLMEUnavailable = "The information is not available for this block"
+instance Show QueryLockError where
+    show QLEUnknownLock = "unknown lock"
 
 -- | Get the list of all PLT lock ids that exist in the given block. Pre-V1 PLT state versions
--- (including no PLT support) return the empty list, mirroring 'queryPLTList'. The returned ids
--- are forwarded verbatim from the Rust scheduler.
+-- (including no PLT support) return the empty list.
 queryLockList ::
     forall m.
     (BS.BlockStateQuery m) =>
@@ -241,21 +232,17 @@ queryLockList bs =
         SPLTStateV0 -> return []
         SPLTStateV1 -> RustQ.queryLockList bs
 
--- | Get the CBOR-encoded `lock-info` payload for a given lock id, wrapped in the opaque
--- 'LockQueries.LockInfo' newtype. The Haskell layer treats the payload as opaque bytes —
--- it never parses, validates, or re-encodes the CBOR. Pre-V1 PLT state versions return
--- 'QLMEUnknownLock' (this matches the precedent set by 'queryTokenAuthorizations' for
--- the V0 / no-PLT cases).
+-- | Get the 'LockQueries.LockInfo' for a goven lock ID.
 queryLockInfo ::
     forall m.
     (BS.BlockStateQuery m) =>
     Locks.LockId ->
     BlockState m ->
-    m (Either QueryLockModuleError LockQueries.LockInfo)
+    m (Either QueryLockError LockQueries.LockInfo)
 queryLockInfo lockId bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of
-    SPLTStateNone -> return (Left QLMEUnknownLock)
-    SPLTStateV0 -> return (Left QLMEUnknownLock)
+    SPLTStateNone -> return (Left QLEUnknownLock)
+    SPLTStateV0 -> return (Left QLEUnknownLock)
     SPLTStateV1 ->
         RustQ.queryLockInfo bs lockId <&> \case
             Just lockInfo -> Right lockInfo
-            Nothing -> Left QLMEUnknownLock
+            Nothing -> Left QLEUnknownLock

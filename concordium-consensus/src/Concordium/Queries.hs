@@ -92,7 +92,7 @@ import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
 import Concordium.Scheduler.ProtocolLevelTokens.Queries (
-    QueryLockModuleError,
+    QueryLockError,
     QueryTokenModuleError,
     queryAccountTokens,
     queryLockInfo,
@@ -1216,7 +1216,7 @@ getLockList = liftSkovQueryStateBHI queryLockList
 
 -- | Get the CBOR-encoded `lock-info` payload for a given lock id, wrapped in the opaque
 -- 'LockQueries.LockInfo' newtype.
-getLockInfo :: BlockHashInput -> Locks.LockId -> MVR finconf (BHIQueryResponse (Either QueryLockModuleError Locks.LockInfo))
+getLockInfo :: BlockHashInput -> Locks.LockId -> MVR finconf (BHIQueryResponse (Either QueryLockError Locks.LockInfo))
 getLockInfo blockHashInput lockId = liftSkovQueryStateBHI (queryLockInfo lockId) blockHashInput
 
 -- | Get the details of an account in the block state.
