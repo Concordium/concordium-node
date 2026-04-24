@@ -3,10 +3,12 @@ use crate::token_module::errors::TokenStateInvariantError;
 use crate::token_module::key_value_state;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
 };
 use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
@@ -101,4 +103,23 @@ pub fn query_token_authorizations<BSQ: BlockStateQuery>(
     Ok(RawCbor::from(cbor::cbor_encode(
         &key_value_state::get_token_authorizations(context)?,
     )))
+}
+
+/// Get the locked balance of `account` under `lock` for the token in context.
+///
+/// Reads the canonical `account_state(account) || "quanta" || lock` entry from the
+/// token-module key-value state. Returns `RawTokenAmount(0)` when no entry exists.
+///
+/// This is the source of truth for per-`(account, token, lock)` locked amounts
+/// surfaced by `lock-info` queries; callers iterating over `BlockStateQuery::lock_balances`
+/// should resolve each pair through this function rather than reading the account's
+/// total token balance.
+pub fn query_locked_balance<BSQ: BlockStateQuery>(
+    context: &TokenQueryContext<'_, BSQ>,
+    account: AccountIndex,
+    lock: LockId,
+) -> Result<RawTokenAmount, QueryTokenModuleError> {
+    Ok(key_value_state::get_locked_balance_for(
+        context, account, lock,
+    )?)
 }

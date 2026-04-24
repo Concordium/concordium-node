@@ -147,8 +147,6 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
     TokenStateKey(account_key)
 }
 
-// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
-#[allow(dead_code)] // Used by locked-balance helpers that are not wired in yet.
 fn account_quanta_state_key(lock_id: LockId) -> Vec<u8> {
     let mut locked_balance_key =
         Vec::with_capacity(ACCOUNT_STATE_KEY_QUANTA.len() + size_of::<LockId>());
@@ -454,8 +452,6 @@ pub fn set_deny_list_for<BSO: BlockStateOperations>(
 }
 
 /// Get the locked balance for the given account and lock.
-// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
-#[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
 pub fn get_locked_balance_for(
     context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
