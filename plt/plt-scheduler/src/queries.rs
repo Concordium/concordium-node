@@ -1,14 +1,11 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::locks::lock_controller::LockController;
+use crate::locks;
 use crate::token_context::TokenQueryContext;
 use crate::token_module;
-use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor::cbor_encode;
-use concordium_base::protocol_level_locks::{
-    LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
-};
-use concordium_base::protocol_level_tokens::{CborHolderAccount, TokenId};
+use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{
     BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError,
 };
@@ -16,7 +13,6 @@ use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
-use std::collections::BTreeMap;
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn query_plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
     block_state.plt_list().collect()
@@ -164,82 +160,19 @@ impl From<LockNotFoundByIdError> for QueryLockError {
 }
 
 /// Assemble the [`LockInfo`] CBOR payload for a lock.
+///
+/// Thin orchestrator: resolves `lock_id` to a [`LockConfiguration`] via the block state
+/// and delegates payload assembly to
+/// [`crate::locks::lock_configuration::LockInfoQuery::query_info`].
+///
+/// [`LockInfo`]: concordium_base::protocol_level_locks::LockInfo
+/// [`LockConfiguration`]: plt_block_state::block_state::types::protocol_level_locks::LockConfiguration
 pub fn query_lock_info<BSQ: BlockStateQuery>(
     block_state: &BSQ,
     lock_id: &LockId,
 ) -> Result<Vec<u8>, QueryLockError> {
     let lock = block_state.lock_by_id(lock_id)?;
     let configuration = block_state.lock_configuration(&lock);
-
-    // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
-    // by looking up each account's canonical address.
-    let recipients: Vec<CborHolderAccount> = configuration
-        .recipients
-        .iter()
-        .map(|account_index| {
-            let with_addr = block_state.account_by_index(*account_index).map_err(|_| {
-                QueryLockError::StateInvariantViolation(format!(
-                    "recipient account index {} recorded in lock configuration does not exist",
-                    account_index
-                ))
-            })?;
-            Ok(CborHolderAccount::from(with_addr.canonical_account_address))
-        })
-        .collect::<Result<_, QueryLockError>>()?;
-
-    // Convert the lock controller configuration into the CBOR `LockController` shape used
-    // by the `lock-info` payload.
-    let controller = configuration.controller.to_cbor_controller(block_state)?;
-
-    // Group the tracked `(account, token)` balances by account so we emit a single
-    // `LockAccountFunds` entry per account.
-    let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
-    for (account, token) in block_state.lock_balances(lock_id) {
-        let account_index = block_state.account_index(&account);
-        let token_configuration = block_state.token_configuration(&token);
-        let token_module_state = block_state.mutable_token_key_value_state(&token);
-        let context = TokenQueryContext {
-            block_state,
-            token_module_state: &token_module_state,
-        };
-        let raw_balance =
-            token_module::query_locked_balance(&context, account_index, lock_id.clone())?;
-        let amount = concordium_base::protocol_level_tokens::TokenAmount::from_raw(
-            raw_balance.0,
-            token_configuration.decimals,
-        );
-        funds_by_account
-            .entry(account_index)
-            .or_default()
-            .push(LockedTokenAmount {
-                token: token_configuration.token_id,
-                amount,
-            });
-    }
-
-    let funds: Vec<LockAccountFunds> = funds_by_account
-        .into_iter()
-        .map(|(account_index, amounts)| {
-            let with_addr = block_state.account_by_index(account_index).map_err(|_| {
-                QueryLockError::StateInvariantViolation(format!(
-                    "account index {} returned by `lock_balances` does not exist",
-                    account_index
-                ))
-            })?;
-            Ok(LockAccountFunds {
-                account: CborHolderAccount::from(with_addr.canonical_account_address),
-                amounts,
-            })
-        })
-        .collect::<Result<_, QueryLockError>>()?;
-
-    let lock_info = LockInfo {
-        lock,
-        recipients,
-        expiry: configuration.expiry,
-        controller,
-        funds,
-    };
-
+    let lock_info = locks::get_lock_info(block_state, lock_id, &configuration)?;
     Ok(cbor_encode(&lock_info))
 }
