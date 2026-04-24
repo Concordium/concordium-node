@@ -20,6 +20,7 @@ import Data.Functor
 import Data.Int
 import qualified Data.ProtoLens as Proto
 import qualified Data.ProtoLens.Combinators as Proto
+import qualified Data.Serialize as S
 import qualified Data.Vector as Vec
 import Data.Word
 import Foreign
@@ -42,8 +43,9 @@ import Concordium.Crypto.SHA256 (Hash (Hash))
 import Concordium.External.Helpers
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenModuleError (..))
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryLockModuleError (..), QueryTokenModuleError (..))
 import qualified Concordium.Types.InvokeContract as InvokeContract
+import qualified Concordium.Types.Locks as Locks
 import qualified Concordium.Wasm as Wasm
 
 -- | An opaque representation of a Rust vector. This is used by callbacks to copy
@@ -212,6 +214,67 @@ getTokenAuthorizationsV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHa
                     returnMessageWithBlock (copier outVec) outHash (res $> r)
                 Q.BQRNoBlock ->
                     return $ queryResultCode QRNotFound
+
+-- | Foreign-exported FFI entry point for the streaming `GetLockList` gRPC v2 endpoint.
+-- Streams the list of all PLT lock ids that exist at the end of the resolved block.
+getLockListV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+    IO Int64
+getLockListV2 = blockStreamHelper Q.getLockList
+
+-- | Decode a 'Locks.LockId' from a foreign pointer. Assumes 24 bytes are available
+-- (three big-endian Word64 fields, matching the @Serialize LockId@ instance).
+decodeLockId :: Ptr Word8 -> IO Locks.LockId
+decodeLockId lockIdPtr = do
+    bs <- BS.unsafePackCStringLen (castPtr lockIdPtr, 24)
+    case S.decode bs of
+        Left err -> error $ "Precondition violation in FFI call (decodeLockId): " ++ err
+        Right lockId -> return lockId
+
+-- | Foreign-exported FFI entry point for the unary `GetLockInfo` gRPC v2 endpoint.
+getLockInfoV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Lock ID (24 bytes: three big-endian Word64 fields).
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- | Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getLockInfoV2 cptr blockType blockHashPtr lockIdPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    lockId <- decodeLockId lockIdPtr
+    res <- runMVR (Q.getLockInfo bhi lockId) mvr
+    case res of
+        Q.BQRBlock _ (Left QLMEUnknownLock) -> do
+            copyHashTo outHash res
+            return $ queryResultCode QRNotFound
+        Q.BQRBlock _ (Left e@QLMEInternal{}) -> do
+            mvLog mvr Logger.External Logger.LLError $
+                "Internal error processing GetLockInfo: " ++ show e
+            return $ queryResultCode QRInternalError
+        Q.BQRBlock _ (Left QLMEUnavailable) -> do
+            copyHashTo outHash res
+            return $ queryResultCode QRUnavailable
+        Q.BQRBlock _ (Right r) ->
+            returnMessageWithBlock (copier outVec) outHash (res $> r)
+        Q.BQRNoBlock ->
+            return $ queryResultCode QRNotFound
 
 -- | Optionally copy a block hash (32 bytes) to a pointer.
 -- Used to provide back the block hash used in a given query, via the FFI.
@@ -1360,6 +1423,35 @@ foreign export ccall
         Ptr ReceiverVec ->
         -- | Callback to output data.
         FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getLockInfoV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Lock ID (24 bytes: three big-endian Word64 fields).
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        -- | Callback to output data.
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getLockListV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
         IO Int64
 
 foreign export ccall

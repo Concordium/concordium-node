@@ -11,6 +11,8 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
     queryTokenInfo,
     queryTokenAccountInfos,
     queryTokenAuthorizations,
+    queryLockList,
+    queryLockInfo,
 ) where
 
 import Control.Monad
@@ -25,6 +27,8 @@ import qualified Foreign as FFI
 import qualified Foreign.C.Types as FFI
 
 import qualified Concordium.Types as Types
+import qualified Concordium.Types.Locks as Locks
+import qualified Concordium.Types.Queries.Locks as LockQueries
 import qualified Concordium.Types.Queries.Tokens as QueriesTypes
 import qualified Concordium.Utils.Serialization as CS
 
@@ -548,3 +552,196 @@ unliftBlockStateQueryCallbacks bs = BS.withUnliftBSQ $ \unlift ->
                 fmap Map.toList $ unlift $ BS.getAccountTokens account
 
         return BlockStateQueryCallbacks{..}
+
+-- | Get the list of all PLT lock ids, for a protocol version where the PLT state is
+-- managed in Rust. Pattern follows 'queryPLTList'.
+queryLockList ::
+    forall m.
+    (Types.PVSupportsRustManagedPLT (Types.MPV m), BS.BlockStateQuery m) =>
+    -- | Block state to query.
+    BS.BlockState m ->
+    -- | The list of lock ids
+    m [Locks.LockId]
+queryLockList bs = do
+    queryCallbacks <- unliftBlockStateQueryCallbacks bs
+    pltState <- BS.getRustPLTBlockState bs
+    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
+    BS.liftBlobStore $ queryLockListInBlobStoreMonad pltState queryCallbacks protocolVersion
+  where
+    queryLockListInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m') =>
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        BlockStateQueryCallbacks ->
+        Types.ProtocolVersion ->
+        m' [Locks.LockId]
+    queryLockListInBlobStoreMonad
+        pltBlockState
+        queryCallbacks
+        protocolVersion =
+            do
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
+                            ffiQueryLockList
+                                loadCallbackPtr
+                                readTokenAccountBalanceCallbackPtr
+                                getAccountIndexByAddressCallbackPtr
+                                getAccountAddressByIndexCallbackPtr
+                                getTokenAccountStatesCallbackPtr
+                                pltBlockStatePtr
+                                (Types.protocolVersionToWord64 protocolVersion)
+                                returnDataPtrOutPtr
+                                returnDataLenOutPtr
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess -> do
+                                let getLockIdList = S.isolate (BS.length returnData) $ CS.getListOf S.get
+                                let lockIdList =
+                                        either
+                                            (\message -> error $ "Lock id list from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getLockIdList returnData
+                                return lockIdList
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryLockList' resulted in panic with message: " ++ show message)
+                            _ -> error ("Unexpected status code from calling 'ffiQueryLockList': " ++ show statusCode)
+
+-- | C-binding for calling the Rust function `plt_scheduler::queries::query_lock_list`.
+--
+-- Returns a byte representing the result:
+--
+-- - `0`: The query was successful
+--
+-- See the exported function in the Rust code for documentation of safety.
+foreign import ccall "ffi_query_lock_list"
+    ffiQueryLockList ::
+        FFI.LoadCallback ->
+        ReadTokenAccountBalanceCallbackPtr ->
+        GetAccountIndexByAddressCallbackPtr ->
+        GetAccountAddressByIndexCallbackPtr ->
+        GetTokenAccountStatesCallbackPtr ->
+        FFI.Ptr PLTBlockState.RustPLTBlockState ->
+        Word.Word64 ->
+        FFI.Ptr (FFI.Ptr Word.Word8) ->
+        FFI.Ptr FFI.CSize ->
+        IO Word.Word8
+
+-- | Get the CBOR-encoded `lock-info` payload for a given lock id, for a protocol version where the
+-- PLT state is managed in Rust. The returned 'LockInfo' wraps the raw CBOR bytes verbatim; this
+-- module never parses or re-encodes them. Pattern follows 'queryTokenInfo'.
+queryLockInfo ::
+    forall m.
+    (Types.PVSupportsRustManagedPLT (Types.MPV m), BS.BlockStateQuery m) =>
+    -- | Block state to query.
+    BS.BlockState m ->
+    -- | The lock to query.
+    Locks.LockId ->
+    -- | The lock info, or 'Nothing' if the lock does not exist.
+    m (Maybe LockQueries.LockInfo)
+queryLockInfo bs lockId = do
+    queryCallbacks <- unliftBlockStateQueryCallbacks bs
+    pltState <- BS.getRustPLTBlockState bs
+    let protocolVersion = Types.demoteProtocolVersion $ Types.protocolVersion @(Types.MPV m)
+    BS.liftBlobStore $ queryLockInfoInBlobStoreMonad pltState queryCallbacks protocolVersion
+  where
+    queryLockInfoInBlobStoreMonad ::
+        (BlobStore.MonadBlobStore m') =>
+        PLTBlockState.ForeignPLTBlockStatePtr ->
+        BlockStateQueryCallbacks ->
+        Types.ProtocolVersion ->
+        m' (Maybe LockQueries.LockInfo)
+    queryLockInfoInBlobStoreMonad
+        pltBlockState
+        queryCallbacks
+        protocolVersion =
+            do
+                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
+                        -- Serialize the LockId as 24 big-endian bytes (three Word64s), which is the
+                        -- exact representation expected by `ffi_query_lock_info`.
+                        let lockIdBytes = S.encode lockId
+                        statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
+                            BS.unsafeUseAsCString lockIdBytes $ \lockIdPtr ->
+                                ffiQueryLockInfo
+                                    loadCallbackPtr
+                                    readTokenAccountBalanceCallbackPtr
+                                    getAccountIndexByAddressCallbackPtr
+                                    getAccountAddressByIndexCallbackPtr
+                                    getTokenAccountStatesCallbackPtr
+                                    pltBlockStatePtr
+                                    (Types.protocolVersionToWord64 protocolVersion)
+                                    (FFI.castPtr lockIdPtr)
+                                    returnDataPtrOutPtr
+                                    returnDataLenOutPtr
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        -- Copy the FFI output buffer into a strict 'ByteString' that owns its
+                        -- storage, so the buffer can be released by the finalizer immediately
+                        -- after this call returns. The CBOR bytes are stored opaquely in
+                        -- 'LockQueries.LockInfo'.
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        case Status.parseStatusCode statusCode of
+                            Just Status.FSCSuccess ->
+                                return $ Just $ LockQueries.LockInfo (BS.copy returnData)
+                            Just Status.FSCFailed ->
+                                return Nothing
+                            Just Status.FSCPanic -> do
+                                let message = case Text.decodeUtf8' returnData of
+                                        Right decoded -> decoded
+                                        Left _ -> "<panic message was invalid UTF-8>"
+                                error ("Call to 'ffiQueryLockInfo' resulted in panic with message: " ++ show message)
+                            Nothing -> error ("Unexpected status code from calling 'ffiQueryLockInfo': " ++ show statusCode)
+
+-- | C-binding for calling the Rust function `plt_scheduler::queries::query_lock_info`.
+--
+-- Returns a byte representing the result:
+--
+-- - `0`: The query was successful
+-- - `1`: The lock does not exist
+--
+-- See the exported function in the Rust code for documentation of safety.
+foreign import ccall "ffi_query_lock_info"
+    ffiQueryLockInfo ::
+        FFI.LoadCallback ->
+        ReadTokenAccountBalanceCallbackPtr ->
+        GetAccountIndexByAddressCallbackPtr ->
+        GetAccountAddressByIndexCallbackPtr ->
+        GetTokenAccountStatesCallbackPtr ->
+        FFI.Ptr PLTBlockState.RustPLTBlockState ->
+        Word.Word64 ->
+        -- | Pointer to 24 bytes containing the serialized 'LockId'.
+        FFI.Ptr Word.Word8 ->
+        FFI.Ptr (FFI.Ptr Word.Word8) ->
+        FFI.Ptr FFI.CSize ->
+        IO Word.Word8
