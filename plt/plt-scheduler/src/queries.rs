@@ -1,18 +1,17 @@
 //! Implementation of queries related to protocol-level tokens.
 
+use crate::locks::lock_controller::LockController;
 use crate::token_context::TokenQueryContext;
 use crate::token_module;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor::cbor_encode;
 use concordium_base::protocol_level_locks::{
-    LockAccountFunds, LockController, LockControllerSimpleV0, LockControllerSimpleV0Grant, LockId,
-    LockInfo, LockedTokenAmount,
+    LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, TokenId};
 use plt_block_state::block_state_interface::{
     BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError,
 };
-use plt_scheduler_types::types::locks::LockControllerConfig;
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
@@ -200,45 +199,10 @@ pub fn query_lock_info<BSQ: BlockStateQuery>(
 
     // Convert the lock controller configuration into the CBOR `LockController` shape used
     // by the `lock-info` payload.
-    let controller = match configuration.controller {
-        LockControllerConfig::SimpleV0(simple) => {
-            let grants = simple
-                .grants
-                .into_iter()
-                .map(|grant| {
-                    let with_addr = block_state.account_by_index(grant.account).map_err(|_| {
-                        QueryLockError::StateInvariantViolation(format!(
-                            "controller grant account index {} recorded in lock configuration \
-                             does not exist",
-                            grant.account
-                        ))
-                    })?;
-                    Ok(LockControllerSimpleV0Grant {
-                        account: CborHolderAccount::from(with_addr.canonical_account_address),
-                        roles: grant.roles,
-                    })
-                })
-                .collect::<Result<_, QueryLockError>>()?;
-            LockController::SimpleV0(LockControllerSimpleV0 {
-                grants,
-                tokens: simple.tokens,
-                keep_alive: simple.keep_alive,
-                memo: simple.memo,
-            })
-        }
-    };
+    let controller = configuration.controller.to_cbor_controller(block_state)?;
 
     // Group the tracked `(account, token)` balances by account so we emit a single
-    // `LockAccountFunds` entry per account, matching the CBOR `lock-info` shape. We key
-    // the intermediate map by `AccountIndex` (which is `Ord`) since the opaque
-    // `BSQ::Account` associated type is not required by the trait to support ordering.
-    //
-    // The locked amount for each `(account, token)` pair is read from the token-module
-    // key-value state via `token_module::query_locked_balance` (see
-    // `plt-scheduler/src/token_module/key_value_state.rs::get_locked_balance_for`),
-    // which is the source of truth for per-`(account, token, lock)` locked amounts.
-    // Reading the account's full token balance here would over-report by including the
-    // unlocked portion.
+    // `LockAccountFunds` entry per account.
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
     for (account, token) in block_state.lock_balances(lock_id) {
         let account_index = block_state.account_index(&account);

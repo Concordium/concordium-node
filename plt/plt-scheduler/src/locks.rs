@@ -1,2 +1,2 @@
-mod lock_controller;
+pub mod lock_controller;
 mod lock_controller_simple;
