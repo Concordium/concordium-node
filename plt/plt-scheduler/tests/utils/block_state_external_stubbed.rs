@@ -96,7 +96,7 @@ struct AccountToken {
 impl BlockStateWithExternalStateStubbed {
     /// Create fresh block state stub
     pub fn new(protocol_version: ProtocolVersion) -> Self {
-        let inner_block_state = BlockState::empty().into_mutable();
+        let inner_block_state = BlockState::empty(protocol_version).into_mutable();
 
         let external_block_state = ExternalBlockStateStub {
             accounts: Default::default(),
@@ -104,7 +104,6 @@ impl BlockStateWithExternalStateStubbed {
         };
 
         let block_state = ExecutionTimeBlockState {
-            protocol_version,
             internal_block_state: inner_block_state,
             blob_store_load: UnreachableBlobStore,
             external_block_state,
