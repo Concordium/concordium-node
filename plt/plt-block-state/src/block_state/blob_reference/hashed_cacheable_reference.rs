@@ -65,7 +65,7 @@ impl<V> HashedCacheableRef<V> {
         }
     }
 
-    /// Access the referenced value. If the value is already in memory, the value
+    /// Return the referenced value. If the value is already in memory, the value
     /// is returned as borrowed. If it is not in memory, it is loaded from the
     /// blob store, and returned as owned.
     ///
@@ -79,6 +79,35 @@ impl<V> HashedCacheableRef<V> {
         V: Loadable,
     {
         self.inner.repr.get_or_load_value(loader)
+    }
+}
+
+impl<'b, V> OwnedOrBorrowed<'b, HashedCacheableRef<V>> {
+    /// Return the referenced value (as implemented by [`HashedCacheableRef::value`]) for an
+    /// owned or borrowed reference. If the reference is `Owned`, and
+    /// [`HashedCacheableRef::value`] returns a borrowed value, `bind_value` returns `None`.
+    /// Notice that an owned or borrowed reference that has just been returned by calling
+    /// [`HashedCacheableRef::value`], will never return `None` when calling `bind_value` on it.
+    ///
+    /// Notice that this function is essentially binding the operation
+    /// [`HashedCacheableRef::value`] in the monadic structure of [`OwnedOrBorrowed`].
+    /// But [`OwnedOrBorrowed`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
+    /// into neither `Owned` nor `Borrowed`, hence `bind_value` will return `None` in that case.
+    /// Notice that all other combinations of `Owned` and `Borrowed` can be "joined".
+    pub fn bind_value(
+        self,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Option<OwnedOrBorrowed<'b, V>>>
+    where
+        V: Loadable,
+    {
+        Ok(match self {
+            OwnedOrBorrowed::Owned(hcr) => match hcr.value(loader)? {
+                OwnedOrBorrowed::Owned(val) => Some(OwnedOrBorrowed::Owned(val)),
+                OwnedOrBorrowed::Borrowed(_) => None,
+            },
+            OwnedOrBorrowed::Borrowed(hcr) => Some(hcr.value(loader)?),
+        })
     }
 }
 
@@ -207,7 +236,7 @@ impl<V> HashedCacheableRefRepr<V> {
     }
 }
 
-impl<V: Loadable> Loadable for HashedCacheableRef<V> {
+impl<V> Loadable for HashedCacheableRef<V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         _loader: &impl BlobStoreLoad,

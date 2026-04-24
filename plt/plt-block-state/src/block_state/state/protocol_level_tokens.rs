@@ -43,8 +43,8 @@ impl ProtocolLevelTokens {
         &self,
         loader: &impl BlobStoreLoad,
     ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
-        self.tokens.values(loader, |_token_index, token| {
-            Ok(match token.configuration.value(loader)? {
+        self.tokens.values(loader).map(|item| {
+            Ok(match item?.1.configuration.value(loader)? {
                 OwnedOrBorrowed::Owned(v) => v.0.token_id,
                 OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
             })
@@ -62,13 +62,15 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
     ) -> BlockStateResult<smart_contract_trie::MutableState> {
-        self.tokens
-            .lookup_value(loader, token_index, |token| {
-                Ok(token.key_value_state.value(loader)?.thaw())
-            })
+        Ok(self
+            .tokens
+            .lookup_value(loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
+            .key_value_state
+            .value(loader)?
+            .thaw())
     }
 
     pub fn token_configuration(
@@ -76,13 +78,16 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenConfiguration> {
-        self.tokens
-            .lookup_value(loader, token_index, |token| {
-                Ok(token.configuration.value(loader)?.into_owned().0)
-            })
+        Ok(self
+            .tokens
+            .lookup_value(loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
+            .configuration
+            .value(loader)?
+            .into_owned_or_clone()
+            .0)
     }
 
     pub fn token_circulating_supply(
@@ -90,11 +95,14 @@ impl ProtocolLevelTokens {
         loader: &impl BlobStoreLoad,
         token_index: TokenIndex,
     ) -> BlockStateResult<RawTokenAmount> {
-        self.tokens
-            .lookup_value(loader, token_index, |token| Ok(token.circulating_supply.0))
+        Ok(self
+            .tokens
+            .lookup_value(loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("token not found by index: {:?}", token_index))
             })?
+            .circulating_supply
+            .0)
     }
 
     pub fn set_token_circulating_supply(
@@ -109,7 +117,7 @@ impl ProtocolLevelTokens {
                 .update_value(loader, token_index, |token| {
                     Ok(Token {
                         circulating_supply: StoreSerialized(circulating_supply),
-                        ..token.into_owned()
+                        ..token.into_owned_or_clone()
                     })
                 })
                 .ok_or_else(|| {
@@ -163,7 +171,7 @@ impl ProtocolLevelTokens {
                 .update_value(loader, token_index, |token| {
                     Ok(Token {
                         key_value_state: HashedCacheableRef::new(frozen_key_value_state),
-                        ..token.into_owned()
+                        ..token.into_owned_or_clone()
                     })
                 })
                 .ok_or_else(|| {
@@ -193,7 +201,9 @@ impl Loadable for ProtocolLevelTokens {
         // the blob store. This is not ideal. If the state is to be cached after loading, we would
         // rather wait until it is cached in memory before constructing the map.
         let token_id_map = tokens
-            .values(loader, |token_index, plt| {
+            .values(loader)
+            .map(|item| {
+                let (token_index, plt) = item?;
                 let conf = plt.configuration.value(loader)?;
                 Ok((normalize_token_id(&conf.0.token_id), token_index))
             })
