@@ -4,10 +4,10 @@ use concordium_base::base::ProtocolVersion;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_block_state::block_state::blob_store::BlobStoreLocation;
 use plt_block_state::block_state::blob_store::test_stub::BlobStoreStub;
-use plt_block_state::block_state::hash::Hashable;
 use plt_block_state::block_state::entity::protocol_level_tokens::{
     TokenConfiguration, TokenStateKey, TokenStateValue,
 };
+use plt_block_state::block_state::hash::Hashable;
 use plt_block_state::block_state::{BlockState, blob_store};
 use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
 use plt_scheduler_types::types::tokens::RawTokenAmount;

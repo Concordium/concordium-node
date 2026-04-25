@@ -315,6 +315,52 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
             encoded_metadata,
         )
     }
+
+    /// Get the allow-list state for the account at the given account.
+    pub fn get_allow_list_for(&self, account: AccountIndex) -> bool {
+        self.mutable_key_value_state
+            .lookup_value(
+                &self.store_loader,
+                &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+            )
+            .is_some()
+    }
+
+    /// Set the allow-list state for the account at the given account.
+    pub fn set_allow_list_for(
+        &mut self,
+        account: AccountIndex,
+        value: bool,
+    ) -> BlockStateResult<()> {
+        self.mutable_key_value_state.insert_or_delete_value(
+            &self.store_loader,
+            &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+            value.then_some(vec![]),
+        )
+    }
+
+    /// Get the deny-list state for the account at the given account.
+    pub fn get_deny_list_for(&self, account: AccountIndex) -> bool {
+        self.mutable_key_value_state
+            .lookup_value(
+                &self.store_loader,
+                &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+            )
+            .is_some()
+    }
+
+    /// Set the deny-list state for the account at the given account.
+    pub fn set_deny_list_for(
+        &mut self,
+        account: AccountIndex,
+        value: bool,
+    ) -> BlockStateResult<()> {
+        self.mutable_key_value_state.insert_or_delete_value(
+            &self.store_loader,
+            &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+            value.then_some(vec![]),
+        )
+    }
 }
 
 #[cfg(test)]

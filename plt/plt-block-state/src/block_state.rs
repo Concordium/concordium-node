@@ -4,18 +4,19 @@ use crate::block_state::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
 };
 use crate::block_state::cacheable::Cacheable;
-use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::hash::Hashable;
-use crate::block_state::persistent::protocol_level_tokens::PersistentPlTokens;
 use crate::block_state::entity::AccountWithCanonicalAddress;
 use crate::block_state::entity::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
+use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::block_state::hash::Hashable;
+use crate::block_state::persistent::protocol_level_tokens::PersistentPlTokens;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
     BlockStateOperations, BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
+use crate::entity::protocol_level_tokens::PlTokenEntity;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
@@ -24,7 +25,6 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
 use std::{any, mem};
-use crate::entity::protocol_level_tokens::PlTokenEntity;
 
 pub mod blob_reference;
 pub mod blob_store;
@@ -34,8 +34,6 @@ pub mod hash;
 pub mod lfmb_tree;
 pub mod smart_contract_trie;
 pub mod utils;
-
-
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
@@ -52,13 +50,12 @@ pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
     pub external_block_state: ExtState,
 }
 
-
 impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
 {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = AccountIndex;
-    type Token = PlTokenEntity<>;
+    type Token = PlTokenEntity;
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         todo!()

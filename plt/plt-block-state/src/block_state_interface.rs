@@ -65,7 +65,6 @@ pub struct TokenStateKey(pub Vec<u8>);
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct TokenStateValue(pub Vec<u8>);
 
-
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the thawed (mutable) token key-value map.

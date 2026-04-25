@@ -1,7 +1,7 @@
 //! Stateful entity model for block state
 
-pub mod protocol_level_tokens;
 mod block_state;
+pub mod protocol_level_tokens;
 
 use concordium_base::contracts_common::AccountAddress;
 

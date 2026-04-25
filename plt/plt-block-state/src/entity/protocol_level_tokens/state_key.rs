@@ -10,8 +10,6 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::{base::AccountIndex, common::Serial};
 
-
-
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
 
@@ -41,7 +39,6 @@ pub fn module_state_key(key: &[u8]) -> Vec<u8> {
     module_key
 }
 
-
 /// Construct a key for the account section of the token state.
 pub fn account_state_key(account_index: AccountIndex, key: &[u8]) -> Vec<u8> {
     let mut account_key =
@@ -52,7 +49,6 @@ pub fn account_state_key(account_index: AccountIndex, key: &[u8]) -> Vec<u8> {
     account_key
 }
 
-
 /// Construct a key for the account roles section of the token state.
 pub fn account_roles_state_key(account_index: AccountIndex) -> Vec<u8> {
     let mut account_key =
@@ -61,9 +57,6 @@ pub fn account_roles_state_key(account_index: AccountIndex) -> Vec<u8> {
     account_index.serial(&mut account_key);
     account_key
 }
-
-
-
 
 /// Lookup a value from the account roles section of the token state.
 fn get_account_roles_state(
@@ -96,12 +89,6 @@ fn update_account_roles_state(
         trie.delete_value(loader, &account_roles_state_key(account))
     }
 }
-
-
-
-
-
-
 
 /// Get the authorization roles for an account from state.
 pub fn get_account_roles(
@@ -210,37 +197,6 @@ pub fn get_token_authorizations<BSQ: BlockStateQuery>(
     })
 }
 
-
-/// Get the allow-list state for the account at the given account.
-pub fn get_allow_list_for(context: &impl ReadTokenKeyValueState, account: AccountIndex) -> bool {
-    get_account_state(context, account, STATE_KEY_ALLOW_LIST).is_some()
-}
-
-/// Set the allow-list state for the account at the given account.
-pub fn set_allow_list_for<BSO: BlockStateOperations>(
-    context: &mut TokenOperationContext<BSO>,
-    account: AccountIndex,
-    value: bool,
-) {
-    let state_value = value.then_some(TokenStateValue(vec![]));
-    update_account_state(context, account, STATE_KEY_ALLOW_LIST, state_value)
-}
-
-/// Get the deny-list state for the account at the given account.
-pub fn get_deny_list_for(context: &impl ReadTokenKeyValueState, account: AccountIndex) -> bool {
-    get_account_state(context, account, STATE_KEY_DENY_LIST).is_some()
-}
-
-/// Set the deny-list state for the account at the given account.
-pub fn set_deny_list_for<BSO: BlockStateOperations>(
-    context: &mut TokenOperationContext<BSO>,
-    account: AccountIndex,
-    value: bool,
-) {
-    let state_value = value.then_some(TokenStateValue(vec![]));
-    update_account_state(context, account, STATE_KEY_DENY_LIST, state_value)
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -256,9 +212,6 @@ mod test {
     #[test]
     fn test_account_state_key() {
         let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
-        assert_eq!(
-            key,
-            vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]
-        );
+        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
     }
 }

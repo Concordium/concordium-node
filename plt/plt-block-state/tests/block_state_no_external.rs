@@ -19,10 +19,10 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::block_state::blob_store::test_stub::BlobStoreStub;
 use plt_block_state::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation};
+use plt_block_state::block_state::entity::protocol_level_tokens::{TokenAccountState, TokenIndex};
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_block_state::block_state::entity::protocol_level_tokens::{TokenAccountState, TokenIndex};
 use plt_block_state::block_state::{
     BlockState, BlockStateData, ExecutionTimeBlockState, MutableBlockState,
 };

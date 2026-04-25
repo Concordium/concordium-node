@@ -10,9 +10,5 @@ use crate::block_state::hash::Hashable;
 use concordium_base::common::Buffer;
 use std::io::Read;
 
-pub mod protocol_level_tokens;
 pub mod block_state;
-
-
-
-
+pub mod protocol_level_tokens;

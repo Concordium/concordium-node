@@ -3,11 +3,11 @@
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
+use crate::entity::protocol_level_tokens::TokenAccountState;
+use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::entity::protocol_level_tokens::TokenAccountState;
-use crate::persistent::protocol_level_tokens::TokenIndex;
 
 /// Type definition for queries to externally managed parts of the block state.
 /// This state is managed in Haskell.

@@ -2,14 +2,14 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 use super::status;
+use crate::block_state::blob_store;
 use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::{blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
 use crate::persistent::block_state::PersistentBlockState;
+use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 
 /// Allocate a new empty PLT block state.
 ///
@@ -153,8 +153,9 @@ extern "C" fn ffi_load_plt_block_state(
     let panic_message = status::catch_unwind(move || {
         let protocol_version =
             ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-        let block_state = PersistentBlockState::load_from_store(&load_callback, blob_ref, protocol_version)
-            .expect("Failed loading the block state");
+        let block_state =
+            PersistentBlockState::load_from_store(&load_callback, blob_ref, protocol_version)
+                .expect("Failed loading the block state");
         unsafe {
             *block_state_out = Box::into_raw(Box::new(block_state));
         }

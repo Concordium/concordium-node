@@ -36,7 +36,6 @@ pub fn normalize_token_id(token_id: &TokenId) -> NormalizedTokenId {
     NormalizedTokenId(token_id.as_ref().to_ascii_lowercase())
 }
 
-
 impl Storable for PersistentPlTokens {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
@@ -48,7 +47,8 @@ impl Loadable for PersistentPlTokens {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let tokens: LfmbTree<TokenIndex, PersistentPlToken> = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let tokens: LfmbTree<TokenIndex, PersistentPlToken> =
+            Loadable::load_from_buffer(&mut buffer, loader)?;
         // To construct the full token id to token index map, we need to read the LFMBTree from
         // the blob store. This is not ideal. If the state is to be cached after loading, we would
         // rather wait until it is cached in memory before constructing the map.
