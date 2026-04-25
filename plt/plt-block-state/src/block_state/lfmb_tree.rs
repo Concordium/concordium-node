@@ -425,10 +425,10 @@ impl<V> Clone for Subtree<V> {
     }
 }
 
-/// [`Subtree`] where blob references are wrapped in [`OwnedOrBorrowed`].
-/// Used as return value for [`OwnedOrBorrowed<Subtree>::transpose_owned_or_borrowed`].
+/// [`Subtree`] with [`OwnedOrBorrowed`] structurally projected.
+/// Used as return value for [`OwnedOrBorrowed<Subtree>::owned_or_borrowed_structural_project`].
 #[derive(Debug)]
-enum SubtreeOfOwnedOrBorrowed<'b, V> {
+enum SubtreeOwnedOrBorrowedProjection<'b, V> {
     /// Leaf with value. See [`Subtree::Leaf`]
     Leaf(OwnedOrBorrowed<'b, HashedCacheableRef<V>>),
     /// Node with two subtrees/branches.
@@ -482,8 +482,8 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
     where
         V: Loadable,
     {
-        Ok(match self.transpose_owned_or_borrowed() {
-            SubtreeOfOwnedOrBorrowed::Leaf(val_ref) => {
+        Ok(match self.owned_or_borrowed_structural_project() {
+            SubtreeOwnedOrBorrowedProjection::Leaf(val_ref) => {
                 // When we reach the leaf for the key, the key must be 0.
                 if key != SubtreeKey(0) {
                     return Err(BlockStateFailure::Invariant(format!(
@@ -495,7 +495,7 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
                     .bind_value(loader)?
                     .expect("Owned leaf reference returned borrowed value")
             }
-            SubtreeOfOwnedOrBorrowed::Node(height, left_ref, right_ref) => {
+            SubtreeOwnedOrBorrowedProjection::Node(height, left_ref, right_ref) => {
                 // The height'th bit in key decides if we should follow left `0`
                 // or right branch `1`. Additionally, when going right, we set the bit to 0.
                 // This allows us to check the invariant that the key must be identical to 0
@@ -516,26 +516,26 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
     }
 
     /// Move [`OwnedOrBorrowed`] inside the subtree wrapping blob references directly.
-    fn transpose_owned_or_borrowed(self) -> SubtreeOfOwnedOrBorrowed<'b, V>
+    fn owned_or_borrowed_structural_project(self) -> SubtreeOwnedOrBorrowedProjection<'b, V>
     where
         V: Loadable,
     {
         match self {
             OwnedOrBorrowed::Borrowed(Subtree::Leaf(value_ref)) => {
-                SubtreeOfOwnedOrBorrowed::Leaf(OwnedOrBorrowed::Borrowed(value_ref))
+                SubtreeOwnedOrBorrowedProjection::Leaf(OwnedOrBorrowed::Borrowed(value_ref))
             }
             OwnedOrBorrowed::Borrowed(Subtree::Node(height, left_ref, right_ref)) => {
-                SubtreeOfOwnedOrBorrowed::Node(
+                SubtreeOwnedOrBorrowedProjection::Node(
                     *height,
                     OwnedOrBorrowed::Borrowed(left_ref),
                     OwnedOrBorrowed::Borrowed(right_ref),
                 )
             }
             OwnedOrBorrowed::Owned(Subtree::Leaf(value_ref)) => {
-                SubtreeOfOwnedOrBorrowed::Leaf(OwnedOrBorrowed::Owned(value_ref))
+                SubtreeOwnedOrBorrowedProjection::Leaf(OwnedOrBorrowed::Owned(value_ref))
             }
             OwnedOrBorrowed::Owned(Subtree::Node(height, left_ref, right_ref)) => {
-                SubtreeOfOwnedOrBorrowed::Node(
+                SubtreeOwnedOrBorrowedProjection::Node(
                     height,
                     OwnedOrBorrowed::Owned(left_ref),
                     OwnedOrBorrowed::Owned(right_ref),
@@ -776,11 +776,11 @@ fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     subtree: OwnedOrBorrowed<'b, Subtree<V>>,
     node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
 ) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
-    Ok(match subtree.transpose_owned_or_borrowed() {
-        SubtreeOfOwnedOrBorrowed::Leaf(val_ref) => val_ref
+    Ok(match subtree.owned_or_borrowed_structural_project() {
+        SubtreeOwnedOrBorrowedProjection::Leaf(val_ref) => val_ref
             .bind_value(loader)?
             .expect("Owned leaf reference returned borrowed value"),
-        SubtreeOfOwnedOrBorrowed::Node(_, left_ref, right_ref) => {
+        SubtreeOwnedOrBorrowedProjection::Node(_, left_ref, right_ref) => {
             let right = right_ref
                 .bind_value(loader)?
                 .expect("Owned left branch reference returned borrowed value");
