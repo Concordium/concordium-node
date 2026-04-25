@@ -1,5 +1,9 @@
 //! Block state utility types and functions.
 
+use concordium_base::common::cbor;
+use concordium_base::common::cbor::{
+    CborDeserialize, CborSerializationResult, SerializationOptions, UnknownMapKeys,
+};
 use std::ops::Deref;
 
 /// Value of type `T` that is either owned or borrowed.
@@ -56,4 +60,13 @@ impl<T> Deref for OwnedOrBorrowed<'_, T> {
             OwnedOrBorrowed::Borrowed(r) => r,
         }
     }
+}
+
+/// Decode given CBOR using decode options set to suit the token module. The decode options
+/// will generally be strict.
+pub fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationResult<T> {
+    let decode_options = SerializationOptions {
+        unknown_map_keys: UnknownMapKeys::Fail,
+    };
+    cbor::cbor_decode_with_options(cbor, decode_options)
 }

@@ -1,15 +1,16 @@
 //! Protocol-level token types used in the block state.
 
+use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::block_state::blob_store::BlobStoreLoad;
-use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::state_key::{
     STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST, STATE_KEY_GOVERNANCE_ACCOUNT,
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
 use crate::persistent;
-use crate::persistent::protocol_level_tokens::{PersistentPlToken, PersistentPlTokens};
+use crate::persistent::protocol_level_tokens::{PersistentPlToken, PersistentPlTokens, TokenIndex};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::Serialize;
@@ -79,6 +80,14 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
         let token_index = *self.persistent.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
+
+        self.thaw_token(token_index)
+    }
+
+    fn thaw_token(
+        &self,
+        token_index: TokenIndex,
+    ) -> BlockStateResult<Option<PlTokenEntity<'a, L>>> {
         let persistent_token = self
             .persistent
             .tokens
@@ -93,16 +102,41 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
             .thaw();
 
         Ok(Some(PlTokenEntity {
+            token_index,
             persistent: persistent_token,
             mutable_key_value_state,
             store_loader: self.store_loader,
         }))
+    }
+
+    pub fn freeze_token(&mut self, mut token: PlTokenEntity<'a, L>) -> BlockStateResult<()> {
+        // todo ar check if key-value state is dirty
+        token.persistent.to_mut().key_value_state =
+            HashedCacheableRef::new(token.mutable_key_value_state.freeze(self.store_loader));
+
+        // todo ar check if token is dirty
+        self.persistent.tokens = self
+            .persistent
+            .tokens
+            .update_value(self.store_loader, token.token_index, |_| {
+                Ok(token.persistent.into_owned_or_clone())
+            })?
+            .ok_or_else(|| {
+                BlockStateFailure::Invariant(format!(
+                    "Token not found by index: {:?}",
+                    token.token_index
+                ))
+            })?;
+
+        Ok(())
     }
 }
 
 /// Protocol-level token entity.
 #[derive(Debug)]
 pub struct PlTokenEntity<'a, L> {
+    /// Token index
+    token_index: TokenIndex,
     /// Persistent model of the protoco-level token. If changed, it must be written
     /// back.
     persistent: OwnedOrBorrowed<'a, PersistentPlToken>,
@@ -152,11 +186,18 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
 
     /// Sets the paused state of the token module.
     pub fn set_paused(&mut self, value: bool) -> BlockStateResult<()> {
-        self.mutable_key_value_state.insert_or_delete_value(
-            &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_PAUSED),
-            value.then_some(vec![]),
-        )
+        if value {
+            self.mutable_key_value_state.insert_value(
+                &self.store_loader,
+                &state_key::module_state_key(STATE_KEY_PAUSED),
+                vec![],
+            )
+        } else {
+            self.mutable_key_value_state.delete_value(
+                &self.store_loader,
+                &state_key::module_state_key(STATE_KEY_PAUSED),
+            )
+        }
     }
 
     /// Get whether the token has allow lists enabled.
@@ -300,7 +341,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
                 &state_key::module_state_key(STATE_KEY_METADATA),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Metadata not present".to_string()))?;
-        let metadata: MetadataUrl = util::cbor_decode(metadata_cbor).map_err(|err| {
+        let metadata: MetadataUrl = utils::cbor_decode(metadata_cbor).map_err(|err| {
             BlockStateFailure::Invariant(format!("Stored metadata CBOR not decodable: {}", err))
         })?;
         Ok(metadata)
@@ -332,11 +373,18 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         account: AccountIndex,
         value: bool,
     ) -> BlockStateResult<()> {
-        self.mutable_key_value_state.insert_or_delete_value(
-            &self.store_loader,
-            &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
-            value.then_some(vec![]),
-        )
+        if value {
+            self.mutable_key_value_state.insert_value(
+                &self.store_loader,
+                &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+                vec![],
+            )
+        } else {
+            self.mutable_key_value_state.delete_value(
+                &self.store_loader,
+                &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+            )
+        }
     }
 
     /// Get the deny-list state for the account at the given account.
@@ -355,11 +403,18 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         account: AccountIndex,
         value: bool,
     ) -> BlockStateResult<()> {
-        self.mutable_key_value_state.insert_or_delete_value(
-            &self.store_loader,
-            &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
-            value.then_some(vec![]),
-        )
+        if value {
+            self.mutable_key_value_state.insert_value(
+                &self.store_loader,
+                &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+                vec![],
+            )
+        } else {
+            self.mutable_key_value_state.delete_value(
+                &self.store_loader,
+                &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+            )
+        }
     }
 }
 

@@ -330,28 +330,25 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
         loader: &impl BlobStoreLoad,
         key: K,
         update: impl FnOnce(OwnedOrBorrowed<'_, V>) -> BlockStateResult<V>,
-    ) -> Option<BlockStateResult<Self>>
+    ) -> BlockStateResult<Option<Self>>
     where
         V: Loadable,
     {
-        match &self.inner {
+        Ok(match &self.inner {
             LfmbTreeInner::Empty => None,
             LfmbTreeInner::NonEmpty(size, subtree) => {
                 let int_key = SubtreeKey(key.to_u64());
                 if int_key.0 < *size {
-                    let new_subtree = match subtree.update_value(loader, int_key, update) {
-                        Ok(new_subtree) => new_subtree,
-                        Err(err) => return Some(Err(err)),
-                    };
-                    Some(Ok(Self::from_inner(LfmbTreeInner::NonEmpty(
+                    let new_subtree = subtree.update_value(loader, int_key, update)?;
+                    Some(Self::from_inner(LfmbTreeInner::NonEmpty(
                         *size,
                         new_subtree,
-                    ))))
+                    )))
                 } else {
                     None
                 }
             }
-        }
+        })
     }
 
     fn from_inner(inner: LfmbTreeInner<V>) -> Self {

@@ -10,7 +10,9 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state::entity::protocol_level_tokens::{TokenStateKey, TokenStateValue};
-use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
+use plt_block_state::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue,
+};
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();

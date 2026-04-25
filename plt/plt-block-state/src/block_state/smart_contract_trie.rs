@@ -188,23 +188,6 @@ impl MutableState {
         Ok(())
     }
 
-    /// Insert, update or delete the value for the given key. If a value is specified
-    /// and no entry exists in the trie for the given key, the value is inserted.
-    /// If an entry already exists for the given key, the value is updated. If no
-    /// value is specified, the value for the given key is deleted.
-    pub fn insert_or_delete_value(
-        &mut self,
-        loader: &impl BlobStoreLoad,
-        key: &[u8],
-        value: Option<Vec<u8>>,
-    ) -> BlockStateResult<()> {
-        if let Some(value) = value {
-            self.insert_value(loader, key, value)
-        } else {
-            self.delete_value(loader, key)
-        }
-    }
-
     fn lock(&self) -> MutexGuard<'_, trie::MutableState> {
         self.0.lock().expect("MutableState lock poisoned")
     }
