@@ -22,7 +22,7 @@ use plt_block_state::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation}
 use plt_block_state::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery,
 };
-use plt_block_state::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
+use plt_block_state::block_state::entity::protocol_level_tokens::{TokenAccountState, TokenIndex};
 use plt_block_state::block_state::{
     BlockState, BlockStateData, ExecutionTimeBlockState, MutableBlockState,
 };

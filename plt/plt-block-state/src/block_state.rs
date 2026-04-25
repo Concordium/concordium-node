@@ -6,9 +6,9 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
-use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
-use crate::block_state::types::AccountWithCanonicalAddress;
-use crate::block_state::types::protocol_level_tokens::{
+use crate::block_state::persistent::protocol_level_tokens::PersistentPlTokens;
+use crate::block_state::entity::AccountWithCanonicalAddress;
+use crate::block_state::entity::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
@@ -24,6 +24,7 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
 use std::{any, mem};
+use crate::entity::protocol_level_tokens::PlTokenEntity;
 
 pub mod blob_reference;
 pub mod blob_store;
@@ -31,169 +32,10 @@ pub mod cacheable;
 pub mod external;
 pub mod hash;
 pub mod lfmb_tree;
-mod smart_contract_trie;
-mod state;
-pub mod types;
-mod utils;
+pub mod smart_contract_trie;
+pub mod utils;
 
-/// Immutable block state. The block state is immutable in the sense,
-/// that the state it represents never changes during the lifetime of values of type [`BlockState`].
-/// In order to perform mutating operations on the block state, a new [`BlockState`]
-/// must be created.
-///
-/// The internal representation in [`BlockState`] may change during the lifetime via interior mutability.
-/// This happens if state are cached, stored or hashes are lazily calculated.
-#[derive(Debug, Clone)]
-pub struct BlockState {
-    /// The protocol version of the block state.
-    pub protocol_version: ProtocolVersion,
-    /// Data in the block state
-    pub data: BlockStateData,
-}
 
-#[derive(Debug, Clone, Default)]
-pub struct BlockStateData {
-    /// Protocol-level tokens
-    tokens: ProtocolLevelTokens,
-}
-
-/// The actual data in [`BlockState`]
-impl BlockStateData {
-    pub fn empty() -> Self {
-        BlockStateData {
-            tokens: ProtocolLevelTokens::empty(),
-        }
-    }
-}
-
-impl BlockState {
-    /// Construct an empty block state.
-    pub fn empty(protocol_version: ProtocolVersion) -> Self {
-        BlockState {
-            protocol_version,
-            data: BlockStateData::empty(),
-        }
-    }
-
-    /// Consume the immutable block state and create a mutable block state.
-    pub fn into_mutable(self) -> MutableBlockState {
-        MutableBlockState::new(self)
-    }
-
-    /// Migrate the PLT block state from one blob store to another.
-    ///
-    /// # Arguments
-    ///
-    /// - `from_loader` Blob store loader for the blob store we are migrating from.
-    /// - `to_storer` Blob store storer for the blob store we are migrating to.
-    /// - `to_protocol_version` Protocol version for the block state to migrate to.
-    pub fn migrate(
-        &self,
-        _from_loader: impl BlobStoreLoad,
-        _to_storer: impl BlobStoreStore,
-        _to_protocol_version: ProtocolVersion,
-    ) -> Self {
-        // todo ar
-        todo!()
-    }
-
-    /// See [`blob_store::load_from_store`]. This function only differs by taking
-    /// protocol version as argument.
-    pub fn load_from_store(
-        loader: &impl BlobStoreLoad,
-        location: BlobStoreLocation,
-        protocol_version: ProtocolVersion,
-    ) -> BlockStateResult<Self> {
-        let bytes = loader.load_raw(location);
-        let mut bytes_slice = bytes.as_slice();
-        let value = Self::load_from_buffer(&mut bytes_slice, loader, protocol_version)?;
-        if !bytes_slice.is_empty() {
-            return Err(BlockStateFailure::BlobStoreDecode(format!(
-                "Bytes remaining after loading value of type {} from blob store",
-                any::type_name::<BlockState>()
-            )));
-        };
-        Ok(value)
-    }
-
-    /// See [`Loadable::load_from_buffer`]. This function only differs by taking
-    /// protocol version as argument.
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-        protocol_version: ProtocolVersion,
-    ) -> BlockStateResult<Self> {
-        let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
-
-        Ok(Self {
-            protocol_version,
-            data: BlockStateData { tokens },
-        })
-    }
-}
-
-impl Storable for BlockState {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        self.data.tokens.store_to_buffer(&mut buffer, storer);
-    }
-}
-
-impl Cacheable for BlockState {
-    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.data.tokens.cache_reference_values(loader)?;
-        Ok(())
-    }
-}
-
-impl Hashable for BlockState {
-    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        self.data.tokens.hash(loader)
-    }
-}
-
-/// Mutable block state. In contrast to the immutable block state [`BlockState`],
-/// operations on the mutable block state changes the state that
-/// the value represents.
-#[derive(Debug, Clone)]
-pub struct MutableBlockState {
-    /// Immutable block state value. The block state represented by [`MutableBlockState`] is
-    /// mutated simply by setting a new value for the immutable block state [`BlockState`].
-    immutable_state: BlockState,
-}
-
-impl MutableBlockState {
-    /// Create mutable block state from immutable block state.
-    fn new(mutable_state: BlockState) -> Self {
-        Self {
-            immutable_state: mutable_state,
-        }
-    }
-
-    /// Consume the mutable block state and create an immutable block state.
-    pub fn into_immutable(self) -> BlockState {
-        self.immutable_state
-    }
-
-    /// Update the block state using `update` closure and return
-    /// the additional value of type `T` returned by the closure.
-    fn update_block_state<T>(
-        &mut self,
-        update: impl FnOnce(BlockStateData) -> BlockStateResult<(T, BlockStateData)>,
-    ) -> BlockStateResult<T> {
-        let ret;
-        (ret, self.immutable_state.data) = update(mem::take(&mut self.immutable_state.data))?;
-        Ok(ret)
-    }
-
-    /// Update the block state using `update` closure.
-    fn update_block_state_(
-        &mut self,
-        update: impl FnOnce(BlockStateData) -> BlockStateResult<BlockStateData>,
-    ) -> BlockStateResult<()> {
-        self.immutable_state.data = update(mem::take(&mut self.immutable_state.data))?;
-        Ok(())
-    }
-}
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
@@ -210,65 +52,20 @@ pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
     pub external_block_state: ExtState,
 }
 
-/// Provides access needed for querying block state (but not to do operations on the block state).
-trait HasBlockState {
-    fn block_state(&self) -> &BlockStateData;
-
-    fn protocol_version(&self) -> ProtocolVersion;
-}
-
-impl HasBlockState for &BlockState {
-    fn block_state(&self) -> &BlockStateData {
-        &self.data
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.protocol_version
-    }
-}
-
-impl HasBlockState for BlockState {
-    fn block_state(&self) -> &BlockStateData {
-        &self.data
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.protocol_version
-    }
-}
-
-impl HasBlockState for MutableBlockState {
-    fn block_state(&self) -> &BlockStateData {
-        &self.immutable_state.data
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.immutable_state.protocol_version
-    }
-}
 
 impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
 {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = AccountIndex;
-    type Token = TokenIndex;
+    type Token = PlTokenEntity<>;
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .plt_list(&self.blob_store_load)
-            .map(|item| item.unwrap())
+        todo!()
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .token_by_id(token_id)
-            .ok_or_else(|| TokenNotFoundByIdError(token_id.clone()))
+        todo!()
     }
 
     fn mutable_token_key_value_state(

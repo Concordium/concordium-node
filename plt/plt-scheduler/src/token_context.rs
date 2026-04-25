@@ -8,7 +8,7 @@ use concordium_base::base::ProtocolVersion;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_block_state::block_state::types::protocol_level_tokens::{
+use plt_block_state::block_state::entity::protocol_level_tokens::{
     TokenConfiguration, TokenStateKey, TokenStateValue,
 };
 use plt_block_state::block_state_interface::{

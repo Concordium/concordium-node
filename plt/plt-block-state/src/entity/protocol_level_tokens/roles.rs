@@ -2,7 +2,6 @@
 
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::TokenAdminRole;
-use plt_block_state::block_state::entity::protocol_level_tokens::TokenStateValue;
 
 /// List roles which are unaffected by which features are enabled.
 pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
@@ -76,23 +75,23 @@ impl Roles {
     /// Convert into token state value representation.
     ///
     /// The empty set of roles results in `None`.
-    pub fn into_state_value(self) -> Option<TokenStateValue> {
+    pub fn into_state_value(self) -> Option<Vec<u8>> {
         // The state value is set to none for accounts without any roles.
         if self.has_none() {
             None
         } else {
-            Some(TokenStateValue(common::to_bytes(&self)))
+            Some(common::to_bytes(&self))
         }
     }
 
     /// Convert from token state value representation.
     ///
     /// State value of `None` results in the empty set of roles.
-    pub fn try_from_state_value(value: Option<&TokenStateValue>) -> common::ParseResult<Self> {
+    pub fn try_from_state_value(value: Option<&[u8]>) -> common::ParseResult<Self> {
         let Some(value) = value else {
             return Ok(Roles::none());
         };
-        common::from_bytes_complete(&value.0)
+        common::from_bytes_complete(&value)
     }
 
     /// Iterate the roles assigned.

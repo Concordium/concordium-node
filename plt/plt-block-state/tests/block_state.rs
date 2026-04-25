@@ -5,7 +5,7 @@ use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_block_state::block_state::blob_store::BlobStoreLocation;
 use plt_block_state::block_state::blob_store::test_stub::BlobStoreStub;
 use plt_block_state::block_state::hash::Hashable;
-use plt_block_state::block_state::types::protocol_level_tokens::{
+use plt_block_state::block_state::entity::protocol_level_tokens::{
     TokenConfiguration, TokenStateKey, TokenStateValue,
 };
 use plt_block_state::block_state::{BlockState, blob_store};

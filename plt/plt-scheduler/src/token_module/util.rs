@@ -6,7 +6,7 @@ use concordium_base::common::cbor::{
     CborDeserialize, CborSerializationResult, SerializationOptions, UnknownMapKeys,
 };
 use concordium_base::protocol_level_tokens::TokenAmount;
-use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
+use plt_block_state::block_state::entity::protocol_level_tokens::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Checks that token amount has the right number of decimals and converts it to a plain

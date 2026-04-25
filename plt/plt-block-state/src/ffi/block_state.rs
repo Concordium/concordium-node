@@ -2,13 +2,14 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 use super::status;
 use crate::block_state::blob_store::BlobStoreLocation;
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::{BlockState, blob_store};
+use crate::block_state::{blob_store};
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
-use concordium_base::base::ProtocolVersion;
+use crate::persistent::block_state::PersistentBlockState;
 
 /// Allocate a new empty PLT block state.
 ///
@@ -29,12 +30,12 @@ use concordium_base::base::ProtocolVersion;
 #[unsafe(no_mangle)]
 extern "C" fn ffi_empty_plt_block_state(
     protocol_version: u64,
-    block_state_out: *mut *mut BlockState,
+    block_state_out: *mut *mut PersistentBlockState,
 ) -> status::FfiStatusCode {
     let panic_message = status::catch_unwind(move || {
         let protocol_version =
             ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-        let block_state = BlockState::empty(protocol_version);
+        let block_state = PersistentBlockState::empty(protocol_version);
         unsafe {
             *block_state_out = Box::into_raw(Box::new(block_state));
         }
@@ -58,11 +59,11 @@ extern "C" fn ffi_empty_plt_block_state(
 ///
 /// # Safety
 ///
-/// - Argument `block_state` must be unique, non-null pointer to well-formed [`BlockState`].
+/// - Argument `block_state` must be unique, non-null pointer to well-formed [`PersistentBlockState`].
 ///   No other pointers to the block state must exist.
 /// - Freeing is only ever done once.
 #[unsafe(no_mangle)]
-extern "C" fn ffi_free_plt_block_state(block_state: *mut BlockState) {
+extern "C" fn ffi_free_plt_block_state(block_state: *mut PersistentBlockState) {
     let panic_message = status::catch_unwind(move || {
         assert!(!block_state.is_null(), "block_state is a null pointer.");
         let state = unsafe { Box::from_raw(block_state) };
@@ -88,13 +89,13 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut BlockState) {
 /// # Safety
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
-/// - Argument `block_state` must be a non-null pointer to well-formed [`BlockState`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`PersistentBlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `block_state_hash_out` must be non-null and valid for writes of 32 bytes.
 #[unsafe(no_mangle)]
 extern "C" fn ffi_hash_plt_block_state(
     load_callback: LoadCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     block_state_hash_out: *mut u8,
 ) -> status::FfiStatusCode {
     let panic_message = status::catch_unwind(move || {
@@ -143,7 +144,7 @@ extern "C" fn ffi_load_plt_block_state(
     load_callback: LoadCallback,
     blob_ref: BlobStoreLocation,
     protocol_version: u64,
-    block_state_out: *mut *mut BlockState,
+    block_state_out: *mut *mut PersistentBlockState,
 ) -> status::FfiStatusCode {
     assert!(
         !block_state_out.is_null(),
@@ -152,7 +153,7 @@ extern "C" fn ffi_load_plt_block_state(
     let panic_message = status::catch_unwind(move || {
         let protocol_version =
             ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-        let block_state = BlockState::load_from_store(&load_callback, blob_ref, protocol_version)
+        let block_state = PersistentBlockState::load_from_store(&load_callback, blob_ref, protocol_version)
             .expect("Failed loading the block state");
         unsafe {
             *block_state_out = Box::into_raw(Box::new(block_state));
@@ -183,13 +184,13 @@ extern "C" fn ffi_load_plt_block_state(
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
 /// - Argument `blob_ref_out` must be a non-null and valid pointer for writing
-/// - Argument `block_state` must be a non-null pointer to well-formed [`BlockState`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`PersistentBlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
     blob_ref_out: *mut BlobStoreLocation,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
 ) -> status::FfiStatusCode {
     let panic_message = status::catch_unwind(move || {
         assert!(!block_state.is_null(), "block_state is a null pointer.");
@@ -231,15 +232,15 @@ extern "C" fn ffi_store_plt_block_state(
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
 /// - Argument `store_callback` must be a valid function pointer to a function with a signature matching [`StoreCallback`].
 /// - Argument `new_block_state_out` must be a non-null and valid pointer for writing
-/// - Argument `block_state` must be a non-null pointer to well-formed [`BlockState`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`PersistentBlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_migrate_plt_block_state(
     from_load_callback: LoadCallback,
     to_store_callback: StoreCallback,
     to_protocol_version: u64,
-    new_block_state_out: *mut *mut BlockState,
-    block_state: *const BlockState,
+    new_block_state_out: *mut *mut PersistentBlockState,
+    block_state: *const PersistentBlockState,
 ) -> status::FfiStatusCode {
     let panic_message = status::catch_unwind(move || {
         assert!(!block_state.is_null(), "block_state is a null pointer.");
@@ -277,12 +278,12 @@ extern "C" fn ffi_migrate_plt_block_state(
 /// # Safety
 ///
 /// - Argument `load_callback` must be a valid function pointer to a function with a signature matching [`LoadCallback`].
-/// - Argument `block_state` must be a non-null pointer to well-formed [`BlockState`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`PersistentBlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 #[unsafe(no_mangle)]
 extern "C" fn ffi_cache_plt_block_state(
     load_callback: LoadCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
 ) -> status::FfiStatusCode {
     let panic_message = status::catch_unwind(move || {
         assert!(!block_state.is_null(), "block_state is a null pointer.");

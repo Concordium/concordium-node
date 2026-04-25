@@ -1,5 +1,5 @@
-use crate::block_state::types::AccountWithCanonicalAddress;
-use crate::block_state::types::protocol_level_tokens::{
+use crate::block_state::entity::AccountWithCanonicalAddress;
+use crate::block_state::entity::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
@@ -56,6 +56,15 @@ pub enum BlockStateFailure {
 }
 
 pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
+
+/// Key in the key-value state.
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct TokenStateKey(pub Vec<u8>);
+
+/// Value in the key-value state.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct TokenStateValue(pub Vec<u8>);
+
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {

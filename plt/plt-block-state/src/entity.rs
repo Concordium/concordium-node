@@ -1,6 +1,7 @@
-//! Types used specifically in the block state.
+//! Stateful entity model for block state
 
 pub mod protocol_level_tokens;
+mod block_state;
 
 use concordium_base::contracts_common::AccountAddress;
 

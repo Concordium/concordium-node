@@ -1,5 +1,5 @@
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::types::protocol_level_tokens::{TokenAccountState, TokenIndex};
+use crate::block_state::entity::protocol_level_tokens::{TokenAccountState, TokenIndex};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
@@ -7,6 +7,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::persistent::protocol_level_tokens::TokenIndex;
 
 /// Callbacks for block state queries.
 pub struct ExternalBlockStateQueryCallbacks {

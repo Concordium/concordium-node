@@ -22,8 +22,27 @@ impl<'a, T> OwnedOrBorrowed<'a, T> {
         T: Clone,
     {
         match self {
-            OwnedOrBorrowed::Owned(v) => v,
-            OwnedOrBorrowed::Borrowed(r) => r.clone(),
+            Self::Owned(v) => v,
+            Self::Borrowed(r) => r.clone(),
+        }
+    }
+
+    /// Acquires a mutable reference to the owned form of the data.
+    ///
+    /// Clones the data if it is not already owned.
+    pub fn to_mut(&mut self) -> &mut T
+    where
+        T: Clone,
+    {
+        match *self {
+            Self::Borrowed(borrowed) => {
+                *self = Self::Owned(borrowed.clone());
+                match *self {
+                    Self::Borrowed(..) => unreachable!(),
+                    Self::Owned(ref mut owned) => owned,
+                }
+            }
+            Self::Owned(ref mut owned) => owned,
         }
     }
 }
