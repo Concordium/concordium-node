@@ -88,6 +88,8 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
         &self,
         token_index: TokenIndex,
     ) -> BlockStateResult<Option<PlTokenEntity<'a, L>>> {
+        // todo ar aliasing check?
+
         let persistent_token = self
             .persistent
             .tokens
