@@ -110,11 +110,12 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
     }
 
     pub fn freeze_token(&mut self, mut token: PlTokenEntity<'a, L>) -> BlockStateResult<()> {
-        // todo ar check if key-value state is dirty
-        token.persistent.to_mut().key_value_state =
-            HashedCacheableRef::new(token.mutable_key_value_state.freeze(self.store_loader));
+        if token.mutable_key_value_state.is_dirty() {
+            token.persistent.to_mut().key_value_state =
+                HashedCacheableRef::new(token.mutable_key_value_state.freeze(self.store_loader));
+        }
 
-        // todo ar check if token is dirty
+        // todo ar check if token is dirty?
         self.persistent.tokens = self
             .persistent
             .tokens

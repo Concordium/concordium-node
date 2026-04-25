@@ -59,7 +59,10 @@ impl PersistentState {
     /// Thaw the trie to make it [mutable](MutableState).
     pub fn thaw(&self) -> MutableState {
         let persistent_state = self.lock_read();
-        MutableState(Mutex::new(persistent_state.thaw()))
+        MutableState {
+            dirty: false,
+            inner: Mutex::new(persistent_state.thaw()),
+        }
     }
 
     fn lock_write(&self) -> RwLockWriteGuard<'_, trie::PersistentState> {
@@ -113,7 +116,10 @@ where
 
 /// Mutable trie. This is the thawed/mutable dual to [`PersistentState`].
 #[derive(Debug)]
-pub struct MutableState(Mutex<trie::MutableState>);
+pub struct MutableState {
+    dirty: bool,
+    inner: Mutex<trie::MutableState>,
+}
 
 impl MutableState {
     /// Freeze the trie to make it [persistent](PersistentState).
@@ -170,6 +176,7 @@ impl MutableState {
         trie.insert(&mut loader, key, value).map_err(|err| {
             BlockStateFailure::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
+        // todo ar set dirty
         Ok(())
     }
 
@@ -185,15 +192,21 @@ impl MutableState {
         trie.delete(&mut loader, key).map_err(|err| {
             BlockStateFailure::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
+        // todo ar set dirty
         Ok(())
     }
 
+    /// If the trie has been modified since being thawed.
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
     fn lock(&self) -> MutexGuard<'_, trie::MutableState> {
-        self.0.lock().expect("MutableState lock poisoned")
+        self.inner.lock().expect("MutableState lock poisoned")
     }
 
     fn get_mut(&mut self) -> &mut trie::MutableState {
-        self.0.get_mut().expect("MutableState lock poisoned")
+        self.inner.get_mut().expect("MutableState lock poisoned")
     }
 }
 
@@ -273,12 +286,15 @@ mod test {
 
         // Insert entries
         let mut mutable_state = state.thaw();
+        assert_eq!(mutable_state.is_dirty(), false);
         mutable_state
             .insert_value(&UnreachableBlobStore, &[0, 1], vec![1, 1])
             .unwrap();
+        assert_eq!(mutable_state.is_dirty(), true);
         mutable_state
             .insert_value(&UnreachableBlobStore, &[0, 2], vec![2, 2])
             .unwrap();
+        assert_eq!(mutable_state.is_dirty(), true);
 
         // Lookup values in mutable state
         assert_eq!(
@@ -311,11 +327,13 @@ mod test {
         // Update and delete entries
         let mut mutable_state = state.thaw();
         mutable_state
-            .insert_value(&UnreachableBlobStore, &[0, 1], vec![4, 4])
-            .unwrap();
-        mutable_state
             .delete_value(&UnreachableBlobStore, &[0, 2])
             .unwrap();
+        assert_eq!(mutable_state.is_dirty(), true);
+        mutable_state
+            .insert_value(&UnreachableBlobStore, &[0, 1], vec![4, 4])
+            .unwrap();
+        assert_eq!(mutable_state.is_dirty(), true);
 
         // Lookup values in mutable state
         assert_eq!(
@@ -379,6 +397,7 @@ mod test {
             .unwrap()
             .collect();
         assert_eq!(values, vec![]);
+        assert_eq!(mutable_state.is_dirty(), false);
 
         // Freeze state
         let state = mutable_state.freeze(&UnreachableBlobStore);
