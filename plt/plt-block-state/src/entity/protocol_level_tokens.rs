@@ -1,7 +1,7 @@
 //! Protocol-level token types used in the block state.
 
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::blob_store::BlobStoreLoad;
+use crate::block_state::blob_store::{BlobStoreLoad, StoreSerialized};
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
@@ -44,6 +44,40 @@ pub struct TokenAccountState {
     pub balance: RawTokenAmount,
 }
 
+pub trait SupportsPlTokens {
+    /// Get the [`TokenId`]s of all protocol-level tokens.
+    fn plt_list(
+        &self,
+    ) -> BlockStateResult<impl ExactSizeIterator<Item = BlockStateResult<TokenId>>>;
+
+    /// Get the token associated with a [`TokenId`] (if it exists).
+    /// The token ID is case-insensitive when looking up tokens by token ID.
+    ///
+    /// # Arguments
+    ///
+    /// - `token_id` The token id to get the [`Self::Token`] of.
+    fn token_by_id(
+        &self,
+        token_id: &TokenId,
+    ) -> BlockStateResult<Option<PlTokenEntity<'_, impl BlobStoreLoad>>>;
+
+    /// Create a new token with the given configuration. The initial state will be empty
+    /// and the initial supply will be 0. Returns representation of the created token.
+    ///
+    /// # Arguments
+    ///
+    /// - `configuration` The configuration for the token.
+    fn create_token(
+        &mut self,
+        configuration: TokenConfiguration,
+    ) -> BlockStateResult<PlTokenEntity<'_, impl BlobStoreLoad>>;
+
+    /// Increment the update sequence number for Protocol Level Tokens (PLT).
+    ///
+    /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+    fn increment_plt_update_instruction_sequence_number(&mut self);
+}
+
 /// Protocol-level tokens.
 #[derive(Debug)]
 pub struct PlTokens<'a, L> {
@@ -53,8 +87,16 @@ pub struct PlTokens<'a, L> {
     store_loader: &'a L,
 }
 
+impl<'a, L> PlTokens<'a, L> {
+    pub fn new(persistent: OwnedOrBorrowed<'a, PersistentPlTokens>, store_loader: &'a L) -> Self {
+        Self {
+            persistent,
+            store_loader,
+        }
+    }
+}
+
 impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
-    /// Get the [`TokenId`]s of all protocol-level tokens.
     pub fn plt_list(&self) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
         self.persistent
             .tokens
@@ -67,27 +109,48 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
             })
     }
 
-    /// Get the token associated with a [`TokenId`] (if it exists).
-    /// The token ID is case-insensitive when looking up tokens by token ID.
-    ///
-    /// # Arguments
-    ///
-    /// - `token_id` The token id to get the [`Self::Token`] of.
     pub fn token_by_id(
         &self,
         token_id: &TokenId,
     ) -> BlockStateResult<Option<PlTokenEntity<'a, L>>> {
-        let token_index = *self.persistent.token_id_map.get(
+        let token_index_option = *self.persistent.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
+
+        let Some(token_index) = token_index_option else {
+            return Ok(None);
+        };
+
+        self.thaw_token(token_index).map(Some)
+    }
+
+    pub fn create_token(
+        &mut self,
+        configuration: TokenConfiguration,
+    ) -> BlockStateResult<PlTokenEntity<'a, L>> {
+        let normalized_token_id =
+            persistent::protocol_level_tokens::normalize_token_id(&configuration.token_id);
+
+        let persistent_token = PersistentPlToken {
+            configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
+            key_value_state: HashedCacheableRef::new(smart_contract_trie::PersistentState::empty()),
+            circulating_supply: StoreSerialized(RawTokenAmount(0)),
+        };
+
+        let token_index;
+        (token_index, self.persistent.to_mut().tokens) = self
+            .persistent
+            .tokens
+            .insert_value(self.store_loader, persistent_token)?;
+        self.persistent
+            .to_mut()
+            .token_id_map
+            .insert(normalized_token_id, token_index);
 
         self.thaw_token(token_index)
     }
 
-    fn thaw_token(
-        &self,
-        token_index: TokenIndex,
-    ) -> BlockStateResult<Option<PlTokenEntity<'a, L>>> {
+    fn thaw_token(&self, token_index: TokenIndex) -> BlockStateResult<PlTokenEntity<'a, L>> {
         // todo ar aliasing check?
 
         let persistent_token = self
@@ -103,12 +166,12 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
             .value(self.store_loader)?
             .thaw();
 
-        Ok(Some(PlTokenEntity {
+        Ok(PlTokenEntity {
             token_index,
             persistent: persistent_token,
             mutable_key_value_state,
             store_loader: self.store_loader,
-        }))
+        })
     }
 
     pub fn freeze_token(&mut self, mut token: PlTokenEntity<'a, L>) -> BlockStateResult<()> {
@@ -118,7 +181,7 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
         }
 
         // todo ar check if token is dirty?
-        self.persistent.tokens = self
+        self.persistent.to_mut().tokens = self
             .persistent
             .tokens
             .update_value(self.store_loader, token.token_index, |_| {
@@ -132,6 +195,10 @@ impl<'a, L: BlobStoreLoad> PlTokens<'a, L> {
             })?;
 
         Ok(())
+    }
+
+    pub fn into_persistent(self) -> PersistentPlTokens {
+        self.persistent.into_owned_or_clone()
     }
 }
 

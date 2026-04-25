@@ -13,9 +13,9 @@ use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 use std::any;
 use std::io::Read;
 
-mod p10;
-mod p11;
-mod p9;
+pub mod p10;
+pub mod p11;
+pub mod p9;
 
 /// Immutable block state. The block state is immutable in the sense,
 /// that the state it represents never changes during the lifetime of values of type [`PersistentBlockState`].

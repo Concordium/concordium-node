@@ -1,13 +1,6 @@
 //! Internal constants and utilities for token key-value state.
 
 use crate::block_state::blob_store::BlobStoreLoad;
-use crate::block_state::smart_contract_trie;
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::entity::protocol_level_tokens::state_key::roles::Roles;
-use concordium_base::common;
-use concordium_base::protocol_level_tokens::{
-    MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
-};
 use concordium_base::{base::AccountIndex, common::Serial};
 
 /// Little-endian prefix used to distinguish module state keys.
