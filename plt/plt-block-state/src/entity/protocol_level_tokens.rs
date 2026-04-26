@@ -5,7 +5,7 @@ use crate::block_state::blob_store::{BlobStoreLoad, StoreSerialized};
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::entity::protocol_level_tokens::state_key::{
+use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST, STATE_KEY_GOVERNANCE_ACCOUNT,
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
@@ -18,7 +18,7 @@ use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId, TokenModuleRe
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 mod roles;
-mod state_key;
+mod state_keys;
 
 /// Static configuration for a protocol-level token.
 ///
@@ -33,15 +33,6 @@ pub struct TokenConfiguration {
     pub module_ref: TokenModuleRef,
     /// The number of decimal places used in the representation of the token.
     pub decimals: u8,
-}
-
-/// Token account state at block state level.
-///
-/// Corresponding Haskell type: `Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens.TokenAccountState`
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize)]
-pub struct TokenAccountState {
-    /// Balance of the account
-    pub balance: RawTokenAmount,
 }
 
 pub trait SupportsPlTokens {
@@ -72,13 +63,56 @@ pub trait SupportsPlTokens {
         configuration: TokenConfiguration,
     ) -> BlockStateResult<PlTokenEntity<'_, impl BlobStoreLoad>>;
 
+    /// Get the token balance of the account.
+    fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)
+                             -> RawTokenAmount;
+
+    /// Get token account states. It returns states for all tokens
+    /// that the account holds.
+    fn token_account_states(
+        &self,
+        account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)>;
+
+    /// Update the token balance of an account.
+    ///
+    /// # Arguments
+    ///
+    /// - `token` The token to update.
+    /// - `account` The account to update.
+    /// - `amount_delta` The token balance delta.
+    ///
+    /// # Errors
+    ///
+    /// - [`OverflowError`] The update would overflow or underflow (result in negative balance)
+    ///   the token balance on the account.
+    fn update_token_account_balance(
+        &mut self,
+        token: &Self::Token,
+        account: &Self::Account,
+        amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), OverflowError>;
+
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// It has the observable effect that the token is then returned when querying the tokens
+    /// for an account. Should be called if the token module account state is set,
+    /// in order to make sure the token is returned when querying token account info.
+    ///
+    /// If the account already has a balance for the token in context, the operation has no effect
+    ///
+    /// # Arguments
+    ///
+    /// - `token` The token to touch state for in the account.
+    /// - `account` The account to touch token state for.
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account);
+
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
 }
 
-/// Protocol-level tokens.
+/// Protocol-level tokens block state.
 #[derive(Debug)]
 pub struct PlTokens<'a, L> {
     /// Persistent model of the protocol-level tokens.
@@ -249,7 +283,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_PAUSED),
+                &state_keys::module_state_key(STATE_KEY_PAUSED),
             )
             .is_some()
     }
@@ -259,13 +293,13 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         if value {
             self.mutable_key_value_state.insert_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_PAUSED),
+                &state_keys::module_state_key(STATE_KEY_PAUSED),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_PAUSED),
+                &state_keys::module_state_key(STATE_KEY_PAUSED),
             )
         }
     }
@@ -275,7 +309,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_ALLOW_LIST),
+                &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
             )
             .is_some()
     }
@@ -284,7 +318,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
     pub fn set_allow_list_enabled(&mut self) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_ALLOW_LIST),
+            &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
             vec![],
         )
     }
@@ -294,7 +328,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_DENY_LIST),
+                &state_keys::module_state_key(STATE_KEY_DENY_LIST),
             )
             .is_some()
     }
@@ -303,7 +337,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
     pub fn set_deny_list_enabled(&mut self) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_DENY_LIST),
+            &state_keys::module_state_key(STATE_KEY_DENY_LIST),
             vec![],
         )
     }
@@ -313,7 +347,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_MINTABLE),
+                &state_keys::module_state_key(STATE_KEY_MINTABLE),
             )
             .is_some()
     }
@@ -322,7 +356,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
     pub fn set_mintable_enabled(&mut self) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_MINTABLE),
+            &state_keys::module_state_key(STATE_KEY_MINTABLE),
             vec![],
         )
     }
@@ -332,7 +366,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_BURNABLE),
+                &state_keys::module_state_key(STATE_KEY_BURNABLE),
             )
             .is_some()
     }
@@ -341,7 +375,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
     pub fn set_burnable_enabled(&mut self) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_BURNABLE),
+            &state_keys::module_state_key(STATE_KEY_BURNABLE),
             vec![],
         )
     }
@@ -351,7 +385,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_NAME),
+                &state_keys::module_state_key(STATE_KEY_NAME),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Name not present".to_string()))
             .and_then(|value| {
@@ -365,7 +399,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
     pub fn set_token_name(&mut self, name: String) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_NAME),
+            &state_keys::module_state_key(STATE_KEY_NAME),
             name.into(),
         )
     }
@@ -376,7 +410,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
             self.mutable_key_value_state
                 .lookup_value(
                     &self.store_loader,
-                    &state_key::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
+                    &state_keys::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
                 )
                 .ok_or_else(|| {
                     BlockStateFailure::Invariant("Governance account not present".to_string())
@@ -397,7 +431,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
     pub fn set_governance_account(&mut self, account: AccountIndex) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
+            &state_keys::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
             common::to_bytes(&account),
         )
     }
@@ -408,7 +442,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
             .mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::module_state_key(STATE_KEY_METADATA),
+                &state_keys::module_state_key(STATE_KEY_METADATA),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Metadata not present".to_string()))?;
         let metadata: MetadataUrl = utils::cbor_decode(metadata_cbor).map_err(|err| {
@@ -417,12 +451,13 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         Ok(metadata)
     }
 
+    // todo ar what to do about this?
     /// Set the metadata URL.
     pub fn set_metadata_url(&mut self, metadata: &MetadataUrl) -> BlockStateResult<()> {
         let encoded_metadata = common::cbor::cbor_encode(metadata);
         self.mutable_key_value_state.insert_value(
             &self.store_loader,
-            &state_key::module_state_key(STATE_KEY_METADATA),
+            &state_keys::module_state_key(STATE_KEY_METADATA),
             encoded_metadata,
         )
     }
@@ -432,7 +467,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+                &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
             )
             .is_some()
     }
@@ -446,13 +481,13 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         if value {
             self.mutable_key_value_state.insert_value(
                 &self.store_loader,
-                &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+                &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
                 &self.store_loader,
-                &state_key::account_state_key(account, STATE_KEY_ALLOW_LIST),
+                &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
             )
         }
     }
@@ -462,7 +497,7 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         self.mutable_key_value_state
             .lookup_value(
                 &self.store_loader,
-                &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+                &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
             .is_some()
     }
@@ -476,13 +511,13 @@ impl<L: BlobStoreLoad> PlTokenEntity<'_, L> {
         if value {
             self.mutable_key_value_state.insert_value(
                 &self.store_loader,
-                &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+                &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
                 &self.store_loader,
-                &state_key::account_state_key(account, STATE_KEY_DENY_LIST),
+                &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
         }
     }

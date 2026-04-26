@@ -17,7 +17,7 @@ pub struct BlockStateP9<'a, L, E> {
     /// Blob store loader.
     store_loader: &'a L,
     /// Part of block state that is managed externally.
-    external: E,
+    external: &'a E,
 }
 
 impl<'a, L: BlobStoreLoad, E> BlockStateP9<'a, L, E> {
