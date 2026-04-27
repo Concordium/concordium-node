@@ -5,6 +5,7 @@ use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_context::TokenOperationContext;
 use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
+use concordium_base::protocol_level_tokens::meta_operations::MetaUpdateOperations;
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
@@ -151,14 +152,15 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
 
     let mut events = Vec::new();
 
-    let operations: Vec<MetaUpdateOperation> = match payload.decode_operations() {
-        Ok(payload) => payload.operations,
-        Err(_) => {
-            return Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::SerializationFailure,
-            ));
-        }
-    };
+    let operations: Vec<MetaUpdateOperation> =
+        match token_module::util::cbor_decode::<MetaUpdateOperations>(payload.operations) {
+            Ok(payload) => payload.operations,
+            Err(_) => {
+                return Ok(TransactionOutcome::Rejected(
+                    TransactionRejectReason::SerializationFailure,
+                ));
+            }
+        };
 
     for (index, operation) in operations.into_iter().enumerate() {
         match operation.into() {

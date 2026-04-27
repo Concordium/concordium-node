@@ -1,7 +1,9 @@
 //! Tests for the meta-update transaction execution logic.
 
+use std::str::FromStr;
+
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborMemo, MetadataUrl, RawCbor, TokenAmount, TokenId, TokenListUpdateEventDetails,
@@ -15,23 +17,20 @@ use plt_scheduler_types::types::events::{
     self, BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenTransferEvent,
 };
 use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{self, TokenHolder};
 use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;
 
-#[test]
-fn test_meta_update_transaction() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+const PLT_X: &str = "pltX";
+const PLT_Y: &str = "pltY";
 
-    // Set up initial accounts.
-    let account_index_1 = stub.create_account();
-    let account_index_2 = stub.create_account();
+fn setup_test_plts(stub: &mut BlockStateWithExternalStateStubbed, account_index_1: AccountIndex) {
     let account_1 = stub.account_canonical_address(&account_index_1);
-    let account_2 = stub.account_canonical_address(&account_index_2);
 
     // Set up PLT `pltX`.
-    let plt_x: TokenId = "pltX".parse().unwrap();
+    let plt_x: TokenId = PLT_X.parse().unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Test PLT 1".to_owned()),
         metadata: Some(MetadataUrl::from("https://pltX.token".to_string())),
@@ -52,7 +51,7 @@ fn test_meta_update_transaction() {
     scheduler::execute_chain_update(stub.state_mut(), payload).expect("create pltX");
 
     // Set up PLT `pltY`.
-    let plt_y: TokenId = "pltY".parse().unwrap();
+    let plt_y: TokenId = PLT_Y.parse().unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Test PLT 2".to_owned()),
         metadata: Some(MetadataUrl::from("https://pltY.token".to_string())),
@@ -71,6 +70,20 @@ fn test_meta_update_transaction() {
         initialization_parameters,
     });
     scheduler::execute_chain_update(stub.state_mut(), payload).expect("create pltY");
+}
+
+#[test]
+fn test_meta_update_transaction() {
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+
+    // Set up initial accounts.
+    let account_index_1 = stub.create_account();
+    let account_index_2 = stub.create_account();
+    let account_1 = stub.account_canonical_address(&account_index_1);
+    let account_2 = stub.account_canonical_address(&account_index_2);
+    setup_test_plts(&mut stub, account_index_1);
+    let plt_x: TokenId = PLT_X.parse().unwrap();
+    let plt_y: TokenId = PLT_Y.parse().unwrap();
 
     use meta_operations::*;
     let operations = vec![
@@ -211,5 +224,34 @@ fn test_meta_update_transaction() {
             })
             .into(),
         })
+    );
+}
+
+#[test]
+fn test_meta_update_transaction_cbor_extra_fields() {
+    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+
+    // Set up initial account.
+    let account_index_1 = stub.create_account();
+    let account_1 = stub.account_canonical_address(&account_index_1);
+    use meta_operations::*;
+
+    let payload = MetaUpdatePayload {
+        operations: RawCbor::from_str("81a1687472616e73666572a5646d656d6f440102030465746f6b656e68746f6b656e69643166616d6f756e74c482211a000186a069726563697069656e74d99d73a201d99d71a1011903970358200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2064626c616801").unwrap(),
+    };
+    payload
+        .decode_operations()
+        .expect("should decode successfully even with extra fields in the CBOR");
+    let result = scheduler::execute_transaction(
+        account_index_1,
+        account_1,
+        stub.state_mut(),
+        Payload::MetaUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    assert_matches!(
+        result.outcome,
+        TransactionOutcome::Rejected(TransactionRejectReason::SerializationFailure)
     );
 }
