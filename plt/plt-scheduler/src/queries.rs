@@ -71,7 +71,7 @@ pub fn query_token_info(
 pub fn query_token_account_infos<BSQ>(
     block_state: &BSQ,
     account: BSQ::Account,
-) -> Vec<TokenAccountInfo>
+) -> Result<Vec<TokenAccountInfo>, QueryTokenInfoError>
 where
     BSQ: BlockStateQuery,
 {
@@ -79,32 +79,29 @@ where
         .token_account_states(&account)
         .map(|(token, state)| {
             let token_configuration = block_state.token_configuration(&token);
-
             let token_module_state = block_state.mutable_token_key_value_state(&token);
-
             let context = TokenQueryContext {
                 block_state,
                 token_module_state: &token_module_state,
             };
-            let module_state = token_module::query_token_module_account_state(
-                &context,
-                block_state.account_index(&account),
-            );
-
             let balance = TokenAmount {
                 amount: state.balance,
                 decimals: token_configuration.decimals,
             };
-
+            let module_state = token_module::query_token_module_account_state(
+                &context,
+                block_state.account_index(&account),
+                state.balance,
+                token_configuration.decimals,
+            )?;
             let account_state = TokenAccountState {
                 balance,
                 module_state: Some(module_state),
             };
-
-            TokenAccountInfo {
+            Ok(TokenAccountInfo {
                 token_id: token_configuration.token_id,
                 account_state,
-            }
+            })
         })
         .collect()
 }

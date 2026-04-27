@@ -5,7 +5,8 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
+    AccountLockAmount, CborHolderAccount, RawCbor, TokenAmount, TokenModuleAccountState,
+    TokenModuleState,
 };
 use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -68,15 +69,19 @@ fn query_token_module_state_impl<BSQ: BlockStateQuery>(
 pub fn query_token_module_account_state<BSQ: BlockStateQuery>(
     context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
-) -> RawCbor {
-    let state = query_token_module_account_state_impl(context, account);
-    RawCbor::from(cbor::cbor_encode(&state))
+    balance: RawTokenAmount,
+    decimals: u8,
+) -> Result<RawCbor, QueryTokenModuleError> {
+    let state = query_token_module_account_state_impl(context, account, balance, decimals)?;
+    Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
 fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
     context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
-) -> TokenModuleAccountState {
+    total_token_balance: RawTokenAmount,
+    token_decimals: u8,
+) -> Result<TokenModuleAccountState, QueryTokenModuleError> {
     let has_allow_list = key_value_state::has_allow_list(context);
     let allow_list = if has_allow_list {
         key_value_state::get_allow_list_for(context, account).into()
@@ -90,10 +95,43 @@ fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
         None
     };
 
-    TokenModuleAccountState {
+    let mut total_locked = 0u64;
+    let mut locks = Vec::new();
+    for (lock, locked_balance) in
+        key_value_state::get_locked_balances_for_account(context, account)?
+    {
+        if locked_balance == RawTokenAmount(0) {
+            continue;
+        }
+        total_locked = total_locked.checked_add(locked_balance.0).ok_or_else(|| {
+            TokenStateInvariantError("total locked token balance overflow".to_string())
+        })?;
+        locks.push(AccountLockAmount {
+            lock,
+            amount: TokenAmount::from_raw(locked_balance.0, token_decimals),
+        });
+    }
+
+    let available = if total_locked == 0 {
+        None
+    } else {
+        let available = total_token_balance
+            .0
+            .checked_sub(total_locked)
+            .ok_or_else(|| {
+                TokenStateInvariantError(
+                    "total locked token balance exceeds account token balance".to_string(),
+                )
+            })?;
+        Some(TokenAmount::from_raw(available, token_decimals))
+    };
+
+    Ok(TokenModuleAccountState {
         allow_list,
         deny_list,
-    }
+        locks,
+        available,
+    })
 }
 
 /// Get authorization roles and assigned accounts for the token.

@@ -348,10 +348,13 @@ extern "C" fn ffi_query_token_account_infos(
             blob_store_load: load_callback,
             external_block_state: external_callbacks,
         };
-        let token_account_infos =
-            queries::query_token_account_infos(&block_state, AccountIndex::from(account_index));
-        let return_data = common::to_bytes(&token_account_infos);
-        (status::FfiStatusCode::Success, return_data)
+        match queries::query_token_account_infos(&block_state, AccountIndex::from(account_index)) {
+            Ok(token_account_infos) => {
+                let return_data = common::to_bytes(&token_account_infos);
+                (status::FfiStatusCode::Success, return_data)
+            }
+            Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
+        }
     });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {

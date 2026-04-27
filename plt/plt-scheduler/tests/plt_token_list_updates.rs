@@ -33,7 +33,11 @@ fn test_allow_list_updates() {
     let target_account = stub.create_account();
 
     // Target account not yet touched
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 
     let target_addr = stub.account_canonical_address(&target_account);
 
@@ -51,7 +55,7 @@ fn test_allow_list_updates() {
         let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(add_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = queries::query_token_account_infos(stub.state(), target_account);
+    let infos = queries::query_token_account_infos(stub.state(), target_account).unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(true));
@@ -71,7 +75,7 @@ fn test_allow_list_updates() {
         let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(remove_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = queries::query_token_account_infos(stub.state(), target_account);
+    let infos = queries::query_token_account_infos(stub.state(), target_account).unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(false));
@@ -92,7 +96,11 @@ fn test_deny_list_updates() {
     let target_account = stub.create_account();
 
     // Target account not yet touched
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 
     let target_addr = stub.account_canonical_address(&target_account);
 
@@ -110,7 +118,7 @@ fn test_deny_list_updates() {
         let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(add_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = queries::query_token_account_infos(stub.state(), target_account);
+    let infos = queries::query_token_account_infos(stub.state(), target_account).unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, None);
@@ -130,7 +138,7 @@ fn test_deny_list_updates() {
         let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(remove_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = queries::query_token_account_infos(stub.state(), target_account);
+    let infos = queries::query_token_account_infos(stub.state(), target_account).unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, None);
@@ -185,7 +193,11 @@ fn test_add_allow_list_reject_non_governance() {
     );
 
     // Target account must remain untouched
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Non-governance account cannot remove from allow list.
@@ -235,7 +247,11 @@ fn test_remove_allow_list_reject_non_governance() {
         }
     );
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Non-governance account cannot add to deny list.
@@ -285,7 +301,11 @@ fn test_add_deny_list_reject_non_governance() {
         }
     );
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Non-governance account cannot remove from deny list.
@@ -335,7 +355,11 @@ fn test_remove_deny_list_reject_non_governance() {
         }
     );
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// AddAllowList touches the target account.
@@ -351,7 +375,11 @@ fn test_add_allow_list_touches_account() {
     );
     let target_account = stub.create_account();
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 
     let target_addr = stub.account_canonical_address(&target_account);
     stub.execute_token_operations(
@@ -362,7 +390,11 @@ fn test_add_allow_list_touches_account() {
         })],
     );
 
-    assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        !queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// RemoveAllowList touches the target account.
@@ -378,7 +410,11 @@ fn test_remove_allow_list_touches_account() {
     );
     let target_account = stub.create_account();
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 
     let target_addr = stub.account_canonical_address(&target_account);
     stub.execute_token_operations(
@@ -389,7 +425,11 @@ fn test_remove_allow_list_touches_account() {
         })],
     );
 
-    assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        !queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// AddDenyList touches the target account.
@@ -405,7 +445,11 @@ fn test_add_deny_list_touches_account() {
     );
     let target_account = stub.create_account();
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 
     let target_addr = stub.account_canonical_address(&target_account);
     stub.execute_token_operations(
@@ -416,7 +460,11 @@ fn test_add_deny_list_touches_account() {
         })],
     );
 
-    assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        !queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// RemoveDenyList touches the target account.
@@ -432,7 +480,11 @@ fn test_remove_deny_list_touches_account() {
     );
     let target_account = stub.create_account();
 
-    assert!(queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 
     let target_addr = stub.account_canonical_address(&target_account);
     stub.execute_token_operations(
@@ -443,7 +495,11 @@ fn test_remove_deny_list_touches_account() {
         })],
     );
 
-    assert!(!queries::query_token_account_infos(stub.state(), target_account).is_empty());
+    assert!(
+        !queries::query_token_account_infos(stub.state(), target_account)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Adding to allow list fails when the allow list feature is not enabled.
@@ -953,7 +1009,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let infos = queries::query_token_account_infos(stub.state(), gov_account);
+    let infos = queries::query_token_account_infos(stub.state(), gov_account).unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.deny_list, Some(true));
@@ -1014,7 +1070,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
     .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let infos = queries::query_token_account_infos(stub.state(), gov_account);
+    let infos = queries::query_token_account_infos(stub.state(), gov_account).unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(true));

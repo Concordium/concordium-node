@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.
+- Populate the protocol-level token account `module_state` returned by `GetAccountInfo` with available balance and lock details.
 
 # 11.1.0 (Devnet)
 

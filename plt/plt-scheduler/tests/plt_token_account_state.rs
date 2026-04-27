@@ -17,7 +17,7 @@ fn test_query_token_module_account_state_default() {
         stub.create_and_init_token(token_id, TokenInitTestParams::default(), 0, None);
     let account = stub.create_account();
 
-    let token_account_infos = queries::query_token_account_infos(stub.state(), account);
+    let token_account_infos = queries::query_token_account_infos(stub.state(), account).unwrap();
     // Account has no balance and no list entries, so it does not appear in the infos
     assert!(token_account_infos.is_empty());
 }
