@@ -104,7 +104,7 @@ createPltBlockItem tokenId initializationParameters =
               ctSeqNumber = 1
             }
   where
-    toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenInitializationParametersToBytes
+    toTokenParam = Types.rawCborFromBytes . CBOR.tokenInitializationParametersToBytes
     createPlt =
         Types.CreatePLT
             { _cpltTokenModule = tokenModuleV0Ref,
@@ -139,9 +139,9 @@ pltTxn keyPair nonce tokenId from operations =
                 }
         )
   where
-    toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+    toTokenParam = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
 
-pltTxnFromParam :: SigScheme.KeyPair -> Nonce -> Energy -> TokenId -> AccountAddress -> Types.TokenParameter -> Runner.TransactionJSON
+pltTxnFromParam :: SigScheme.KeyPair -> Nonce -> Energy -> TokenId -> AccountAddress -> Types.RawCbor -> Runner.TransactionJSON
 pltTxnFromParam keyPair nonce cost tokenId from param =
     Runner.TJSON
         { metadata = makeDummyHeader from nonce cost,
@@ -430,7 +430,7 @@ benchPltTxnCborDecodeError spv =
                 pltTxnFromParam keyPair0 (fromIntegral nonce) (Helpers.simpleTransferCost * 5) plt1 accountAddress0 invalidParam
             )
             [1 .. txnCount]
-    invalidParam = Types.TokenParameter $ BSS.toShort $ BS.snoc param 0
+    invalidParam = Types.rawCborFromBytes $ BS.snoc param 0
     param =
         CBOR.tokenUpdateTransactionToBytes $
             TokenUpdateTransaction

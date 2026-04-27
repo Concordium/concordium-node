@@ -604,7 +604,7 @@ testCreatePLT _ pvString = describe pvString $ do
               tipBurnable = Just True,
               tipAdditional = Map.empty
             }
-    toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenInitializationParametersToBytes
+    toTokenParam = Types.rawCborFromBytes . CBOR.tokenInitializationParametersToBytes
     createPLT1 =
         Types.CreatePLT
             { _cpltTokenModule = testModuleRef,

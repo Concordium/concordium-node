@@ -91,7 +91,7 @@ toTokenAmount decimals rawAmount =
 --  (if necessary) minting the initial supply to the token governance account.
 initializeToken ::
     (PLTKernelPrivilegedUpdate m, PLTKernelFail InitializeTokenError m, Monad m) =>
-    TokenParameter ->
+    RawCbor ->
     m ()
 initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
@@ -136,8 +136,7 @@ initializeToken tokenParam = do
                                 mintOK <- mint govAccount amt
                                 unless mintOK $ pltError (ITEInvalidMintAmount "Kernel failed to mint")
   where
-    tokenParamLBS =
-        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+    tokenParamLBS = rawCborToLazyBytes tokenParam
 
 -- | A pre-processed token operation. This has all amounts converted to
 --  'TokenRawAmount's and removes tags from memos.
@@ -268,7 +267,7 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 executeTokenUpdateTransaction ::
     (PLTKernelPrivilegedUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
-    TokenParameter ->
+    RawCbor ->
     m ()
 executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     parsedTransaction <- case tokenUpdateTransactionFromBytes tokenParamLBS of
@@ -425,8 +424,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
             return (opIndex + 1)
     foldM_ handleOperation 0 operations
   where
-    tokenParamLBS =
-        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+    tokenParamLBS = rawCborToLazyBytes tokenParam
     failTH = pltError . encodeTokenRejectReason
     checkPaused opIndex op = do
         paused <- isJust <$> getModuleState "paused"

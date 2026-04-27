@@ -287,9 +287,9 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
     events: &[BlockItemEvent],
 ) -> Result<Option<TransactionRejectReason>, TransactionExecutionError> {
     match lock_operation {
-        LockOperation::Fund(meta_lock_fund_details) => todo!(),
-        LockOperation::Send(meta_lock_send_details) => todo!(),
-        LockOperation::Return(meta_lock_return_details) => todo!(),
+        LockOperation::Fund(_meta_lock_fund_details) => todo!(),
+        LockOperation::Send(_meta_lock_send_details) => todo!(),
+        LockOperation::Return(_meta_lock_return_details) => todo!(),
         LockOperation::Create(meta_lock_create_details) => {
             let config = meta_lock_create_details.config;
             let account_index = block_state.account_index(transaction_execution.sender_account());
@@ -344,7 +344,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             block_state.create_lock(lock_id, configuration);
             Ok(None)
         }
-        LockOperation::Cancel(meta_lock_cancel_details) => todo!(),
+        LockOperation::Cancel(_meta_lock_cancel_details) => todo!(),
     }
 }
 

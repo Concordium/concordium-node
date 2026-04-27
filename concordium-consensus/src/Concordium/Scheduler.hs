@@ -2692,7 +2692,7 @@ handleTokenUpdate ::
     -- | Token symbol identifying the token to receive the operations.
     TokenId ->
     -- | Operations for the token.
-    TokenParameter ->
+    RawCbor ->
     SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTokenUpdate depositContext tokenId tokenOperations = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateV0 -> handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations
@@ -2708,7 +2708,7 @@ handleTokenUpdateHaskellManaged ::
     -- | Token symbol identifying the token to receive the operations.
     TokenId ->
     -- | Operations for the token.
-    TokenParameter ->
+    RawCbor ->
     SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations =
     withDeposit depositContext computeTransaction commitTransaction
@@ -2746,7 +2746,7 @@ handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations =
         TokenModuleRef ->
         Token.TokenIndex ->
         IndexedAccount m ->
-        TokenParameter ->
+        RawCbor ->
         SchedulerT m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
     invokeTokenOperations energy _ tokenIndex sender parameter = do
         withBlockStateRollback $ do
@@ -2766,7 +2766,7 @@ handleMetaUpdate ::
     ) =>
     WithDepositContext m ->
     -- | Operations.
-    MetaUpdateParameter ->
+    RawCbor ->
     SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleMetaUpdate depositContext tokenOperations =
     RustScheduler.executeTransaction depositContext (MetaUpdate tokenOperations)
