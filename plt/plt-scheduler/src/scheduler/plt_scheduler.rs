@@ -6,8 +6,9 @@ use crate::token_kernel::TokenKernelOperationsImpl;
 use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::AccountIndex;
+use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::{LockController, LockId};
-use concordium_base::protocol_level_tokens::{CborHolderAccount, TokenId};
+use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{
@@ -22,7 +23,7 @@ use plt_block_state::block_state::types::protocol_level_tokens::TokenConfigurati
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError,
 };
-use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
+use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::locks::{self, LockControllerConfig};
 use plt_scheduler_types::types::reject_reasons::{
@@ -282,9 +283,9 @@ fn lookup_token_id<BSQ: BlockStateQuery>(
 fn execute_lock_operation<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
-    index: usize,
+    _index: usize,
     lock_operation: LockOperation,
-    events: &[BlockItemEvent],
+    events: &mut Vec<BlockItemEvent>,
 ) -> Result<Option<TransactionRejectReason>, TransactionExecutionError> {
     match lock_operation {
         LockOperation::Fund(_meta_lock_fund_details) => todo!(),
@@ -341,7 +342,22 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 Err(reject_reason) => return Ok(Some(reject_reason)),
             };
 
-            block_state.create_lock(lock_id, configuration);
+            // We reconstruct the lock config for the event, rather than using
+            // the original one from the transaction. This results in a config
+            // that is in a canonical form.
+            let config = configuration.lock_config(block_state).map_err(|err| {
+                TransactionExecutionError::StateInvariantBroken(format!(
+                    "Failed to get lock config for created lock: {err}"
+                ))
+            })?;
+            let event = events::LockCreateEvent {
+                lock_id: lock_id.clone(),
+                lock_config: RawCbor::from(cbor::cbor_encode(&config)),
+            };
+            events.push(BlockItemEvent::LockCreated(event));
+
+            block_state.create_lock(lock_id.clone(), configuration);
+
             Ok(None)
         }
         LockOperation::Cancel(_meta_lock_cancel_details) => todo!(),

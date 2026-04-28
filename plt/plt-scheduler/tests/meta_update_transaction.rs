@@ -111,6 +111,7 @@ fn test_meta_update_transaction() {
     let result = scheduler::execute_transaction(
         account_index_1,
         account_1,
+        1.into(),
         stub.state_mut(),
         Payload::MetaUpdate { payload },
         Energy::from(u64::MAX),
@@ -245,6 +246,7 @@ fn test_meta_update_transaction_cbor_extra_fields() {
     let result = scheduler::execute_transaction(
         account_index_1,
         account_1,
+        1.into(),
         stub.state_mut(),
         Payload::MetaUpdate { payload },
         Energy::from(u64::MAX),

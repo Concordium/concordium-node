@@ -38,6 +38,7 @@ fn test_update_token_decode_failure() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -87,6 +88,7 @@ fn test_update_token_additional_fields() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -136,6 +138,7 @@ fn test_multiple_operations() {
     let result = scheduler::execute_transaction(
         sender,
         stub.account_canonical_address(&sender),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -188,6 +191,7 @@ fn test_single_failing_operation() {
     let result = scheduler::execute_transaction(
         sender,
         stub.account_canonical_address(&sender),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -230,6 +234,7 @@ fn test_energy_charge() {
     let result = scheduler::execute_transaction(
         sender,
         stub.account_canonical_address(&sender),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(1000),
@@ -269,6 +274,8 @@ fn test_out_of_energy_error() {
     let result = scheduler::execute_transaction(
         sender,
         stub.account_canonical_address(&sender),
+        1.into(),
+
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(50),

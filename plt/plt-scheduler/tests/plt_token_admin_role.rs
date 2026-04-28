@@ -83,6 +83,7 @@ fn test_rbac_assign_roles() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -170,6 +171,7 @@ fn test_rbac_assign_same_roles() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -191,6 +193,7 @@ fn test_rbac_assign_same_roles() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -254,6 +257,7 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
     let result = scheduler::execute_transaction(
         account2,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -289,6 +293,7 @@ fn test_rbac_assign_rejects_p10() {
     let result = scheduler::execute_transaction(
         account2,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -321,6 +326,7 @@ fn test_rbac_assign_role_works_when_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -343,6 +349,7 @@ fn test_rbac_assign_role_works_when_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -398,6 +405,7 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
     let result = scheduler::execute_transaction(
         account2,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -436,6 +444,7 @@ fn test_rbac_revoke_roles() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -496,6 +505,7 @@ fn test_rbac_revoke_same_roles() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -517,6 +527,7 @@ fn test_rbac_revoke_same_roles() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -586,6 +597,7 @@ fn test_rbac_revoke_rejects_without_admin_role() {
     let result = scheduler::execute_transaction(
         account2,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -620,6 +632,7 @@ fn test_rbac_revoke_rejects_p10() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -651,6 +664,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -673,6 +687,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -729,6 +744,7 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -763,6 +779,7 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -799,6 +816,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let result = scheduler::execute_transaction(
         gov_account,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -821,6 +839,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let result = scheduler::execute_transaction(
         account2,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),

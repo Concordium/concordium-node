@@ -3,6 +3,7 @@
 
 use crate::types::tokens::{TokenAmount, TokenHolder};
 use concordium_base::common::{Buffer, Put, Serial};
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
@@ -24,6 +25,10 @@ pub enum BlockItemEvent {
     TokenBurn(TokenBurnEvent),
     /// A new token was created.
     TokenCreated(TokenCreateEvent),
+    /// A protocol-level lock was created.
+    LockCreated(LockCreateEvent),
+    /// A protocol-level lock was destroyed
+    LockDestroyed(LockDestroyEvent),
 }
 
 impl Serial for BlockItemEvent {
@@ -48,6 +53,14 @@ impl Serial for BlockItemEvent {
             BlockItemEvent::TokenCreated(token_created) => {
                 out.put(&42u8);
                 out.put(token_created);
+            }
+            BlockItemEvent::LockCreated(lock_created) => {
+                out.put(&43u8);
+                out.put(lock_created);
+            }
+            BlockItemEvent::LockDestroyed(lock_destroyed) => {
+                out.put(&44u8);
+                out.put(lock_destroyed);
             }
         }
     }
@@ -155,15 +168,30 @@ pub struct EncodedTokenModuleEvent {
     pub details: RawCbor,
 }
 
+#[derive(Debug, Clone, PartialEq, Serial)]
+pub struct LockCreateEvent {
+    /// The Lock ID of the newly-created lock.
+    pub lock_id: LockId,
+    /// The CBOR-encoded lock configuration.
+    pub lock_config: RawCbor,
+}
+
+#[derive(Debug, Clone, PartialEq, Serial)]
+pub struct LockDestroyEvent {
+    /// The Lock ID of the destroyed lock.
+    pub lock_id: LockId,
+}
+
 #[cfg(test)]
 mod test {
     use crate::types::events::{
-        BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenCreateEvent, TokenMintEvent,
-        TokenTransferEvent,
+        BlockItemEvent, EncodedTokenModuleEvent, LockCreateEvent, LockDestroyEvent, TokenBurnEvent,
+        TokenCreateEvent, TokenMintEvent, TokenTransferEvent,
     };
     use crate::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
     use concordium_base::common;
     use concordium_base::contracts_common::AccountAddress;
+    use concordium_base::protocol_level_locks::LockId;
     use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleRef};
     use concordium_base::transactions::Memo;
     use concordium_base::updates::CreatePlt;
@@ -273,6 +301,33 @@ mod test {
         assert_eq!(
             hex::encode(&bytes),
             "2a08746f6b656e6964310505050505050505050505050505050505050505050505050505050505050505020000000401020304"
+        );
+    }
+
+    #[test]
+    fn test_lock_created_event_serial() {
+        let event = BlockItemEvent::LockCreated(LockCreateEvent {
+            lock_id: LockId::new(12, 10001, 17),
+            lock_config: RawCbor::from(vec![5, 6, 7, 8]),
+        });
+
+        let bytes = common::to_bytes(&event);
+        assert_eq!(
+            hex::encode(&bytes),
+            "2b000000000000000c000000000000271100000000000000110000000405060708"
+        );
+    }
+
+    #[test]
+    fn test_lock_destroyed_event_serial() {
+        let event = BlockItemEvent::LockDestroyed(LockDestroyEvent {
+            lock_id: LockId::new(12, 10001, 17),
+        });
+
+        let bytes = common::to_bytes(&event);
+        assert_eq!(
+            hex::encode(&bytes),
+            "2c000000000000000c00000000000027110000000000000011"
         );
     }
 }

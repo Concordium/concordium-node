@@ -204,6 +204,7 @@ impl BlockStateWithExternalStateStubbed {
         let outcome = scheduler::execute_transaction(
             gov_account,
             token_module_state.governance_account.unwrap().address,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -223,6 +224,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -242,6 +244,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -266,6 +269,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             sender,
             sender_addr,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),

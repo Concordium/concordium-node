@@ -1,15 +1,18 @@
-use concordium_base::base::AccountIndex;
 use concordium_base::common::Serialize;
 use concordium_base::common::types::TransactionTime;
+use concordium_base::protocol_level_locks::LockConfig;
+use concordium_base::{base::AccountIndex, protocol_level_locks};
 use plt_scheduler_types::types::locks::LockControllerConfig;
 
+use crate::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
+
 /// Lock configuration at the block state level.
-/// 
+///
 /// TODO: COR-2295 - proper state implementation
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct LockConfiguration {
     /// Accounts that can receive funds from this lock.
-    /// 
+    ///
     /// The recipients are stored as a sorted vector of account indices, and
     /// the number of recipients is limited to `u16::MAX` to ensure that the
     /// serialized form fits within the size limits of the block state.
@@ -29,7 +32,7 @@ impl LockConfiguration {
     ) -> Result<Self, E> {
         let mut recipients: Vec<_> = recipients.collect::<Result<_, _>>()?;
         assert!(recipients.len() <= u16::MAX as usize, "Too many recipients");
-        recipients.sort();        
+        recipients.sort();
         Ok(Self {
             recipients,
             expiry,
@@ -55,6 +58,51 @@ impl LockConfiguration {
     /// Get the lock controller configuration.
     pub fn controller(&self) -> &LockControllerConfig {
         &self.controller
+    }
+
+    /// Get the lock configuration as a `LockConfig` with resolved account addresses.
+    /// 
+    /// TODO: rationalize this with the query functionality
+    pub fn lock_config<BSQ: BlockStateQuery>(
+        &self,
+        block_state: &BSQ,
+    ) -> Result<LockConfig, AccountNotFoundByIndexError> {
+        let recipients = self
+            .recipients_iter()
+            .map(|account_index| {
+                block_state
+                    .account_by_index(*account_index)
+                    .map(|account| account.canonical_account_address.into())
+            })
+            .collect::<Result<_, _>>()?;
+        let controller = match self.controller() {
+            LockControllerConfig::SimpleV0(controller) => {
+                let controller = protocol_level_locks::LockControllerSimpleV0 {
+                    grants: controller
+                        .grants
+                        .iter()
+                        .map(|grant| {
+                            Ok(protocol_level_locks::LockControllerSimpleV0Grant {
+                                account: block_state
+                                    .account_by_index(grant.account)?
+                                    .canonical_account_address
+                                    .into(),
+                                roles: grant.roles.clone(),
+                            })
+                        })
+                        .collect::<Result<_, _>>()?,
+                    tokens: controller.tokens.clone(),
+                    keep_alive: controller.keep_alive,
+                    memo: controller.memo.clone(),
+                };
+                protocol_level_locks::LockController::SimpleV0(controller)
+            }
+        };
+        Ok(LockConfig {
+            recipients,
+            expiry: self.expiry,
+            controller,
+        })
     }
 }
 

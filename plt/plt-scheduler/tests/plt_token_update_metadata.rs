@@ -48,6 +48,7 @@ fn test_token_metadata_updates() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -83,6 +84,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -105,6 +107,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let result = scheduler::execute_transaction(
         account2,
         account2_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -139,6 +142,7 @@ fn test_role_authorization_update_metadata() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -161,6 +165,7 @@ fn test_role_authorization_update_metadata() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -208,6 +213,7 @@ fn test_update_metadata_rejects_with_additional_data() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
