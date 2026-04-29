@@ -325,7 +325,6 @@ dummyBRH spv bid = case res of
 blockResultHashAsP9 :: SProtocolVersion pv -> Bool
 blockResultHashAsP9 SP9 = True
 blockResultHashAsP9 SP10 = True
-blockResultHashAsP9 SP11 = True
 blockResultHashAsP9 _ = False
 
 -- | Valid block for round 1.
@@ -353,6 +352,7 @@ testBB1 =
                         SP7 -> read "0970b0f7459e5150a56ac283eee6f587fc49cb1c3408146b46ee05457235bec7"
                         SP8 -> read "69f807bdafa7ef495089545cf89837cbcd5d1424fe53770efae4608a8bbf7560"
                         spv | blockResultHashAsP9 spv -> read "747769e675019732bd4de37f2486ed696bea329b9c31b618a1e3a583ed5e4aaf"
+                        SP11 -> read "7f864445d8a9ca71c0bfaa7663e8fe84f389a7fd5edd78b04d897a9f0ab98538"
                         spv -> dummyBRH spv 1
                     }
         }
@@ -385,6 +385,7 @@ testBB2 =
                         SP7 -> read "2e6636b8275663e44452650e4b7968ecb26a32d57998fbbccc0292fdecb1522d"
                         SP8 -> read "8315e1c9ac06bf9b8d0902616dda6781648baef8765be529d583267ea6376a17"
                         spv | blockResultHashAsP9 spv -> read "6434d129fa41e0b469a056369f63e1f6eaafbfed3539c84c2f1542ae8e6cbcb2"
+                        SP11 -> read "59ff8f0037088f7a8e03db3ff633ae6698803e5525e4f7a0c2119b5b0b845641"
                         spv -> dummyBRH spv 2
                     }
         }
@@ -417,6 +418,7 @@ testBB3 =
                         SP7 -> read "5777ce2df452ce52ee6beb43c555051588cdad67ad742e7be438cf9d22e31950"
                         SP8 -> read "aa38f2426aecf0103671767ececf2a5a5cbc6ebf20cb929d90f6cfd086bba258"
                         spv | blockResultHashAsP9 spv -> read "df8dd05c64cab1f1a6ba4c971aa751d1dfb653dfed3605a1334f601f1f808acf"
+                        SP11 -> read "ca236e4f2acef9a68d9544ed2cb505de2b9b0e302090812b39ed0e6c62aa29ef"
                         spv -> dummyBRH spv 3
                     }
         }
@@ -442,6 +444,7 @@ testBB2' =
                         SP7 -> read "04185ac844f6aea6e32b667debd1e9a337d67a80350d12f1cb813bf212a4bc23"
                         SP8 -> read "0b7a0106ac9293606424bf03e9f0314c3ac8e41a4097f30435eb9b2ee9463aa4"
                         spv | blockResultHashAsP9 spv -> read "bf7634ab27d1c7509d6d230f78e7df94eea7f53c04f3f92619c901b042a1b663"
+                        SP11 -> read "b08694914933758ed023bcd10aae983a13facb5bb92eef228e78565fc3c4e389"
                         spv -> dummyBRH spv 0x102
                     }
         }
@@ -468,6 +471,7 @@ testBB3' =
                         SP7 -> read "11e59c1a721359a64b86a0c6bcee8f6cac7c5bc3a6b98517b0b4f8c5a726f9c5"
                         SP8 -> read "0a1d22fd9404974bb43616ad3d0152acb9de40f856b6fb66150b2c496730add5"
                         spv | blockResultHashAsP9 spv -> read "0d6386d76cff950e60543a03485cbbee5e11667e2ad09dc77a48cce5168dab58"
+                        SP11 -> read "8e740206a731236210ec07601b7f8cacdaef88e8feb4839cf8493fa514d19362"
                         spv -> dummyBRH spv 0x103
                     }
         }
@@ -501,6 +505,7 @@ testBB4' =
                         SP7 -> read "ad8a288f88806037899d782b7dd3a37ade59e0d5f3e7a90b1db2b722ae9cbe3d"
                         SP8 -> read "1afb0b0bd86301671549f1b1e407d71818d1d9d29c19beed584d17e2ace638d4"
                         spv | blockResultHashAsP9 spv -> read "874ad0c151a7e2ec3252af524de4348203f5ac607580dd99e1c70bce94787b93"
+                        SP11 -> read "79d8e2cf055e1de119f23a0e63115206f662edb83391d04d851cf5a00a9b0f10"
                         spv -> dummyBRH spv 0x104
                     }
         }
@@ -559,6 +564,7 @@ testBB1E =
                         SP7 -> read "1811353ec3811af6241f3e5dc2e19740acf518f02dccc51f427310b8cfe9ca6c"
                         SP8 -> read "a002fe8adf77ca8cb992fd25dd3c5430db7ee52e383212eeb0827170af323d2e"
                         spv | blockResultHashAsP9 spv -> read "f59f26a1b1da5858ccc51589c7eb9227493434aa0788f3fb8ffb3104ecebe4fb"
+                        SP11 -> read "b7b257e29be23c459f0edf98ef9366d7ba47e24a902eba4e6a6b1940dd265ff0"
                         spv -> dummyBRH spv 0xe01
                     }
         }
@@ -591,6 +597,7 @@ testBB2E =
                         SP7 -> read "99fc52af1ee2336f0d353a84c4d6c15345882271f648f7b84e69d9c40d5571c2"
                         SP8 -> read "af4910f96957a8fc36844cfd1ca9dfadd47776b2a5b4e5f23011b4f580a01902"
                         spv | blockResultHashAsP9 spv -> read "8e068776dc01e0079a00d9b531897e2a1e732c91ce9db92d64fd2cd183cea83e"
+                        SP11 -> read "c592709ee287860eede9c8b4a3b33b6e26773b3466ff723a690ab8b049013557"
                         spv -> dummyBRH spv 0xe02
                     }
         }
@@ -625,6 +632,7 @@ testBB3EX =
                         SP7 -> read "0236b72bafe1575fdde0b01b35d24ad16613569600b83ed46b7e17c3c3dbaf28"
                         SP8 -> read "854f08741a720a65b136eceae61cdb5fa59dd5f1af8bdcb58e41e850fec5034d"
                         spv | blockResultHashAsP9 spv -> read "abe0485900b7b651c670f2fa506534ec2bc095f6d586a92f5b5b1160ca73c58c"
+                        SP11 -> read "bf87f2ea9936340b8ca321ce54d259ebf8ddba9ad430950a12b696d1e92fafce"
                         spv -> dummyBRH spv 0x1e03
                     }
         }
@@ -675,6 +683,7 @@ testBB3E =
                         SP7 -> read "2a12a1b02d8cfb835d6f572ffd3a0156145ec2142b47ef7b9e9495b61ff241b7"
                         SP8 -> read "d3cf0aa2e2c6fc2fd7d0be7f4192cc8d04e3afce1041d194a2c9ae437bc4aad6"
                         spv | blockResultHashAsP9 spv -> read "87df979129f4462d51ca7214068557add1e4ecbb7ef097f2dc76bcc9ea7c90bb"
+                        SP11 -> read "382b299734b376e30cfac2021617538d4759ea9e585370068329e1d21896b7b1"
                         spv -> dummyBRH spv 0xe03
                     }
         }
@@ -718,6 +727,7 @@ testBB4E =
                         SP7 -> read "66cf8d97a956e2306e60337848775d606f575bd48f4d1e4420d4cf579d5bfb0e"
                         SP8 -> read "d11da8da6f4a14fe5221847690e754450e79d65ad7e7ab1606f4f14d333f3a53"
                         spv | blockResultHashAsP9 spv -> read "5f84d37c5c7d22893a285f3229d3b19dc9933e8220dbce84dc3f5bb7d1e325f1"
+                        SP11 -> read "0aa6c3322b7b8e504b02abb4028707b3bf962cad3789a71ff7ca0fb83cffcc23"
                         spv -> dummyBRH spv 0xe04
                     }
         }
@@ -745,6 +755,7 @@ testBB4E' =
                         SP7 -> read "e0d460456228a923c4d0116b6add192b491279b24ce160067652e1afa11bac56"
                         SP8 -> read "51894272a8818fc7ad4290f921bb2ff0488a098ebd0697b479136ec6ae5f5ed7"
                         spv | blockResultHashAsP9 spv -> read "e44e1e7f0eac84030f80fe191c8ca9216da54a8533b9602c249d9b0a89b08ed9"
+                        SP11 -> read "6a84f7a894bd9a517c57d99d9ffa7f0b3b476688d51a0ce1c54898f5247a59b9"
                         spv -> dummyBRH spv 0x1e04
                     }
         }
@@ -779,6 +790,7 @@ testBB5E' =
                         SP7 -> read "2c8ff8fbc07b5e1486ebad3e241fa0aefdb7637651c6120b0a50a27057f7431a"
                         SP8 -> read "970f5145277abea69844b53189c803ad7d5a8fd19105208ae4c580957224099a"
                         spv | blockResultHashAsP9 spv -> read "d15789473fdb0b472bd1e1c2590f2b069ffe4c58a7079fec0e4f737a46d2c3f5"
+                        SP11 -> read "87ebfa2764f6b7f167b5b1b93676d20fd9077d2895bed019164e72152b5310ab"
                         spv -> dummyBRH spv 0x1e05
                     }
         }
@@ -826,6 +838,7 @@ testBB2Ex =
                         SP7 -> read "a562963223c07cbcee46e78bba06968d578120b71eaf59d8ce12f3f384b21f47"
                         SP8 -> read "85974099bbc92a64a27df7d057d130dd4eabcc0a8e605f701b449db3e68b3c3b"
                         spv | blockResultHashAsP9 spv -> read "781624811b67e3c24f2e0d4b3596e4b973fe52306ba43448a47748e6f25269a0"
+                        SP11 -> read "6e328b135dd3471ac91eabbb452b1669d896a12f672b8a0f2002134e3f09631f"
                         spv -> dummyBRH spv 0x0f02
                     }
         }
@@ -875,6 +888,7 @@ testBB3Ex =
                         SP7 -> read "2ea4f556dc29b5a1774635cb670f7b9aa3182eb2cc685b0e4f59daf9541cb539"
                         SP8 -> read "fcb11273e588af86426c36f3d825d6eaf3d6db29339a071253ce764b4be3d45e"
                         spv | blockResultHashAsP9 spv -> read "0cf1a98c6f1c0798cc2441633cabada717c2c9c2344f9f8593934ae5abf1d56f"
+                        SP11 -> read "bf87f2ea9936340b8ca321ce54d259ebf8ddba9ad430950a12b696d1e92fafce"
                         spv -> dummyBRH spv 0x1e03
                     }
         }
@@ -912,6 +926,7 @@ testBB3EA =
                         SP7 -> read "99fc52af1ee2336f0d353a84c4d6c15345882271f648f7b84e69d9c40d5571c2"
                         SP8 -> read "af4910f96957a8fc36844cfd1ca9dfadd47776b2a5b4e5f23011b4f580a01902"
                         spv | blockResultHashAsP9 spv -> read "8e068776dc01e0079a00d9b531897e2a1e732c91ce9db92d64fd2cd183cea83e"
+                        SP11 -> read "c592709ee287860eede9c8b4a3b33b6e26773b3466ff723a690ab8b049013557"
                         spv -> dummyBRH spv 0x2f03
                     }
         }
@@ -949,6 +964,7 @@ testBB4EA =
                         SP7 -> read "e0d460456228a923c4d0116b6add192b491279b24ce160067652e1afa11bac56"
                         SP8 -> read "e5c82e4ff33f6f068704a4da8a829e3e27659df26512a5b6449d4e27c50b0c5d"
                         spv | blockResultHashAsP9 spv -> read "71df1f4743ed4401ff0ec3d3b8dc3edc66b639f3aa2c564f583a7c622fa46f76"
+                        SP11 -> read "6b920342c97f7e26362169707b434762fb5260fdae8e6a5e38948dc6bcf21261"
                         spv -> dummyBRH spv 0x2f04
                     }
         }
@@ -1001,7 +1017,7 @@ testBB1T =
                         SP8 -> read "928a6ab0ca2a38086812bdbf39d46737345c358479d35c435f97c609ee0e215d"
                         SP9 -> read "ba0d5ccac35703d012901d95669aea8088530b89d0e887f76c0b0ade4dd9c829"
                         SP10 -> read "4a3d62fc566532a0151727c50cd80190e07f44b474f7074623b1e89646be9044"
-                        SP11 -> read "4a3d62fc566532a0151727c50cd80190e07f44b474f7074623b1e89646be9044"
+                        SP11 -> read "c0b9d9194c5f99066263d7d26ed422f74ea33a216aa8b755590ec51b897c6f9a"
                         spv -> dummyBRH spv 0x7001
                     }
         }
@@ -1035,7 +1051,7 @@ testBB2T =
                         SP8 -> read "60905a3baea93cf9564621ff1d8bbbc2469b50f26d101d125a092d104ca4fe16"
                         SP9 -> read "691a94879d0b135e6b55bb8afdc6740f4a29d0a5ab94670bec0fb02b36291bd0"
                         SP10 -> read "3a1fe79e0c5df5a73a55a02c9f410da73e10cfb02094fd053ef180ca3d6d8bac"
-                        SP11 -> read "3a1fe79e0c5df5a73a55a02c9f410da73e10cfb02094fd053ef180ca3d6d8bac"
+                        SP11 -> read "ced90933f07fe5475eb39c8d1f396a54030f22b65d181463be17ecaa4b8f525f"
                         spv -> dummyBRH spv 0x7002
                     }
         }
@@ -1075,7 +1091,7 @@ testBB3T =
                         SP8 -> read "8f1d79480a04412221a6a90c02ff98b8c59f08510067691c005f2e36b3c32563"
                         SP9 -> read "51fbaf0502c838c7455786ac3c0397c51f3e6116a71cdc4a759b3a4bd243907f"
                         SP10 -> read "eafb304cf3a771810688878fbc3b19d265d3728c455d9ae4941deacdbd7abbc6"
-                        SP11 -> read "eafb304cf3a771810688878fbc3b19d265d3728c455d9ae4941deacdbd7abbc6"
+                        SP11 -> read "cda8fee450932bb94c2bdd617c63d1d05619397e0f36299065b943154904e78b"
                         spv -> dummyBRH spv 0x7003
                     }
         }
@@ -1110,7 +1126,7 @@ testBB4T =
                         SP8 -> read "efbd04f230226d140dcb1bd9a4eb06c0583a2b6edfa16dac2dde895383559998"
                         SP9 -> read "0f73ad403626533632c43f2ca5938f9c3abb658df73a45328a5ca8c6630a973b"
                         SP10 -> read "0f73ad403626533632c43f2ca5938f9c3abb658df73a45328a5ca8c6630a973b"
-                        SP11 -> read "0f73ad403626533632c43f2ca5938f9c3abb658df73a45328a5ca8c6630a973b"
+                        SP11 -> read "e0c0f297e67ae589f88201fb5563fcbb8d3e1cfacfe406851e1de893cf0f6f14"
                         spv -> dummyBRH spv 0x7004
                     }
         }
@@ -1145,7 +1161,7 @@ testBB5T =
                         SP8 -> read "242e8f6bf7e2a6fc9263b95b6e233b43010308d061e1f511b920ff7deea3ac9f"
                         SP9 -> read "f375cd289ab3c51ff09cb910dcc89d942ea26a3c22904b0dd37a933c21805634"
                         SP10 -> read "f375cd289ab3c51ff09cb910dcc89d942ea26a3c22904b0dd37a933c21805634"
-                        SP11 -> read "f375cd289ab3c51ff09cb910dcc89d942ea26a3c22904b0dd37a933c21805634"
+                        SP11 -> read "fa69690ecb980c901775d08f7cedec32b43dfc2427e4c34e84a6a07d095b32b2"
                         spv -> dummyBRH spv 0x7005
                     }
         }
@@ -2288,7 +2304,7 @@ testReceiveWithTransactions sProtocolVersion =
 
 tests :: Spec
 tests = describe "KonsensusV1.Consensus.Blocks" $ do
-    describe "uponReceiveingBlockPV" $ do
+    describe "uponReceivingBlockPV" $ do
         Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
             describe pvString $ do
                 testReceive3 spv
