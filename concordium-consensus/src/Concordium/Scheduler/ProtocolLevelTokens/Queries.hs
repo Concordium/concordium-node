@@ -7,6 +7,7 @@
 module Concordium.Scheduler.ProtocolLevelTokens.Queries (
     QueryTokenModuleError (..),
     QueryLockError (..),
+    SerializedLockId,
     queryTokenInfo,
     queryAccountTokens,
     queryPLTList,
@@ -232,11 +233,13 @@ queryLockList bs =
         SPLTStateV0 -> return []
         SPLTStateV1 -> RustQ.queryLockList bs
 
+type SerializedLockId = RustQ.SerializedLockId
+
 -- | Get the 'LockQueries.LockInfo' for a given lock ID.
 queryLockInfo ::
     forall m.
     (BS.BlockStateQuery m) =>
-    Locks.LockId ->
+    SerializedLockId ->
     BlockState m ->
     m (Either QueryLockError LockQueries.LockInfo)
 queryLockInfo lockId bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of

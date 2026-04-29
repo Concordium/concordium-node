@@ -20,7 +20,6 @@ import Data.Functor
 import Data.Int
 import qualified Data.ProtoLens as Proto
 import qualified Data.ProtoLens.Combinators as Proto
-import qualified Data.Serialize as S
 import qualified Data.Vector as Vec
 import Data.Word
 import Foreign
@@ -43,9 +42,12 @@ import Concordium.Crypto.SHA256 (Hash (Hash))
 import Concordium.External.Helpers
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryLockError (..), QueryTokenModuleError (..))
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryLockError (..),
+    QueryTokenModuleError (..),
+    SerializedLockId,
+ )
 import qualified Concordium.Types.InvokeContract as InvokeContract
-import qualified Concordium.Types.Locks as Locks
 import qualified Concordium.Wasm as Wasm
 
 -- | An opaque representation of a Rust vector. This is used by callbacks to copy
@@ -230,15 +232,6 @@ getLockListV2 ::
     IO Int64
 getLockListV2 = blockStreamHelper Q.getLockList
 
--- | Decode a 'Locks.LockId' from a foreign pointer. Assumes 24 bytes are available
--- (three big-endian Word64 fields, matching the @Serialize LockId@ instance).
-decodeLockId :: Ptr Word8 -> IO Locks.LockId
-decodeLockId lockIdPtr = do
-    bs <- BS.unsafePackCStringLen (castPtr lockIdPtr, 24)
-    case S.decode bs of
-        Left err -> error $ "Precondition violation in FFI call (decodeLockId): " ++ err
-        Right lockId -> return lockId
-
 -- | Foreign-exported FFI entry point for the unary `GetLockInfo` gRPC v2 endpoint.
 getLockInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -258,7 +251,7 @@ getLockInfoV2 cptr blockType blockHashPtr lockIdPtr outHash outVec copierCbk = d
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    lockId <- decodeLockId lockIdPtr
+    lockId <- peek (castPtr lockIdPtr) :: IO SerializedLockId
     res <- runMVR (Q.getLockInfo bhi lockId) mvr
     case res of
         Q.BQRBlock _ (Left QLEUnknownLock) -> do
