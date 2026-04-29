@@ -130,6 +130,9 @@ pub fn query_token_authorizations(
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.
+///
+/// NOTE: this is a naive implementation. We might need to optimize with a streaming solution
+/// instead, to not load all locks in existance into memory all at once.
 pub fn query_lock_list(block_state: &impl BlockStateQuery) -> Vec<LockId> {
     block_state.lock_list().collect()
 }
