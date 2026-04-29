@@ -1,7 +1,3 @@
-use concordium_base::protocol_level_locks::{
-    LockController as CborLockController, LockControllerSimpleV0 as CborLockControllerSimpleV0,
-    LockControllerSimpleV0Grant as CborLockControllerSimpleV0Grant,
-};
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_scheduler_types::types::locks::LockControllerSimpleV0;
@@ -23,7 +19,7 @@ impl LockController for LockControllerSimpleV0 {
     fn to_cbor_controller<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
-    ) -> Result<CborLockController, QueryLockError> {
+    ) -> Result<concordium_base::protocol_level_locks::LockController, QueryLockError> {
         let grants = self
             .grants
             .iter()
@@ -35,17 +31,23 @@ impl LockController for LockControllerSimpleV0 {
                         grant.account
                     ))
                 })?;
-                Ok(CborLockControllerSimpleV0Grant {
-                    account: CborHolderAccount::from(with_addr.canonical_account_address),
-                    roles: grant.roles.clone(),
-                })
+                Ok(
+                    concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                        account: CborHolderAccount::from(with_addr.canonical_account_address),
+                        roles: grant.roles.clone(),
+                    },
+                )
             })
             .collect::<Result<_, QueryLockError>>()?;
-        Ok(CborLockController::SimpleV0(CborLockControllerSimpleV0 {
-            grants,
-            tokens: self.tokens.clone(),
-            keep_alive: self.keep_alive,
-            memo: self.memo.clone(),
-        }))
+        Ok(
+            concordium_base::protocol_level_locks::LockController::SimpleV0(
+                concordium_base::protocol_level_locks::LockControllerSimpleV0 {
+                    grants,
+                    tokens: self.tokens.clone(),
+                    keep_alive: self.keep_alive,
+                    memo: self.memo.clone(),
+                },
+            ),
+        )
     }
 }

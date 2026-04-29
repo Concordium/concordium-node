@@ -1,7 +1,7 @@
 //! Runtime interface for protocol-level lock controllers.
 
 use concordium_base::{
-    protocol_level_locks::{LockController as CborLockController, LockId},
+    protocol_level_locks::LockId,
     protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId},
 };
 use plt_block_state::block_state_interface::BlockStateQuery;
@@ -73,7 +73,7 @@ pub trait LockController {
     fn to_cbor_controller<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
-    ) -> Result<CborLockController, QueryLockError>;
+    ) -> Result<concordium_base::protocol_level_locks::LockController, QueryLockError>;
 }
 
 impl LockController for LockControllerConfig {
@@ -93,7 +93,7 @@ impl LockController for LockControllerConfig {
     fn to_cbor_controller<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
-    ) -> Result<CborLockController, QueryLockError> {
+    ) -> Result<concordium_base::protocol_level_locks::LockController, QueryLockError> {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
                 lock_controller_simple_v0.to_cbor_controller(bsq)
