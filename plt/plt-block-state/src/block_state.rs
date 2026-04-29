@@ -426,9 +426,6 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
     }
 
     fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
-        // The lock map is stored in memory, so we materialize the keys eagerly. The
-        // returned iterator preserves the BTreeMap ordering and reports the exact
-        // number of locks via `ExactSizeIterator`.
         self.internal_block_state
             .block_state()
             .locks
@@ -436,8 +433,6 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
             .0
             .keys()
             .cloned()
-            .collect::<Vec<LockId>>()
-            .into_iter()
     }
 
     fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
@@ -545,6 +540,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
     }
 
     fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> LockId {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
             .update_block_state_(|mut state| {
                 let prev = state.locks.locks.0.insert(
@@ -570,6 +566,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
         let account_index = *account;
         let token_index = *token;
         let lock_id = lock.clone();
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
             .update_block_state_(|mut state| {
                 let lock_entry = state
