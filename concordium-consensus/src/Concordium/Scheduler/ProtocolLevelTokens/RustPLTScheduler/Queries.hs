@@ -614,19 +614,17 @@ foreign import ccall "ffi_query_lock_list"
         FFI.Ptr FFI.CSize ->
         IO Word.Word8
 
-lockIdSize :: Int
-lockIdSize = 24
-
+-- | Placeholder type representing the size of a serialized 'LockId' (24 bytes).
 data LockIdSize
 
 instance FBS.FixedLength LockIdSize where
-    fixedLength _ = lockIdSize
+    fixedLength _ = 24
 
--- | A serialized lock id as passed across the FFI boundary.
+-- | A serialized Lock ID as passed across the FFI boundary.
 newtype SerializedLockId = SerializedLockId (FBS.FixedByteString LockIdSize)
     deriving (FFI.Storable)
 
--- | Get the CBOR-encoded `lock-info` payload for a given lock id, for a protocol version where the
+-- | Get the CBOR-encoded `lock-info` payload for a given Lock ID, for a protocol version where the
 -- PLT state is managed in Rust. The returned 'LockInfo' wraps the raw CBOR bytes verbatim; this
 -- module never parses or re-encodes them. Pattern follows 'queryTokenInfo'.
 queryLockInfo ::
@@ -678,10 +676,6 @@ queryLockInfo bs lockId = do
                         FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
                         returnDataLen <- FFI.peek returnDataLenOutPtr
                         returnDataPtr <- FFI.peek returnDataPtrOutPtr
-                        -- Copy the FFI output buffer into a strict 'ByteString' that owns its
-                        -- storage, so the buffer can be released by the finalizer immediately
-                        -- after this call returns. The CBOR bytes are stored opaquely in
-                        -- 'LockQueries.LockInfo'.
                         returnData <-
                             BS.unsafePackCStringFinalizer
                                 returnDataPtr
@@ -689,7 +683,7 @@ queryLockInfo bs lockId = do
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
                         case Status.parseStatusCode statusCode of
                             Just Status.FSCSuccess ->
-                                return $ Just $ LockQueries.LockInfo (BS.copy returnData)
+                                return $ Just $ LockQueries.LockInfo returnData
                             Just Status.FSCFailed ->
                                 return Nothing
                             Just Status.FSCPanic -> do

@@ -584,9 +584,9 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Stream the list of all PLT lock ids that exist in the given block.
+    /// Stream the list of all PLT Lock IDs that exist in the given block.
     ///
-    /// Individual lock ids are enqueued using the provided callback.
+    /// Individual Lock IDs are enqueued using the provided callback.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `stream` - Pointer to the response stream.
