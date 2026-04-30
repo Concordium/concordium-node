@@ -5,8 +5,8 @@ use crate::block_state::hash::Hashable;
 use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::entity::protocol_level_tokens::p9::{PlTokenEntityP9, TokenConfiguration};
-use crate::entity::protocol_level_tokens::p11::PlTokenEntityP11;
+use crate::entity::protocol_level_tokens::p9::{TokenEntityP9, TokenConfiguration};
+use crate::entity::protocol_level_tokens::p11::TokenEntityP11;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::protocol_level_tokens;
 use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
@@ -34,7 +34,7 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
     pub fn token_by_id(
         &self,
         token_id: &TokenId,
-    ) -> BlockStateResult<Option<PlTokenEntityP11<'a, L>>> {
+    ) -> BlockStateResult<Option<TokenEntityP11<'a, L>>> {
         let token_index_option = *self
             .persistent
             .tokens
@@ -58,7 +58,7 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
     pub fn create_token(
         &mut self,
         configuration: TokenConfiguration,
-    ) -> BlockStateResult<PlTokenEntityP11<'a, L>> {
+    ) -> BlockStateResult<TokenEntityP11<'a, L>> {
         let normalized_token_id =
             protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
@@ -86,7 +86,7 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
         self.thaw_token(token_index)
     }
 
-    fn thaw_token(&self, token_index: TokenIndex) -> BlockStateResult<PlTokenEntityP11<'a, L>> {
+    fn thaw_token(&self, token_index: TokenIndex) -> BlockStateResult<TokenEntityP11<'a, L>> {
         // todo ar aliasing check?
 
         let persistent_token = self
@@ -104,17 +104,17 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
             .value(self.store_loader)?
             .thaw();
 
-        let token_p9 = PlTokenEntityP9 {
+        let token_p9 = TokenEntityP9 {
             token_index,
             persistent: persistent_token,
             mutable_key_value_state,
             store_loader: self.store_loader,
         };
 
-        Ok(PlTokenEntityP11 { token_p9 })
+        Ok(TokenEntityP11 { token_p9 })
     }
 
-    pub fn freeze_token(&mut self, mut token: PlTokenEntityP9<'a, L>) -> BlockStateResult<()> {
+    pub fn freeze_token(&mut self, mut token: TokenEntityP9<'a, L>) -> BlockStateResult<()> {
         if token.mutable_key_value_state.is_dirty() {
             token.persistent.to_mut().key_value_state =
                 HashedCacheableRef::new(token.mutable_key_value_state.freeze(self.store_loader));

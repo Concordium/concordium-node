@@ -31,7 +31,7 @@ pub struct TokenConfiguration {
 
 /// Protocol-level token entity on P9.
 #[derive(Debug)]
-pub struct PlTokenEntityP9<'a, L> {
+pub struct TokenEntityP9<'a, L> {
     /// Token index
     pub(crate) token_index: TokenIndex,
     /// Persistent model of the protoco-level token. If changed, it must be written
@@ -43,7 +43,7 @@ pub struct PlTokenEntityP9<'a, L> {
     pub(crate) store_loader: &'a L,
 }
 
-impl<'a, L: BlobStoreLoad> PlTokenEntityP9<'a, L> {
+impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
     /// Get the configuration of a protocol-level token.
     pub fn token_configuration(&self) -> BlockStateResult<TokenConfiguration> {
         Ok(self

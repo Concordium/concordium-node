@@ -2,7 +2,7 @@ use crate::block_state::blob_store::BlobStoreLoad;
 use crate::block_state::external::ExternalBlockStateOperations;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::block_state::p9::BlockStateP9;
-use crate::entity::protocol_level_tokens::p9::PlTokenEntityP9;
+use crate::entity::protocol_level_tokens::p9::TokenEntityP9;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
 use concordium_base::base::AccountIndex;
@@ -13,12 +13,12 @@ use concordium_base::protocol_level_tokens::{
 
 /// Protocol-level token entity on P11.
 #[derive(Debug)]
-pub struct PlTokenEntityP11<'a, L> {
+pub struct TokenEntityP11<'a, L> {
     /// P9 token
-    pub token_p9: PlTokenEntityP9<'a, L>,
+    pub token_p9: TokenEntityP9<'a, L>,
 }
 
-impl<'a, L: BlobStoreLoad> PlTokenEntityP11<'a, L> {
+impl<'a, L: BlobStoreLoad> TokenEntityP11<'a, L> {
     /// Get the authorization roles for an account from state.
     pub fn get_account_roles(&self, account: AccountIndex) -> BlockStateResult<Roles> {
         Roles::try_from_state_value(

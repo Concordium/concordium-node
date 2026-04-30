@@ -1,6 +1,6 @@
 use crate::block_state::external::{ExternalBlockStateOperations, TokenAccountState};
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
-use crate::entity::protocol_level_tokens::p9::PlTokenEntityP9;
+use crate::entity::protocol_level_tokens::p9::TokenEntityP9;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -20,7 +20,7 @@ pub struct AccountWithCanonicalAddress<'a, E> {
 /// Block state account
 #[derive(Debug)]
 pub struct Account<'a, E> {
-    /// Account index
+    /// Account index for and account that we know exists in the block state.
     pub(crate) account_index: AccountIndex,
     /// Part of block state that is managed externally.
     pub(crate) external: &'a E,
@@ -33,7 +33,7 @@ impl<'a, E: ExternalBlockStateOperations> Account<'a, E> {
     }
 
     /// Get the token balance of the account.
-    fn account_token_balance<L>(&self, token: &PlTokenEntityP9<'a, L>) -> RawTokenAmount {
+    fn account_token_balance<L>(&self, token: &TokenEntityP9<'a, L>) -> RawTokenAmount {
         self.external
             .read_token_account_balance(self.account_index, token.token_index)
     }
@@ -58,7 +58,7 @@ impl<'a, E: ExternalBlockStateOperations> Account<'a, E> {
     ///   the token balance on the account.
     fn update_token_account_balance<L>(
         &mut self,
-        token: &PlTokenEntityP9<'a, L>,
+        token: &TokenEntityP9<'a, L>,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
         self.external.update_token_account_balance(
@@ -79,7 +79,7 @@ impl<'a, E: ExternalBlockStateOperations> Account<'a, E> {
     ///
     /// - `token` The token to touch state for in the account.
     /// - `account` The account to touch token state for.
-    fn touch_token_account<L>(&mut self, token: &PlTokenEntityP9<'a, L>) {
+    fn touch_token_account<L>(&mut self, token: &TokenEntityP9<'a, L>) {
         self.external
             .touch_token_account(self.account_index, token.token_index)
     }
