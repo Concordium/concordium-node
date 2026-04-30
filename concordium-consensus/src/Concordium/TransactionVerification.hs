@@ -14,6 +14,7 @@ import qualified Concordium.ID.AnonymityRevoker as AR
 import qualified Concordium.ID.IdentityProvider as IP
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Types as Types
+import Concordium.Types.Execution (Payload (..), decodePayload)
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.Option
 import qualified Concordium.Types.Parameters as Params
@@ -321,12 +322,12 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
 canScheduleOverflow ::
     forall pv msg.
     (Tx.TransactionData msg) =>
-    SProtocolVersion pv -> msg -> Bool
+    Types.SProtocolVersion pv -> msg -> Bool
 canScheduleOverflow spv meta =
-    case decodePayload spv (transactionPayload meta) of
+    case decodePayload spv (Tx.transactionPayload meta) of
         Left _ -> False
         Right TransferWithSchedule{..} -> checkSchedule twsSchedule
-        Right TransaferWithScheduleAndMemo{..} -> checkSchedule twswmSchedule
+        Right TransferWithScheduleAndMemo{..} -> checkSchedule twswmSchedule
         Right _ -> False
   where
     checkSchedule = doCheckSchedule 0
