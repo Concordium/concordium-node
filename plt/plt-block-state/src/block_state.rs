@@ -1,8 +1,6 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{
-    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
-};
+use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::entity::AccountWithCanonicalAddress;
 use crate::block_state::entity::protocol_level_tokens::{
@@ -12,19 +10,16 @@ use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockSt
 use crate::block_state::hash::Hashable;
 use crate::block_state::persistent::protocol_level_tokens::PersistentPlTokens;
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
-    BlockStateOperations, BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use crate::entity::protocol_level_tokens::PlTokenEntity;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-use std::{any, mem};
 
 pub mod blob_reference;
 pub mod blob_store;
@@ -34,21 +29,6 @@ pub mod hash;
 pub mod lfmb_tree;
 pub mod smart_contract_trie;
 pub mod utils;
-
-/// Runtime/execution state relevant for providing an implementation of
-/// [`BlockStateQuery`] and [`BlockStateOperations`].
-///
-/// In addition to the PLT block state, this type contains callbacks
-/// for the parts of the state that is managed on the Haskell side.
-#[derive(Debug)]
-pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
-    /// The library block state implementation.
-    pub internal_block_state: IntState,
-    /// External function for reading from the blob store.
-    pub blob_store_load: Load,
-    /// Part of block state that is managed externally.
-    pub external_block_state: ExtState,
-}
 
 impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
     BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>

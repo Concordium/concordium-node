@@ -1,9 +1,10 @@
-use crate::block_state::entity::protocol_level_tokens::{TokenAccountState, TokenIndex};
-use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::block_state::external::{
+    ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState,
+};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
-use crate::persistent::protocol_level_tokens::TokenIndex;
+use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::contracts_common::AccountAddress;

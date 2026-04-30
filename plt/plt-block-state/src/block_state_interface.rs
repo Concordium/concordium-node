@@ -1,7 +1,6 @@
-use crate::block_state::entity::AccountWithCanonicalAddress;
-use crate::block_state::entity::protocol_level_tokens::{
-    TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
-};
+use crate::block_state::external::TokenAccountState;
+use crate::entity::accounts::AccountWithCanonicalAddress;
+use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
