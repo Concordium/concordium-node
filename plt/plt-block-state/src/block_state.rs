@@ -6,7 +6,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
-use crate::block_state::state::protocol_level_locks::ProtocolLevelLocks;
+use crate::block_state::state::protocol_level_locks::{Lock, ProtocolLevelLocks};
 use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
 use crate::block_state::types::AccountWithCanonicalAddress;
 use crate::block_state::types::protocol_level_locks::LockConfiguration;
@@ -425,6 +425,16 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
         self.internal_block_state.protocol_version()
     }
 
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        self.internal_block_state
+            .block_state()
+            .locks
+            .locks
+            .0
+            .keys()
+            .cloned()
+    }
+
     fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
         if self
             .internal_block_state
@@ -529,18 +539,47 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
             .unwrap();
     }
 
-    // TODO: lock creation implemented as part of COR-2302
-    fn create_lock(&mut self, _lock_id: &LockId, _configuration: &LockConfiguration) -> LockId {
-        todo!()
+    fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> LockId {
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let prev = state.locks.locks.0.insert(
+                    lock_id.clone(),
+                    Lock {
+                        locked_balances: Default::default(),
+                        configuration: configuration.clone(),
+                    },
+                );
+                debug_assert!(prev.is_none(), "create_lock called for an existing lock id");
+                Ok(state)
+            })
+            .unwrap();
+        lock_id.clone()
     }
 
-    // TODO: Implement as part of COR-2305.
     fn add_lock_balance_ref(
         &mut self,
-        _lock: &LockId,
-        _account: &Self::Account,
-        _token: &Self::Token,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
     ) {
-        todo!()
+        let account_index = *account;
+        let token_index = *token;
+        let lock_id = lock.clone();
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let lock_entry = state
+                    .locks
+                    .locks
+                    .0
+                    .get_mut(&lock_id)
+                    .expect("add_lock_balance_ref called for an unknown lock id");
+                lock_entry
+                    .locked_balances
+                    .insert((account_index, token_index));
+                Ok(state)
+            })
+            .unwrap();
     }
 }
