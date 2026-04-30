@@ -240,7 +240,7 @@ getLockInfoV2 ::
     -- | Block hash.
     Ptr Word8 ->
     -- | Lock ID (24 bytes: three big-endian Word64 fields).
-    Ptr Word8 ->
+    Ptr SerializedLockId ->
     -- | Out pointer for writing the block hash that was used.
     Ptr Word8 ->
     Ptr ReceiverVec ->
@@ -251,7 +251,7 @@ getLockInfoV2 cptr blockType blockHashPtr lockIdPtr outHash outVec copierCbk = d
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    lockId <- peek (castPtr lockIdPtr) :: IO SerializedLockId
+    lockId <- peek (castPtr lockIdPtr)
     res <- runMVR (Q.getLockInfo bhi lockId) mvr
     case res of
         Q.BQRBlock _ (Left QLEUnknownLock) -> do
@@ -1419,7 +1419,7 @@ foreign export ccall
         -- | Block hash.
         Ptr Word8 ->
         -- | Lock ID (24 bytes: three big-endian Word64 fields).
-        Ptr Word8 ->
+        Ptr SerializedLockId ->
         -- | Out pointer for writing the block hash that was used.
         Ptr Word8 ->
         Ptr ReceiverVec ->

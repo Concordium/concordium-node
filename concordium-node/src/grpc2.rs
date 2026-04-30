@@ -229,6 +229,17 @@ pub mod types {
         }
     }
 
+    // Serialize the LockId as three big-endian u64 fields, exactly 24 bytes.
+    // This matches the Haskell `SerializedLockId` type and the FFI input contract
+    // documented on `getLockInfoV2`.
+    pub(crate) fn lock_id_to_ffi(lock_id: &plt::LockId) -> [u8; 24] {
+        let mut lock_id_bytes = [0u8; 24];
+        lock_id_bytes[0..8].copy_from_slice(&lock_id.account_index.to_be_bytes());
+        lock_id_bytes[8..16].copy_from_slice(&lock_id.sequence_number.to_be_bytes());
+        lock_id_bytes[16..24].copy_from_slice(&lock_id.creation_order.to_be_bytes());
+        lock_id_bytes
+    }
+
     impl From<Amount> for concordium_base::common::types::Amount {
         fn from(n: Amount) -> Self {
             Self::from_micro_ccd(n.value)
