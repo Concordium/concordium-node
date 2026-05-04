@@ -686,7 +686,6 @@ fn test_transfer_paused() {
         gov_account,
         gov_addr,
         1.into(),
-
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),

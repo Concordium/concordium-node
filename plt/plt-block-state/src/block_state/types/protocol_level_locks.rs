@@ -1,8 +1,7 @@
+use concordium_base::base::AccountIndex;
 use concordium_base::common::Serialize;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::{base::AccountIndex};
 use plt_scheduler_types::types::locks::LockControllerConfig;
-
 
 /// Lock configuration at the block state level.
 ///
@@ -57,7 +56,6 @@ impl LockConfiguration {
     pub fn controller(&self) -> &LockControllerConfig {
         &self.controller
     }
-
 }
 
 #[cfg(test)]

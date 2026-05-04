@@ -547,9 +547,12 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                     Lock {
                         locked_balances: Default::default(),
                         configuration,
-                    }
+                    },
                 );
-                assert!(prev.is_none(), "Lock with the same id already exists in the block state");
+                assert!(
+                    prev.is_none(),
+                    "Lock with the same id already exists in the block state"
+                );
                 Ok(state)
             })
             .unwrap()

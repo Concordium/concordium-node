@@ -1,11 +1,14 @@
 //! Runtime interface for protocol-level lock controllers.
 
 use concordium_base::{
-    protocol_level_locks::{LockId},
+    protocol_level_locks::LockId,
     protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId},
 };
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
-use plt_scheduler_types::types::{locks::{LockControllerConfig, LockControllerSimpleV0}, reject_reasons::TransactionRejectReason};
+use plt_scheduler_types::types::{
+    locks::{LockControllerConfig, LockControllerSimpleV0},
+    reject_reasons::TransactionRejectReason,
+};
 
 /// Runtime lock operation model. This corresponds to the "fund", "send", "return", and "cancel"
 /// CBOR operations for interacting with locks from concordium-base.
@@ -73,8 +76,12 @@ pub trait LockController {
         bsq: &BSQ,
     ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError>;
 
+    /// Controller configuration type used for constructing this controller.
+    /// This is expected to be decoded CBOR derived from the `lockCreate`
+    /// operation payload.
     type ControllerConfig;
 
+    /// Construct this lock controller from the given configuration.
     fn new<BSQ: BlockStateQuery>(
         bsq: &BSQ,
         config: Self::ControllerConfig,
@@ -100,7 +107,8 @@ impl LockController for LockControllerConfig {
     fn to_cbor_controller<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
-    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError> {
+    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError>
+    {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
                 lock_controller_simple_v0.to_cbor_controller(bsq)
@@ -115,15 +123,13 @@ impl LockController for LockControllerConfig {
         config: Self::ControllerConfig,
     ) -> Result<Self, TransactionRejectReason>
     where
-        Self: Sized
+        Self: Sized,
     {
         use concordium_base::protocol_level_locks::LockController::*;
         match config {
-            SimpleV0(lock_controller_simple_v0) => {
-                Ok(LockControllerConfig::SimpleV0(
-                    LockControllerSimpleV0::new(bsq, lock_controller_simple_v0)?,
-                ))
-            },
+            SimpleV0(lock_controller_simple_v0) => Ok(LockControllerConfig::SimpleV0(
+                LockControllerSimpleV0::new(bsq, lock_controller_simple_v0)?,
+            )),
         }
     }
 }

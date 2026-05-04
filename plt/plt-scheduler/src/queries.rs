@@ -7,7 +7,7 @@ use concordium_base::common::cbor::cbor_encode;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{
-    AccountNotFoundByIndexError, BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError
+    AccountNotFoundByIndexError, BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError,
 };
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,

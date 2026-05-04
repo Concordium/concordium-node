@@ -275,7 +275,6 @@ fn test_out_of_energy_error() {
         sender,
         stub.account_canonical_address(&sender),
         1.into(),
-
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(50),
