@@ -12,8 +12,7 @@ use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{
-        LockOperation, MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdateOperations,
-        MetaUpdatePayload,
+        LockOperation, MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
     },
 };
 use concordium_base::transactions;
@@ -25,7 +24,7 @@ use plt_block_state::block_state_interface::{
 };
 use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
-use plt_scheduler_types::types::locks::{self, LockControllerConfig};
+use plt_scheduler_types::types::locks::{self, LockControllerConfig, MetaUpdateOperationKind};
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };

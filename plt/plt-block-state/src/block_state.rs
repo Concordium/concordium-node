@@ -441,7 +441,6 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
             .unwrap();
     }
 
-    // TODO: lock creation implemented as part of COR-2302
     fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
         self.internal_block_state
             .update_block_state_(|mut state| {
