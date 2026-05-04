@@ -1,6 +1,8 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::block_state::blob_store::{
+    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
+};
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
@@ -12,9 +14,9 @@ use crate::block_state::types::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, BlockStateResult, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
+    BlockStateOperations, BlockStateQuery, BlockStateResult, LockNotFoundByIdError, OverflowError,
+    RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
@@ -24,7 +26,7 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-use std::mem;
+use std::{any, mem};
 
 pub mod blob_reference;
 pub mod blob_store;
@@ -44,20 +46,38 @@ mod utils;
 ///
 /// The internal representation in [`BlockState`] may change during the lifetime via interior mutability.
 /// This happens if state are cached, stored or hashes are lazily calculated.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BlockState {
+    /// The protocol version of the block state.
+    pub protocol_version: ProtocolVersion,
+    /// Data in the block state
+    pub data: BlockStateData,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BlockStateData {
     /// Protocol-level tokens
     tokens: ProtocolLevelTokens,
     /// Protocol-level locks
     locks: ProtocolLevelLocks,
 }
 
-impl BlockState {
-    /// Construct an empty block state.
+/// The actual data in [`BlockState`]
+impl BlockStateData {
     pub fn empty() -> Self {
-        BlockState {
+        BlockStateData {
             tokens: ProtocolLevelTokens::empty(),
             locks: ProtocolLevelLocks::empty(),
+        }
+    }
+}
+
+impl BlockState {
+    /// Construct an empty block state.
+    pub fn empty(protocol_version: ProtocolVersion) -> Self {
+        BlockState {
+            protocol_version,
+            data: BlockStateData::empty(),
         }
     }
 
@@ -67,49 +87,99 @@ impl BlockState {
     }
 
     /// Migrate the PLT block state from one blob store to another.
-    pub fn migrate(&self, _loader: &impl BlobStoreLoad, _storer: &mut impl BlobStoreStore) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-67/implement-p10-to-p11-migration-for-plt-state
+    ///
+    /// # Arguments
+    ///
+    /// - `from_loader` Blob store loader for the blob store we are migrating from.
+    /// - `to_storer` Blob store storer for the blob store we are migrating to.
+    /// - `to_protocol_version` Protocol version for the block state to migrate to.
+    pub fn migrate(
+        &self,
+        _from_loader: impl BlobStoreLoad,
+        _to_storer: impl BlobStoreStore,
+        _to_protocol_version: ProtocolVersion,
+    ) -> Self {
+        // todo ar
         todo!()
     }
-}
 
-impl Loadable for BlockState {
+    /// If protocol-level locks are supported by the block state.
+    fn support_locks(&self) -> bool {
+        support_locks_for_pv(self.protocol_version)
+    }
+
+    /// See [`blob_store::load_from_store`]. This function only differs by taking
+    /// protocol version as argument.
+    pub fn load_from_store(
+        loader: &impl BlobStoreLoad,
+        location: BlobStoreLocation,
+        protocol_version: ProtocolVersion,
+    ) -> BlockStateResult<Self> {
+        let bytes = loader.load_raw(location);
+        let mut bytes_slice = bytes.as_slice();
+        let value = Self::load_from_buffer(&mut bytes_slice, loader, protocol_version)?;
+        if !bytes_slice.is_empty() {
+            return Err(BlockStateFailure::BlobStoreDecode(format!(
+                "Bytes remaining after loading value of type {} from blob store",
+                any::type_name::<BlockState>()
+            )));
+        };
+        Ok(value)
+    }
+
+    /// See [`Loadable::load_from_buffer`]. This function only differs by taking
+    /// protocol version as argument.
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
+        protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
         let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let locks = if support_locks_for_pv(protocol_version) {
+            Loadable::load_from_buffer(&mut buffer, loader)?
+        } else {
+            ProtocolLevelLocks::empty()
+        };
 
-        // todo load locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
         Ok(Self {
-            tokens,
-            locks: Default::default(),
+            protocol_version,
+            data: BlockStateData { tokens, locks },
         })
     }
 }
 
+/// If protocol-level locks are supported by the protocol version.
+fn support_locks_for_pv(protocol_version: ProtocolVersion) -> bool {
+    protocol_version >= ProtocolVersion::P11
+}
+
 impl Storable for BlockState {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        // todo store locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
-
-        self.tokens.store_to_buffer(&mut buffer, storer);
+        self.data.tokens.store_to_buffer(&mut buffer, storer);
+        if self.support_locks() {
+            self.data.locks.store_to_buffer(&mut buffer, storer);
+        }
     }
 }
 
 impl Cacheable for BlockState {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        // todo cache locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
-
-        self.tokens.cache_reference_values(loader)?;
+        self.data.tokens.cache_reference_values(loader)?;
+        if self.support_locks() {
+            self.data.locks.cache_reference_values(loader)?;
+        }
         Ok(())
     }
 }
 
 impl Hashable for BlockState {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        // todo hash locks as part of https://linear.app/concordium/issue/COR-2385/make-the-rust-block-state-compatible-both-with-p9p10-and-locks-on-p11
+        let mut hash = self.data.tokens.hash(loader)?;
+        if self.support_locks() {
+            hash = hash::hash_of_hashes(hash, self.data.locks.hash(loader)?)
+        }
 
-        self.tokens.hash(loader)
+        Ok(hash)
     }
 }
 
@@ -140,19 +210,19 @@ impl MutableBlockState {
     /// the additional value of type `T` returned by the closure.
     fn update_block_state<T>(
         &mut self,
-        update: impl FnOnce(BlockState) -> BlockStateResult<(T, BlockState)>,
+        update: impl FnOnce(BlockStateData) -> BlockStateResult<(T, BlockStateData)>,
     ) -> BlockStateResult<T> {
         let ret;
-        (ret, self.immutable_state) = update(mem::take(&mut self.immutable_state))?;
+        (ret, self.immutable_state.data) = update(mem::take(&mut self.immutable_state.data))?;
         Ok(ret)
     }
 
     /// Update the block state using `update` closure.
     fn update_block_state_(
         &mut self,
-        update: impl FnOnce(BlockState) -> BlockStateResult<BlockState>,
+        update: impl FnOnce(BlockStateData) -> BlockStateResult<BlockStateData>,
     ) -> BlockStateResult<()> {
-        self.immutable_state = update(mem::take(&mut self.immutable_state))?;
+        self.immutable_state.data = update(mem::take(&mut self.immutable_state.data))?;
         Ok(())
     }
 }
@@ -164,8 +234,6 @@ impl MutableBlockState {
 /// for the parts of the state that is managed on the Haskell side.
 #[derive(Debug)]
 pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
-    /// The protocol version of the block state.
-    pub protocol_version: ProtocolVersion,
     /// The library block state implementation.
     pub internal_block_state: IntState,
     /// External function for reading from the blob store.
@@ -176,18 +244,38 @@ pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
 
 /// Provides access needed for querying block state (but not to do operations on the block state).
 trait HasBlockState {
-    fn block_state(&self) -> &BlockState;
+    fn block_state(&self) -> &BlockStateData;
+
+    fn protocol_version(&self) -> ProtocolVersion;
 }
 
 impl HasBlockState for &BlockState {
-    fn block_state(&self) -> &BlockState {
-        self
+    fn block_state(&self) -> &BlockStateData {
+        &self.data
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
+}
+
+impl HasBlockState for BlockState {
+    fn block_state(&self) -> &BlockStateData {
+        &self.data
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
     }
 }
 
 impl HasBlockState for MutableBlockState {
-    fn block_state(&self) -> &BlockState {
-        &self.immutable_state
+    fn block_state(&self) -> &BlockStateData {
+        &self.immutable_state.data
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.immutable_state.protocol_version
     }
 }
 
@@ -334,7 +422,17 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
-        self.protocol_version
+        self.internal_block_state.protocol_version()
+    }
+
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        self.internal_block_state
+            .block_state()
+            .locks
+            .locks
+            .0
+            .keys()
+            .cloned()
     }
 
     fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
@@ -377,7 +475,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
         // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
             .update_block_state_(|state| {
-                Ok(BlockState {
+                Ok(BlockStateData {
                     tokens: state.tokens.set_token_circulating_supply(
                         &self.blob_store_load,
                         *token,
@@ -396,7 +494,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                 let (token_index, tokens) = state
                     .tokens
                     .create_token(&self.blob_store_load, configuration)?;
-                Ok((token_index, BlockState { tokens, ..state }))
+                Ok((token_index, BlockStateData { tokens, ..state }))
             })
             .unwrap()
     }
@@ -429,7 +527,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
         // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         self.internal_block_state
             .update_block_state_(|state| {
-                Ok(BlockState {
+                Ok(BlockStateData {
                     tokens: state.tokens.set_token_key_value_state(
                         &self.blob_store_load,
                         *token,
@@ -457,13 +555,29 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
             .unwrap()
     }
 
-    // TODO: Implement as part of COR-2305.
     fn add_lock_balance_ref(
         &mut self,
-        _lock: &LockId,
-        _account: &Self::Account,
-        _token: &Self::Token,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
     ) {
-        todo!()
+        let account_index = *account;
+        let token_index = *token;
+        let lock_id = lock.clone();
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let lock_entry = state
+                    .locks
+                    .locks
+                    .0
+                    .get_mut(&lock_id)
+                    .expect("add_lock_balance_ref called for an unknown lock id");
+                lock_entry
+                    .locked_balances
+                    .insert((account_index, token_index));
+                Ok(state)
+            })
+            .unwrap();
     }
 }

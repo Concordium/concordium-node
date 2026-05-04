@@ -1,4 +1,7 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Bindings to the Rust PLT block state implementation.
@@ -14,16 +17,18 @@ module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTB
     ProtocolLevelTokensHash (..),
 ) where
 
+import Control.Monad.Trans (lift, liftIO)
 import qualified Data.Serialize as S
 import qualified Foreign as FFI
 
 import qualified Concordium.Crypto.SHA256 as SHA256
-import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
-import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
+import qualified Concordium.Types as Types
 import qualified Concordium.Types.HashableTo as Hashable
 import qualified Control.Monad as Monad
-import Control.Monad.Trans (lift, liftIO)
 import qualified Data.FixedByteString as FixedByteString
+
+import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
+import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 
 -- | Opaque type representing a Rust maintained PLT state.
 -- The value is allocated in Rust and must be deallocated in Rust.
@@ -32,10 +37,10 @@ data RustPLTBlockState
 -- | Opaque pointer to a immutable PLT block state save-point managed by the rust library.
 --
 -- Memory is deallocated using a finalizer.
-newtype ForeignPLTBlockStatePtr = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
+newtype ForeignPLTBlockStatePtr pv = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
 
 -- | Helper function to convert a raw pointer passed by the Rust library into a `PLTBlockState` object.
-wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO ForeignPLTBlockStatePtr
+wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO (ForeignPLTBlockStatePtr pv)
 wrapFFIPtr blockStatePtr = ForeignPLTBlockStatePtr <$> FFI.newForeignPtr ffiFreePLTBlockState blockStatePtr
 
 -- | Deallocate a pointer to `PLTBlockState`.
@@ -48,29 +53,57 @@ foreign import ccall unsafe "&ffi_free_plt_block_state"
 -- leaked from the computation.
 --
 -- This ensures the finalizer is not called until the computation is over.
-withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr RustPLTBlockState -> IO a) -> IO a
+withPLTBlockState :: ForeignPLTBlockStatePtr pv -> (FFI.Ptr RustPLTBlockState -> IO a) -> IO a
 withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr foreignPtr
 
 -- | Allocate new empty block state.
-empty :: (BlobStore.MonadBlobStore m) => m ForeignPLTBlockStatePtr
+empty ::
+    forall m pv.
+    (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
+    m (ForeignPLTBlockStatePtr pv)
 empty = liftIO $ do
-    state <- ffiEmptyPLTBlockState
-    wrapFFIPtr state
+    FFI.alloca $ \blockStateDestPtr -> do
+        status <-
+            ffiEmptyPLTBlockState
+                (sProtocolVersionToWord64 $ Types.protocolVersion @pv)
+                blockStateDestPtr
+        Monad.unless (status == 0) $ error "Unexpected panic when creating a new block state"
+        blockState <- FFI.peek blockStateDestPtr
+        wrapFFIPtr blockState
+
+sProtocolVersionToWord64 ::
+    Types.SProtocolVersion pv ->
+    FFI.Word64
+sProtocolVersionToWord64 spv = Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv
 
 -- | Allocate new empty block state.
 --
 -- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_empty_plt_block_state"
-    ffiEmptyPLTBlockState :: IO (FFI.Ptr RustPLTBlockState)
+    ffiEmptyPLTBlockState ::
+        -- | Protocol version of the block.
+        FFI.Word64 ->
+        -- | Destination pointer for the loaded block state.
+        FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
+        -- | Status code
+        IO FFI.Word8
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBlockStatePtr where
+instance
+    (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
+    BlobStore.BlobStorable m (ForeignPLTBlockStatePtr pv)
+    where
     load = do
         blobRef <- S.get
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
                 FFI.alloca $ \blockStateDestPtr -> do
-                    status <- ffiLoadPLTBlockState loadCallback blobRef blockStateDestPtr
+                    status <-
+                        ffiLoadPLTBlockState
+                            loadCallback
+                            blobRef
+                            (sProtocolVersionToWord64 $ Types.protocolVersion @pv)
+                            blockStateDestPtr
                     Monad.unless (status == 0) $ error "Unexpected panic when loading a block state"
                     blockState <- FFI.peek blockStateDestPtr
                     wrapFFIPtr blockState
@@ -91,6 +124,8 @@ foreign import ccall "ffi_load_plt_block_state"
         FFI.LoadCallback ->
         -- | Reference in the blob store.
         BlobStore.BlobRef RustPLTBlockState ->
+        -- | Protocol version of the block.
+        FFI.Word64 ->
         -- | Destination pointer for the loaded block state.
         FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
         -- | Status code
@@ -110,7 +145,7 @@ foreign import ccall "ffi_store_plt_block_state"
         -- | Status code
         IO FFI.Word8
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
+instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m (ForeignPLTBlockStatePtr pv) where
     cache blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         status <- liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
@@ -132,7 +167,10 @@ foreign import ccall "ffi_cache_plt_block_state"
 newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelTokensHash :: SHA256.Hash}
     deriving newtype (Eq, Ord, Show, S.Serialize)
 
-instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTokensHash ForeignPLTBlockStatePtr where
+instance
+    (BlobStore.MonadBlobStore m) =>
+    Hashable.MHashableTo m ProtocolLevelTokensHash (ForeignPLTBlockStatePtr pv)
+    where
     getHashM blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
@@ -159,16 +197,24 @@ foreign import ccall "ffi_hash_plt_block_state"
 
 -- | Run migration during a protocol update.
 migrate ::
-    (BlobStore.SupportMigration m t) =>
+    forall m t pv tpv.
+    (BlobStore.SupportMigration m t, Types.IsProtocolVersion tpv) =>
     -- | Current block state
-    ForeignPLTBlockStatePtr ->
+    (ForeignPLTBlockStatePtr pv) ->
     -- | New migrated block state
-    t m ForeignPLTBlockStatePtr
+    t m (ForeignPLTBlockStatePtr tpv)
 migrate currentState = do
-    loadCallback <- fst <$> lift BlobStore.getCallbacks
-    storeCallback <- snd <$> BlobStore.getCallbacks
+    oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
+    newStoreCallback <- snd <$> BlobStore.getCallbacks
+    let newSProtocolVersion = Types.protocolVersion @tpv
     liftIO $ FFI.alloca $ \newStateDestPtr -> do
-        status <- withPLTBlockState currentState $ ffiMigratePLTBlockState loadCallback storeCallback newStateDestPtr
+        status <-
+            withPLTBlockState currentState $
+                ffiMigratePLTBlockState
+                    oldLoadCallback
+                    newStoreCallback
+                    (sProtocolVersionToWord64 newSProtocolVersion)
+                    newStateDestPtr
         Monad.unless (status == 0) $ error "Unexpected panic when migrating a block state"
         newState <- FFI.peek newStateDestPtr
         wrapFFIPtr newState
@@ -178,13 +224,15 @@ migrate currentState = do
 -- See the exported function in the Rust code for documentation of safety.
 foreign import ccall "ffi_migrate_plt_block_state"
     ffiMigratePLTBlockState ::
-        -- | Called to read data from the old blob store.
+        -- | Called to read data from the blob store being migrated from.
         FFI.LoadCallback ->
-        -- | Called to write data to the new blob store.
+        -- | Called to write data to the blob store being migrated to.
         FFI.StoreCallback ->
+        -- | Protocol version of the block being migrated to.
+        FFI.Word64 ->
         -- | Pointer to the new block state.
         FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
-        -- | Pointer to the old block state.
+        -- | Block state to migrate
         FFI.Ptr RustPLTBlockState ->
         -- | Status code
         IO FFI.Word8

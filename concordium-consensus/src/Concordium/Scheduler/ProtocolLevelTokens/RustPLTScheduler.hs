@@ -143,7 +143,7 @@ executeTransaction depositContext tokenUpdate =
         -- Block protocol version
         Types.SProtocolVersion pv ->
         -- Block state to mutate.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr pv ->
         -- Callbacks need for block state queries on the state maintained by Haskell.
         BlockStateQueryCallbacks ->
         -- Callbacks need for block state operations on the state maintained by Haskell.
@@ -155,7 +155,7 @@ executeTransaction depositContext tokenUpdate =
         -- Remaining energy.
         Types.Energy ->
         -- Outcome of the execution
-        m' (TransactionExecutionSummary PLTBlockState.ForeignPLTBlockStatePtr)
+        m' (TransactionExecutionSummary (PLTBlockState.ForeignPLTBlockStatePtr pv))
     executeTransactionInBlobStoreMonad
         spv
         blockState
@@ -191,7 +191,6 @@ executeTransaction depositContext tokenUpdate =
                                             getAccountAddressByIndexCallbackPtr
                                             getTokenAccountStatesCallbackPtr
                                             blockStatePtr
-                                            (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv)
                                             (FFI.castPtr transactionPayloadPtr)
                                             (fromIntegral transactionPayloadLen)
                                             (fromIntegral senderAccountIndex)
@@ -289,8 +288,6 @@ foreign import ccall "ffi_execute_transaction"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | The protocol version of the block.
-        Word.Word64 ->
         -- | Pointer to transaction payload bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of transaction payload.
@@ -391,13 +388,13 @@ executeChainUpdate updateHeader createPLT =
         -- Block protocol version
         Types.SProtocolVersion pv ->
         -- Block state to mutate.
-        PLTBlockState.ForeignPLTBlockStatePtr ->
+        PLTBlockState.ForeignPLTBlockStatePtr pv ->
         -- Callbacks need for block state queries on the state maintained by Haskell.
         BlockStateQueryCallbacks ->
         -- Callbacks need for block state operations on the state maintained by Haskell.
         BlockStateOperationCallbacks ->
         -- Outcome of the execution
-        m' (ChainUpdateExecutionOutcome PLTBlockState.ForeignPLTBlockStatePtr)
+        m' (ChainUpdateExecutionOutcome (PLTBlockState.ForeignPLTBlockStatePtr pv))
     executeChainUpdateInBlobStoreMonad
         spv
         blockState
@@ -429,7 +426,6 @@ executeChainUpdate updateHeader createPLT =
                                         getAccountAddressByIndexCallbackPtr
                                         getTokenAccountStatesCallbackPtr
                                         blockStatePtr
-                                        (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion spv)
                                         (FFI.castPtr chainUpdatePayloadPtr)
                                         (fromIntegral chainUpdatePayloadLen)
                                         resultingBlockStateOutPtr
@@ -516,8 +512,6 @@ foreign import ccall "ffi_execute_chain_update"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
-        -- | Protocol version of the block.
-        Word.Word64 ->
         -- | Pointer to chain update payload bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of chain update payload.

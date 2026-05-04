@@ -185,6 +185,13 @@ pub trait BlockStateQuery {
     /// Query the protocol version of the block state.
     fn protocol_version(&self) -> ProtocolVersion;
 
+    /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
+    /// end of the block.
+    ///
+    /// If the protocol version does not support protocol-level locks, this will return the empty
+    /// list.
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId>;
+
     /// Get the lock associated with a [`LockId`] (if it exists).
     ///
     /// # Arguments
@@ -320,6 +327,12 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - `lock` The lock to update.
     /// - `account` The account whose locked balance is tracked.
     /// - `token` The token whose locked balance is tracked.
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` MUST already exist in the block state, i.e.
+    ///   `s.lock_by_id(lock_id).expect("lock exists")`.
     fn add_lock_balance_ref(&mut self, lock: &LockId, account: &Self::Account, token: &Self::Token);
 }
 

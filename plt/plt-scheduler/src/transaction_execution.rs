@@ -10,7 +10,7 @@ pub struct OutOfEnergyError;
 
 /// Tracks the energy remaining and some context during the execution.
 pub struct TransactionExecution<Account> {
-    /// Limit for how much energy the execution can use. An [`OutOfEnergy`] error is
+    /// Limit for how much energy the execution can use. An [`OutOfEnergyError`] error is
     /// returned if the limit is reached.
     energy_limit: Energy,
     /// Energy used so far by execution. Energy is always charged in advance for each step executed.
