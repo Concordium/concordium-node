@@ -1,13 +1,11 @@
 //! Runtime interface for protocol-level lock controllers.
 
 use concordium_base::{
-    protocol_level_locks::LockId,
+    protocol_level_locks::{LockId},
     protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId},
 };
-use plt_block_state::block_state_interface::BlockStateQuery;
-use plt_scheduler_types::types::locks::LockControllerConfig;
-
-use crate::queries::QueryLockError;
+use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
+use plt_scheduler_types::types::{locks::{LockControllerConfig, LockControllerSimpleV0}, reject_reasons::TransactionRejectReason};
 
 /// Runtime lock operation model. This corresponds to the "fund", "send", "return", and "cancel"
 /// CBOR operations for interacting with locks from concordium-base.
@@ -66,14 +64,23 @@ pub trait LockController {
     /// `lock-info` payload returned from `query_lock_info`.
     ///
     /// Resolves any block-state `AccountIndex` references (e.g. grant accounts) to their
-    /// canonical [`CborHolderAccount`] form via `bsq`. Surfaces a
-    /// [`QueryLockError::StateInvariantViolation`] if a recorded `AccountIndex` cannot be
+    /// canonical [`CborHolderAccount`] form via `bsq`. Surfaces an
+    /// [`AccountNotFoundByIndexError`] if a recorded `AccountIndex` cannot be
     /// looked up — that signals corrupted block state, since lock configurations are only
     /// allowed to reference accounts that exist at creation time.
     fn to_cbor_controller<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
-    ) -> Result<concordium_base::protocol_level_locks::LockController, QueryLockError>;
+    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError>;
+
+    type ControllerConfig;
+
+    fn new<BSQ: BlockStateQuery>(
+        bsq: &BSQ,
+        config: Self::ControllerConfig,
+    ) -> Result<Self, TransactionRejectReason>
+    where
+        Self: Sized;
 }
 
 impl LockController for LockControllerConfig {
@@ -93,11 +100,30 @@ impl LockController for LockControllerConfig {
     fn to_cbor_controller<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
-    ) -> Result<concordium_base::protocol_level_locks::LockController, QueryLockError> {
+    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError> {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
                 lock_controller_simple_v0.to_cbor_controller(bsq)
             }
+        }
+    }
+
+    type ControllerConfig = concordium_base::protocol_level_locks::LockController;
+
+    fn new<BSQ: BlockStateQuery>(
+        bsq: &BSQ,
+        config: Self::ControllerConfig,
+    ) -> Result<Self, TransactionRejectReason>
+    where
+        Self: Sized
+    {
+        use concordium_base::protocol_level_locks::LockController::*;
+        match config {
+            SimpleV0(lock_controller_simple_v0) => {
+                Ok(LockControllerConfig::SimpleV0(
+                    LockControllerSimpleV0::new(bsq, lock_controller_simple_v0)?,
+                ))
+            },
         }
     }
 }

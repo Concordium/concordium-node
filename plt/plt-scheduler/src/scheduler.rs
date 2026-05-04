@@ -9,6 +9,7 @@ use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 
+pub mod helpers;
 mod plt_scheduler;
 
 /// Unrecoverable error executing transaction. This represents the

@@ -4,7 +4,7 @@
 
 use crate::ffi::status;
 use crate::scheduler;
-use concordium_base::base::{AccountIndex, Energy, ProtocolVersion, Nonce};
+use concordium_base::base::{AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;

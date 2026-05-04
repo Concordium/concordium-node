@@ -1,14 +1,15 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::locks::get_lock_config;
+use crate::locks::lock_controller::LockController;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_context::TokenOperationContext;
 use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
-use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor::{self};
-use concordium_base::protocol_level_locks::{LockController, LockId};
-use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
+use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::RawCbor;
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{
@@ -19,12 +20,10 @@ use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state::types::protocol_level_locks::LockConfiguration;
 use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
-use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError,
-};
+use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
 use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
-use plt_scheduler_types::types::locks::{self, LockControllerConfig, MetaUpdateOperationKind};
+use plt_scheduler_types::types::locks::MetaUpdateOperationKind;
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
@@ -247,38 +246,6 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
     Ok(TransactionOutcome::Success(events))
 }
 
-/// Look up the account index for a [`CborHolderAccount`]. If the account does
-/// not exist, a [`TransactionRejectReason::InvalidAccountReference`] is
-/// returned.
-fn lookup_account_index<BSQ: BlockStateQuery>(
-    block_state: &BSQ,
-    holder: CborHolderAccount,
-) -> Result<AccountIndex, TransactionRejectReason> {
-    match block_state.account_by_address(&holder.address) {
-        Ok(account) => Ok(block_state.account_index(&account)),
-        Err(_) => Err(TransactionRejectReason::InvalidAccountReference(
-            holder.address,
-        )),
-    }
-}
-
-/// Look up the token ID in the block state. If the token ID does not exist, a
-/// [`TransactionRejectReason::NonExistentTokenId`] is returned.
-/// Otherwise, this returns the canonical representation of the token ID.
-///
-/// TODO: Consider returning token index instead.
-fn lookup_token_id<BSQ: BlockStateQuery>(
-    block_state: &BSQ,
-    token_id: TokenId,
-) -> Result<TokenId, TransactionRejectReason> {
-    match block_state.token_by_id(&token_id) {
-        Ok(token) => Ok(block_state.token_configuration(&token).token_id),
-        Err(TokenNotFoundByIdError(_)) => {
-            Err(TransactionRejectReason::NonExistentTokenId(token_id))
-        }
-    }
-}
-
 fn execute_lock_operation<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
@@ -296,33 +263,9 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             let sequence_number = transaction_execution.transaction_sequence_number();
             let creation_order = transaction_execution.next_lock_creation_order();
             let lock_id = LockId::new(account_index, sequence_number, creation_order);
-
-            let controller = match config.controller {
-                LockController::SimpleV0(controller) => {
-                    let grants = controller.grants.into_iter().map(|grant| {
-                        let account_index = lookup_account_index(block_state, grant.account)?;
-                        Ok(locks::LockControllerSimpleV0Grant {
-                            account: account_index,
-                            roles: grant.roles,
-                        })
-                    });
-                    let tokens = controller
-                        .tokens
-                        .into_iter()
-                        .map(|token_id| lookup_token_id(block_state, token_id));
-
-                    match LockControllerConfig::new_simple_v0(
-                        grants,
-                        tokens,
-                        controller.keep_alive,
-                        controller.memo,
-                    ) {
-                        Ok(controller) => controller,
-                        Err(err) => {
-                            return Ok(Some(err));
-                        }
-                    }
-                }
+            let controller = match LockController::new(block_state, config.controller) {
+                Ok(controller) => controller,
+                Err(reject_reason) => return Ok(Some(reject_reason)),
             };
 
             let configuration = match LockConfiguration::new(
@@ -344,7 +287,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             // We reconstruct the lock config for the event, rather than using
             // the original one from the transaction. This results in a config
             // that is in a canonical form.
-            let config = configuration.lock_config(block_state).map_err(|err| {
+            let config = get_lock_config(block_state, &configuration).map_err(|err| {
                 TransactionExecutionError::StateInvariantBroken(format!(
                     "Failed to get lock config for created lock: {err}"
                 ))
