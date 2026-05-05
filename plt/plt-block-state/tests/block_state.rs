@@ -80,7 +80,8 @@ fn test_lock_list() {
             keep_alive: false,
             memo: None,
         }),
-    ).unwrap();
+    )
+    .unwrap();
 
     let lock_a = LockId {
         account_index: 1,
