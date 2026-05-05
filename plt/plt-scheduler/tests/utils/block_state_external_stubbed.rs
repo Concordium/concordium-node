@@ -334,7 +334,7 @@ impl BlockStateWithExternalStateStubbed {
             CborHolderAccount::from(
                 self.state()
                     .account_by_index(*index)
-                    .expect(&format!("account {} does not exist", *index))
+                    .unwrap_or_else(|_| panic!("account index {} does not exist", *index))
                     .canonical_account_address,
             )
         };

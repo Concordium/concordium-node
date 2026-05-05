@@ -155,7 +155,7 @@ mod test {
         });
         let meta_transfer = MetaUpdateOperation::Transfer(MetaTokenTransfer {
             token: token_id.clone(),
-            amount: amount,
+            amount,
             recipient: account.clone(),
             memo: memo.clone(),
         });
