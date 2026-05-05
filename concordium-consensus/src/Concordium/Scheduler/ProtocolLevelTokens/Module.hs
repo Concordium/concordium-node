@@ -5,7 +5,6 @@ module Concordium.Scheduler.ProtocolLevelTokens.Module where
 
 import Control.Monad
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BS.Builder
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
