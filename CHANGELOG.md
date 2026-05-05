@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+# 10.0.8
+
+- Treat scheduled transfers where the total transferred amount overflows as invalid.
+
 # 10.0.7
 
 - Enhance node performance by limiting outbound queue saturation to peers that are slow in processing messages.

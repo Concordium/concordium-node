@@ -517,12 +517,12 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
                 (_, transferAmount) <-
                     foldM
                         ( \(prev, acc) (i, v) ->
-                            if prev >= i
-                                then rejectTransaction NonIncreasingSchedule
-                                else
-                                    if v == 0
-                                        then rejectTransaction ZeroScheduledAmount
-                                        else return (i, acc + v)
+                            if
+                                | prev >= i -> rejectTransaction NonIncreasingSchedule
+                                | v == 0 -> rejectTransaction ZeroScheduledAmount
+                                | acc > maxBound - v ->
+                                    rejectTransaction (AmountTooLarge (AddressAccount senderAddress) v)
+                                | otherwise -> return (i, acc + v)
                         )
                         firstRelease
                         restOfReleases
