@@ -71,16 +71,16 @@ fn test_lock_list() {
 
     // Empty configuration is sufficient for `lock_list` — we only care about which lock ids
     // were created, not their content.
-    let configuration = LockConfiguration {
-        recipients: Vec::new(),
-        expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration = LockConfiguration::new::<std::convert::Infallible>(
+        [],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
             tokens: Vec::new(),
             keep_alive: false,
             memo: None,
         }),
-    };
+    ).unwrap();
 
     let lock_a = LockId {
         account_index: 1,
@@ -92,8 +92,8 @@ fn test_lock_list() {
         sequence_number: 7,
         creation_order: 0,
     };
-    block_state.create_lock(&lock_a, &configuration);
-    block_state.create_lock(&lock_b, &configuration);
+    block_state.create_lock(lock_a.clone(), configuration.clone());
+    block_state.create_lock(lock_b.clone(), configuration);
 
     // Read lock list
     let locks: Vec<_> = block_state.lock_list().collect();
