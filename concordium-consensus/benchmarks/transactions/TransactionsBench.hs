@@ -33,7 +33,6 @@ import Criterion
 import Criterion.Main
 import Data.Bool.Singletons
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
