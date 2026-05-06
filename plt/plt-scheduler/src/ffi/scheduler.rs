@@ -4,7 +4,7 @@
 
 use crate::ffi::status;
 use crate::scheduler;
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::{AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -85,6 +85,7 @@ extern "C" fn ffi_execute_transaction(
     payload_len: size_t,
     sender_account_index: u64,
     sender_account_address: *const u8,
+    transaction_sequence_number: Nonce,
     remaining_energy: u64,
     block_state_out: *mut *mut BlockState,
     used_energy_out: *mut u64,
@@ -150,6 +151,7 @@ extern "C" fn ffi_execute_transaction(
         let result = scheduler::execute_transaction(
             sender_account_index,
             sender_account_address,
+            transaction_sequence_number,
             &mut block_state,
             payload,
             remaining_energy,
@@ -337,6 +339,7 @@ mod tests {
             0,
             0,
             ptr::null(),
+            Nonce::from(1),
             0,
             ptr::null_mut(),
             ptr::null_mut(),

@@ -195,6 +195,7 @@ executeTransaction depositContext tokenUpdate =
                                             (fromIntegral transactionPayloadLen)
                                             (fromIntegral senderAccountIndex)
                                             senderAccountAddressPtr
+                                            (EI._wtcTransactionSequenceNumber depositContext)
                                             (fromIntegral remainingEnergy)
                                             resultingBlockStateOutPtr
                                             usedEnergyOutPtr
@@ -296,6 +297,8 @@ foreign import ccall "ffi_execute_transaction"
         -- | Pointer to 32 bytes representing the account address of the account which signed as the
         -- sender of the transaction.
         FFI.Ptr Word.Word8 ->
+        -- | Transaction sequence number.
+        Types.Nonce ->
         -- | Remaining energy
         Word.Word64 ->
         -- | Output location for the resulting PLT block state.

@@ -13,6 +13,7 @@ use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::meta_operations::MetaUpdatePayload;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
     TokenModuleInitializationParameters, TokenModuleState, TokenOperation, TokenOperationsPayload,
@@ -224,6 +225,7 @@ impl BlockStateWithExternalStateStubbed {
         let outcome = scheduler::execute_transaction(
             gov_account,
             token_module_state.governance_account.unwrap().address,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -243,6 +245,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -262,6 +265,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -286,6 +290,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             sender,
             sender_addr,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -319,17 +324,56 @@ impl BlockStateWithExternalStateStubbed {
         tokens: Vec<TokenId>,
         expiry: u64,
     ) {
-        let configuration = LockConfiguration {
-            recipients,
-            expiry: TransactionTime::from(expiry),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants,
-                tokens,
-                keep_alive: false,
-                memo: None,
-            }),
+        use concordium_base::protocol_level_locks::*;
+        use concordium_base::protocol_level_tokens::meta_operations::*;
+        let sender = self
+            .state()
+            .account_by_index(lock_id.account_index())
+            .expect("sender account must exist");
+        let resolve_account = |index: &AccountIndex| {
+            CborHolderAccount::from(
+                self.state()
+                    .account_by_index(*index)
+                    .unwrap_or_else(|_| panic!("account index {} does not exist", *index))
+                    .canonical_account_address,
+            )
         };
-        self.block_state.create_lock(lock_id, &configuration);
+        let recipients = recipients.iter().map(resolve_account).collect();
+        let grants = grants
+            .iter()
+            .map(|grant| LockControllerSimpleV0Grant {
+                account: resolve_account(&grant.account),
+                roles: grant.roles.clone(),
+            })
+            .collect();
+        let operations = MetaUpdateOperations {
+            operations: vec![lock_create(
+                concordium_base::protocol_level_locks::LockConfig {
+                    recipients,
+                    expiry: TransactionTime::from(expiry),
+                    controller: LockController::SimpleV0(LockControllerSimpleV0 {
+                        grants,
+                        tokens,
+                        keep_alive: false,
+                        memo: None,
+                    }),
+                },
+            )],
+        };
+
+        scheduler::execute_transaction(
+            sender.account,
+            sender.canonical_account_address,
+            lock_id.sequence_number(),
+            self.state_mut(),
+            Payload::MetaUpdate {
+                payload: MetaUpdatePayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                },
+            },
+            Energy::from(u64::MAX),
+        )
+        .expect("create lock transaction must succeed");
     }
 
     /// Track a `(account, token)` balance reference under the given lock and record the

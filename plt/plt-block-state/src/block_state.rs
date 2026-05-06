@@ -539,22 +539,23 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
             .unwrap();
     }
 
-    fn create_lock(&mut self, lock_id: &LockId, configuration: &LockConfiguration) -> LockId {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
         self.internal_block_state
             .update_block_state_(|mut state| {
                 let prev = state.locks.locks.0.insert(
-                    lock_id.clone(),
+                    lock_id,
                     Lock {
                         locked_balances: Default::default(),
-                        configuration: configuration.clone(),
+                        configuration,
                     },
                 );
-                debug_assert!(prev.is_none(), "create_lock called for an existing lock id");
+                assert!(
+                    prev.is_none(),
+                    "Lock with the same id already exists in the block state"
+                );
                 Ok(state)
             })
-            .unwrap();
-        lock_id.clone()
+            .unwrap()
     }
 
     fn add_lock_balance_ref(

@@ -5,6 +5,7 @@
 //! the charge of energy.
 
 use concordium_base::common::{Buffer, Put, Serial};
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 
 /// A reason for why a transaction was rejected.
@@ -16,6 +17,8 @@ use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTy
 /// Corresponding Haskell type: `Concordium.Types.Execution.RejectReason`
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum TransactionRejectReason {
+    /// Account does not exist.
+    InvalidAccountReference(AccountAddress),
     /// The transaction payload could not be fully deserialized.
     SerializationFailure,
     /// We ran of out energy to process this transaction.
@@ -29,6 +32,10 @@ pub enum TransactionRejectReason {
 impl Serial for TransactionRejectReason {
     fn serial<B: Buffer>(&self, out: &mut B) {
         match self {
+            TransactionRejectReason::InvalidAccountReference(address) => {
+                out.put(&2u8);
+                out.put(address);
+            }
             TransactionRejectReason::SerializationFailure => {
                 out.put(&9u8);
             }
@@ -65,7 +72,22 @@ pub struct EncodedTokenModuleRejectReason {
 mod test {
     use crate::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
     use concordium_base::common;
+    use concordium_base::contracts_common::AccountAddress;
     use concordium_base::protocol_level_tokens::RawCbor;
+
+    #[test]
+    fn test_invalid_account_reference_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::InvalidAccountReference(AccountAddress([
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
+            0x1c, 0x1d, 0x1e, 0x1f,
+        ]));
+        let bytes = common::to_bytes(&reject_reason);
+        assert_eq!(
+            hex::encode(&bytes),
+            "02000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
+    }
 
     #[test]
     fn test_serialization_failure_reject_reason_serial() {

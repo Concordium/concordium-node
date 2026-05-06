@@ -1534,7 +1534,9 @@ data WithDepositContext m = WithDepositContext
       -- | Energy currently used by the block.
       _wtcCurrentlyUsedBlockEnergy :: !Energy,
       -- | Index of the transaction in a block.
-      _wtcTransactionIndex :: !TransactionIndex
+      _wtcTransactionIndex :: !TransactionIndex,
+      -- | Sequence number (nonce) of the transaction, as specified in the transaction header.
+      _wtcTransactionSequenceNumber :: !Nonce
     }
 
 makeLenses ''WithDepositContext
