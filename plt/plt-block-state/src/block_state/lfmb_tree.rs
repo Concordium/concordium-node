@@ -9,7 +9,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash;
 use crate::block_state::hash::Hashable;
-use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::Cow;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
@@ -221,7 +221,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
         &self,
         loader: &impl BlobStoreLoad,
         key: K,
-    ) -> BlockStateResult<Option<OwnedOrBorrowed<'_, V>>>
+    ) -> BlockStateResult<Option<Cow<'_, V>>>
     where
         V: Loadable,
     {
@@ -230,7 +230,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
             LfmbTreeInner::NonEmpty(size, subtree) => {
                 let int_key = SubtreeKey(key.to_u64());
                 if int_key.0 < *size {
-                    Some(OwnedOrBorrowed::Borrowed(subtree).lookup_value(loader, int_key)?)
+                    Some(Cow::Borrowed(subtree).lookup_value(loader, int_key)?)
                 } else {
                     None
                 }
@@ -253,7 +253,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     pub fn values(
         &self,
         loader: &impl BlobStoreLoad,
-    ) -> impl ExactSizeIterator<Item = BlockStateResult<(K, OwnedOrBorrowed<'_, V>)>>
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<(K, Cow<'_, V>)>>
     where
         V: Loadable,
     {
@@ -329,7 +329,7 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
         &self,
         loader: &impl BlobStoreLoad,
         key: K,
-        update: impl FnOnce(OwnedOrBorrowed<'_, V>) -> BlockStateResult<V>,
+        update: impl FnOnce(Cow<'_, V>) -> BlockStateResult<V>,
     ) -> BlockStateResult<Option<Self>>
     where
         V: Loadable,
@@ -359,15 +359,15 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     }
 }
 
-impl<'b, K: LfmbTreeKey, V> OwnedOrBorrowed<'b, LfmbTree<K, V>> {
+impl<'b, K: LfmbTreeKey, V> Cow<'b, LfmbTree<K, V>> {
     /// Return the value for a key (as implemented by [`LfmbTree::lookup_value`]) for an
     /// owned or borrowed tree. If the tree is `Owned`, and
     /// [`LfmbTree::lookup_value`] returns a borrowed value, `bind_lookup_value` returns
-    /// [`BlockStateFailure::OwnedOrBorrowedJoin`].
+    /// [`BlockStateFailure::CowJoin`].
     ///
     /// This function is essentially binding the operation
-    /// [`LfmbTree::lookup_value`] in the monadic structure of [`OwnedOrBorrowed`].
-    /// But [`OwnedOrBorrowed`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
+    /// [`LfmbTree::lookup_value`] in the monadic structure of [`Cow`].
+    /// But [`Cow`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
     /// into neither `Owned` nor `Borrowed`, hence `bind_lookup_value` will return an error in that case.
     /// Notice that all other combinations of `Owned` and `Borrowed` can be "joined".
     pub fn bind_lookup_value(
@@ -375,19 +375,19 @@ impl<'b, K: LfmbTreeKey, V> OwnedOrBorrowed<'b, LfmbTree<K, V>> {
         loader: &impl BlobStoreLoad,
         key: K,
         context: &'static str,
-    ) -> BlockStateResult<Option<OwnedOrBorrowed<'b, V>>>
+    ) -> BlockStateResult<Option<Cow<'b, V>>>
     where
         V: Loadable,
     {
         Ok(match self {
-            OwnedOrBorrowed::Owned(tree) => match tree.lookup_value(loader, key)? {
+            Cow::Owned(tree) => match tree.lookup_value(loader, key)? {
                 None => None,
-                Some(OwnedOrBorrowed::Owned(val)) => Some(OwnedOrBorrowed::Owned(val)),
-                Some(OwnedOrBorrowed::Borrowed(_)) => {
-                    return Err(BlockStateFailure::OwnedOrBorrowedJoin(context));
+                Some(Cow::Owned(val)) => Some(Cow::Owned(val)),
+                Some(Cow::Borrowed(_)) => {
+                    return Err(BlockStateFailure::CowJoin(context));
                 }
             },
-            OwnedOrBorrowed::Borrowed(tree) => tree.lookup_value(loader, key)?,
+            Cow::Borrowed(tree) => tree.lookup_value(loader, key)?,
         })
     }
 }
@@ -455,21 +455,21 @@ impl<V> Clone for Subtree<V> {
     }
 }
 
-/// [`Subtree`] with [`OwnedOrBorrowed`] structurally projected.
-/// Used as return value for [`OwnedOrBorrowed<Subtree>::owned_or_borrowed_structural_project`].
+/// [`Subtree`] with [`Cow`] structurally projected.
+/// Used as return value for [`Cow<Subtree>::cow_project_structural`].
 #[derive(Debug)]
-enum SubtreeOwnedOrBorrowedProjection<'b, V> {
+enum SubtreeCowProjection<'b, V> {
     /// Leaf with value. See [`Subtree::Leaf`]
-    Leaf(OwnedOrBorrowed<'b, HashedCacheableRef<V>>),
+    Leaf(Cow<'b, HashedCacheableRef<V>>),
     /// Node with two subtrees/branches.
     /// See [`Subtree::Node`]
     Node(
         /// Height of tree
         u64,
         /// Left branch
-        OwnedOrBorrowed<'b, HashedCacheableRef<Subtree<V>>>,
+        Cow<'b, HashedCacheableRef<Subtree<V>>>,
         /// Right branch
-        OwnedOrBorrowed<'b, HashedCacheableRef<Subtree<V>>>,
+        Cow<'b, HashedCacheableRef<Subtree<V>>>,
     ),
 }
 
@@ -485,7 +485,7 @@ const fn flip_nth_bit(nth: u64, key: SubtreeKey) -> SubtreeKey {
     SubtreeKey(key.0 ^ bit)
 }
 
-impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
+impl<'b, V> Cow<'b, Subtree<V>> {
     /// Get the value for the given `key` in the subtree.
     ///
     /// # Arguments
@@ -499,7 +499,7 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
     /// [`HashedCacheableRef::value`] on them.
     /// Else the present function will panic. If the given subtree is borrowed,
     /// there is no precondition for using the function.
-    /// See [`OwnedOrBorrowed<HashedCacheableRef>::bind_value`] for further details.
+    /// See [`Cow<HashedCacheableRef>::bind_value`] for further details.
     ///
     /// Notice that for an owned or borrowed subtree that fulfills the precondition, loading
     /// the left and right branches with [`HashedCacheableRef::value`] will give
@@ -508,12 +508,12 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
         self,
         loader: &impl BlobStoreLoad,
         key: SubtreeKey,
-    ) -> BlockStateResult<OwnedOrBorrowed<'b, V>>
+    ) -> BlockStateResult<Cow<'b, V>>
     where
         V: Loadable,
     {
-        Ok(match self.owned_or_borrowed_structural_project() {
-            SubtreeOwnedOrBorrowedProjection::Leaf(val_ref) => {
+        Ok(match self.cow_project_structural() {
+            SubtreeCowProjection::Leaf(val_ref) => {
                 // When we reach the leaf for the key, the key must be 0.
                 if key != SubtreeKey(0) {
                     return Err(BlockStateFailure::Invariant(format!(
@@ -523,7 +523,7 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
                 }
                 val_ref.bind_value(loader, "leaf in lfmb_tree::Subtree")?
             }
-            SubtreeOwnedOrBorrowedProjection::Node(height, left_ref, right_ref) => {
+            SubtreeCowProjection::Node(height, left_ref, right_ref) => {
                 // The height'th bit in key decides if we should follow left `0`
                 // or right branch `1`. Additionally, when going right, we set the bit to 0.
                 // This allows us to check the invariant that the key must be identical to 0
@@ -541,31 +541,27 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
         })
     }
 
-    /// Move [`OwnedOrBorrowed`] inside the subtree wrapping blob references directly.
-    fn owned_or_borrowed_structural_project(self) -> SubtreeOwnedOrBorrowedProjection<'b, V>
+    /// Move [`Cow`] inside the subtree wrapping blob references directly.
+    fn cow_project_structural(self) -> SubtreeCowProjection<'b, V>
     where
         V: Loadable,
     {
         match self {
-            OwnedOrBorrowed::Borrowed(Subtree::Leaf(value_ref)) => {
-                SubtreeOwnedOrBorrowedProjection::Leaf(OwnedOrBorrowed::Borrowed(value_ref))
+            Cow::Borrowed(Subtree::Leaf(value_ref)) => {
+                SubtreeCowProjection::Leaf(Cow::Borrowed(value_ref))
             }
-            OwnedOrBorrowed::Borrowed(Subtree::Node(height, left_ref, right_ref)) => {
-                SubtreeOwnedOrBorrowedProjection::Node(
+            Cow::Borrowed(Subtree::Node(height, left_ref, right_ref)) => {
+                SubtreeCowProjection::Node(
                     *height,
-                    OwnedOrBorrowed::Borrowed(left_ref),
-                    OwnedOrBorrowed::Borrowed(right_ref),
+                    Cow::Borrowed(left_ref),
+                    Cow::Borrowed(right_ref),
                 )
             }
-            OwnedOrBorrowed::Owned(Subtree::Leaf(value_ref)) => {
-                SubtreeOwnedOrBorrowedProjection::Leaf(OwnedOrBorrowed::Owned(value_ref))
+            Cow::Owned(Subtree::Leaf(value_ref)) => {
+                SubtreeCowProjection::Leaf(Cow::Owned(value_ref))
             }
-            OwnedOrBorrowed::Owned(Subtree::Node(height, left_ref, right_ref)) => {
-                SubtreeOwnedOrBorrowedProjection::Node(
-                    height,
-                    OwnedOrBorrowed::Owned(left_ref),
-                    OwnedOrBorrowed::Owned(right_ref),
-                )
+            Cow::Owned(Subtree::Node(height, left_ref, right_ref)) => {
+                SubtreeCowProjection::Node(height, Cow::Owned(left_ref), Cow::Owned(right_ref))
             }
         }
     }
@@ -581,7 +577,7 @@ impl<V> Subtree<V> {
         &self,
         loader: &impl BlobStoreLoad,
         node_size: u64,
-    ) -> impl ExactSizeIterator<Item = BlockStateResult<(SubtreeKey, OwnedOrBorrowed<'_, V>)>>
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<(SubtreeKey, Cow<'_, V>)>>
     where
         V: Loadable,
     {
@@ -681,7 +677,7 @@ impl<V> Subtree<V> {
         &self,
         loader: &impl BlobStoreLoad,
         key: SubtreeKey,
-        update: impl FnOnce(OwnedOrBorrowed<'_, V>) -> BlockStateResult<V>,
+        update: impl FnOnce(Cow<'_, V>) -> BlockStateResult<V>,
     ) -> BlockStateResult<Self>
     where
         V: Loadable,
@@ -735,8 +731,8 @@ struct ValuesIterator<'a, 'b, L, V> {
     loader: &'a L,
     /// Stack of next nodes to visit.
     /// All nodes in the stack must fulfill the precondition described on
-    /// [`OwnedOrBorrowed<Subtree>::lookup_value`].
-    node_stack: Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
+    /// [`Cow<Subtree>::lookup_value`].
+    node_stack: Vec<Cow<'b, Subtree<V>>>,
     /// Size of the full tree (constant).
     tree_size: u64,
     /// Key of next item to be returned by the iterator.
@@ -747,7 +743,7 @@ impl<'a, 'b, L: BlobStoreLoad, V> ValuesIterator<'a, 'b, L, V> {
     fn new(subtree: &'b Subtree<V>, loader: &'a L, tree_size: u64) -> Self {
         Self {
             loader,
-            node_stack: vec![OwnedOrBorrowed::Borrowed(subtree)],
+            node_stack: vec![Cow::Borrowed(subtree)],
             tree_size,
             next_key: SubtreeKey(0),
         }
@@ -757,7 +753,7 @@ impl<'a, 'b, L: BlobStoreLoad, V> ValuesIterator<'a, 'b, L, V> {
 impl<'a, 'b, L: BlobStoreLoad, V: Loadable> ExactSizeIterator for ValuesIterator<'a, 'b, L, V> {}
 
 impl<'a, 'b, L: BlobStoreLoad, V: Loadable> Iterator for ValuesIterator<'a, 'b, L, V> {
-    type Item = BlockStateResult<(SubtreeKey, OwnedOrBorrowed<'b, V>)>;
+    type Item = BlockStateResult<(SubtreeKey, Cow<'b, V>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(next_node_ref) = self.node_stack.pop() {
@@ -795,18 +791,18 @@ impl<'a, 'b, L: BlobStoreLoad, V: Loadable> Iterator for ValuesIterator<'a, 'b, 
 ///
 /// # Panic
 ///
-/// Panics if the precondition described on [`OwnedOrBorrowed<Subtree>::lookup_value`] is
+/// Panics if the precondition described on [`Cow<Subtree>::lookup_value`] is
 /// not fulfilled for the subtree.
 fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     loader: &L,
-    subtree: OwnedOrBorrowed<'b, Subtree<V>>,
-    node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
-) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
-    Ok(match subtree.owned_or_borrowed_structural_project() {
-        SubtreeOwnedOrBorrowedProjection::Leaf(val_ref) => {
+    subtree: Cow<'b, Subtree<V>>,
+    node_stack: &mut Vec<Cow<'b, Subtree<V>>>,
+) -> BlockStateResult<Cow<'b, V>> {
+    Ok(match subtree.cow_project_structural() {
+        SubtreeCowProjection::Leaf(val_ref) => {
             val_ref.bind_value(loader, "leaf in lfmb_tree::Subtree")?
         }
-        SubtreeOwnedOrBorrowedProjection::Node(_, left_ref, right_ref) => {
+        SubtreeCowProjection::Node(_, left_ref, right_ref) => {
             let right = right_ref.bind_value(loader, "left branch in lfmb_tree::Subtree")?;
             node_stack.push(right);
             let left = left_ref.bind_value(loader, "right branch in lfmb_tree::Subtree")?;

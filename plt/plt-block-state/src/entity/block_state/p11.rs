@@ -2,14 +2,14 @@ use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCachea
 use crate::block_state::blob_store::StoreSerialized;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::smart_contract_trie;
-use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::Cow;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
     BlockStateResult, TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::protocol_level_tokens::p11::TokenEntityP11;
-use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9};
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenP9};
+use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::protocol_level_tokens;
@@ -23,12 +23,15 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 #[derive(Debug)]
 pub struct BlockStateP11<'a> {
     /// Persistent block state.
-    pub(crate) persistent: OwnedOrBorrowed<'a, PersistentBlockStateP11>,
+    pub(crate) persistent: Cow<'a, PersistentBlockStateP11>,
 }
 
 impl<'a> BlockStateP11<'a> {
     /// Get the token associated with a [`TokenId`] (if it exists).
     /// The token ID is case-insensitive when looking up tokens by token ID.
+    ///
+    /// If the token is changed, it must be written back with [`Self::update_token`]
+    /// for applying the changes.
     ///
     /// # Arguments
     ///
@@ -37,7 +40,7 @@ impl<'a> BlockStateP11<'a> {
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenEntityP11<'_>, TokenNotFoundByIdError>> {
+    ) -> BlockStateResult<Result<TokenP11<'_>, TokenNotFoundByIdError>> {
         let tokens = self.persistent.tokens.value(&context.loader)?;
         let token_index_option = tokens
             .token_id_map
@@ -60,7 +63,7 @@ impl<'a> BlockStateP11<'a> {
         &mut self,
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
-    ) -> BlockStateResult<TokenEntityP11<'_>> {
+    ) -> BlockStateResult<TokenIndex> {
         let normalized_token_id =
             protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
@@ -85,11 +88,14 @@ impl<'a> BlockStateP11<'a> {
 
         self.persistent.to_mut().tokens = HashedCacheableRef::new(new_tokens);
 
-        self.token_by_index(context, token_index)
+        Ok(token_index)
     }
 
     /// Get the token with the given [`TokenIndex`].
     /// Returns a [`BlockStateFailure`] if the token does not exist.
+    ///
+    /// If the token is changed, it must be written back with [`Self::update_token`]
+    /// for applying the changes.
     ///
     /// # Arguments
     ///
@@ -98,13 +104,17 @@ impl<'a> BlockStateP11<'a> {
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
-    ) -> BlockStateResult<TokenEntityP11<'_>> {
+    ) -> BlockStateResult<TokenP11<'_>> {
         let persistent_token = self
             .persistent
             .tokens
             .value(&context.loader)?
-            .owned_or_borrowed_project_tokens()
-            .bind_lookup_value(&context.loader, token_index, "token by index in PersistentTokensP9")?
+            .cow_project_tokens()
+            .bind_lookup_value(
+                &context.loader,
+                token_index,
+                "token by index in PersistentTokensP9",
+            )?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
             })?;
@@ -114,23 +124,29 @@ impl<'a> BlockStateP11<'a> {
             .value(&context.loader)?
             .thaw();
 
-        let token_p9 = TokenEntityP9 {
+        let token_p9 = TokenP9 {
             token_index,
             persistent: persistent_token,
             mutable_key_value_state,
         };
 
-        Ok(TokenEntityP11 { token_p9 })
+        Ok(TokenP11 { token_p9 })
     }
 
-    pub fn freeze_token<C: EntityContextTypes>(
+    /// Update the token in the block state. Any modifications
+    /// to [`TokenP11`] are not applied before the token is updated.
+    pub fn update_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        mut token: TokenEntityP9<'_>,
+        mut token: TokenP11<'_>,
     ) -> BlockStateResult<()> {
-        if token.mutable_key_value_state.is_dirty() {
-            token.persistent.to_mut().key_value_state =
-                HashedCacheableRef::new(token.mutable_key_value_state.freeze(&context.loader));
+        if token.token_p9.mutable_key_value_state.is_dirty() {
+            token.token_p9.persistent.to_mut().key_value_state = HashedCacheableRef::new(
+                token
+                    .token_p9
+                    .mutable_key_value_state
+                    .freeze(&context.loader),
+            );
         }
 
         let mut new_tokens = self
@@ -140,13 +156,13 @@ impl<'a> BlockStateP11<'a> {
             .into_owned_or_clone();
         new_tokens.tokens = new_tokens
             .tokens
-            .update_value(&context.loader, token.token_index, |_| {
-                Ok(token.persistent.into_owned_or_clone())
+            .update_value(&context.loader, token.token_p9.token_index, |_| {
+                Ok(token.token_p9.persistent.into_owned_or_clone())
             })?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!(
                     "Token not found by index: {:?}",
-                    token.token_index
+                    token.token_p9.token_index
                 ))
             })?;
         self.persistent.to_mut().tokens = HashedCacheableRef::new(new_tokens);

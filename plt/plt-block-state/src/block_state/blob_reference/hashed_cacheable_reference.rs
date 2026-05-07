@@ -7,7 +7,7 @@ use crate::block_state::blob_store::{
 };
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
-use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::Cow;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
@@ -74,7 +74,7 @@ impl<V> HashedCacheableRef<V> {
     /// # Errors
     ///
     /// Returns [`BlockStateError`] if decoding data from the blob store fails.
-    pub fn value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<OwnedOrBorrowed<'_, V>>
+    pub fn value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Cow<'_, V>>
     where
         V: Loadable,
     {
@@ -82,32 +82,36 @@ impl<V> HashedCacheableRef<V> {
     }
 }
 
-impl<'b, V> OwnedOrBorrowed<'b, HashedCacheableRef<V>> {
+impl<'b, V> Cow<'b, HashedCacheableRef<V>> {
     /// Return the referenced value (as implemented by [`HashedCacheableRef::value`]) for an
     /// owned or borrowed reference. If the reference is `Owned`, and
     /// [`HashedCacheableRef::value`] returns a borrowed value, `bind_value` returns
-    /// [`BlockStateFailure::OwnedOrBorrowedJoin`].
+    /// [`BlockStateFailure::CowJoin`].
     /// Notice that an owned or borrowed reference that has just been returned by calling
-    /// [`HashedCacheableRef::value`], will never return [`BlockStateFailure::OwnedOrBorrowedJoin`]
+    /// [`HashedCacheableRef::value`], will never return [`BlockStateFailure::CowJoin`]
     /// when calling `bind_value` on it.
     ///
     /// This function is essentially binding the operation
-    /// [`HashedCacheableRef::value`] in the monadic structure of [`OwnedOrBorrowed`].
-    /// But [`OwnedOrBorrowed`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
+    /// [`HashedCacheableRef::value`] in the monadic structure of [`Cow`].
+    /// But [`Cow`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
     /// into neither `Owned` nor `Borrowed`, hence `bind_value` will return an error in that case.
     /// Notice that all other combinations of `Owned` and `Borrowed` can be "joined".
-    pub fn bind_value(self, loader: &impl BlobStoreLoad, context: &'static str) -> BlockStateResult<OwnedOrBorrowed<'b, V>>
+    pub fn bind_value(
+        self,
+        loader: &impl BlobStoreLoad,
+        context: &'static str,
+    ) -> BlockStateResult<Cow<'b, V>>
     where
         V: Loadable,
     {
         Ok(match self {
-            OwnedOrBorrowed::Owned(hcr) => match hcr.value(loader)? {
-                OwnedOrBorrowed::Owned(val) => OwnedOrBorrowed::Owned(val),
-                OwnedOrBorrowed::Borrowed(_) => {
-                    return Err(BlockStateFailure::OwnedOrBorrowedJoin(context));
+            Cow::Owned(hcr) => match hcr.value(loader)? {
+                Cow::Owned(val) => Cow::Owned(val),
+                Cow::Borrowed(_) => {
+                    return Err(BlockStateFailure::CowJoin(context));
                 }
             },
-            OwnedOrBorrowed::Borrowed(hcr) => hcr.value(loader)?,
+            Cow::Borrowed(hcr) => hcr.value(loader)?,
         })
     }
 }
@@ -160,10 +164,7 @@ impl<V> HashedCacheableRefRepr<V> {
     /// and returned as owned.
     ///
     /// Loading from the blob store will not make the value cached in the reference.
-    fn get_or_load_value(
-        &self,
-        loader: &impl BlobStoreLoad,
-    ) -> BlockStateResult<OwnedOrBorrowed<'_, V>>
+    fn get_or_load_value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Cow<'_, V>>
     where
         V: Loadable,
     {
@@ -174,11 +175,11 @@ impl<V> HashedCacheableRefRepr<V> {
             } => match value_lock.get() {
                 None => {
                     let value: V = blob_store::load_from_store(loader, *blob_location)?;
-                    OwnedOrBorrowed::Owned(value)
+                    Cow::Owned(value)
                 }
-                Some(value) => OwnedOrBorrowed::Borrowed(value),
+                Some(value) => Cow::Borrowed(value),
             },
-            HashedCacheableRefRepr::Memory { value, .. } => OwnedOrBorrowed::Borrowed(value),
+            HashedCacheableRefRepr::Memory { value, .. } => Cow::Borrowed(value),
         })
     }
 

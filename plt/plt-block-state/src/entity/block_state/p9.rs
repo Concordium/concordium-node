@@ -2,13 +2,13 @@ use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCachea
 use crate::block_state::blob_store::StoreSerialized;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::smart_contract_trie;
-use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::Cow;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
     BlockStateResult, TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9};
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenP9};
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent;
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
@@ -22,7 +22,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 #[derive(Debug)]
 pub struct BlockStateP9<'a> {
     /// Persistent block state.
-    pub(crate) persistent: OwnedOrBorrowed<'a, PersistentBlockStateP9>,
+    pub(crate) persistent: Cow<'a, PersistentBlockStateP9>,
 }
 
 impl<'a> BlockStateP9<'a> {
@@ -30,21 +30,26 @@ impl<'a> BlockStateP9<'a> {
     pub fn plt_list<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<Cow<'_, TokenId>>> {
         self.persistent
             .tokens
             .tokens
             .values(&context.loader)
             .map(|item| {
-                Ok(match item?.1.configuration.value(&context.loader)? {
-                    OwnedOrBorrowed::Owned(v) => v.0.token_id,
-                    OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
-                })
+                Ok(item?
+                    .1
+                    .cow_project_configuration()
+                    .bind_value(&context.loader, "configuration in PersistentTokenP9")?
+                    .cow_project()
+                    .cow_project_token_id())
             })
     }
 
     /// Get the token associated with a [`TokenId`] (if it exists).
     /// The token ID is case-insensitive when looking up tokens by token ID.
+    ///
+    /// If the token is changed, it must be written back with [`Self::update_token`]
+    /// for applying the changes.
     ///
     /// # Arguments
     ///
@@ -53,7 +58,7 @@ impl<'a> BlockStateP9<'a> {
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenEntityP9<'_>, TokenNotFoundByIdError>> {
+    ) -> BlockStateResult<Result<TokenP9<'_>, TokenNotFoundByIdError>> {
         let token_index_option = self.persistent.tokens.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
@@ -66,7 +71,7 @@ impl<'a> BlockStateP9<'a> {
     }
 
     /// Create a new token with the given configuration. The initial state will be empty
-    /// and the initial supply will be 0. Returns representation of the created token.
+    /// and the initial supply will be 0. Returns index of the created token.
     ///
     /// # Arguments
     ///
@@ -75,7 +80,7 @@ impl<'a> BlockStateP9<'a> {
         &mut self,
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
-    ) -> BlockStateResult<TokenEntityP9<'_>> {
+    ) -> BlockStateResult<TokenIndex> {
         let normalized_token_id =
             persistent::protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
@@ -97,11 +102,14 @@ impl<'a> BlockStateP9<'a> {
             .token_id_map
             .insert(normalized_token_id, token_index);
 
-        self.token_by_index(context, token_index)
+        Ok(token_index)
     }
 
     /// Get the token with the given [`TokenIndex`].
     /// Returns a [`BlockStateFailure`] if the token does not exist.
+    ///
+    /// If the token is changed, it must be written back with [`Self::update_token`]
+    /// for applying the changes.
     ///
     /// # Arguments
     ///
@@ -110,7 +118,7 @@ impl<'a> BlockStateP9<'a> {
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
-    ) -> BlockStateResult<TokenEntityP9<'_>> {
+    ) -> BlockStateResult<TokenP9<'_>> {
         let persistent_token = self
             .persistent
             .tokens
@@ -125,17 +133,19 @@ impl<'a> BlockStateP9<'a> {
             .value(&context.loader)?
             .thaw();
 
-        Ok(TokenEntityP9 {
+        Ok(TokenP9 {
             token_index,
             persistent: persistent_token,
             mutable_key_value_state,
         })
     }
 
-    pub fn freeze_token<C: EntityContextTypes>(
+    /// Update the token in the block state. Any modifications
+    /// to [`TokenP9`] are not applied before the token is updated.
+    pub fn update_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        mut token: TokenEntityP9<'_>,
+        mut token: TokenP9<'_>,
     ) -> BlockStateResult<()> {
         if token.mutable_key_value_state.is_dirty() {
             token.persistent.to_mut().key_value_state =

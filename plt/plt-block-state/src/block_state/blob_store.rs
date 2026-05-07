@@ -5,6 +5,7 @@
 //! The module also defines the traits [`Loadable`] and [`Storable`] that block state components
 //! must implement to be storable in the blob store.
 
+use crate::block_state::utils::Cow;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common;
 use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};
@@ -77,6 +78,16 @@ impl<T: Storable> Storable for &mut T {
 /// allows them to be used as block state components.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct StoreSerialized<T>(pub T);
+
+impl<'b, T> Cow<'b, StoreSerialized<T>> {
+    /// Move [`Cow`] wrapped value.
+    pub fn cow_project(self) -> Cow<'b, T> {
+        match self {
+            Cow::Owned(this) => Cow::Owned(this.0),
+            Cow::Borrowed(this) => Cow::Borrowed(&this.0),
+        }
+    }
+}
 
 impl<T: Deserial> Loadable for StoreSerialized<T> {
     fn load_from_buffer(

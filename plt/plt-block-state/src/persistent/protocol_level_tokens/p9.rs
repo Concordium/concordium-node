@@ -5,7 +5,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
-use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::Cow;
 use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::BlockStateResult;
 use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
@@ -22,21 +22,22 @@ use std::io::Read;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct TokenIndex(pub u64);
 
-/// Block state for protocol level tokens
+/// Block state for protocol level tokens on P9 and later protocols that uses the same representation.
 #[derive(Debug, Clone, Default)]
 pub struct PersistentTokensP9 {
+    /// Persistent tree with tokens by token index. Token are never deleted.
     pub tokens: LfmbTree<TokenIndex, PersistentTokenP9>,
+    /// Map for normalized token id to token index. This map is represented in memory
+    /// only and reconstructed each time tokens are loaded.
     pub token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
 }
 
-impl<'b> OwnedOrBorrowed<'b, PersistentTokensP9> {
-    /// Move [`OwnedOrBorrowed`] inside the data structure.
-    pub fn owned_or_borrowed_project_tokens(
-        self,
-    ) -> OwnedOrBorrowed<'b, LfmbTree<TokenIndex, PersistentTokenP9>> {
+impl<'b> Cow<'b, PersistentTokensP9> {
+    /// Move [`Cow`] to tokens tree.
+    pub fn cow_project_tokens(self) -> Cow<'b, LfmbTree<TokenIndex, PersistentTokenP9>> {
         match self {
-            OwnedOrBorrowed::Owned(this) => OwnedOrBorrowed::Owned(this.tokens),
-            OwnedOrBorrowed::Borrowed(this) => OwnedOrBorrowed::Borrowed(&this.tokens),
+            Cow::Owned(this) => Cow::Owned(this.tokens),
+            Cow::Borrowed(this) => Cow::Borrowed(&this.tokens),
         }
     }
 }
@@ -98,12 +99,27 @@ impl LfmbTreeKey for TokenIndex {
     }
 }
 
+/// Persistent protocol-level token on P9 and later protocols that uses the same representation.
 #[derive(Debug, Clone)]
 pub struct PersistentTokenP9 {
+    /// Static configuration of the token that never changes.
     pub configuration: HashedCacheableRef<StoreSerialized<TokenConfiguration>>,
+    /// Dynamic key-value state for values related to the token.
     pub key_value_state: HashedCacheableRef<smart_contract_trie::PersistentState>,
+    /// Current circulating supply of the token.
     pub circulating_supply: StoreSerialized<RawTokenAmount>,
 }
+
+impl<'b> Cow<'b, PersistentTokenP9> {
+    /// Move [`Cow`] to configuration.
+    pub fn cow_project_configuration(self) -> Cow<'b, HashedCacheableRef<StoreSerialized<TokenConfiguration>>> {
+        match self {
+            Cow::Owned(this) => Cow::Owned(this.configuration),
+            Cow::Borrowed(this) => Cow::Borrowed(&this.configuration),
+        }
+    }
+}
+
 
 impl Storable for PersistentTokenP9 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {

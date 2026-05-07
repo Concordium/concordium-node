@@ -17,13 +17,7 @@ pub mod p10;
 pub mod p11;
 pub mod p9;
 
-/// Immutable block state. The block state is immutable in the sense,
-/// that the state it represents never changes during the lifetime of values of type [`PersistentBlockState`].
-/// In order to perform mutating operations on the block state, a new [`PersistentBlockState`]
-/// must be created.
-///
-/// The internal representation in [`PersistentBlockState`] may change during the lifetime via interior mutability.
-/// This happens if state are cached, stored or hashes are lazily calculated.
+/// Persistent block that that may represent any protocol version know to the Rust scheduler.
 #[derive(Debug, Clone)]
 pub enum PersistentBlockState {
     P9(PersistentBlockStateP9),
@@ -32,7 +26,7 @@ pub enum PersistentBlockState {
 }
 
 impl PersistentBlockState {
-    /// Construct an empty block state.
+    /// Construct an empty block state for the given protocol version.
     pub fn empty(protocol_version: ProtocolVersion) -> Self {
         match protocol_version {
             ProtocolVersion::P9 => Self::P9(Default::default()),
@@ -87,7 +81,7 @@ impl PersistentBlockState {
         _to_storer: impl BlobStoreStore,
         _to_protocol_version: ProtocolVersion,
     ) -> Self {
-        // todo ar
+        // todo implement as part of https://linear.app/concordium/issue/PSR-91/implement-migration-of-rust-block-state-and-block-state-types
         todo!()
     }
 }

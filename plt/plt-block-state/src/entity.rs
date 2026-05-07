@@ -1,8 +1,8 @@
 //! Stateful entity model for block state
 
-use std::fmt::Debug;
 use crate::block_state::blob_store::BlobStoreLoad;
 use crate::block_state::external::ExternalBlockStateOperations;
+use std::fmt::Debug;
 
 pub mod accounts;
 pub mod block_state;

@@ -2,26 +2,28 @@ use crate::block_state::external::{
     ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState,
 };
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
-use crate::entity::protocol_level_tokens::p9::TokenEntityP9;
+use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::{EntityContext, EntityContextTypes};
+use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 
-/// Account representing (read-only) account state.
+/// Account with its canonical address.
 ///
 /// The account is guaranteed to exist on chain, when holding an instance of this type.
 #[derive(Debug)]
 pub struct AccountWithCanonicalAddress {
-    /// Opaque type that represents an account on chain.
+    /// Account on chain.
     pub account: Account,
     /// The canonical account address of the account, i.e. the address used as part of the
     /// credential deployment and not an alias.
     pub canonical_account_address: AccountAddress,
 }
 
-/// Block state account
+/// Representation of block state account.
+///
+/// The account is guaranteed to exist on chain, when holding an instance of this type.
 #[derive(Debug)]
 pub struct Account {
     /// Account index for and account that we know exists in the block state.
@@ -38,7 +40,7 @@ impl Account {
     pub fn account_token_balance<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        token: &TokenEntityP9<'_>,
+        token: &TokenP9<'_>,
     ) -> RawTokenAmount {
         context
             .external
@@ -51,7 +53,10 @@ impl Account {
         &self,
         context: &EntityContext<C>,
     ) -> impl Iterator<Item = (TokenIndex, TokenAccountState)> {
-        context.external.token_account_states(self.account_index).into_iter()
+        context
+            .external
+            .token_account_states(self.account_index)
+            .into_iter()
     }
 
     /// Update the token balance of an account.
@@ -69,7 +74,7 @@ impl Account {
     pub fn update_token_account_balance<C: EntityContextTypes>(
         &self,
         context: &mut EntityContext<C>,
-        token: &TokenEntityP9<'_>,
+        token: &TokenP9<'_>,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
         context.external.update_token_account_balance(
@@ -90,7 +95,11 @@ impl Account {
     ///
     /// - `token` The token to touch state for in the account.
     /// - `account` The account to touch token state for.
-    pub fn touch_token_account<C: EntityContextTypes>(&self, context: &mut EntityContext<C>, token: &TokenEntityP9<'_>) {
+    pub fn touch_token_account<C: EntityContextTypes>(
+        &self,
+        context: &mut EntityContext<C>,
+        token: &TokenP9<'_>,
+    ) {
         context
             .external
             .touch_token_account(self.account_index, token.token_index)

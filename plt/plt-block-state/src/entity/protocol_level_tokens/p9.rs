@@ -1,4 +1,4 @@
-use crate::block_state::utils::OwnedOrBorrowed;
+use crate::block_state::utils::Cow;
 use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::state_keys;
@@ -29,30 +29,38 @@ pub struct TokenConfiguration {
     pub decimals: u8,
 }
 
-/// Protocol-level token entity on P9.
+impl<'b> Cow<'b, TokenConfiguration> {
+    /// Move [`Cow`] wrapped value.
+    pub fn cow_project_token_id(self) -> Cow<'b, TokenId> {
+        match self {
+            Cow::Owned(this) => Cow::Owned(this.token_id),
+            Cow::Borrowed(this) => Cow::Borrowed(&this.token_id),
+        }
+    }
+}
+
+/// Representation of protocol-level token on P9 and later protocols with compatible model.
 #[derive(Debug)]
-pub struct TokenEntityP9<'a> {
+pub struct TokenP9<'a> {
     /// Token index
     pub(crate) token_index: TokenIndex,
-    /// Persistent model of the protoco-level token. If changed, it must be written
-    /// back.
-    pub(crate) persistent: OwnedOrBorrowed<'a, PersistentTokenP9>,
+    /// Persistent model of the protoco-level token.
+    pub(crate) persistent: Cow<'a, PersistentTokenP9>,
     /// Token key-value state
     pub(crate) mutable_key_value_state: smart_contract_trie::MutableState,
 }
 
-impl TokenEntityP9<'_> {
+impl TokenP9<'_> {
     /// Get the configuration of a protocol-level token.
     pub fn token_configuration<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<TokenConfiguration> {
+    ) -> BlockStateResult<Cow<'_, TokenConfiguration>> {
         Ok(self
             .persistent
             .configuration
             .value(&context.loader)?
-            .into_owned_or_clone()
-            .0)
+            .cow_project())
     }
 
     /// Get the circulating supply of a protocol-level token.
@@ -83,7 +91,11 @@ impl TokenEntityP9<'_> {
     }
 
     /// Sets the paused state of the token module.
-    pub fn set_paused<C: EntityContextTypes>(&mut self, context: &EntityContext<C>, value: bool) -> BlockStateResult<()> {
+    pub fn set_paused<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+        value: bool,
+    ) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
                 &context.loader,
@@ -109,7 +121,10 @@ impl TokenEntityP9<'_> {
     }
 
     /// Enabled 'allowList' feature for the token.
-    pub fn set_allow_list_enabled<C: EntityContextTypes>(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
+    pub fn set_allow_list_enabled<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &context.loader,
             &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
@@ -128,7 +143,10 @@ impl TokenEntityP9<'_> {
     }
 
     /// Enabled 'DenyList' feature for the token.
-    pub fn set_deny_list_enabled<C: EntityContextTypes>(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
+    pub fn set_deny_list_enabled<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &context.loader,
             &state_keys::module_state_key(STATE_KEY_DENY_LIST),
@@ -147,7 +165,10 @@ impl TokenEntityP9<'_> {
     }
 
     /// Enabled 'Mintable' feature for the token.
-    pub fn set_mintable_enabled<C: EntityContextTypes>(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
+    pub fn set_mintable_enabled<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &context.loader,
             &state_keys::module_state_key(STATE_KEY_MINTABLE),
@@ -166,7 +187,10 @@ impl TokenEntityP9<'_> {
     }
 
     /// Enabled 'Burnable' feature for the token.
-    pub fn set_burnable_enabled<C: EntityContextTypes>(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
+    pub fn set_burnable_enabled<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &context.loader,
             &state_keys::module_state_key(STATE_KEY_BURNABLE),
@@ -175,7 +199,10 @@ impl TokenEntityP9<'_> {
     }
 
     /// Get the name of the token.
-    pub fn get_token_name<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> BlockStateResult<String> {
+    pub fn get_token_name<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<String> {
         self.mutable_key_value_state
             .lookup_value(
                 &context.loader,
@@ -189,7 +216,7 @@ impl TokenEntityP9<'_> {
             })
     }
 
-    /// Set the token governance account in module state.
+    /// Set the name of the token.
     pub fn set_token_name<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
@@ -242,7 +269,10 @@ impl TokenEntityP9<'_> {
     }
 
     /// Get the URL metadata of the token.
-    pub fn get_metadata<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> BlockStateResult<MetadataUrl> {
+    pub fn get_metadata<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<MetadataUrl> {
         let metadata_cbor = self
             .mutable_key_value_state
             .lookup_value(
@@ -271,7 +301,11 @@ impl TokenEntityP9<'_> {
     }
 
     /// Get the allow-list state for the account at the given account.
-    pub fn get_allow_list_for<C: EntityContextTypes>(&self, context: &EntityContext<C>, account: AccountIndex) -> bool {
+    pub fn get_allow_list_for<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        account: AccountIndex,
+    ) -> bool {
         self.mutable_key_value_state
             .lookup_value(
                 &context.loader,
@@ -303,7 +337,11 @@ impl TokenEntityP9<'_> {
     }
 
     /// Get the deny-list state for the account at the given account.
-    pub fn get_deny_list_for<C: EntityContextTypes>(&self, context: &EntityContext<C>, account: AccountIndex) -> bool {
+    pub fn get_deny_list_for<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        account: AccountIndex,
+    ) -> bool {
         self.mutable_key_value_state
             .lookup_value(
                 &context.loader,

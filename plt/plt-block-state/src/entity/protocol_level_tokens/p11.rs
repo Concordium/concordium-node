@@ -1,8 +1,6 @@
-
-
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::block_state::p9::BlockStateP9;
-use crate::entity::protocol_level_tokens::p9::TokenEntityP9;
+use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
 use crate::entity::{EntityContext, EntityContextTypes};
@@ -12,14 +10,14 @@ use concordium_base::protocol_level_tokens::{
     TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
 
-/// Protocol-level token entity on P11.
+/// Representation of protocol-level token on P11 and later protocols with compatible model.
 #[derive(Debug)]
-pub struct TokenEntityP11<'a> {
-    /// P9 token
-    pub token_p9: TokenEntityP9<'a>,
+pub struct TokenP11<'a> {
+    /// P9 token representation
+    pub token_p9: TokenP9<'a>,
 }
 
-impl TokenEntityP11<'_> {
+impl TokenP11<'_> {
     /// Get the authorization roles for an account from state.
     pub fn get_account_roles<C: EntityContextTypes>(
         &self,

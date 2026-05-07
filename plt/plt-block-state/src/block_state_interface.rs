@@ -57,7 +57,7 @@ pub enum BlockStateFailure {
     /// a borrowed value was returned. This should generally never happen in they way we maintain
     /// blob references.
     #[error("Borrowed value found inside of owned value: {0}")]
-    OwnedOrBorrowedJoin(&'static str),
+    CowJoin(&'static str),
 }
 
 pub type BlockStateResult<T> = Result<T, BlockStateFailure>;

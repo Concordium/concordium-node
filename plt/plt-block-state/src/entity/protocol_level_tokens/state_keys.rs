@@ -7,6 +7,7 @@ const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
 
 /// Little-endian prefix used to distinguish account state keys.
 const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
+
 /// Little-endian prefix used to distinguish account role state keys.
 ///
 /// Note the roles are stored separately from the remaining account state, to allow for iterating
