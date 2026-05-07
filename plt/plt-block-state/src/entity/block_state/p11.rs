@@ -1,30 +1,32 @@
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::blob_store::{BlobStoreLoad, StoreSerialized};
-use crate::block_state::external::ExternalBlockStateOperations;
+use crate::block_state::blob_store::StoreSerialized;
+use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
 use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::entity::protocol_level_tokens::p9::{TokenEntityP9, TokenConfiguration};
+use crate::block_state_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure, BlockStateResult,
+};
+use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::protocol_level_tokens::p11::TokenEntityP11;
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9};
+use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::protocol_level_tokens;
 use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
+use concordium_base::base::AccountIndex;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// P11 block state.
 #[derive(Debug)]
-pub struct BlockStateP11<'a, L, E> {
+pub struct BlockStateP11<'a> {
     /// Persistent block state.
     pub(crate) persistent: OwnedOrBorrowed<'a, PersistentBlockStateP11>,
-    /// Blob store loader.
-    pub(crate) store_loader: &'a L,
-    /// Part of block state that is managed externally.
-    pub(crate) external: &'a E,
 }
 
-impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L, E> {
+impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
     /// Get the token associated with a [`TokenId`] (if it exists).
     /// The token ID is case-insensitive when looking up tokens by token ID.
     ///
@@ -33,12 +35,13 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
     /// - `token_id` The token id to get the [`Self::Token`] of.
     pub fn token_by_id(
         &self,
+        context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Option<TokenEntityP11<'a, L>>> {
+    ) -> BlockStateResult<Option<TokenEntityP11<'a>>> {
         let token_index_option = *self
             .persistent
             .tokens
-            .value(self.store_loader)?
+            .value(&context.loader)?
             .token_id_map
             .get(&protocol_level_tokens::normalize_token_id(token_id));
 
@@ -57,8 +60,9 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
     /// - `configuration` The configuration for the token.
     pub fn create_token(
         &mut self,
+        context: &EntityContext<C>,
         configuration: TokenConfiguration,
-    ) -> BlockStateResult<TokenEntityP11<'a, L>> {
+    ) -> BlockStateResult<TokenEntityP11<'a>> {
         let normalized_token_id =
             protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
@@ -72,63 +76,67 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
         let mut new_tokens = self
             .persistent
             .tokens
-            .value(self.store_loader)?
+            .value(context.loader)?
             .into_owned_or_clone();
         (token_index, new_tokens.tokens) = new_tokens
             .tokens
-            .insert_value(self.store_loader, persistent_token)?;
+            .insert_value(context.loader, persistent_token)?;
         new_tokens
             .token_id_map
             .insert(normalized_token_id, token_index);
 
         self.persistent.to_mut().tokens = HashedCacheableRef::new(new_tokens);
 
-        self.thaw_token(token_index)
+        self.thaw_token(context, token_index)
     }
 
-    fn thaw_token(&self, token_index: TokenIndex) -> BlockStateResult<TokenEntityP11<'a, L>> {
-        // todo ar aliasing check?
-
+    fn thaw_token(
+        &self,
+        context: &EntityContext<C>,
+        token_index: TokenIndex,
+    ) -> BlockStateResult<TokenEntityP11<'a>> {
         let persistent_token = self
             .persistent
             .tokens
-            .value(self.store_loader)?
+            .value(&context.loader)?
             .tokens
-            .lookup_value(self.store_loader, token_index)?
+            .lookup_value(&context.loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
             })?;
 
         let mutable_key_value_state = persistent_token
             .key_value_state
-            .value(self.store_loader)?
+            .value(&context.loader)?
             .thaw();
 
         let token_p9 = TokenEntityP9 {
             token_index,
             persistent: persistent_token,
             mutable_key_value_state,
-            store_loader: self.store_loader,
         };
 
         Ok(TokenEntityP11 { token_p9 })
     }
 
-    pub fn freeze_token(&mut self, mut token: TokenEntityP9<'a, L>) -> BlockStateResult<()> {
+    pub fn freeze_token(
+        &mut self,
+        context: &EntityContext<C>,
+        mut token: TokenEntityP9<'a>,
+    ) -> BlockStateResult<()> {
         if token.mutable_key_value_state.is_dirty() {
             token.persistent.to_mut().key_value_state =
-                HashedCacheableRef::new(token.mutable_key_value_state.freeze(self.store_loader));
+                HashedCacheableRef::new(token.mutable_key_value_state.freeze(context.loader));
         }
 
-        // todo ar check if token is dirty?
         let mut new_tokens = self
             .persistent
             .tokens
-            .value(self.store_loader)?
+            .value(&context.loader)?
             .into_owned_or_clone();
         new_tokens.tokens = new_tokens
             .tokens
-            .update_value(self.store_loader, token.token_index, |_| {
+            .update_value(&context.loader, token.token_index, |_| {
                 Ok(token.persistent.into_owned_or_clone())
             })?
             .ok_or_else(|| {
@@ -140,5 +148,44 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP11<'a, L,
         self.persistent.to_mut().tokens = HashedCacheableRef::new(new_tokens);
 
         Ok(())
+    }
+
+    /// Increment the update sequence number for Protocol Level Tokens (PLT).
+    ///
+    /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+    pub fn increment_plt_update_instruction_sequence_number(
+        &mut self,
+        context: &mut EntityContext<C>,
+    ) {
+        context.external.increment_plt_update_sequence_number()
+    }
+
+    /// Lookup the account using an account address.
+    pub fn account_by_address(
+        &self,
+        context: &EntityContext<C>,
+        address: &AccountAddress,
+    ) -> Result<Account, AccountNotFoundByAddressError> {
+        let account_index = context.external.account_index_by_account_address(address)?;
+        Ok(Account { account_index })
+    }
+
+    /// Lookup the account using an account index. Returns both the opaque account
+    /// representation and the account canonical address.
+    pub fn account_by_index(
+        &self,
+        context: &EntityContext<C>,
+        account_index: AccountIndex,
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
+        let canonical_account_address = context
+            .external
+            .account_canonical_address_by_account_index(account_index)?;
+
+        let account = Account { account_index };
+
+        Ok(AccountWithCanonicalAddress {
+            account,
+            canonical_account_address,
+        })
     }
 }

@@ -2,18 +2,12 @@
 
 use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
 use crate::block_state::cacheable::Cacheable;
-use crate::block_state::entity::AccountWithCanonicalAddress;
-use crate::block_state::entity::protocol_level_tokens::{
-    TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
-};
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
-use crate::block_state::persistent::protocol_level_tokens::PersistentPlTokens;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError,
 };
-use crate::entity::protocol_level_tokens::PlTokenEntity;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;

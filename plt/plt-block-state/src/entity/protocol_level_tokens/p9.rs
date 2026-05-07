@@ -7,6 +7,7 @@ use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST, STATE_KEY_GOVERNANCE_ACCOUNT,
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
+use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
@@ -31,7 +32,7 @@ pub struct TokenConfiguration {
 
 /// Protocol-level token entity on P9.
 #[derive(Debug)]
-pub struct TokenEntityP9<'a, L> {
+pub struct TokenEntityP9<'a> {
     /// Token index
     pub(crate) token_index: TokenIndex,
     /// Persistent model of the protoco-level token. If changed, it must be written
@@ -39,17 +40,18 @@ pub struct TokenEntityP9<'a, L> {
     pub(crate) persistent: OwnedOrBorrowed<'a, PersistentPlTokenP9>,
     /// Token key-value state
     pub(crate) mutable_key_value_state: smart_contract_trie::MutableState,
-    /// Blob store loader.
-    pub(crate) store_loader: &'a L,
 }
 
-impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
+impl<'a, C: EntityContextTypes> TokenEntityP9<'a> {
     /// Get the configuration of a protocol-level token.
-    pub fn token_configuration(&self) -> BlockStateResult<TokenConfiguration> {
+    pub fn token_configuration(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<TokenConfiguration> {
         Ok(self
             .persistent
             .configuration
-            .value(self.store_loader)?
+            .value(&context.loader)?
             .into_owned_or_clone()
             .0)
     }
@@ -72,112 +74,112 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
 
     /// Get whether the balance-affecting operations on the token are currently
     /// paused.
-    pub fn is_paused(&self) -> bool {
+    pub fn is_paused(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_PAUSED),
             )
             .is_some()
     }
 
     /// Sets the paused state of the token module.
-    pub fn set_paused(&mut self, value: bool) -> BlockStateResult<()> {
+    pub fn set_paused(&mut self, context: &EntityContext<C>, value: bool) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_PAUSED),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_PAUSED),
             )
         }
     }
 
     /// Get whether the token has allow lists enabled.
-    pub fn has_allow_list(&self) -> bool {
+    pub fn has_allow_list(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
             )
             .is_some()
     }
 
     /// Enabled 'allowList' feature for the token.
-    pub fn set_allow_list_enabled(&mut self) -> BlockStateResult<()> {
+    pub fn set_allow_list_enabled(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
             vec![],
         )
     }
 
     /// Get whether the token has deny lists enabled.
-    pub fn has_deny_list(&self) -> bool {
+    pub fn has_deny_list(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_DENY_LIST),
             )
             .is_some()
     }
 
     /// Enabled 'DenyList' feature for the token.
-    pub fn set_deny_list_enabled(&mut self) -> BlockStateResult<()> {
+    pub fn set_deny_list_enabled(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_DENY_LIST),
             vec![],
         )
     }
 
     /// Get whether the token allows minting.
-    pub fn is_mintable(&self) -> bool {
+    pub fn is_mintable(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_MINTABLE),
             )
             .is_some()
     }
 
     /// Enabled 'Mintable' feature for the token.
-    pub fn set_mintable_enabled(&mut self) -> BlockStateResult<()> {
+    pub fn set_mintable_enabled(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_MINTABLE),
             vec![],
         )
     }
 
     /// Get whether the token allows burning.
-    pub fn is_burnable(&self) -> bool {
+    pub fn is_burnable(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_BURNABLE),
             )
             .is_some()
     }
 
     /// Enabled 'Burnable' feature for the token.
-    pub fn set_burnable_enabled(&mut self) -> BlockStateResult<()> {
+    pub fn set_burnable_enabled(&mut self, context: &EntityContext<C>) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_BURNABLE),
             vec![],
         )
     }
 
     /// Get the name of the token.
-    pub fn get_token_name(&self) -> BlockStateResult<String> {
+    pub fn get_token_name(&self, context: &EntityContext<C>) -> BlockStateResult<String> {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_NAME),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Name not present".to_string()))
@@ -189,20 +191,27 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
     }
 
     /// Set the token governance account in module state.
-    pub fn set_token_name(&mut self, name: String) -> BlockStateResult<()> {
+    pub fn set_token_name(
+        &mut self,
+        context: &EntityContext<C>,
+        name: String,
+    ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_NAME),
             name.into(),
         )
     }
 
     /// Get the account index of the governance account for the token.
-    pub fn get_governance_account_index(&self) -> BlockStateResult<AccountIndex> {
+    pub fn get_governance_account_index(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<AccountIndex> {
         let governance_account_index = AccountIndex::from(
             self.mutable_key_value_state
                 .lookup_value(
-                    &self.store_loader,
+                    &context.loader,
                     &state_keys::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
                 )
                 .ok_or_else(|| {
@@ -221,20 +230,24 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
     }
 
     /// Set the token governance account in module state.
-    pub fn set_governance_account(&mut self, account: AccountIndex) -> BlockStateResult<()> {
+    pub fn set_governance_account(
+        &mut self,
+        context: &EntityContext<C>,
+        account: AccountIndex,
+    ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
             common::to_bytes(&account),
         )
     }
 
     /// Get the URL metadata of the token.
-    pub fn get_metadata(&self) -> BlockStateResult<MetadataUrl> {
+    pub fn get_metadata(&self, context: &EntityContext<C>) -> BlockStateResult<MetadataUrl> {
         let metadata_cbor = self
             .mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::module_state_key(STATE_KEY_METADATA),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Metadata not present".to_string()))?;
@@ -244,22 +257,25 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
         Ok(metadata)
     }
 
-    // todo ar what to do about this?
     /// Set the metadata URL.
-    pub fn set_metadata_url(&mut self, metadata: &MetadataUrl) -> BlockStateResult<()> {
+    pub fn set_metadata_url(
+        &mut self,
+        context: &EntityContext<C>,
+        metadata: &MetadataUrl,
+    ) -> BlockStateResult<()> {
         let encoded_metadata = common::cbor::cbor_encode(metadata);
         self.mutable_key_value_state.insert_value(
-            &self.store_loader,
+            &context.loader,
             &state_keys::module_state_key(STATE_KEY_METADATA),
             encoded_metadata,
         )
     }
 
     /// Get the allow-list state for the account at the given account.
-    pub fn get_allow_list_for(&self, account: AccountIndex) -> bool {
+    pub fn get_allow_list_for(&self, context: &EntityContext<C>, account: AccountIndex) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
             )
             .is_some()
@@ -268,28 +284,30 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
     /// Set the allow-list state for the account at the given account.
     pub fn set_allow_list_for(
         &mut self,
+        context: &EntityContext<C>,
+
         account: AccountIndex,
         value: bool,
     ) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
             )
         }
     }
 
     /// Get the deny-list state for the account at the given account.
-    pub fn get_deny_list_for(&self, account: AccountIndex) -> bool {
+    pub fn get_deny_list_for(&self, context: &EntityContext<C>, account: AccountIndex) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
             .is_some()
@@ -298,18 +316,19 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
     /// Set the deny-list state for the account at the given account.
     pub fn set_deny_list_for(
         &mut self,
+        context: &EntityContext<C>,
         account: AccountIndex,
         value: bool,
     ) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
-                &self.store_loader,
+                &context.loader,
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
         }
@@ -319,7 +338,7 @@ impl<'a, L: BlobStoreLoad> TokenEntityP9<'a, L> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::entity::accounts::TokenAccountState;
+    use crate::block_state::external::TokenAccountState;
     use concordium_base::common;
     use concordium_base::protocol_level_tokens::TokenModuleRef;
     use plt_scheduler_types::types::tokens::RawTokenAmount;

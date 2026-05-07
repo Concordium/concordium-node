@@ -10,22 +10,23 @@ use concordium_base::common;
 use concordium_base::protocol_level_tokens::{
     TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
+use crate::entity::{EntityContext, EntityContextTypes};
 
 /// Protocol-level token entity on P11.
 #[derive(Debug)]
-pub struct TokenEntityP11<'a, L> {
+pub struct TokenEntityP11<'a> {
     /// P9 token
-    pub token_p9: TokenEntityP9<'a, L>,
+    pub token_p9: TokenEntityP9<'a>,
 }
 
-impl<'a, L: BlobStoreLoad> TokenEntityP11<'a, L> {
+impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
     /// Get the authorization roles for an account from state.
-    pub fn get_account_roles(&self, account: AccountIndex) -> BlockStateResult<Roles> {
+    pub fn get_account_roles(&self, context: &EntityContext<C>, account: AccountIndex) -> BlockStateResult<Roles> {
         Roles::try_from_state_value(
             self.token_p9
                 .mutable_key_value_state
                 .lookup_value(
-                    self.token_p9.store_loader,
+                    &context.loader,
                     &state_keys::account_roles_state_key(account),
                 )
                 .as_deref(),
@@ -41,18 +42,19 @@ impl<'a, L: BlobStoreLoad> TokenEntityP11<'a, L> {
     /// Update a value in the account section of the token state.
     fn update_account_roles_state(
         &mut self,
+        context: &EntityContext<C>,
         account: AccountIndex,
         roles: Roles,
     ) -> BlockStateResult<()> {
         if let Some(value) = roles.into_state_value() {
             self.token_p9.mutable_key_value_state.insert_value(
-                &self.token_p9.store_loader,
+                &context.loader,
                 &state_keys::account_roles_state_key(account),
                 value,
             )
         } else {
             self.token_p9.mutable_key_value_state.delete_value(
-                &self.token_p9.store_loader,
+                &context.loader,
                 &state_keys::account_roles_state_key(account),
             )
         }
@@ -61,33 +63,36 @@ impl<'a, L: BlobStoreLoad> TokenEntityP11<'a, L> {
     /// Assign roles to an account in the state.
     pub fn assign_account_roles(
         &mut self,
+        context: &EntityContext<C>,
         account: AccountIndex,
         roles_to_assign: &[TokenAdminRole],
     ) -> BlockStateResult<()> {
-        let mut roles = self.get_account_roles(account)?;
+        let mut roles = self.get_account_roles(context, account)?;
         for role in roles_to_assign {
             roles.assign(*role)
         }
-        self.update_account_roles_state(account, roles)
+        self.update_account_roles_state(context, account, roles)
     }
 
     /// Revoke roles of an account in the state.
     pub fn revoke_account_roles(
         &mut self,
+        context: &EntityContext<C>,
         account: AccountIndex,
         roles_to_revoke: &[TokenAdminRole],
     ) -> BlockStateResult<()> {
-        let mut roles = self.get_account_roles(account)?;
+        let mut roles = self.get_account_roles(context, account)?;
         for role in roles_to_revoke {
             roles.revoke(*role)
         }
-        self.update_account_roles_state(account, roles)
+        self.update_account_roles_state(context, account, roles)
     }
 
     /// Get authorization roles and assigned accounts for the token.
-    pub fn get_token_authorizations<E: ExternalBlockStateOperations>(
+    pub fn get_token_authorizations(
         &self,
-        block_state: BlockStateP9<'a, L, E>,
+        context: &EntityContext<C>,
+        block_state: BlockStateP9<'a>,
     ) -> BlockStateResult<TokenAuthorizations> {
         let mut update_admin_roles = TokenRoleAuthorizations::default();
         let mut mint = TokenRoleAuthorizations::default();
@@ -100,7 +105,7 @@ impl<'a, L: BlobStoreLoad> TokenEntityP11<'a, L> {
         for (key, roles) in self
             .token_p9
             .mutable_key_value_state
-            .iter_prefix(&self.token_p9.store_loader, &ACCOUNT_ROLES_STATE_PREFIX)?
+            .iter_prefix(&context.loader, &ACCOUNT_ROLES_STATE_PREFIX)?
         {
             let account_index_bytes =
                 key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
@@ -117,7 +122,7 @@ impl<'a, L: BlobStoreLoad> TokenEntityP11<'a, L> {
                     ))
                 })?;
             let account = block_state
-                .account_by_index(account_index)
+                .account_by_index(context, account_index)
                 .map_err(|err| {
                     BlockStateFailure::Invariant(format!(
                         "Stored account index in authorizations cannot be found: {}",

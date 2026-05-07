@@ -1,6 +1,6 @@
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::blob_store::{BlobStoreLoad, StoreSerialized};
-use crate::block_state::external::ExternalBlockStateOperations;
+use crate::block_state::blob_store::StoreSerialized;
+use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
 use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
@@ -8,7 +8,8 @@ use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure, BlockStateResult,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::protocol_level_tokens::p9::{TokenEntityP9, TokenConfiguration};
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9};
+use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent;
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
@@ -19,24 +20,23 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// P9 block state.
 #[derive(Debug)]
-pub struct BlockStateP9<'a, L, E> {
+pub struct BlockStateP9<'a> {
     /// Persistent block state.
     pub(crate) persistent: OwnedOrBorrowed<'a, PersistentBlockStateP9>,
-    /// Blob store loader.
-    pub(crate) store_loader: &'a L,
-    /// Part of block state that is managed externally.
-    pub(crate) external: &'a E,
 }
 
-impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP9<'a, L, E> {
+impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
     /// Get the [`TokenId`]s of all protocol-level tokens.
-    pub fn plt_list(&self) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
+    pub fn plt_list(
+        &self,
+        context: &EntityContext<C>,
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
         self.persistent
             .tokens
             .tokens
-            .values(self.store_loader)
+            .values(&context.loader)
             .map(|item| {
-                Ok(match item?.1.configuration.value(self.store_loader)? {
+                Ok(match item?.1.configuration.value(&context.loader)? {
                     OwnedOrBorrowed::Owned(v) => v.0.token_id,
                     OwnedOrBorrowed::Borrowed(r) => r.0.token_id.clone(),
                 })
@@ -49,10 +49,7 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP9<'a, L, 
     /// # Arguments
     ///
     /// - `token_id` The token id to get the [`Self::Token`] of.
-    pub fn token_by_id(
-        &self,
-        token_id: &TokenId,
-    ) -> BlockStateResult<Option<TokenEntityP9<'a, L>>> {
+    pub fn token_by_id(&self, token_id: &TokenId) -> BlockStateResult<Option<TokenEntityP9<'a>>> {
         let token_index_option = *self.persistent.tokens.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
@@ -72,8 +69,9 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP9<'a, L, 
     /// - `configuration` The configuration for the token.
     pub fn create_token(
         &mut self,
+        context: &EntityContext<C>,
         configuration: TokenConfiguration,
-    ) -> BlockStateResult<TokenEntityP9<'a, L>> {
+    ) -> BlockStateResult<TokenEntityP9<'a>> {
         let normalized_token_id =
             persistent::protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
@@ -88,53 +86,57 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP9<'a, L, 
             .persistent
             .tokens
             .tokens
-            .insert_value(self.store_loader, persistent_token)?;
+            .insert_value(&context.loader, persistent_token)?;
         self.persistent
             .to_mut()
             .tokens
             .token_id_map
             .insert(normalized_token_id, token_index);
 
-        self.thaw_token(token_index)
+        self.thaw_token(context, token_index)
     }
 
-    fn thaw_token(&self, token_index: TokenIndex) -> BlockStateResult<TokenEntityP9<'a, L>> {
-        // todo ar aliasing check?
-
+    fn thaw_token(
+        &self,
+        context: &EntityContext<C>,
+        token_index: TokenIndex,
+    ) -> BlockStateResult<TokenEntityP9<'a>> {
         let persistent_token = self
             .persistent
             .tokens
             .tokens
-            .lookup_value(self.store_loader, token_index)?
+            .lookup_value(&context.loader, token_index)?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
             })?;
 
         let mutable_key_value_state = persistent_token
             .key_value_state
-            .value(self.store_loader)?
+            .value(context.loader)?
             .thaw();
 
         Ok(TokenEntityP9 {
             token_index,
             persistent: persistent_token,
             mutable_key_value_state,
-            store_loader: self.store_loader,
         })
     }
 
-    pub fn freeze_token(&mut self, mut token: TokenEntityP9<'a, L>) -> BlockStateResult<()> {
+    pub fn freeze_token(
+        &mut self,
+        context: &EntityContext<C>,
+        mut token: TokenEntityP9<'a>,
+    ) -> BlockStateResult<()> {
         if token.mutable_key_value_state.is_dirty() {
             token.persistent.to_mut().key_value_state =
-                HashedCacheableRef::new(token.mutable_key_value_state.freeze(self.store_loader));
+                HashedCacheableRef::new(token.mutable_key_value_state.freeze(context.loader));
         }
 
-        // todo ar check if token is dirty?
         self.persistent.to_mut().tokens.tokens = self
             .persistent
             .tokens
             .tokens
-            .update_value(self.store_loader, token.token_index, |_| {
+            .update_value(&context.loader, token.token_index, |_| {
                 Ok(token.persistent.into_owned_or_clone())
             })?
             .ok_or_else(|| {
@@ -150,36 +152,32 @@ impl<'a, L: BlobStoreLoad, E: ExternalBlockStateOperations> BlockStateP9<'a, L, 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-    fn increment_plt_update_instruction_sequence_number(&mut self) {
-        self.external.increment_plt_update_sequence_number()
+    pub fn increment_plt_update_instruction_sequence_number(&mut self, context: &mut EntityContext<C>) {
+        context.external.increment_plt_update_sequence_number()
     }
 
     /// Lookup the account using an account address.
-    fn account_by_address(
+    pub fn account_by_address(
         &self,
+        context: &EntityContext<C>,
         address: &AccountAddress,
-    ) -> Result<Account<'a, E>, AccountNotFoundByAddressError> {
-        let account_index = self.external.account_index_by_account_address(address)?;
-        Ok(Account {
-            account_index,
-            external: self.external,
-        })
+    ) -> Result<Account, AccountNotFoundByAddressError> {
+        let account_index = context.external.account_index_by_account_address(address)?;
+        Ok(Account { account_index })
     }
 
     /// Lookup the account using an account index. Returns both the opaque account
     /// representation and the account canonical address.
-    fn account_by_index(
+    pub fn account_by_index(
         &self,
+        context: &EntityContext<C>,
         account_index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<'a, E>, AccountNotFoundByIndexError> {
-        let canonical_account_address = self
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
+        let canonical_account_address = context
             .external
             .account_canonical_address_by_account_index(account_index)?;
 
-        let account = Account {
-            account_index,
-            external: self.external,
-        };
+        let account = Account { account_index };
 
         Ok(AccountWithCanonicalAddress {
             account,
