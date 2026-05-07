@@ -29,12 +29,12 @@ pub struct Account {
 
 impl Account {
     /// Get the account index for the account.
-    fn account_index(&self) -> AccountIndex {
+    pub fn account_index(&self) -> AccountIndex {
         self.account_index
     }
 
     /// Get the token balance of the account.
-    fn account_token_balance<C: EntityContextTypes>(
+    pub fn account_token_balance<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token: &TokenEntityP9<'_>,
@@ -46,7 +46,7 @@ impl Account {
 
     /// Get token account states. It returns states for all tokens
     /// that the account holds.
-    fn token_account_states<C: EntityContextTypes>(
+    pub fn token_account_states<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
     ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
@@ -65,8 +65,8 @@ impl Account {
     ///
     /// - [`OverflowError`] The update would overflow or underflow (result in negative balance)
     ///   the token balance on the account.
-    fn update_token_account_balance<C: EntityContextTypes>(
-        &mut self,
+    pub fn update_token_account_balance<C: EntityContextTypes>(
+        &self,
         context: &mut EntityContext<C>,
         token: &TokenEntityP9<'_>,
         amount_delta: RawTokenAmountDelta,
@@ -89,7 +89,7 @@ impl Account {
     ///
     /// - `token` The token to touch state for in the account.
     /// - `account` The account to touch token state for.
-    fn touch_token_account<C: EntityContextTypes>(&mut self, context: &mut EntityContext<C>, token: &TokenEntityP9<'_>) {
+    pub fn touch_token_account<C: EntityContextTypes>(&self, context: &mut EntityContext<C>, token: &TokenEntityP9<'_>) {
         context
             .external
             .touch_token_account(self.account_index, token.token_index)

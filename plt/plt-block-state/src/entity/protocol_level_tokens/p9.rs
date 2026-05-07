@@ -56,8 +56,8 @@ impl<'a> TokenEntityP9<'a> {
     }
 
     /// Get the circulating supply of a protocol-level token.
-    pub fn token_circulating_supply(&self) -> BlockStateResult<RawTokenAmount> {
-        Ok(self.persistent.circulating_supply.0)
+    pub fn token_circulating_supply(&self) -> RawTokenAmount {
+        self.persistent.circulating_supply.0
     }
 
     /// Set the recorded total circulating supply for a protocol-level token.
@@ -67,8 +67,8 @@ impl<'a> TokenEntityP9<'a> {
     /// # Arguments
     ///
     /// - `circulation_supply` The new total circulating supply for the token.
-    pub fn set_token_circulating_supply(&mut self) {
-        self.persistent.to_mut().circulating_supply.0;
+    pub fn set_token_circulating_supply(&mut self, circulation_supply: RawTokenAmount) {
+        self.persistent.to_mut().circulating_supply.0 = circulation_supply;
     }
 
     /// Get whether the balance-affecting operations on the token are currently

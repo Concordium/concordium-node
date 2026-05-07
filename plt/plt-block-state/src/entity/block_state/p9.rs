@@ -5,7 +5,8 @@ use crate::block_state::hash::Hashable;
 use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure, BlockStateResult,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
+    BlockStateResult, TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9};
@@ -53,17 +54,19 @@ impl<'a> BlockStateP9<'a> {
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Option<TokenEntityP9<'a>>> {
+    ) -> BlockStateResult<Result<TokenEntityP9<'a>, TokenNotFoundByIdError>> {
         let token_index_option = *self.persistent.tokens.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
 
         let Some(token_index) = token_index_option else {
-            return Ok(None);
+            return Ok(Err(TokenNotFoundByIdError(token_id.clone())));
         };
 
-        self.thaw_token(context, token_index).map(Some)
+        self.thaw_token(context, token_index).map(Ok)
     }
+
+
 
     /// Create a new token with the given configuration. The initial state will be empty
     /// and the initial supply will be 0. Returns representation of the created token.
@@ -100,7 +103,7 @@ impl<'a> BlockStateP9<'a> {
         self.thaw_token(context, token_index)
     }
 
-    fn thaw_token<C: EntityContextTypes>(
+    pub(crate) fn thaw_token<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
