@@ -8,7 +8,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::utils::OwnedOrBorrowed;
-use crate::block_state_interface::BlockStateResult;
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
@@ -85,28 +85,29 @@ impl<V> HashedCacheableRef<V> {
 impl<'b, V> OwnedOrBorrowed<'b, HashedCacheableRef<V>> {
     /// Return the referenced value (as implemented by [`HashedCacheableRef::value`]) for an
     /// owned or borrowed reference. If the reference is `Owned`, and
-    /// [`HashedCacheableRef::value`] returns a borrowed value, `bind_value` returns `None`.
+    /// [`HashedCacheableRef::value`] returns a borrowed value, `bind_value` returns
+    /// [`BlockStateFailure::OwnedOrBorrowedJoin`].
     /// Notice that an owned or borrowed reference that has just been returned by calling
-    /// [`HashedCacheableRef::value`], will never return `None` when calling `bind_value` on it.
+    /// [`HashedCacheableRef::value`], will never return [`BlockStateFailure::OwnedOrBorrowedJoin`]
+    /// when calling `bind_value` on it.
     ///
-    /// Notice that this function is essentially binding the operation
+    /// This function is essentially binding the operation
     /// [`HashedCacheableRef::value`] in the monadic structure of [`OwnedOrBorrowed`].
     /// But [`OwnedOrBorrowed`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
-    /// into neither `Owned` nor `Borrowed`, hence `bind_value` will return `None` in that case.
+    /// into neither `Owned` nor `Borrowed`, hence `bind_value` will return an error in that case.
     /// Notice that all other combinations of `Owned` and `Borrowed` can be "joined".
-    pub fn bind_value(
-        self,
-        loader: &impl BlobStoreLoad,
-    ) -> BlockStateResult<Option<OwnedOrBorrowed<'b, V>>>
+    pub fn bind_value(self, loader: &impl BlobStoreLoad, context: &'static str) -> BlockStateResult<OwnedOrBorrowed<'b, V>>
     where
         V: Loadable,
     {
         Ok(match self {
             OwnedOrBorrowed::Owned(hcr) => match hcr.value(loader)? {
-                OwnedOrBorrowed::Owned(val) => Some(OwnedOrBorrowed::Owned(val)),
-                OwnedOrBorrowed::Borrowed(_) => None,
+                OwnedOrBorrowed::Owned(val) => OwnedOrBorrowed::Owned(val),
+                OwnedOrBorrowed::Borrowed(_) => {
+                    return Err(BlockStateFailure::OwnedOrBorrowedJoin(context));
+                }
             },
-            OwnedOrBorrowed::Borrowed(hcr) => Some(hcr.value(loader)?),
+            OwnedOrBorrowed::Borrowed(hcr) => hcr.value(loader)?,
         })
     }
 }

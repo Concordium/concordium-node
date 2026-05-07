@@ -3,14 +3,17 @@ use crate::block_state::blob_store::StoreSerialized;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
-use crate::block_state_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure, BlockStateResult, TokenNotFoundByIdError};
+use crate::block_state_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
+    BlockStateResult, TokenNotFoundByIdError,
+};
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::protocol_level_tokens::p11::TokenEntityP11;
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9};
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::protocol_level_tokens;
-use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
+use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, TokenIndex};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -35,10 +38,8 @@ impl<'a> BlockStateP11<'a> {
         context: &EntityContext<C>,
         token_id: &TokenId,
     ) -> BlockStateResult<Result<TokenEntityP11<'_>, TokenNotFoundByIdError>> {
-        let token_index_option = self
-            .persistent
-            .tokens
-            .value(&context.loader)?
+        let tokens = self.persistent.tokens.value(&context.loader)?;
+        let token_index_option = tokens
             .token_id_map
             .get(&protocol_level_tokens::normalize_token_id(token_id));
 
@@ -63,7 +64,7 @@ impl<'a> BlockStateP11<'a> {
         let normalized_token_id =
             protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
-        let persistent_token = PersistentPlTokenP9 {
+        let persistent_token = PersistentTokenP9 {
             configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
             key_value_state: HashedCacheableRef::new(smart_contract_trie::PersistentState::empty()),
             circulating_supply: StoreSerialized(RawTokenAmount(0)),
@@ -102,8 +103,8 @@ impl<'a> BlockStateP11<'a> {
             .persistent
             .tokens
             .value(&context.loader)?
-            .tokens
-            .lookup_value(&context.loader, token_index)?
+            .owned_or_borrowed_project_tokens()
+            .bind_lookup_value(&context.loader, token_index, "token by index in PersistentTokensP9")?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
             })?;

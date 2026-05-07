@@ -3,7 +3,7 @@ use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, St
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::persistent::protocol_level_tokens::p9::PersistentPlTokensP9;
+use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use std::io::Read;
@@ -12,7 +12,7 @@ use std::io::Read;
 #[derive(Debug, Clone, Default)]
 pub struct PersistentBlockStateP11 {
     /// Protocol-level tokens
-    pub tokens: HashedCacheableRef<PersistentPlTokensP9>,
+    pub tokens: HashedCacheableRef<PersistentTokensP9>,
 }
 
 impl Loadable for PersistentBlockStateP11 {

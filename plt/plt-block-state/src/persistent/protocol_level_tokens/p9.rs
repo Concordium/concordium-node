@@ -5,6 +5,7 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::hash::Hashable;
 use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
+use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::BlockStateResult;
 use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
@@ -23,23 +24,35 @@ pub struct TokenIndex(pub u64);
 
 /// Block state for protocol level tokens
 #[derive(Debug, Clone, Default)]
-pub struct PersistentPlTokensP9 {
-    pub tokens: LfmbTree<TokenIndex, PersistentPlTokenP9>,
+pub struct PersistentTokensP9 {
+    pub tokens: LfmbTree<TokenIndex, PersistentTokenP9>,
     pub token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
 }
 
-impl Storable for PersistentPlTokensP9 {
+impl<'b> OwnedOrBorrowed<'b, PersistentTokensP9> {
+    /// Move [`OwnedOrBorrowed`] inside the data structure.
+    pub fn owned_or_borrowed_project_tokens(
+        self,
+    ) -> OwnedOrBorrowed<'b, LfmbTree<TokenIndex, PersistentTokenP9>> {
+        match self {
+            OwnedOrBorrowed::Owned(this) => OwnedOrBorrowed::Owned(this.tokens),
+            OwnedOrBorrowed::Borrowed(this) => OwnedOrBorrowed::Borrowed(&this.tokens),
+        }
+    }
+}
+
+impl Storable for PersistentTokensP9 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
     }
 }
 
-impl Loadable for PersistentPlTokensP9 {
+impl Loadable for PersistentTokensP9 {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let tokens: LfmbTree<TokenIndex, PersistentPlTokenP9> =
+        let tokens: LfmbTree<TokenIndex, PersistentTokenP9> =
             Loadable::load_from_buffer(&mut buffer, loader)?;
         // To construct the full token id to token index map, we need to read the LFMBTree from
         // the blob store. This is not ideal. If the state is to be cached after loading, we would
@@ -63,13 +76,13 @@ impl Loadable for PersistentPlTokensP9 {
     }
 }
 
-impl Cacheable for PersistentPlTokensP9 {
+impl Cacheable for PersistentTokensP9 {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.tokens.cache_reference_values(loader)
     }
 }
 
-impl Hashable for PersistentPlTokensP9 {
+impl Hashable for PersistentTokensP9 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         self.tokens.hash(loader)
     }
@@ -86,13 +99,13 @@ impl LfmbTreeKey for TokenIndex {
 }
 
 #[derive(Debug, Clone)]
-pub struct PersistentPlTokenP9 {
+pub struct PersistentTokenP9 {
     pub configuration: HashedCacheableRef<StoreSerialized<TokenConfiguration>>,
     pub key_value_state: HashedCacheableRef<smart_contract_trie::PersistentState>,
     pub circulating_supply: StoreSerialized<RawTokenAmount>,
 }
 
-impl Storable for PersistentPlTokenP9 {
+impl Storable for PersistentTokenP9 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.configuration.store_to_buffer(&mut buffer, storer);
         self.key_value_state.store_to_buffer(&mut buffer, storer);
@@ -100,7 +113,7 @@ impl Storable for PersistentPlTokenP9 {
     }
 }
 
-impl Loadable for PersistentPlTokenP9 {
+impl Loadable for PersistentTokenP9 {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -117,7 +130,7 @@ impl Loadable for PersistentPlTokenP9 {
     }
 }
 
-impl Cacheable for PersistentPlTokenP9 {
+impl Cacheable for PersistentTokenP9 {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.configuration.cache_reference_values(loader)?;
         self.key_value_state.cache_reference_values(loader)?;
@@ -125,7 +138,7 @@ impl Cacheable for PersistentPlTokenP9 {
     }
 }
 
-impl Hashable for PersistentPlTokenP9 {
+impl Hashable for PersistentTokenP9 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let config = self.configuration.hash(loader)?;
         let key_value_state = self.key_value_state.hash(loader)?;

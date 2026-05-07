@@ -64,7 +64,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     ) -> Self::MutableTokenKeyValueState {
         let token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         token.mutable_key_value_state
     }
@@ -72,7 +72,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
         let token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         token.token_configuration(&self.context).unwrap()
     }
@@ -80,7 +80,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
         let token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         token.token_circulating_supply()
     }
@@ -148,7 +148,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     ) -> RawTokenAmount {
         let token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         account.account_token_balance(&self.context, &token)
     }
@@ -173,7 +173,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
     ) {
         let mut token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         token.set_token_circulating_supply(circulating_supply);
         self.block_state.freeze_token(&self.context, token).unwrap();
@@ -195,7 +195,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
     ) -> Result<(), OverflowError> {
         let token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         account.update_token_account_balance(&mut self.context, &token, amount_delta)
     }
@@ -203,7 +203,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
         let token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         account.touch_token_account(&mut self.context, &token)
     }
@@ -220,7 +220,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
     ) {
         let mut token = self
             .block_state
-            .token_by_index(&self.context.loader, *token)
+            .token_by_index(&self.context, *token)
             .unwrap();
         token.mutable_key_value_state = token_key_value_state;
         self.block_state.freeze_token(&self.context, token).unwrap();

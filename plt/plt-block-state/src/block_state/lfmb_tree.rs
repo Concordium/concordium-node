@@ -359,6 +359,39 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     }
 }
 
+impl<'b, K: LfmbTreeKey, V> OwnedOrBorrowed<'b, LfmbTree<K, V>> {
+    /// Return the value for a key (as implemented by [`LfmbTree::lookup_value`]) for an
+    /// owned or borrowed tree. If the tree is `Owned`, and
+    /// [`LfmbTree::lookup_value`] returns a borrowed value, `bind_lookup_value` returns
+    /// [`BlockStateFailure::OwnedOrBorrowedJoin`].
+    ///
+    /// This function is essentially binding the operation
+    /// [`LfmbTree::lookup_value`] in the monadic structure of [`OwnedOrBorrowed`].
+    /// But [`OwnedOrBorrowed`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
+    /// into neither `Owned` nor `Borrowed`, hence `bind_lookup_value` will return an error in that case.
+    /// Notice that all other combinations of `Owned` and `Borrowed` can be "joined".
+    pub fn bind_lookup_value(
+        self,
+        loader: &impl BlobStoreLoad,
+        key: K,
+        context: &'static str,
+    ) -> BlockStateResult<Option<OwnedOrBorrowed<'b, V>>>
+    where
+        V: Loadable,
+    {
+        Ok(match self {
+            OwnedOrBorrowed::Owned(tree) => match tree.lookup_value(loader, key)? {
+                None => None,
+                Some(OwnedOrBorrowed::Owned(val)) => Some(OwnedOrBorrowed::Owned(val)),
+                Some(OwnedOrBorrowed::Borrowed(_)) => {
+                    return Err(BlockStateFailure::OwnedOrBorrowedJoin(context));
+                }
+            },
+            OwnedOrBorrowed::Borrowed(tree) => tree.lookup_value(loader, key)?,
+        })
+    }
+}
+
 /// Internal representation of tree key used in the subtree.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct SubtreeKey(u64);
@@ -488,9 +521,7 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
                         key
                     )));
                 }
-                val_ref
-                    .bind_value(loader)?
-                    .expect("Owned leaf reference returned borrowed value")
+                val_ref.bind_value(loader, "leaf in lfmb_tree::Subtree")?
             }
             SubtreeOwnedOrBorrowedProjection::Node(height, left_ref, right_ref) => {
                 // The height'th bit in key decides if we should follow left `0`
@@ -499,13 +530,11 @@ impl<'b, V> OwnedOrBorrowed<'b, Subtree<V>> {
                 // when we reach the leaf for the key.
                 if is_nth_bit_set(height, key) {
                     right_ref
-                        .bind_value(loader)?
-                        .expect("Owned left branch reference returned borrowed value")
+                        .bind_value(loader, "left branch in lfmb_tree::Subtree")?
                         .lookup_value(loader, flip_nth_bit(height, key))?
                 } else {
                     left_ref
-                        .bind_value(loader)?
-                        .expect("Owned right branch reference returned borrowed value")
+                        .bind_value(loader, "right branch in lfmb_tree::Subtree")?
                         .lookup_value(loader, key)?
                 }
             }
@@ -774,17 +803,13 @@ fn next_value_push_right_branches<'b, L: BlobStoreLoad, V: Loadable>(
     node_stack: &mut Vec<OwnedOrBorrowed<'b, Subtree<V>>>,
 ) -> BlockStateResult<OwnedOrBorrowed<'b, V>> {
     Ok(match subtree.owned_or_borrowed_structural_project() {
-        SubtreeOwnedOrBorrowedProjection::Leaf(val_ref) => val_ref
-            .bind_value(loader)?
-            .expect("Owned leaf reference returned borrowed value"),
+        SubtreeOwnedOrBorrowedProjection::Leaf(val_ref) => {
+            val_ref.bind_value(loader, "leaf in lfmb_tree::Subtree")?
+        }
         SubtreeOwnedOrBorrowedProjection::Node(_, left_ref, right_ref) => {
-            let right = right_ref
-                .bind_value(loader)?
-                .expect("Owned left branch reference returned borrowed value");
+            let right = right_ref.bind_value(loader, "left branch in lfmb_tree::Subtree")?;
             node_stack.push(right);
-            let left = left_ref
-                .bind_value(loader)?
-                .expect("Owned right branch reference returned borrowed value");
+            let left = left_ref.bind_value(loader, "right branch in lfmb_tree::Subtree")?;
             next_value_push_right_branches(loader, left, node_stack)?
         }
     })

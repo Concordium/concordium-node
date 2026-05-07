@@ -12,7 +12,7 @@ use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenEntityP9
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent;
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
-use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
+use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, TokenIndex};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -65,8 +65,6 @@ impl<'a> BlockStateP9<'a> {
         self.token_by_index(context, token_index).map(Ok)
     }
 
-
-
     /// Create a new token with the given configuration. The initial state will be empty
     /// and the initial supply will be 0. Returns representation of the created token.
     ///
@@ -81,7 +79,7 @@ impl<'a> BlockStateP9<'a> {
         let normalized_token_id =
             persistent::protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
-        let persistent_token = PersistentPlTokenP9 {
+        let persistent_token = PersistentTokenP9 {
             configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
             key_value_state: HashedCacheableRef::new(smart_contract_trie::PersistentState::empty()),
             circulating_supply: StoreSerialized(RawTokenAmount(0)),

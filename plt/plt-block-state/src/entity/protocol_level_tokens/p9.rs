@@ -7,7 +7,7 @@ use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::persistent::protocol_level_tokens::p9::{PersistentPlTokenP9, TokenIndex};
+use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, TokenIndex};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::Serialize;
@@ -36,7 +36,7 @@ pub struct TokenEntityP9<'a> {
     pub(crate) token_index: TokenIndex,
     /// Persistent model of the protoco-level token. If changed, it must be written
     /// back.
-    pub(crate) persistent: OwnedOrBorrowed<'a, PersistentPlTokenP9>,
+    pub(crate) persistent: OwnedOrBorrowed<'a, PersistentTokenP9>,
     /// Token key-value state
     pub(crate) mutable_key_value_state: smart_contract_trie::MutableState,
 }

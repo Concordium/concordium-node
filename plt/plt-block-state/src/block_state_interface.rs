@@ -52,6 +52,12 @@ pub enum BlockStateFailure {
     /// stored block state or a runtime logical invariant related to the in-memory block state.
     #[error("State invariant broken: {0}")]
     Invariant(String),
+    /// When looking up a value with in an owned
+    /// [blob reference](super::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef),
+    /// a borrowed value was returned. This should generally never happen in they way we maintain
+    /// blob references.
+    #[error("Borrowed value found inside of owned value: {0}")]
+    OwnedOrBorrowedJoin(&'static str),
 }
 
 pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
