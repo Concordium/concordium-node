@@ -26,14 +26,14 @@ pub struct BlockStateP11<'a> {
     pub(crate) persistent: OwnedOrBorrowed<'a, PersistentBlockStateP11>,
 }
 
-impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
+impl<'a> BlockStateP11<'a> {
     /// Get the token associated with a [`TokenId`] (if it exists).
     /// The token ID is case-insensitive when looking up tokens by token ID.
     ///
     /// # Arguments
     ///
     /// - `token_id` The token id to get the [`Self::Token`] of.
-    pub fn token_by_id(
+    pub fn token_by_id<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
@@ -49,7 +49,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
             return Ok(None);
         };
 
-        self.thaw_token(token_index).map(Some)
+        self.thaw_token(context, token_index).map(Some)
     }
 
     /// Create a new token with the given configuration. The initial state will be empty
@@ -58,7 +58,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
     /// # Arguments
     ///
     /// - `configuration` The configuration for the token.
-    pub fn create_token(
+    pub fn create_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
@@ -90,7 +90,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
         self.thaw_token(context, token_index)
     }
 
-    fn thaw_token(
+    fn thaw_token<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
@@ -119,7 +119,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
         Ok(TokenEntityP11 { token_p9 })
     }
 
-    pub fn freeze_token(
+    pub fn freeze_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         mut token: TokenEntityP9<'a>,
@@ -153,7 +153,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-    pub fn increment_plt_update_instruction_sequence_number(
+    pub fn increment_plt_update_instruction_sequence_number<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
     ) {
@@ -161,7 +161,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
     }
 
     /// Lookup the account using an account address.
-    pub fn account_by_address(
+    pub fn account_by_address<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         address: &AccountAddress,
@@ -172,7 +172,7 @@ impl<'a, C: EntityContextTypes> BlockStateP11<'a> {
 
     /// Lookup the account using an account index. Returns both the opaque account
     /// representation and the account canonical address.
-    pub fn account_by_index(
+    pub fn account_by_index<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         account_index: AccountIndex,

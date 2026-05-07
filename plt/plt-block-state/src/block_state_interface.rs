@@ -167,7 +167,7 @@ pub trait BlockStateQuery {
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
     fn account_index(&self, account: &Self::Account) -> AccountIndex;

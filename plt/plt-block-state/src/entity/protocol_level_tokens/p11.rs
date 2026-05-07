@@ -1,16 +1,16 @@
-use crate::block_state::blob_store::BlobStoreLoad;
-use crate::block_state::external::ExternalBlockStateOperations;
+
+
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::protocol_level_tokens::p9::TokenEntityP9;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
+use crate::entity::{EntityContext, EntityContextTypes};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::{
     TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
-use crate::entity::{EntityContext, EntityContextTypes};
 
 /// Protocol-level token entity on P11.
 #[derive(Debug)]
@@ -19,9 +19,13 @@ pub struct TokenEntityP11<'a> {
     pub token_p9: TokenEntityP9<'a>,
 }
 
-impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
+impl<'a> TokenEntityP11<'a> {
     /// Get the authorization roles for an account from state.
-    pub fn get_account_roles(&self, context: &EntityContext<C>, account: AccountIndex) -> BlockStateResult<Roles> {
+    pub fn get_account_roles<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        account: AccountIndex,
+    ) -> BlockStateResult<Roles> {
         Roles::try_from_state_value(
             self.token_p9
                 .mutable_key_value_state
@@ -40,7 +44,7 @@ impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
     }
 
     /// Update a value in the account section of the token state.
-    fn update_account_roles_state(
+    fn update_account_roles_state<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         account: AccountIndex,
@@ -61,7 +65,7 @@ impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
     }
 
     /// Assign roles to an account in the state.
-    pub fn assign_account_roles(
+    pub fn assign_account_roles<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         account: AccountIndex,
@@ -75,7 +79,7 @@ impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
     }
 
     /// Revoke roles of an account in the state.
-    pub fn revoke_account_roles(
+    pub fn revoke_account_roles<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         account: AccountIndex,
@@ -89,7 +93,7 @@ impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
     }
 
     /// Get authorization roles and assigned accounts for the token.
-    pub fn get_token_authorizations(
+    pub fn get_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         block_state: BlockStateP9<'a>,
@@ -156,10 +160,16 @@ impl<'a, C: EntityContextTypes> TokenEntityP11<'a> {
         }
         Ok(TokenAuthorizations {
             update_admin_roles: Some(update_admin_roles),
-            mint: self.token_p9.is_mintable().then_some(mint),
-            burn: self.token_p9.is_burnable().then_some(burn),
-            update_allow_list: self.token_p9.has_allow_list().then_some(update_allow_list),
-            update_deny_list: self.token_p9.has_deny_list().then_some(update_deny_list),
+            mint: self.token_p9.is_mintable(context).then_some(mint),
+            burn: self.token_p9.is_burnable(context).then_some(burn),
+            update_allow_list: self
+                .token_p9
+                .has_allow_list(context)
+                .then_some(update_allow_list),
+            update_deny_list: self
+                .token_p9
+                .has_deny_list(context)
+                .then_some(update_deny_list),
             pause: Some(pause),
             update_metadata: Some(update_metadata),
         })

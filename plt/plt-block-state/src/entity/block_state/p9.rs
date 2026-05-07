@@ -25,9 +25,9 @@ pub struct BlockStateP9<'a> {
     pub(crate) persistent: OwnedOrBorrowed<'a, PersistentBlockStateP9>,
 }
 
-impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
+impl<'a> BlockStateP9<'a> {
     /// Get the [`TokenId`]s of all protocol-level tokens.
-    pub fn plt_list(
+    pub fn plt_list<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
     ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
@@ -49,7 +49,11 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
     /// # Arguments
     ///
     /// - `token_id` The token id to get the [`Self::Token`] of.
-    pub fn token_by_id(&self, token_id: &TokenId) -> BlockStateResult<Option<TokenEntityP9<'a>>> {
+    pub fn token_by_id<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        token_id: &TokenId,
+    ) -> BlockStateResult<Option<TokenEntityP9<'a>>> {
         let token_index_option = *self.persistent.tokens.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
@@ -58,7 +62,7 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
             return Ok(None);
         };
 
-        self.thaw_token(token_index).map(Some)
+        self.thaw_token(context, token_index).map(Some)
     }
 
     /// Create a new token with the given configuration. The initial state will be empty
@@ -67,7 +71,7 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
     /// # Arguments
     ///
     /// - `configuration` The configuration for the token.
-    pub fn create_token(
+    pub fn create_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
@@ -96,7 +100,7 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
         self.thaw_token(context, token_index)
     }
 
-    fn thaw_token(
+    fn thaw_token<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
@@ -122,7 +126,7 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
         })
     }
 
-    pub fn freeze_token(
+    pub fn freeze_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         mut token: TokenEntityP9<'a>,
@@ -152,12 +156,15 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-    pub fn increment_plt_update_instruction_sequence_number(&mut self, context: &mut EntityContext<C>) {
+    pub fn increment_plt_update_instruction_sequence_number<C: EntityContextTypes>(
+        &mut self,
+        context: &mut EntityContext<C>,
+    ) {
         context.external.increment_plt_update_sequence_number()
     }
 
     /// Lookup the account using an account address.
-    pub fn account_by_address(
+    pub fn account_by_address<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         address: &AccountAddress,
@@ -168,7 +175,7 @@ impl<'a, C: EntityContextTypes> BlockStateP9<'a> {
 
     /// Lookup the account using an account index. Returns both the opaque account
     /// representation and the account canonical address.
-    pub fn account_by_index(
+    pub fn account_by_index<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
