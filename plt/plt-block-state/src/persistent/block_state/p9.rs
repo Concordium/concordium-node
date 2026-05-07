@@ -8,7 +8,7 @@ use concordium_base::hashes::Hash;
 use std::io::Read;
 
 /// P9 block state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PersistentBlockStateP9 {
     /// Protocol-level tokens
     pub tokens: PersistentPlTokensP9,

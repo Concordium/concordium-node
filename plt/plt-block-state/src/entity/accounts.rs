@@ -7,6 +7,7 @@ use crate::entity::{EntityContext, EntityContextTypes};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 
 /// Account representing (read-only) account state.
 ///
@@ -49,8 +50,8 @@ impl Account {
     pub fn token_account_states<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
-        context.external.token_account_states(self.account_index)
+    ) -> impl Iterator<Item = (TokenIndex, TokenAccountState)> {
+        context.external.token_account_states(self.account_index).into_iter()
     }
 
     /// Update the token balance of an account.

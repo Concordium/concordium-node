@@ -9,7 +9,7 @@ use concordium_base::hashes::Hash;
 use std::io::Read;
 
 /// P11 block state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PersistentBlockStateP11 {
     /// Protocol-level tokens
     pub tokens: HashedCacheableRef<PersistentPlTokensP9>,

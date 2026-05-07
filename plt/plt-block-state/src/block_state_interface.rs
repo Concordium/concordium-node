@@ -64,6 +64,7 @@ pub struct TokenStateKey(pub Vec<u8>);
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct TokenStateValue(pub Vec<u8>);
 
+// todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the thawed (mutable) token key-value map.
@@ -187,6 +188,7 @@ pub trait BlockStateQuery {
     fn protocol_version(&self) -> ProtocolVersion;
 }
 
+// todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
     /// Set the recorded total circulating supply for a protocol-level token.

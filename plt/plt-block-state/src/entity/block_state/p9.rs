@@ -1,7 +1,6 @@
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::block_state::blob_store::StoreSerialized;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::hash::Hashable;
 use crate::block_state::smart_contract_trie;
 use crate::block_state::utils::OwnedOrBorrowed;
 use crate::block_state_interface::{
@@ -54,16 +53,16 @@ impl<'a> BlockStateP9<'a> {
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenEntityP9<'a>, TokenNotFoundByIdError>> {
-        let token_index_option = *self.persistent.tokens.token_id_map.get(
+    ) -> BlockStateResult<Result<TokenEntityP9<'_>, TokenNotFoundByIdError>> {
+        let token_index_option = self.persistent.tokens.token_id_map.get(
             &persistent::protocol_level_tokens::normalize_token_id(token_id),
         );
 
-        let Some(token_index) = token_index_option else {
+        let Some(&token_index) = token_index_option else {
             return Ok(Err(TokenNotFoundByIdError(token_id.clone())));
         };
 
-        self.thaw_token(context, token_index).map(Ok)
+        self.token_by_index(context, token_index).map(Ok)
     }
 
 
@@ -78,7 +77,7 @@ impl<'a> BlockStateP9<'a> {
         &mut self,
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
-    ) -> BlockStateResult<TokenEntityP9<'a>> {
+    ) -> BlockStateResult<TokenEntityP9<'_>> {
         let normalized_token_id =
             persistent::protocol_level_tokens::normalize_token_id(&configuration.token_id);
 
@@ -100,14 +99,20 @@ impl<'a> BlockStateP9<'a> {
             .token_id_map
             .insert(normalized_token_id, token_index);
 
-        self.thaw_token(context, token_index)
+        self.token_by_index(context, token_index)
     }
 
-    pub(crate) fn thaw_token<C: EntityContextTypes>(
+    /// Get the token with the given [`TokenIndex`].
+    /// Returns a [`BlockStateFailure`] if the token does not exist.
+    ///
+    /// # Arguments
+    ///
+    /// - `token_index` The index of the token.
+    pub fn token_by_index<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
-    ) -> BlockStateResult<TokenEntityP9<'a>> {
+    ) -> BlockStateResult<TokenEntityP9<'_>> {
         let persistent_token = self
             .persistent
             .tokens
@@ -119,7 +124,7 @@ impl<'a> BlockStateP9<'a> {
 
         let mutable_key_value_state = persistent_token
             .key_value_state
-            .value(context.loader)?
+            .value(&context.loader)?
             .thaw();
 
         Ok(TokenEntityP9 {
@@ -132,11 +137,11 @@ impl<'a> BlockStateP9<'a> {
     pub fn freeze_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        mut token: TokenEntityP9<'a>,
+        mut token: TokenEntityP9<'_>,
     ) -> BlockStateResult<()> {
         if token.mutable_key_value_state.is_dirty() {
             token.persistent.to_mut().key_value_state =
-                HashedCacheableRef::new(token.mutable_key_value_state.freeze(context.loader));
+                HashedCacheableRef::new(token.mutable_key_value_state.freeze(&context.loader));
         }
 
         self.persistent.to_mut().tokens.tokens = self

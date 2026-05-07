@@ -41,7 +41,7 @@ pub struct TokenEntityP9<'a> {
     pub(crate) mutable_key_value_state: smart_contract_trie::MutableState,
 }
 
-impl<'a> TokenEntityP9<'a> {
+impl TokenEntityP9<'_> {
     /// Get the configuration of a protocol-level token.
     pub fn token_configuration<C: EntityContextTypes>(
         &self,

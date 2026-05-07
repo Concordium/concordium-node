@@ -19,7 +19,7 @@ pub struct TokenEntityP11<'a> {
     pub token_p9: TokenEntityP9<'a>,
 }
 
-impl<'a> TokenEntityP11<'a> {
+impl TokenEntityP11<'_> {
     /// Get the authorization roles for an account from state.
     pub fn get_account_roles<C: EntityContextTypes>(
         &self,
@@ -96,7 +96,7 @@ impl<'a> TokenEntityP11<'a> {
     pub fn get_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        block_state: BlockStateP9<'a>,
+        block_state: BlockStateP9<'_>,
     ) -> BlockStateResult<TokenAuthorizations> {
         let mut update_admin_roles = TokenRoleAuthorizations::default();
         let mut mint = TokenRoleAuthorizations::default();

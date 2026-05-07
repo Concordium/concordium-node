@@ -63,7 +63,7 @@ impl PersistentBlockState {
     /// See [`Loadable::load_from_buffer`]. This function only differs by taking
     /// protocol version as argument.
     fn load_from_buffer(
-        mut buffer: impl Read,
+        buffer: impl Read,
         loader: &impl BlobStoreLoad,
         protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
@@ -93,7 +93,7 @@ impl PersistentBlockState {
 }
 
 impl Storable for PersistentBlockState {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+    fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         match self {
             PersistentBlockState::P9(bs) => bs.store_to_buffer(buffer, storer),
             PersistentBlockState::P10(bs) => bs.store_to_buffer(buffer, storer),

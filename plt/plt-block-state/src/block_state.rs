@@ -48,7 +48,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
-        self.block_state.plt_list(&self.context)
+        self.block_state.plt_list(&self.context).map(|token|token.unwrap())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
@@ -64,18 +64,15 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     ) -> Self::MutableTokenKeyValueState {
         let token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
-        self.block_state
-            .tokens
-            .mutable_token_key_value_state(&self.blob_store_load, *token)
-            .unwrap()
+        token.mutable_key_value_state
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
         let token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
         token.token_configuration(&self.context).unwrap()
     }
@@ -83,7 +80,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
         let token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
         token.token_circulating_supply()
     }
@@ -98,12 +95,11 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
             .map(TokenStateValue)
     }
 
-    fn iter_token_state_prefix<'a>(
-        &'a self,
+    fn iter_token_state_prefix(
+        &self,
         token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, C> {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a,'_, C> {
         token_key_value
             .iter_prefix(&self.context.loader, &prefix.0)
             .unwrap()
@@ -116,7 +112,6 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         if let Some(value) = value {
             token_key_value_state
                 .insert_value(&self.context.loader, &key.0, value.0)
@@ -153,7 +148,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     ) -> RawTokenAmount {
         let token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
         account.account_token_balance(&self.context, &token)
     }
@@ -176,25 +171,20 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         let mut token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
         token.set_token_circulating_supply(circulating_supply);
         self.block_state.freeze_token(&self.context, token).unwrap();
     }
 
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .update_block_state(|state| {
-                let (token_index, tokens) = state
-                    .tokens
-                    .create_token(&self.blob_store_load, configuration)?;
-                Ok((token_index, BlockStateData { tokens }))
-            })
-            .unwrap()
+        let token = self
+            .block_state
+            .create_token(&self.context, configuration)
+            .unwrap();
+        token.token_index
     }
 
     fn update_token_account_balance(
@@ -203,25 +193,24 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         let token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
         account.update_token_account_balance(&mut self.context, &token, amount_delta)
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         let token = self
             .block_state
-            .thaw_token(&self.context.loader, *token)
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
         account.touch_token_account(&mut self.context, &token)
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
-        self.block_state.increment_plt_update_instruction_sequence_number(&mut self.context);
+        self.block_state
+            .increment_plt_update_instruction_sequence_number(&mut self.context);
     }
 
     fn set_token_key_value_state(
@@ -229,17 +218,11 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         token: &Self::Token,
         token_key_value_state: Self::MutableTokenKeyValueState,
     ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .update_block_state_(|state| {
-                Ok(BlockStateData {
-                    tokens: state.tokens.set_token_key_value_state(
-                        &self.blob_store_load,
-                        *token,
-                        token_key_value_state,
-                    )?,
-                })
-            })
+        let mut token = self
+            .block_state
+            .token_by_index(&self.context.loader, *token)
             .unwrap();
+        token.mutable_key_value_state = token_key_value_state;
+        self.block_state.freeze_token(&self.context, token).unwrap();
     }
 }

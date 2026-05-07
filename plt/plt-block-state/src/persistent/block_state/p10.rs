@@ -8,7 +8,7 @@ use concordium_base::hashes::Hash;
 use std::io::Read;
 
 /// P10 block state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PersistentBlockStateP10 {
     /// P9 block state
     pub p9_block_state: PersistentBlockStateP9,
