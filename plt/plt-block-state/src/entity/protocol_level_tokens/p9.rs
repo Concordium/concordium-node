@@ -1,3 +1,5 @@
+use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::block_state::blob_store::StoreSerialized;
 use crate::block_state::utils::Cow;
 use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
@@ -7,12 +9,117 @@ use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, TokenIndex};
+use crate::persistent;
+use crate::persistent::protocol_level_tokens::TokenIndex;
+use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, PersistentTokensP9};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::Serialize;
 use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+pub fn plt_list<'a, C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    persistent_tokens: &'a PersistentTokensP9,
+) -> impl ExactSizeIterator<Item = BlockStateResult<Cow<'a, TokenId>>> {
+    persistent_tokens
+        .tokens
+        .values(&context.loader)
+        .map(|item| {
+            Ok(item?
+                .1
+                .cow_project_configuration()
+                .bind_value(&context.loader, "configuration in PersistentTokenP9")?
+                .cow_project()
+                .cow_project_token_id())
+        })
+}
+
+pub fn create_token<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    persistent_tokens: &mut PersistentTokensP9,
+    configuration: TokenConfiguration,
+) -> BlockStateResult<TokenIndex> {
+    let normalized_token_id =
+        persistent::protocol_level_tokens::normalize_token_id(&configuration.token_id);
+
+    let persistent_token = PersistentTokenP9 {
+        configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
+        key_value_state: HashedCacheableRef::new(smart_contract_trie::PersistentState::empty()),
+        circulating_supply: StoreSerialized(RawTokenAmount(0)),
+    };
+
+    let token_index;
+    (token_index, persistent_tokens.tokens) = persistent_tokens
+        .tokens
+        .insert_value(&context.loader, persistent_token)?;
+    persistent_tokens
+        .token_id_map
+        .insert(normalized_token_id, token_index);
+
+    Ok(token_index)
+}
+
+pub fn update_token<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    persistent_tokens: &mut PersistentTokensP9,
+    mut token: TokenP9<'_>,
+) -> BlockStateResult<()> {
+    if token.mutable_key_value_state.is_dirty() {
+        token.persistent.to_mut().key_value_state =
+            HashedCacheableRef::new(token.mutable_key_value_state.freeze(&context.loader));
+    }
+
+    persistent_tokens.tokens = persistent_tokens
+        .tokens
+        .update_value(&context.loader, token.token_index, |_| {
+            Ok(token.persistent.into_owned())
+        })?
+        .ok_or_else(|| {
+            BlockStateFailure::Invariant(format!(
+                "Token not found by index: {:?}",
+                token.token_index
+            ))
+        })?;
+
+    Ok(())
+}
+
+pub fn token_by_index<'a, C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    persistent_tokens: &'a PersistentTokensP9,
+    token_index: TokenIndex,
+) -> BlockStateResult<TokenP9<'a>> {
+    let persistent_token = persistent_tokens
+        .tokens
+        .lookup_value(&context.loader, token_index)?
+        .ok_or_else(|| {
+            BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
+        })?;
+
+    let mutable_key_value_state = persistent_token
+        .key_value_state
+        .value(&context.loader)?
+        .thaw();
+
+    Ok(TokenP9 {
+        token_index,
+        persistent: persistent_token,
+        mutable_key_value_state,
+    })
+}
+
+pub fn token_index_by_id(
+    persistent_tokens: &PersistentTokensP9,
+    token_id: &TokenId,
+) -> Option<TokenIndex> {
+    persistent_tokens
+        .token_id_map
+        .get(&persistent::protocol_level_tokens::normalize_token_id(
+            token_id,
+        ))
+        .copied()
+}
 
 /// Static configuration for a protocol-level token.
 ///

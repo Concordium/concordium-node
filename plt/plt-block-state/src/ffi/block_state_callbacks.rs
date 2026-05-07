@@ -4,7 +4,7 @@ use crate::block_state::external::{
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
-use crate::persistent::protocol_level_tokens::p9::TokenIndex;
+use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::contracts_common::AccountAddress;

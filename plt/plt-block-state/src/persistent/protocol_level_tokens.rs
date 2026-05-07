@@ -1,8 +1,15 @@
 //! Persistent model for protocol-level tokens in the block state.
 
+use concordium_base::common::Serialize;
 use concordium_base::protocol_level_tokens::TokenId;
 
 pub mod p9;
+
+/// Index of the protocol-level token in the block state map of tokens.
+///
+/// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.TokenIndex`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct TokenIndex(pub(crate) u64);
 
 /// Internally used, normalized token is. Used to identify token ids
 /// as equal, even if casing differs.

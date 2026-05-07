@@ -4,7 +4,7 @@ use crate::block_state::external::{
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::persistent::protocol_level_tokens::p9::TokenIndex;
+use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -74,14 +74,12 @@ impl Account {
     pub fn update_token_account_balance<C: EntityContextTypes>(
         &self,
         context: &mut EntityContext<C>,
-        token: &TokenP9<'_>,
+        token_index: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        context.external.update_token_account_balance(
-            self.account_index,
-            token.token_index,
-            amount_delta,
-        )
+        context
+            .external
+            .update_token_account_balance(self.account_index, token_index, amount_delta)
     }
 
     /// Initialize the balance of the given account to zero if it didn't have a balance before.

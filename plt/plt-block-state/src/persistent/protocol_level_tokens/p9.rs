@@ -10,17 +10,11 @@ use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::BlockStateResult;
 use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
 use crate::persistent::protocol_level_tokens;
-use crate::persistent::protocol_level_tokens::NormalizedTokenId;
-use concordium_base::common::{Buffer, Serialize};
+use crate::persistent::protocol_level_tokens::{NormalizedTokenId, TokenIndex};
+use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-
-/// Index of the protocol-level token in the block state map of tokens.
-///
-/// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.TokenIndex`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct TokenIndex(pub u64);
 
 /// Block state for protocol level tokens on P9 and later protocols that uses the same representation.
 #[derive(Debug, Clone, Default)]
