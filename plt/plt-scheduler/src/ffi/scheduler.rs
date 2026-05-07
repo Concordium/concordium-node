@@ -10,7 +10,6 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
@@ -19,6 +18,7 @@ use plt_block_state::ffi::block_state_callbacks::{
     ReadTokenAccountBalanceCallback, TouchTokenAccountCallback, UpdateTokenAccountBalanceCallback,
 };
 use plt_block_state::ffi::memory;
+use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 
 /// C-binding for calling [`scheduler::execute_transaction`].
@@ -80,13 +80,13 @@ extern "C" fn ffi_execute_transaction(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
     sender_account_address: *const u8,
     remaining_energy: u64,
-    block_state_out: *mut *mut BlockState,
+    block_state_out: *mut *mut PersistentBlockState,
     used_energy_out: *mut u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -234,10 +234,10 @@ extern "C" fn ffi_execute_chain_update(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     payload: *const u8,
     payload_len: size_t,
-    block_state_out: *mut *mut BlockState,
+    block_state_out: *mut *mut PersistentBlockState,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> status::FfiStatusCode {

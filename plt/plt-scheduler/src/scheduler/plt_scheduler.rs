@@ -11,8 +11,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_block_state::block_state::entity::protocol_level_tokens::TokenConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
+use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::reject_reasons::{

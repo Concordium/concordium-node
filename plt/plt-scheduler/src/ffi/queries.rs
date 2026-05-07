@@ -8,7 +8,6 @@ use crate::queries::QueryTokenInfoError;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use libc::size_t;
-use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
@@ -16,6 +15,7 @@ use plt_block_state::ffi::block_state_callbacks::{
     ReadTokenAccountBalanceCallback,
 };
 use plt_block_state::ffi::memory;
+use plt_block_state::persistent::block_state::PersistentBlockState;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///
@@ -53,7 +53,7 @@ extern "C" fn ffi_query_plt_list(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> status::FfiStatusCode {
@@ -132,7 +132,7 @@ extern "C" fn ffi_query_token_info(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     token_id: *const u8,
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
@@ -228,7 +228,7 @@ extern "C" fn ffi_query_token_authorizations(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     token_id: *const u8,
     token_id_len: size_t,
     return_data_out: *mut *mut u8,
@@ -320,7 +320,7 @@ extern "C" fn ffi_query_token_account_infos(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     account_index: u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,

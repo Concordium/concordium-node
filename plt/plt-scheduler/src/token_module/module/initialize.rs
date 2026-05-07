@@ -9,6 +9,7 @@ use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAdminRole, TokenModuleInitializationParameters,
 };
+use plt_block_state::block_state::utils;
 use plt_block_state::block_state_interface::{AccountNotFoundByAddressError, BlockStateOperations};
 
 /// Represents the reasons why [`initialize_token`] can fail.
@@ -44,7 +45,7 @@ pub fn initialize_token<BSO: BlockStateOperations>(
     initialization_parameters_cbor: RawCbor,
 ) -> Result<(), TokenInitializationError> {
     let init_params: TokenModuleInitializationParameters =
-        util::cbor_decode(&initialization_parameters_cbor)?;
+        utils::cbor_decode(&initialization_parameters_cbor)?;
     initialize_token_impl(context, init_params)
 }
 

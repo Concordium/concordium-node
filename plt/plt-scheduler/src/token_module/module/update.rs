@@ -17,6 +17,7 @@ use concordium_base::protocol_level_tokens::{
     TokenUpdateMetadataEventDetails, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
+use plt_block_state::block_state::utils;
 use plt_block_state::block_state_interface::{AccountNotFoundByAddressError, BlockStateOperations};
 
 /// Details provided by the token module in the event of rejecting a
@@ -100,7 +101,7 @@ pub fn execute_token_update_transaction<BSO: BlockStateOperations>(
     context: &mut TokenOperationContext<'_, BSO>,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
-    let operations: Vec<TokenOperation> = util::cbor_decode(&token_operations).map_err(|err| {
+    let operations: Vec<TokenOperation> = utils::cbor_decode(&token_operations).map_err(|err| {
         TokenUpdateError::TokenModuleReject(make_reject_reason(
             TokenModuleRejectReason::DeserializationFailure(DeserializationFailureRejectReason {
                 cause: Some(err.to_string()),
