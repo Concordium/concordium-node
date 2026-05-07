@@ -112,14 +112,15 @@ pub struct PersistentTokenP9 {
 
 impl<'b> Cow<'b, PersistentTokenP9> {
     /// Move [`Cow`] to configuration.
-    pub fn cow_project_configuration(self) -> Cow<'b, HashedCacheableRef<StoreSerialized<TokenConfiguration>>> {
+    pub fn cow_project_configuration(
+        self,
+    ) -> Cow<'b, HashedCacheableRef<StoreSerialized<TokenConfiguration>>> {
         match self {
             Cow::Owned(this) => Cow::Owned(this.configuration),
             Cow::Borrowed(this) => Cow::Borrowed(&this.configuration),
         }
     }
 }
-
 
 impl Storable for PersistentTokenP9 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {

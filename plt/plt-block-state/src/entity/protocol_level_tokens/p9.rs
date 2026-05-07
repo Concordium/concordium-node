@@ -51,6 +51,16 @@ pub struct TokenP9<'a> {
 }
 
 impl TokenP9<'_> {
+    /// Make potentially borrowed persistent state owned, to give the struct
+    /// a new unbounded lifetime.
+    pub fn into_owned<'b>(self) -> TokenP9<'b> {
+        TokenP9 {
+            token_index: self.token_index,
+            persistent: Cow::Owned(self.persistent.into_owned()),
+            mutable_key_value_state: self.mutable_key_value_state,
+        }
+    }
+
     /// Get the configuration of a protocol-level token.
     pub fn token_configuration<C: EntityContextTypes>(
         &self,

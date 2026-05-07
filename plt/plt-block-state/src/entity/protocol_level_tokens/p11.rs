@@ -18,6 +18,14 @@ pub struct TokenP11<'a> {
 }
 
 impl TokenP11<'_> {
+    /// Make potentially borrowed persistent state owned, to give the struct
+    /// a new unbounded lifetime.
+    pub fn into_owned<'b>(self) -> TokenP11<'b> {
+        TokenP11 {
+            token_p9: self.token_p9.into_owned(),
+        }
+    }
+
     /// Get the authorization roles for an account from state.
     pub fn get_account_roles<C: EntityContextTypes>(
         &self,
@@ -262,7 +270,7 @@ impl Roles {
         let Some(value) = value else {
             return Ok(Roles::none());
         };
-        common::from_bytes_complete(&value)
+        common::from_bytes_complete(value)
     }
 
     /// Iterate the roles assigned.

@@ -21,7 +21,7 @@ pub enum Cow<'a, T> {
 impl<'a, T> Cow<'a, T> {
     /// Convert the possibly owned value into an owned value, by cloning
     /// if the value is represented by a reference.
-    pub fn into_owned_or_clone(self) -> T
+    pub fn into_owned(self) -> T
     where
         T: Clone,
     {

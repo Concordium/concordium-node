@@ -43,7 +43,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         self.block_state
             .plt_list(&self.context)
-            .map(|token| token.unwrap().into_owned_or_clone())
+            .map(|token| token.unwrap().into_owned())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
@@ -72,7 +72,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
         token
             .token_configuration(&self.context)
             .unwrap()
-            .into_owned_or_clone()
+            .into_owned()
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
@@ -172,7 +172,8 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         let mut token = self
             .block_state
             .token_by_index(&self.context, *token)
-            .unwrap();
+            .unwrap()
+            .into_owned();
         token.set_token_circulating_supply(circulating_supply);
         self.block_state.update_token(&self.context, token).unwrap();
     }
@@ -217,7 +218,8 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         let mut token = self
             .block_state
             .token_by_index(&self.context, *token)
-            .unwrap();
+            .unwrap()
+            .into_owned();
         token.mutable_key_value_state = token_key_value_state;
         self.block_state.update_token(&self.context, token).unwrap();
     }

@@ -74,11 +74,7 @@ impl<'a> BlockStateP11<'a> {
         };
 
         let token_index;
-        let mut new_tokens = self
-            .persistent
-            .tokens
-            .value(&context.loader)?
-            .into_owned_or_clone();
+        let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
         (token_index, new_tokens.tokens) = new_tokens
             .tokens
             .insert_value(&context.loader, persistent_token)?;
@@ -149,15 +145,11 @@ impl<'a> BlockStateP11<'a> {
             );
         }
 
-        let mut new_tokens = self
-            .persistent
-            .tokens
-            .value(&context.loader)?
-            .into_owned_or_clone();
+        let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
         new_tokens.tokens = new_tokens
             .tokens
             .update_value(&context.loader, token.token_p9.token_index, |_| {
-                Ok(token.token_p9.persistent.into_owned_or_clone())
+                Ok(token.token_p9.persistent.into_owned())
             })?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!(

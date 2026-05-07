@@ -157,7 +157,7 @@ impl<'a> BlockStateP9<'a> {
             .tokens
             .tokens
             .update_value(&context.loader, token.token_index, |_| {
-                Ok(token.persistent.into_owned_or_clone())
+                Ok(token.persistent.into_owned())
             })?
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(format!(
