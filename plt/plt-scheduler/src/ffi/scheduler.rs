@@ -5,7 +5,7 @@
 use crate::ffi::status;
 use crate::scheduler;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
-use concordium_base::contracts_common::AccountAddress;
+use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
@@ -45,6 +45,8 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
+/// - `transaction_sequence_number` The sequence number (nonce) of the transaction.
+/// - `block_timestamp` Timestamp of the block in which the transaction is executed.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 ///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
@@ -86,6 +88,7 @@ extern "C" fn ffi_execute_transaction(
     sender_account_index: u64,
     sender_account_address: *const u8,
     transaction_sequence_number: Nonce,
+    block_timestamp: Timestamp,
     remaining_energy: u64,
     block_state_out: *mut *mut BlockState,
     used_energy_out: *mut u64,
@@ -152,6 +155,7 @@ extern "C" fn ffi_execute_transaction(
             sender_account_index,
             sender_account_address,
             transaction_sequence_number,
+            block_timestamp,
             &mut block_state,
             payload,
             remaining_energy,
@@ -340,6 +344,7 @@ mod tests {
             0,
             ptr::null(),
             Nonce::from(1),
+            Timestamp::from_timestamp_millis(0),
             0,
             ptr::null_mut(),
             ptr::null_mut(),

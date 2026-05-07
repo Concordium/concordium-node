@@ -56,7 +56,23 @@ executeTransaction ::
     Types.Payload ->
     -- | Transaction summary
     EI.SchedulerT m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
-executeTransaction depositContext tokenUpdate =
+executeTransaction depositContext payload = do
+    ChainMetadata{..} <- getChainMetadata
+    executeTransactionWithTimestamp slotTime depositContext payload
+
+-- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The transaction
+-- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
+executeTransactionWithTimestamp ::
+    forall m.
+    (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
+    -- | Timestamp of the block in which the transaction occurs.
+    Timestamp ->
+    EI.WithDepositContext m ->
+    -- | Transaction payload.
+    Types.Payload ->
+    -- | Transaction summary
+    EI.SchedulerT m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
+executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
     EI.withDeposit depositContext executeTransactionInLocalT EI.defaultSuccess
   where
     executeTransactionInLocalT :: EI.LocalT [Types.Event] (EI.SchedulerT m) [Types.Event]
@@ -196,6 +212,7 @@ executeTransaction depositContext tokenUpdate =
                                             (fromIntegral senderAccountIndex)
                                             senderAccountAddressPtr
                                             (EI._wtcTransactionSequenceNumber depositContext)
+                                            blockTimestamp
                                             (fromIntegral remainingEnergy)
                                             resultingBlockStateOutPtr
                                             usedEnergyOutPtr
@@ -299,6 +316,8 @@ foreign import ccall "ffi_execute_transaction"
         FFI.Ptr Word.Word8 ->
         -- | Transaction sequence number.
         Types.Nonce ->
+        -- | Block timestamp at which the transaction is executed.
+        Types.Timestamp ->
         -- | Remaining energy
         Word.Word64 ->
         -- | Output location for the resulting PLT block state.

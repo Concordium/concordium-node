@@ -317,6 +317,13 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
     fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
 
+    /// Delete a PLT lock with the given Lock ID.
+    /// 
+    /// # Arguments
+    /// 
+    /// - `lock_id` The ID of the PLT lock.
+    fn delete_lock(&mut self, lock_id: LockId);
+
     /// Track that a lock holds a balance for the given account and token.
     ///
     /// This records the account/token pair in the lock state so it can later be

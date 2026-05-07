@@ -130,6 +130,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
         gov_account,
         stub.account_canonical_address(&gov_account),
         1.into(),
+        0.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),

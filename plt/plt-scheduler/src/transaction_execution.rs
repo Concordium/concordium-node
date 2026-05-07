@@ -1,7 +1,7 @@
 //! Context for transaction execution.
 
 use concordium_base::base::{Energy, Nonce};
-use concordium_base::contracts_common::AccountAddress;
+use concordium_base::contracts_common::{AccountAddress, Timestamp};
 
 /// Transaction execution ran out of energy.
 #[derive(Debug, thiserror::Error)]
@@ -22,6 +22,8 @@ pub struct TransactionExecution<Account> {
     sender_account_address: AccountAddress,
     /// The sequence number of the transaction as specified in the transaction header.
     transaction_sequence_number: Nonce,
+    /// Timestamp of the block in which the transaction is executed.
+    block_timestamp: Timestamp,
     /// The number of locks that have been created during the execution of the transaction so far.
     /// This is used to generate unique lock IDs for locks created during execution.
     locks_created: u64,
@@ -34,6 +36,7 @@ impl<Account> TransactionExecution<Account> {
         sender_account: Account,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
+        block_timestamp: Timestamp,
     ) -> Self {
         Self {
             energy_used: 0.into(),
@@ -41,6 +44,7 @@ impl<Account> TransactionExecution<Account> {
             sender_account,
             sender_account_address,
             transaction_sequence_number,
+            block_timestamp,
             locks_created: 0,
         }
     }
@@ -90,6 +94,11 @@ impl<Account> TransactionExecution<Account> {
     /// The sequence number of the transaction as specified in the transaction header.
     pub fn transaction_sequence_number(&self) -> Nonce {
         self.transaction_sequence_number
+    }
+
+    /// The timestamp of the block in which the transaction is executed.
+    pub fn timestamp(&self) -> Timestamp {
+        self.block_timestamp
     }
 
     /// Get the next lock creation order number and increment the counter.

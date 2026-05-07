@@ -1,20 +1,27 @@
+use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
 use plt_scheduler_types::types::locks::{LockControllerSimpleV0, LockControllerSimpleV0Grant};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
-use crate::locks::lock_controller::{LockController, LockControllerRejectReason, LockOperation};
+use crate::locks::lock_controller::{LockController, LockOperation};
 use crate::scheduler::helpers::{lookup_account_index, lookup_token_id};
 
 impl LockController for LockControllerSimpleV0 {
-    // TODO: implemented as part of COR-2305
     fn validate_operation<BSQ: BlockStateQuery>(
         &self,
-        _bsq: &BSQ,
-        _sender: &BSQ::Account,
-        _operation: &LockOperation,
-    ) -> Result<(), LockControllerRejectReason> {
-        todo!()
+        bsq: &BSQ,
+        sender: &BSQ::Account,
+        operation: &LockOperation,
+    ) -> bool {
+        let sender_index = bsq.account_index(sender);
+        let role = match operation {
+            LockOperation::Fund(_) => LockControllerSimpleV0Capability::Fund,
+            LockOperation::Send(_) => LockControllerSimpleV0Capability::Send,
+            LockOperation::Return(_) => LockControllerSimpleV0Capability::Return,
+            LockOperation::Cancel(_) => LockControllerSimpleV0Capability::Cancel,
+        };
+        self.has_role(sender_index, role)
     }
 
     fn to_cbor_controller<BSQ: BlockStateQuery>(

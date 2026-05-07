@@ -2,18 +2,13 @@
 
 use assert_matches::assert_matches;
 use concordium_base::{
-    base::Energy,
-    common::{cbor, types::TransactionTime},
-    protocol_level_locks::{
+    base::Energy, common::{cbor, types::TransactionTime}, contracts_common::Timestamp, protocol_level_locks::{
         LockConfig, LockController, LockControllerSimpleV0, LockControllerSimpleV0Capability,
         LockControllerSimpleV0Grant, LockId,
-    },
-    protocol_level_tokens::{
+    }, protocol_level_tokens::{
         MetadataUrl, RawCbor, TokenAmount, TokenId, TokenModuleInitializationParameters,
         meta_operations::{MetaUpdatePayload, lock_create},
-    },
-    transactions::Payload,
-    updates::{CreatePlt, UpdatePayload},
+    }, transactions::Payload, updates::{CreatePlt, UpdatePayload}
 };
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
@@ -74,6 +69,7 @@ fn test_create_simple_lock() {
         account_index_1,
         account_1,
         1.into(),
+        Timestamp::from_timestamp_millis(0),
         stub.state_mut(),
         Payload::MetaUpdate { payload },
         Energy::from(u64::MAX),
