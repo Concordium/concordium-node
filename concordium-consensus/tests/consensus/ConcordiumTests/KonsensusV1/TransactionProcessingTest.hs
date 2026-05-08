@@ -392,7 +392,7 @@ dummyUpdateInstruction effTime =
                 { _cpltTokenId = TokenId "dummyToken",
                   _cpltTokenModule = TokenModuleRef $ Hash.hash "dummyToken",
                   _cpltDecimals = 4,
-                  _cpltInitializationParameters = TokenParameter ""
+                  _cpltInitializationParameters = RawCbor ""
                 }
 
 -- | The block item for 'dummyNormalTransaction'.

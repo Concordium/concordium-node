@@ -584,9 +584,9 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Stream the list of all PLT lock ids that exist in the given block.
+    /// Stream the list of all PLT Lock IDs that exist in the given block.
     ///
-    /// Individual lock ids are enqueued using the provided callback.
+    /// Individual Lock IDs are enqueued using the provided callback.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `stream` - Pointer to the response stream.
@@ -623,7 +623,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
-        lock_id: *const u8,
+        lock_id: *const [u8; 24],
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
@@ -2749,13 +2749,7 @@ impl ConsensusContainer {
         let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let (block_id_type, block_hash) = bhi.to_ptr();
 
-        // Serialize the LockId as three big-endian u64 fields, exactly 24 bytes.
-        // This matches the Haskell `Serialize LockId` instance and the FFI input contract
-        // documented on `getLockInfoV2`.
-        let mut lock_id_bytes = [0u8; 24];
-        lock_id_bytes[0..8].copy_from_slice(&lock_id.account_index.to_be_bytes());
-        lock_id_bytes[8..16].copy_from_slice(&lock_id.sequence_number.to_be_bytes());
-        lock_id_bytes[16..24].copy_from_slice(&lock_id.creation_order.to_be_bytes());
+        let lock_id = crate::grpc2::types::lock_id_to_ffi(lock_id);
 
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
@@ -2766,7 +2760,7 @@ impl ConsensusContainer {
                 consensus,
                 block_id_type,
                 block_hash.as_ptr(),
-                lock_id_bytes.as_ptr(),
+                &lock_id,
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,

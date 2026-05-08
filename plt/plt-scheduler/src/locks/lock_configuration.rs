@@ -2,18 +2,49 @@ use std::collections::BTreeMap;
 
 use concordium_base::{
     base::AccountIndex,
-    protocol_level_locks::{LockAccountFunds, LockId, LockInfo, LockedTokenAmount},
+    protocol_level_locks::{LockAccountFunds, LockConfig, LockId, LockInfo, LockedTokenAmount},
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
 use plt_block_state::{
     block_state::types::protocol_level_locks::LockConfiguration,
-    block_state_interface::BlockStateQuery,
+    block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery},
 };
 
 use crate::{
     locks::lock_controller::LockController, queries::QueryLockError,
     token_context::TokenQueryContext, token_module,
 };
+
+/// Get the list of recipient accounts for a lock configuration, resolving
+/// [`AccountIndex`]es to [`CborHolderAccount`]s.
+fn get_recipients<BSQ: BlockStateQuery>(
+    bsq: &BSQ,
+    configuration: &LockConfiguration,
+) -> Result<Vec<CborHolderAccount>, AccountNotFoundByIndexError> {
+    configuration
+        .recipients_iter()
+        .map(|account_index| {
+            let with_addr = bsq.account_by_index(*account_index)?;
+            Ok(CborHolderAccount::from(with_addr.canonical_account_address))
+        })
+        .collect()
+}
+
+/// Get the lock configuration as a CBOR-representable [`LockConfig`] with
+/// resolved account addresses.
+pub fn get_lock_config<BSQ: BlockStateQuery>(
+    bsq: &BSQ,
+    configuration: &LockConfiguration,
+) -> Result<LockConfig, AccountNotFoundByIndexError> {
+    let recipients = get_recipients(bsq, configuration)?;
+    let controller = configuration.controller().to_cbor_controller(bsq)?;
+
+    Ok(LockConfig {
+        recipients,
+        expiry: configuration.expiry(),
+        controller,
+    })
+}
 
 /// Build the [`LockInfo`] for a lock from its [`LockConfiguration`] and the live
 /// per-`(account, token)` balances held by the lock.
@@ -24,25 +55,13 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
 ) -> Result<LockInfo, QueryLockError> {
     // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
     // by looking up each account's canonical address.
-    let recipients: Vec<CborHolderAccount> = configuration
-        .recipients
-        .iter()
-        .map(|account_index| {
-            let with_addr = bsq.account_by_index(*account_index).map_err(|_| {
-                QueryLockError::StateInvariantViolation(format!(
-                    "recipient account index {} recorded in lock configuration does not exist",
-                    account_index
-                ))
-            })?;
-            Ok(CborHolderAccount::from(with_addr.canonical_account_address))
-        })
-        .collect::<Result<_, QueryLockError>>()?;
+    let recipients = get_recipients(bsq, configuration)?;
 
     // Convert the lock controller configuration into the CBOR `LockController` shape used
     // by the `lock-info` payload. Variant-specific resolution (e.g. expanding grant
     // `AccountIndex`es to `CborHolderAccount`) lives on the per-variant
     // `crate::locks::lock_controller::LockController` impl.
-    let controller = configuration.controller.to_cbor_controller(bsq)?;
+    let controller = configuration.controller().to_cbor_controller(bsq)?;
 
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
@@ -90,7 +109,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
     Ok(LockInfo {
         lock: lock_id.clone(),
         recipients,
-        expiry: configuration.expiry,
+        expiry: configuration.expiry(),
         controller,
         funds,
     })

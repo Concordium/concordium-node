@@ -43,6 +43,7 @@ fn test_transfer() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -90,6 +91,7 @@ fn test_transfer_with_memo() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -134,6 +136,7 @@ fn test_transfer_self() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -176,6 +179,7 @@ fn test_transfer_insufficient_balance() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -220,6 +224,7 @@ fn test_transfer_decimals_mismatch() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -261,6 +266,7 @@ fn test_transfer_to_non_existing_receiver() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -318,6 +324,7 @@ fn test_transfer_allow_list_success() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -375,6 +382,7 @@ fn test_transfer_deny_list_success() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -428,6 +436,7 @@ fn test_transfer_sender_not_in_allow_list() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -484,6 +493,7 @@ fn test_transfer_recipient_not_in_allow_list() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -549,6 +559,7 @@ fn test_transfer_sender_in_deny_list() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -614,6 +625,7 @@ fn test_transfer_recipient_in_deny_list() {
     let result = scheduler::execute_transaction(
         sender,
         sender_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {
@@ -673,6 +685,7 @@ fn test_transfer_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -684,6 +697,7 @@ fn test_transfer_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_addr,
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate {
             payload: TokenOperationsPayload {

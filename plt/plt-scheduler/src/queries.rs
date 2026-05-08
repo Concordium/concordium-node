@@ -7,7 +7,7 @@ use concordium_base::common::cbor::cbor_encode;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::block_state_interface::{
-    BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError,
+    AccountNotFoundByIndexError, BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError,
 };
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
@@ -127,6 +127,9 @@ pub fn query_token_authorizations(
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.
+///
+/// NOTE: this is a naive implementation. We might need to optimize with a streaming solution
+/// instead, to not load all locks in existance into memory all at once.
 pub fn query_lock_list(block_state: &impl BlockStateQuery) -> Vec<LockId> {
     block_state.lock_list().collect()
 }
@@ -153,6 +156,12 @@ impl From<token_module::QueryTokenModuleError> for QueryLockError {
 impl From<LockNotFoundByIdError> for QueryLockError {
     fn from(_: LockNotFoundByIdError) -> Self {
         QueryLockError::LockDoesNotExist
+    }
+}
+
+impl From<AccountNotFoundByIndexError> for QueryLockError {
+    fn from(err: AccountNotFoundByIndexError) -> Self {
+        QueryLockError::StateInvariantViolation(err.to_string())
     }
 }
 

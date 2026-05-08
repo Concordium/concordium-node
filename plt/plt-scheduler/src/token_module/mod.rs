@@ -4,7 +4,7 @@ pub mod errors;
 mod key_value_state;
 mod module;
 mod roles;
-mod util;
+pub(crate) mod util;
 
 pub use module::*;
 

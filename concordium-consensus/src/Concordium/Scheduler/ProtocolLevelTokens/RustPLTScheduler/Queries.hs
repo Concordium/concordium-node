@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -7,6 +8,7 @@
 --
 -- Each foreign imported function must match the signature of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries (
+    SerializedLockId,
     queryPLTList,
     queryTokenInfo,
     queryTokenAccountInfos,
@@ -40,6 +42,7 @@ import qualified Concordium.GlobalState.Types as BS
 import Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Status as Status
+import qualified Data.FixedByteString as FBS
 import qualified Data.Text.Encoding as Text
 
 -- | Get the list of all tokens, for protocol version where the PLT state is managed in Rust.
@@ -611,7 +614,17 @@ foreign import ccall "ffi_query_lock_list"
         FFI.Ptr FFI.CSize ->
         IO Word.Word8
 
--- | Get the CBOR-encoded `lock-info` payload for a given lock id, for a protocol version where the
+-- | Placeholder type representing the size of a serialized 'LockId' (24 bytes).
+data LockIdSize
+
+instance FBS.FixedLength LockIdSize where
+    fixedLength _ = 24
+
+-- | A serialized Lock ID as passed across the FFI boundary.
+newtype SerializedLockId = SerializedLockId (FBS.FixedByteString LockIdSize)
+    deriving (FFI.Storable)
+
+-- | Get the CBOR-encoded `lock-info` payload for a given Lock ID, for a protocol version where the
 -- PLT state is managed in Rust. The returned 'LockInfo' wraps the raw CBOR bytes verbatim; this
 -- module never parses or re-encodes them. Pattern follows 'queryTokenInfo'.
 queryLockInfo ::
@@ -619,8 +632,8 @@ queryLockInfo ::
     (Types.PVSupportsRustManagedPLT (Types.MPV m), BS.BlockStateQuery m) =>
     -- | Block state to query.
     BS.BlockState m ->
-    -- | The lock to query.
-    Locks.LockId ->
+    -- | The serialized lock id to query.
+    SerializedLockId ->
     -- | The lock info, or 'Nothing' if the lock does not exist.
     m (Maybe LockQueries.LockInfo)
 queryLockInfo bs lockId = do
@@ -644,31 +657,25 @@ queryLockInfo bs lockId = do
                         getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queryCallbacks
                         getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queryCallbacks
                         getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates $ getTokenAccountStates queryCallbacks
-                        -- Serialize the LockId as 24 big-endian bytes (three Word64s), which is the
-                        -- exact representation expected by `ffi_query_lock_info`.
-                        let lockIdBytes = S.encode lockId
                         statusCode <- PLTBlockState.withPLTBlockState pltBlockState $ \pltBlockStatePtr ->
-                            BS.unsafeUseAsCString lockIdBytes $ \lockIdPtr ->
-                                ffiQueryLockInfo
-                                    loadCallbackPtr
-                                    readTokenAccountBalanceCallbackPtr
-                                    getAccountIndexByAddressCallbackPtr
-                                    getAccountAddressByIndexCallbackPtr
-                                    getTokenAccountStatesCallbackPtr
-                                    pltBlockStatePtr
-                                    (FFI.castPtr lockIdPtr)
-                                    returnDataPtrOutPtr
-                                    returnDataLenOutPtr
+                            let SerializedLockId lockIdBytes = lockId
+                            in  FBS.withPtrReadOnly lockIdBytes $ \lockIdPtr ->
+                                    ffiQueryLockInfo
+                                        loadCallbackPtr
+                                        readTokenAccountBalanceCallbackPtr
+                                        getAccountIndexByAddressCallbackPtr
+                                        getAccountAddressByIndexCallbackPtr
+                                        getTokenAccountStatesCallbackPtr
+                                        pltBlockStatePtr
+                                        lockIdPtr
+                                        returnDataPtrOutPtr
+                                        returnDataLenOutPtr
                         FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
                         FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                         FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
                         FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
                         returnDataLen <- FFI.peek returnDataLenOutPtr
                         returnDataPtr <- FFI.peek returnDataPtrOutPtr
-                        -- Copy the FFI output buffer into a strict 'ByteString' that owns its
-                        -- storage, so the buffer can be released by the finalizer immediately
-                        -- after this call returns. The CBOR bytes are stored opaquely in
-                        -- 'LockQueries.LockInfo'.
                         returnData <-
                             BS.unsafePackCStringFinalizer
                                 returnDataPtr
@@ -676,7 +683,7 @@ queryLockInfo bs lockId = do
                                 (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
                         case Status.parseStatusCode statusCode of
                             Just Status.FSCSuccess ->
-                                return $ Just $ LockQueries.LockInfo (BS.copy returnData)
+                                return $ Just $ LockQueries.LockInfo returnData
                             Just Status.FSCFailed ->
                                 return Nothing
                             Just Status.FSCPanic -> do

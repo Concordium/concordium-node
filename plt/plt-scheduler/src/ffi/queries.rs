@@ -482,7 +482,7 @@ extern "C" fn ffi_query_lock_info(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const BlockState,
-    lock_id: *const u8,
+    lock_id: *const [u8; 24],
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> status::FfiStatusCode {
@@ -510,7 +510,7 @@ extern "C" fn ffi_query_lock_info(
             external_block_state: external_callbacks,
         };
         // The Haskell side serializes a `LockId` as three big-endian `u64`s, exactly 24 bytes.
-        let lock_id_bytes = unsafe { std::slice::from_raw_parts(lock_id, 24) };
+        let lock_id_bytes = unsafe { lock_id.as_ref_unchecked() };
         let lock_id: LockId = common::from_bytes_complete(lock_id_bytes)
             .expect("Bytes for the LockId could not be deserialized");
         match queries::query_lock_info(&block_state, &lock_id) {

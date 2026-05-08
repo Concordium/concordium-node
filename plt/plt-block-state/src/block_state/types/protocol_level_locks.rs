@@ -4,15 +4,58 @@ use concordium_base::common::types::TransactionTime;
 use plt_scheduler_types::types::locks::LockControllerConfig;
 
 /// Lock configuration at the block state level.
+///
+/// TODO: COR-2295 - proper state implementation
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct LockConfiguration {
     /// Accounts that can receive funds from this lock.
+    ///
+    /// The recipients are stored as a sorted vector of account indices, and
+    /// the number of recipients is limited to `u16::MAX` to ensure that the
+    /// serialized form fits within the size limits of the block state.
     #[size_length = 2]
-    pub recipients: Vec<AccountIndex>,
+    recipients: Vec<AccountIndex>,
     /// Expiry time of the lock (seconds since epoch).
-    pub expiry: TransactionTime,
+    expiry: TransactionTime,
     /// Controller configuration for the lock.
-    pub controller: LockControllerConfig,
+    controller: LockControllerConfig,
+}
+
+impl LockConfiguration {
+    pub fn new<E>(
+        recipients: impl IntoIterator<Item = Result<AccountIndex, E>>,
+        expiry: TransactionTime,
+        controller: LockControllerConfig,
+    ) -> Result<Self, E> {
+        let mut recipients: Vec<_> = recipients.into_iter().collect::<Result<_, _>>()?;
+        assert!(recipients.len() <= u16::MAX as usize, "Too many recipients");
+        recipients.sort();
+        Ok(Self {
+            recipients,
+            expiry,
+            controller,
+        })
+    }
+
+    /// Get an iterator over the recipient accounts.
+    pub fn recipients_iter(&self) -> impl Iterator<Item = &AccountIndex> {
+        self.recipients.iter()
+    }
+
+    /// Check if the given account is a recipient.
+    pub fn is_recipient(&self, account: &AccountIndex) -> bool {
+        self.recipients.binary_search(account).is_ok()
+    }
+
+    /// Get the expiry time of the lock.
+    pub fn expiry(&self) -> TransactionTime {
+        self.expiry
+    }
+
+    /// Get the lock controller configuration.
+    pub fn controller(&self) -> &LockControllerConfig {
+        &self.controller
+    }
 }
 
 #[cfg(test)]
