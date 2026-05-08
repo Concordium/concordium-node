@@ -94,11 +94,11 @@ mod test {
         token1.set_token_circulating_supply(RawTokenAmount(100));
         token1
             .mutable_key_value_state
-            .insert_value(&context.loader, &vec![0, 1], vec![0, 0])
+            .insert_value(&context.loader, &[0, 1], vec![0, 0])
             .unwrap();
         token1
             .mutable_key_value_state
-            .insert_value(&context.loader, &vec![0, 2], vec![1, 1])
+            .insert_value(&context.loader, &[0, 2], vec![1, 1])
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
@@ -175,12 +175,12 @@ mod test {
         );
         let value = token1
             .mutable_key_value_state
-            .lookup_value(&context.loader, &vec![0, 1]);
+            .lookup_value(&context.loader, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
 
         let value = token1
             .mutable_key_value_state
-            .lookup_value(&context.loader, &vec![0, 2]);
+            .lookup_value(&context.loader, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
         let token2 = block_state
             .token_by_id(&context, &"token2".parse().unwrap())
