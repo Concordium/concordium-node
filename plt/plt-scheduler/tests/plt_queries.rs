@@ -4,7 +4,7 @@
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
     TokenModuleState, TokenOperation, TokenOperationsPayload,
@@ -144,13 +144,8 @@ fn test_query_token_account_info_available_with_locked_balance() {
 
     stub.increment_account_balance(account, token, RawTokenAmount(1000));
 
-    let lock_id = LockId {
-        account_index: 7,
-        sequence_number: 2,
-        creation_order: 0,
-    };
-    stub.create_lock(
-        &lock_id,
+    let lock_id = stub.create_lock(
+        account,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account,
@@ -197,28 +192,26 @@ fn test_query_token_account_info_available_with_multiple_locks() {
 
     stub.increment_account_balance(account, token, RawTokenAmount(1000));
 
-    let lock_id1 = LockId {
-        account_index: 7,
-        sequence_number: 2,
-        creation_order: 0,
-    };
-    let lock_id2 = LockId {
-        account_index: 7,
-        sequence_number: 2,
-        creation_order: 1,
-    };
-    for lock_id in [&lock_id1, &lock_id2] {
-        stub.create_lock(
-            lock_id,
-            vec![recipient],
-            vec![LockControllerSimpleV0Grant {
-                account,
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            }],
-            vec![token_id.clone()],
-            1_804_806_000,
-        );
-    }
+    let lock_id1 = stub.create_lock(
+        account,
+        vec![recipient],
+        vec![LockControllerSimpleV0Grant {
+            account,
+            roles: vec![LockControllerSimpleV0Capability::Fund],
+        }],
+        vec![token_id.clone()],
+        1_804_806_000,
+    );
+    let lock_id2 = stub.create_lock(
+        account,
+        vec![recipient],
+        vec![LockControllerSimpleV0Grant {
+            account,
+            roles: vec![LockControllerSimpleV0Capability::Fund],
+        }],
+        vec![token_id.clone()],
+        1_804_806_000,
+    );
     stub.lock_balance(&lock_id1, &account, &token, RawTokenAmount(250));
     stub.lock_balance(&lock_id2, &account, &token, RawTokenAmount(300));
 
@@ -259,13 +252,8 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
 
     stub.increment_account_balance(account, token, RawTokenAmount(1000));
 
-    let lock_id = LockId {
-        account_index: 7,
-        sequence_number: 2,
-        creation_order: 0,
-    };
-    stub.create_lock(
-        &lock_id,
+    let lock_id = stub.create_lock(
+        account,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account,

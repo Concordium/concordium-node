@@ -37,13 +37,8 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
     );
     stub.increment_account_balance(funding_account, token, RawTokenAmount(123_400));
 
-    let lock_id = LockId {
-        account_index: recipient.index,
-        sequence_number: 2,
-        creation_order: 0,
-    };
-    stub.create_lock(
-        &lock_id,
+    let lock_id = stub.create_lock(
+        funding_account,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account: funding_account,
