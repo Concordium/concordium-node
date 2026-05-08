@@ -16,7 +16,7 @@ use concordium_base::common::Serialize;
 use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-pub fn plt_list<C: EntityContextTypes>(
+pub(crate) fn plt_list<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &PersistentTokensP9,
 ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
@@ -34,7 +34,7 @@ pub fn plt_list<C: EntityContextTypes>(
         })
 }
 
-pub fn create_token<C: EntityContextTypes>(
+pub(crate) fn create_token<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &mut PersistentTokensP9,
     configuration: TokenConfiguration,
@@ -59,7 +59,7 @@ pub fn create_token<C: EntityContextTypes>(
     Ok(token_index)
 }
 
-pub fn update_token<C: EntityContextTypes>(
+pub(crate) fn update_token<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &mut PersistentTokensP9,
     mut token: TokenP9,
@@ -82,7 +82,7 @@ pub fn update_token<C: EntityContextTypes>(
     Ok(())
 }
 
-pub fn token_by_index<C: EntityContextTypes>(
+pub(crate) fn token_by_index<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &PersistentTokensP9,
     token_index: TokenIndex,
@@ -107,7 +107,7 @@ pub fn token_by_index<C: EntityContextTypes>(
     })
 }
 
-pub fn token_index_by_id(
+pub(crate) fn token_index_by_id(
     persistent_tokens: &PersistentTokensP9,
     token_id: &TokenId,
 ) -> Option<TokenIndex> {

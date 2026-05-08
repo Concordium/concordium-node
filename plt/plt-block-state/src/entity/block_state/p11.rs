@@ -25,13 +25,10 @@ impl BlockStateP11 {
     pub fn plt_list<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<impl ExactSizeIterator<Item = BlockStateResult<TokenId>>> {
+    ) -> BlockStateResult<Vec<TokenId>> {
         let persistent_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
-        Ok(
-            protocol_level_tokens::p9::plt_list(context, &persistent_tokens)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        ) // todo ar fix iterator
+        protocol_level_tokens::p9::plt_list(context, &persistent_tokens)
+            .collect::<BlockStateResult<Vec<_>>>()
     }
 
     /// Get the token associated with a [`TokenId`] (if it exists).

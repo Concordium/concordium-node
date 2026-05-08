@@ -4,6 +4,6 @@ pub mod entity;
 mod external;
 #[cfg(feature = "ffi")]
 pub mod ffi;
-mod persistent;
+pub mod persistent;
 
 // todo ar doc generate

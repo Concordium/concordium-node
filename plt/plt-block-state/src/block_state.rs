@@ -456,7 +456,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
         self.block_state
             .plt_list(&self.context)
             .unwrap()
-            .map(|token| token.unwrap())
+            .into_iter()
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
