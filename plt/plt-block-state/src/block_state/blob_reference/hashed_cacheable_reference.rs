@@ -185,7 +185,7 @@ impl<V> HashedCacheableRefRepr<V> {
 
     /// Cache the referenced value and return it. If the value is already in memory, a reference
     /// to it is simply returned. If it is not in memory, it is loaded from the blob store and
-    /// cached in [`HashedCacheableRefRepr::Cache`] first.
+    /// cached first.
     fn get_or_cache_value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<&V>
     where
         V: Loadable,

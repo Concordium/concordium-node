@@ -59,6 +59,78 @@ mod test {
     use concordium_base::protocol_level_tokens::TokenModuleRef;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 
+    /// Store state with PLTs to blob store and load it again.
+    #[test]
+    fn test_store_and_load_plts() {
+        let context = entity_test_stub::new_context_no_external();
+        let block_state = BlockStateP9::default();
+
+        // Create tokens
+        let configuration1 = TokenConfiguration {
+            token_id: "token1".parse().unwrap(),
+            module_ref: TokenModuleRef::from([5; 32]),
+            decimals: 2,
+        };
+        let token1 = block_state.create_token(configuration1.clone());
+        block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
+        let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
+        block_state.update_token_state_value(
+            &mut key_value_state1,
+            &TokenStateKey(vec![0, 1]),
+            Some(TokenStateValue(vec![0, 0])),
+        );
+        block_state.update_token_state_value(
+            &mut key_value_state1,
+            &TokenStateKey(vec![0, 2]),
+            Some(TokenStateValue(vec![1, 1])),
+        );
+        block_state.set_token_key_value_state(&token1, key_value_state1);
+        let configuration2 = TokenConfiguration {
+            token_id: "token2".parse().unwrap(),
+            module_ref: TokenModuleRef::from([5; 32]),
+            decimals: 4,
+        };
+        let _token2 = block_state.create_token(configuration2.clone());
+
+        // Store block state
+        let blob_ref = blob_store::store_to_store(
+            &mut block_state.blob_store_load,
+            block_state.internal_block_state.into_immutable(),
+        );
+
+        // Load block state
+        let immutable_state = BlockState::load_from_store(
+            &block_state.blob_store_load,
+            blob_ref,
+            ProtocolVersion::P11,
+        )
+        .expect("load block state");
+        let block_state =
+            block_state_no_external::with_block_state(block_state.blob_store_load, immutable_state);
+
+        // Assert loaded state
+        assert_eq!(block_state.plt_list().len(), 2);
+        let token1 = block_state.token_by_id(&"token1".parse().unwrap()).unwrap();
+        assert_eq!(
+            block_state.token_circulating_supply(&token1),
+            RawTokenAmount(100)
+        );
+        assert_eq!(block_state.token_configuration(&token1), configuration1);
+        let key_value_state1 = block_state.mutable_token_key_value_state(&token1);
+        let value =
+            block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
+        assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
+        let value =
+            block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
+        assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
+        let token2 = block_state.token_by_id(&"token2".parse().unwrap()).unwrap();
+        assert_eq!(
+            block_state.token_circulating_supply(&token2),
+            RawTokenAmount(0)
+        );
+        assert_eq!(block_state.token_configuration(&token2), configuration2);
+    }
+
     /// Assert that hash of an empty block state matches a fixed/snapshot hash. The hash
     /// must remain stable.
     #[test]

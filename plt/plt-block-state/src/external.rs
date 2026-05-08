@@ -1,7 +1,5 @@
 //! Interactions with the part of the block state that is managed externally in Haskell.
 
-// todo ar move all modules into persistent, except this module and utils
-
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
