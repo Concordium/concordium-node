@@ -1,9 +1,11 @@
 //! Interactions with the part of the block state that is managed externally in Haskell.
 
+// todo ar move all modules into persistent, except this module
+
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
 };
-use crate::persistent::protocol_level_tokens::TokenIndex;
+use crate::entity::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::Serialize;
 use concordium_base::contracts_common::AccountAddress;
@@ -98,4 +100,65 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
 
     /// Increment the PLT chain update sequence number.
     fn increment_plt_update_sequence_number(&mut self);
+}
+
+/// External block state stubs to be used in tests.
+pub mod test_stub {
+    use super::*;
+
+    /// Non-accessible block state representing the Haskell maintained part of the block state.
+    #[derive(Debug)]
+    pub struct NoExternalBlockStateStub;
+
+
+    impl ExternalBlockStateQuery for NoExternalBlockStateStub {
+        fn read_token_account_balance(
+            &self,
+            _account: AccountIndex,
+            _token: TokenIndex,
+        ) -> RawTokenAmount {
+            unreachable!()
+        }
+
+        fn account_canonical_address_by_account_index(
+            &self,
+            _account_index: AccountIndex,
+        ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
+            unreachable!()
+        }
+
+        fn account_index_by_account_address(
+            &self,
+            _account_address: &AccountAddress,
+        ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
+            unreachable!()
+        }
+
+        fn token_account_states(
+            &self,
+            _account_index: AccountIndex,
+        ) -> Vec<(TokenIndex, TokenAccountState)> {
+            unreachable!()
+        }
+    }
+
+    impl ExternalBlockStateOperations for NoExternalBlockStateStub {
+        fn update_token_account_balance(
+            &mut self,
+            _account: AccountIndex,
+            _token: TokenIndex,
+            _amount_delta: RawTokenAmountDelta,
+        ) -> Result<(), OverflowError> {
+            unreachable!()
+        }
+
+        fn touch_token_account(&mut self, _account: AccountIndex, _token: TokenIndex) {
+            unreachable!()
+        }
+
+        fn increment_plt_update_sequence_number(&mut self) {
+            unreachable!()
+        }
+    }
+
 }

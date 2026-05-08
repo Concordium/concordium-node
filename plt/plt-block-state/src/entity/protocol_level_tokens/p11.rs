@@ -12,20 +12,12 @@ use concordium_base::protocol_level_tokens::{
 
 /// Representation of protocol-level token on P11 and later protocols with compatible model.
 #[derive(Debug)]
-pub struct TokenP11<'a> {
+pub struct TokenP11 {
     /// P9 token representation
-    pub token_p9: TokenP9<'a>,
+    pub token_p9: TokenP9,
 }
 
-impl TokenP11<'_> {
-    /// Make potentially borrowed persistent state owned, to give the struct
-    /// a new unbounded lifetime.
-    pub fn into_owned<'b>(self) -> TokenP11<'b> {
-        TokenP11 {
-            token_p9: self.token_p9.into_owned(),
-        }
-    }
-
+impl TokenP11 {
     /// Get the authorization roles for an account from state.
     pub fn get_account_roles<C: EntityContextTypes>(
         &self,
@@ -102,7 +94,7 @@ impl TokenP11<'_> {
     pub fn get_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        block_state: BlockStateP9<'_>,
+        block_state: &BlockStateP9,
     ) -> BlockStateResult<TokenAuthorizations> {
         let mut update_admin_roles = TokenRoleAuthorizations::default();
         let mut mint = TokenRoleAuthorizations::default();

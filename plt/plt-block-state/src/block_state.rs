@@ -1,6 +1,5 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 
-use crate::block_state::external::TokenAccountState;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError, TokenStateKey,
@@ -10,18 +9,17 @@ use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p10::BlockStateP10;
 use crate::entity::block_state::p11::BlockStateP11;
-use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::external::TokenAccountState;
 
 pub mod blob_reference;
 pub mod blob_store;
 pub mod cacheable;
-pub mod external;
 pub mod hash;
 pub mod lfmb_tree;
 pub mod smart_contract_trie;
@@ -30,14 +28,14 @@ pub mod utils;
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
 #[derive(Debug)]
-pub struct ExecutionTimeBlockStateP9<'a, C: EntityContextTypes> {
+pub struct ExecutionTimeBlockStateP9<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub(crate) block_state: BlockStateP9<'a>,
+    pub(crate) block_state: BlockStateP9,
     /// External function for reading from the blob store.
     pub(crate) context: EntityContext<C>,
 }
 
-impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a, C> {
+impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
@@ -45,7 +43,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         self.block_state
             .plt_list(&self.context)
-            .map(|token| token.unwrap().into_owned())
+            .map(|token| token.unwrap())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
@@ -71,10 +69,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        token
-            .token_configuration(&self.context)
-            .unwrap()
-            .into_owned()
+        token.token_configuration(&self.context).unwrap()
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
@@ -99,7 +94,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
         &self,
         token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, '_, C> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
         token_key_value
             .iter_prefix(&self.context.loader, &prefix.0)
             .unwrap()
@@ -150,7 +145,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.account_token_balance(&self.context, &token)
+        account.account_token_balance(&self.context, token.token_index)
     }
 
     fn token_account_states(
@@ -165,7 +160,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<'a
     }
 }
 
-impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<'a, C> {
+impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C> {
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
@@ -174,8 +169,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         let mut token = self
             .block_state
             .token_by_index(&self.context, *token)
-            .unwrap()
-            .into_owned();
+            .unwrap();
         token.set_token_circulating_supply(circulating_supply);
         self.block_state.update_token(&self.context, token).unwrap();
     }
@@ -196,7 +190,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.update_token_account_balance(&mut self.context, &token, amount_delta)
+        account.update_token_account_balance(&mut self.context, token.token_index, amount_delta)
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
@@ -204,7 +198,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.touch_token_account(&mut self.context, &token)
+        account.touch_token_account(&mut self.context, token.token_index)
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
@@ -220,8 +214,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         let mut token = self
             .block_state
             .token_by_index(&self.context, *token)
-            .unwrap()
-            .into_owned();
+            .unwrap();
         token.mutable_key_value_state = token_key_value_state;
         self.block_state.update_token(&self.context, token).unwrap();
     }
@@ -230,14 +223,14 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
 #[derive(Debug)]
-pub struct ExecutionTimeBlockStateP10<'a, C: EntityContextTypes> {
+pub struct ExecutionTimeBlockStateP10<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub(crate) block_state: BlockStateP10<'a>,
+    pub(crate) block_state: BlockStateP10,
     /// External function for reading from the blob store.
     pub(crate) context: EntityContext<C>,
 }
 
-impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<'a, C> {
+impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
@@ -246,7 +239,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<'
         self.block_state
             .p9_block_state
             .plt_list(&self.context)
-            .map(|token| token.unwrap().into_owned())
+            .map(|token| token.unwrap())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
@@ -275,10 +268,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<'
             .p9_block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        token
-            .token_configuration(&self.context)
-            .unwrap()
-            .into_owned()
+        token.token_configuration(&self.context).unwrap()
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
@@ -304,7 +294,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<'
         &self,
         token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, '_, C> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
         token_key_value
             .iter_prefix(&self.context.loader, &prefix.0)
             .unwrap()
@@ -360,7 +350,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<'
             .p9_block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.account_token_balance(&self.context, &token)
+        account.account_token_balance(&self.context, token.token_index)
     }
 
     fn token_account_states(
@@ -375,7 +365,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<'
     }
 }
 
-impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP10<'a, C> {
+impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP10<C> {
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
@@ -385,8 +375,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .block_state
             .p9_block_state
             .token_by_index(&self.context, *token)
-            .unwrap()
-            .into_owned();
+            .unwrap();
         token.set_token_circulating_supply(circulating_supply);
         self.block_state
             .p9_block_state
@@ -412,7 +401,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .p9_block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.update_token_account_balance(&mut self.context, &token, amount_delta)
+        account.update_token_account_balance(&mut self.context, token.token_index, amount_delta)
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
@@ -421,7 +410,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .p9_block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.touch_token_account(&mut self.context, &token)
+        account.touch_token_account(&mut self.context, token.token_index)
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
@@ -439,8 +428,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .block_state
             .p9_block_state
             .token_by_index(&self.context, *token)
-            .unwrap()
-            .into_owned();
+            .unwrap();
         token.mutable_key_value_state = token_key_value_state;
         self.block_state
             .p9_block_state
@@ -452,14 +440,14 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
 #[derive(Debug)]
-pub struct ExecutionTimeBlockStateP11<'a, C: EntityContextTypes> {
+pub struct ExecutionTimeBlockStateP11<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub(crate) block_state: BlockStateP11<'a>,
+    pub(crate) block_state: BlockStateP11,
     /// External function for reading from the blob store.
     pub(crate) context: EntityContext<C>,
 }
 
-impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<'a, C> {
+impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
@@ -468,7 +456,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<'
         self.block_state
             .plt_list(&self.context)
             .unwrap()
-            .map(|token| token.unwrap().into_owned())
+            .map(|token| token.unwrap())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
@@ -494,11 +482,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<'
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        token
-            .token_p9
-            .token_configuration(&self.context)
-            .unwrap()
-            .into_owned()
+        token.token_p9.token_configuration(&self.context).unwrap()
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
@@ -523,7 +507,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<'
         &self,
         token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, '_, C> {
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
         token_key_value
             .iter_prefix(&self.context.loader, &prefix.0)
             .unwrap()
@@ -574,7 +558,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<'
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.account_token_balance(&self.context, &token.token_p9)
+        account.account_token_balance(&self.context, token.token_p9.token_index)
     }
 
     fn token_account_states(
@@ -589,7 +573,7 @@ impl<'a, C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<'
     }
 }
 
-impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<'a, C> {
+impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<C> {
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
@@ -598,8 +582,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         let mut token = self
             .block_state
             .token_by_index(&self.context, *token)
-            .unwrap()
-            .into_owned();
+            .unwrap();
         token
             .token_p9
             .set_token_circulating_supply(circulating_supply);
@@ -622,7 +605,11 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.update_token_account_balance(&mut self.context, &token.token_p9, amount_delta)
+        account.update_token_account_balance(
+            &mut self.context,
+            token.token_p9.token_index,
+            amount_delta,
+        )
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
@@ -630,7 +617,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.touch_token_account(&mut self.context, &token.token_p9)
+        account.touch_token_account(&mut self.context, token.token_p9.token_index)
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
@@ -646,8 +633,7 @@ impl<'a, C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockState
         let mut token = self
             .block_state
             .token_by_index(&self.context, *token)
-            .unwrap()
-            .into_owned();
+            .unwrap();
         token.token_p9.mutable_key_value_state = token_key_value_state;
         self.block_state.update_token(&self.context, token).unwrap();
     }

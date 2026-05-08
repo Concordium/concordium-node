@@ -1,9 +1,9 @@
-use crate::block_state::external::TokenAccountState;
 use crate::entity::accounts::AccountWithCanonicalAddress;
 use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
+use plt_scheduler_types::types::queries::TokenAccountState;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Change in [`RawTokenAmount`].

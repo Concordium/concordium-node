@@ -1,32 +1,29 @@
-use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::utils::Cow;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
     TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenP9};
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex, TokenP9};
 use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
-use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-// todo ar fjern lifetimes
+use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 
 /// P9 block state.
-#[derive(Debug)]
-pub struct BlockStateP9<'a> {
+#[derive(Debug, Default)]
+pub struct BlockStateP9 {
     /// Persistent block state.
-    pub(crate) persistent: Cow<'a, PersistentBlockStateP9>,
+    pub(crate) persistent: PersistentBlockStateP9,
 }
 
-impl<'a> BlockStateP9<'a> {
+impl BlockStateP9 {
     /// Get the [`TokenId`]s of all protocol-level tokens.
     pub fn plt_list<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> impl ExactSizeIterator<Item = BlockStateResult<Cow<'_, TokenId>>> {
+    ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
         protocol_level_tokens::p9::plt_list(context, &self.persistent.tokens)
     }
 
@@ -43,7 +40,7 @@ impl<'a> BlockStateP9<'a> {
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenP9<'_>, TokenNotFoundByIdError>> {
+    ) -> BlockStateResult<Result<TokenP9, TokenNotFoundByIdError>> {
         let token_index_option =
             protocol_level_tokens::p9::token_index_by_id(&self.persistent.tokens, token_id);
 
@@ -65,11 +62,7 @@ impl<'a> BlockStateP9<'a> {
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
     ) -> BlockStateResult<TokenIndex> {
-        protocol_level_tokens::p9::create_token(
-            context,
-            &mut self.persistent.to_mut().tokens,
-            configuration,
-        )
+        protocol_level_tokens::p9::create_token(context, &mut self.persistent.tokens, configuration)
     }
 
     /// Get the token with the given [`TokenIndex`].
@@ -85,7 +78,7 @@ impl<'a> BlockStateP9<'a> {
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
-    ) -> BlockStateResult<TokenP9<'_>> {
+    ) -> BlockStateResult<TokenP9> {
         protocol_level_tokens::p9::token_by_index(context, &self.persistent.tokens, token_index)
     }
 
@@ -94,13 +87,9 @@ impl<'a> BlockStateP9<'a> {
     pub fn update_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        token: TokenP9<'_>,
+        token: TokenP9,
     ) -> BlockStateResult<()> {
-        protocol_level_tokens::p9::update_token(
-            context,
-            &mut self.persistent.to_mut().tokens,
-            token,
-        )
+        protocol_level_tokens::p9::update_token(context, &mut self.persistent.tokens, token)
     }
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).

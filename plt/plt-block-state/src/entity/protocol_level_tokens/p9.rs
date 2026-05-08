@@ -1,6 +1,5 @@
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::block_state::blob_store::StoreSerialized;
-use crate::block_state::utils::Cow;
 use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::state_keys;
@@ -10,7 +9,6 @@ use crate::entity::protocol_level_tokens::state_keys::{
 };
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent;
-use crate::persistent::protocol_level_tokens::TokenIndex;
 use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, PersistentTokensP9};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
@@ -18,10 +16,10 @@ use concordium_base::common::Serialize;
 use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-pub fn plt_list<'a, C: EntityContextTypes>(
+pub fn plt_list<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    persistent_tokens: &'a PersistentTokensP9,
-) -> impl ExactSizeIterator<Item = BlockStateResult<Cow<'a, TokenId>>> {
+    persistent_tokens: &PersistentTokensP9,
+) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
     persistent_tokens
         .tokens
         .values(&context.loader)
@@ -29,9 +27,10 @@ pub fn plt_list<'a, C: EntityContextTypes>(
             Ok(item?
                 .1
                 .cow_project_configuration()
-                .bind_value(&context.loader, "configuration in PersistentTokenP9")?
-                .cow_project()
-                .cow_project_token_id())
+                .value(&context.loader)?
+                .into_owned()
+                .0
+                .token_id)
         })
 }
 
@@ -63,18 +62,16 @@ pub fn create_token<C: EntityContextTypes>(
 pub fn update_token<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &mut PersistentTokensP9,
-    mut token: TokenP9<'_>,
+    mut token: TokenP9,
 ) -> BlockStateResult<()> {
     if token.mutable_key_value_state.is_dirty() {
-        token.persistent.to_mut().key_value_state =
+        token.persistent.key_value_state =
             HashedCacheableRef::new(token.mutable_key_value_state.freeze(&context.loader));
     }
 
     persistent_tokens.tokens = persistent_tokens
         .tokens
-        .update_value(&context.loader, token.token_index, |_| {
-            Ok(token.persistent.into_owned())
-        })?
+        .update_value(&context.loader, token.token_index, |_| Ok(token.persistent))?
         .ok_or_else(|| {
             BlockStateFailure::Invariant(format!(
                 "Token not found by index: {:?}",
@@ -85,17 +82,18 @@ pub fn update_token<C: EntityContextTypes>(
     Ok(())
 }
 
-pub fn token_by_index<'a, C: EntityContextTypes>(
+pub fn token_by_index<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    persistent_tokens: &'a PersistentTokensP9,
+    persistent_tokens: &PersistentTokensP9,
     token_index: TokenIndex,
-) -> BlockStateResult<TokenP9<'a>> {
+) -> BlockStateResult<TokenP9> {
     let persistent_token = persistent_tokens
         .tokens
         .lookup_value(&context.loader, token_index)?
         .ok_or_else(|| {
             BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
-        })?;
+        })?
+        .into_owned();
 
     let mutable_key_value_state = persistent_token
         .key_value_state
@@ -121,6 +119,14 @@ pub fn token_index_by_id(
         .copied()
 }
 
+// todo ar another type for token existence?
+
+/// Index of the protocol-level token in the block state map of tokens.
+///
+/// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.TokenIndex`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct TokenIndex(pub(crate) u64);
+
 /// Static configuration for a protocol-level token.
 ///
 /// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.PLTConfiguration`
@@ -136,48 +142,35 @@ pub struct TokenConfiguration {
     pub decimals: u8,
 }
 
-impl<'b> Cow<'b, TokenConfiguration> {
-    /// Move [`Cow`] wrapped value.
-    pub fn cow_project_token_id(self) -> Cow<'b, TokenId> {
-        match self {
-            Cow::Owned(this) => Cow::Owned(this.token_id),
-            Cow::Borrowed(this) => Cow::Borrowed(&this.token_id),
-        }
-    }
-}
-
 /// Representation of protocol-level token on P9 and later protocols with compatible model.
 #[derive(Debug)]
-pub struct TokenP9<'a> {
+pub struct TokenP9 {
     /// Token index
     pub(crate) token_index: TokenIndex,
     /// Persistent model of the protoco-level token.
-    pub(crate) persistent: Cow<'a, PersistentTokenP9>,
+    pub(crate) persistent: PersistentTokenP9,
     /// Token key-value state
     pub(crate) mutable_key_value_state: smart_contract_trie::MutableState,
 }
 
-impl TokenP9<'_> {
-    /// Make potentially borrowed persistent state owned, to give the struct
-    /// a new unbounded lifetime.
-    pub fn into_owned<'b>(self) -> TokenP9<'b> {
-        TokenP9 {
-            token_index: self.token_index,
-            persistent: Cow::Owned(self.persistent.into_owned()),
-            mutable_key_value_state: self.mutable_key_value_state,
-        }
+impl TokenP9 {
+
+    /// Get the index of the token.
+    pub fn token_index(&self) -> TokenIndex {
+        self.token_index
     }
 
     /// Get the configuration of a protocol-level token.
     pub fn token_configuration<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<Cow<'_, TokenConfiguration>> {
+    ) -> BlockStateResult<TokenConfiguration> {
         Ok(self
             .persistent
             .configuration
             .value(&context.loader)?
-            .cow_project())
+            .into_owned()
+            .0)
     }
 
     /// Get the circulating supply of a protocol-level token.
@@ -193,7 +186,7 @@ impl TokenP9<'_> {
     ///
     /// - `circulation_supply` The new total circulating supply for the token.
     pub fn set_token_circulating_supply(&mut self, circulation_supply: RawTokenAmount) {
-        self.persistent.to_mut().circulating_supply.0 = circulation_supply;
+        self.persistent.circulating_supply.0 = circulation_supply;
     }
 
     /// Get whether the balance-affecting operations on the token are currently
@@ -492,10 +485,10 @@ impl TokenP9<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::block_state::external::TokenAccountState;
     use concordium_base::common;
     use concordium_base::protocol_level_tokens::TokenModuleRef;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
+    use crate::external::TokenAccountState;
 
     #[test]
     fn test_token_configuration_serial() {

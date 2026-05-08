@@ -286,15 +286,15 @@ mod test {
 
         // Insert entries
         let mut mutable_state = state.thaw();
-        assert_eq!(mutable_state.is_dirty(), false);
+        assert!(!mutable_state.is_dirty());
         mutable_state
             .insert_value(&UnreachableBlobStore, &[0, 1], vec![1, 1])
             .unwrap();
-        assert_eq!(mutable_state.is_dirty(), true);
+        assert!(mutable_state.is_dirty());
         mutable_state
             .insert_value(&UnreachableBlobStore, &[0, 2], vec![2, 2])
             .unwrap();
-        assert_eq!(mutable_state.is_dirty(), true);
+        assert!(mutable_state.is_dirty());
 
         // Lookup values in mutable state
         assert_eq!(
@@ -329,11 +329,11 @@ mod test {
         mutable_state
             .delete_value(&UnreachableBlobStore, &[0, 2])
             .unwrap();
-        assert_eq!(mutable_state.is_dirty(), true);
+        assert!(mutable_state.is_dirty());
         mutable_state
             .insert_value(&UnreachableBlobStore, &[0, 1], vec![4, 4])
             .unwrap();
-        assert_eq!(mutable_state.is_dirty(), true);
+        assert!(mutable_state.is_dirty());
 
         // Lookup values in mutable state
         assert_eq!(
@@ -397,7 +397,7 @@ mod test {
             .unwrap()
             .collect();
         assert_eq!(values, vec![]);
-        assert_eq!(mutable_state.is_dirty(), false);
+        assert!(!mutable_state.is_dirty());
 
         // Freeze state
         let state = mutable_state.freeze(&UnreachableBlobStore);

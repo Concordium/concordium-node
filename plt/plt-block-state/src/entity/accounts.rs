@@ -1,13 +1,10 @@
-use crate::block_state::external::{
-    ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState,
-};
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
-use crate::entity::protocol_level_tokens::p9::TokenP9;
+use crate::entity::protocol_level_tokens::p9::TokenIndex;
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState};
 
 /// Account with its canonical address.
 ///
@@ -40,11 +37,11 @@ impl Account {
     pub fn account_token_balance<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        token: &TokenP9<'_>,
+        token_index: TokenIndex,
     ) -> RawTokenAmount {
         context
             .external
-            .read_token_account_balance(self.account_index, token.token_index)
+            .read_token_account_balance(self.account_index, token_index)
     }
 
     /// Get token account states. It returns states for all tokens
@@ -96,10 +93,10 @@ impl Account {
     pub fn touch_token_account<C: EntityContextTypes>(
         &self,
         context: &mut EntityContext<C>,
-        token: &TokenP9<'_>,
+        token_index: TokenIndex,
     ) {
         context
             .external
-            .touch_token_account(self.account_index, token.token_index)
+            .touch_token_account(self.account_index, token_index)
     }
 }

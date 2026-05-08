@@ -359,39 +359,6 @@ impl<K: LfmbTreeKey, V> LfmbTree<K, V> {
     }
 }
 
-impl<'b, K: LfmbTreeKey, V> Cow<'b, LfmbTree<K, V>> {
-    /// Return the value for a key (as implemented by [`LfmbTree::lookup_value`]) for an
-    /// owned or borrowed tree. If the tree is `Owned`, and
-    /// [`LfmbTree::lookup_value`] returns a borrowed value, `bind_lookup_value` returns
-    /// [`BlockStateFailure::CowJoin`].
-    ///
-    /// This function is essentially binding the operation
-    /// [`LfmbTree::lookup_value`] in the monadic structure of [`Cow`].
-    /// But [`Cow`] is not fully monadic, `Owned(Borrowed(val))` cannot be "joined"
-    /// into neither `Owned` nor `Borrowed`, hence `bind_lookup_value` will return an error in that case.
-    /// Notice that all other combinations of `Owned` and `Borrowed` can be "joined".
-    pub fn bind_lookup_value(
-        self,
-        loader: &impl BlobStoreLoad,
-        key: K,
-        context: &'static str,
-    ) -> BlockStateResult<Option<Cow<'b, V>>>
-    where
-        V: Loadable,
-    {
-        Ok(match self {
-            Cow::Owned(tree) => match tree.lookup_value(loader, key)? {
-                None => None,
-                Some(Cow::Owned(val)) => Some(Cow::Owned(val)),
-                Some(Cow::Borrowed(_)) => {
-                    return Err(BlockStateFailure::CowJoin(context));
-                }
-            },
-            Cow::Borrowed(tree) => tree.lookup_value(loader, key)?,
-        })
-    }
-}
-
 /// Internal representation of tree key used in the subtree.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct SubtreeKey(u64);
@@ -1188,14 +1155,16 @@ mod tests {
 
             // Update non-existing values
             assert_matches!(
-                tree.update_value(&store, TestKey(i), |val| Ok(*val)),
+                tree.update_value(&store, TestKey(i), |val| Ok(*val))
+                    .unwrap(),
                 None,
                 "update non-existing value for key {:?} in tree of size {}",
                 TestKey(i),
                 i
             );
             assert_matches!(
-                tree.update_value(&store, TestKey(i + 1), |val| Ok(*val)),
+                tree.update_value(&store, TestKey(i + 1), |val| Ok(*val))
+                    .unwrap(),
                 None,
                 "update non-existing value for key {:?} in tree of size {}",
                 TestKey(i + 1),

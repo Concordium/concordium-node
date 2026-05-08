@@ -8,9 +8,9 @@ use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::block_state::utils::Cow;
 use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::BlockStateResult;
-use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::persistent::protocol_level_tokens;
-use crate::persistent::protocol_level_tokens::{NormalizedTokenId, TokenIndex};
+use crate::persistent::protocol_level_tokens::NormalizedTokenId;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -24,16 +24,6 @@ pub struct PersistentTokensP9 {
     /// Map for normalized token id to token index. This map is represented in memory
     /// only and reconstructed each time tokens are loaded.
     pub token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
-}
-
-impl<'b> Cow<'b, PersistentTokensP9> {
-    /// Move [`Cow`] to tokens tree.
-    pub fn cow_project_tokens(self) -> Cow<'b, LfmbTree<TokenIndex, PersistentTokenP9>> {
-        match self {
-            Cow::Owned(this) => Cow::Owned(this.tokens),
-            Cow::Borrowed(this) => Cow::Borrowed(&this.tokens),
-        }
-    }
 }
 
 impl Storable for PersistentTokensP9 {

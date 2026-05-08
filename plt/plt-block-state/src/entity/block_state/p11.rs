@@ -1,37 +1,37 @@
 use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::utils::Cow;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
     TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
+use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
-use crate::persistent::protocol_level_tokens::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
+use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 
 /// P11 block state.
-#[derive(Debug)]
-pub struct BlockStateP11<'a> {
+#[derive(Debug, Default)]
+pub struct BlockStateP11 {
     /// Persistent block state.
-    pub(crate) persistent: Cow<'a, PersistentBlockStateP11>,
+    pub(crate) persistent: PersistentBlockStateP11,
 }
 
-impl<'a> BlockStateP11<'a> {
+impl BlockStateP11 {
     /// Get the [`TokenId`]s of all protocol-level tokens.
     pub fn plt_list<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<impl ExactSizeIterator<Item = BlockStateResult<Cow<'_, TokenId>>>> {
-        Ok(protocol_level_tokens::p9::plt_list(
-            context,
-            &*self.persistent.tokens.value(&context.loader)?,
-        ))
+    ) -> BlockStateResult<impl ExactSizeIterator<Item = BlockStateResult<TokenId>>> {
+        let persistent_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
+        Ok(
+            protocol_level_tokens::p9::plt_list(context, &persistent_tokens)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        ) // todo ar fix iterator
     }
 
     /// Get the token associated with a [`TokenId`] (if it exists).
@@ -47,7 +47,7 @@ impl<'a> BlockStateP11<'a> {
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenP11<'_>, TokenNotFoundByIdError>> {
+    ) -> BlockStateResult<Result<TokenP11, TokenNotFoundByIdError>> {
         let token_index_option = protocol_level_tokens::p9::token_index_by_id(
             &*self.persistent.tokens.value(&context.loader)?,
             token_id,
@@ -74,7 +74,7 @@ impl<'a> BlockStateP11<'a> {
         let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
         let token_index =
             protocol_level_tokens::p9::create_token(context, &mut new_tokens, configuration)?;
-        self.persistent.to_mut().tokens = HashedCacheableRef::new(new_tokens);
+        self.persistent.tokens = HashedCacheableRef::new(new_tokens);
 
         Ok(token_index)
     }
@@ -92,7 +92,7 @@ impl<'a> BlockStateP11<'a> {
         &self,
         context: &EntityContext<C>,
         token_index: TokenIndex,
-    ) -> BlockStateResult<TokenP11<'_>> {
+    ) -> BlockStateResult<TokenP11> {
         let token_p9 = protocol_level_tokens::p9::token_by_index(
             context,
             &*self.persistent.tokens.value(&context.loader)?,
@@ -107,11 +107,11 @@ impl<'a> BlockStateP11<'a> {
     pub fn update_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        token: TokenP11<'_>,
+        token: TokenP11,
     ) -> BlockStateResult<()> {
         let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
         protocol_level_tokens::p9::update_token(context, &mut new_tokens, token.token_p9)?;
-        self.persistent.to_mut().tokens = HashedCacheableRef::new(new_tokens);
+        self.persistent.tokens = HashedCacheableRef::new(new_tokens);
 
         Ok(())
     }

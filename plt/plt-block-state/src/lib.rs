@@ -3,4 +3,7 @@ pub mod block_state_interface;
 pub mod entity;
 #[cfg(feature = "ffi")]
 pub mod ffi;
-pub mod persistent;
+mod persistent;
+mod external;
+
+// todo ar doc generate

@@ -43,3 +43,4 @@ impl Hashable for PersistentBlockStateP10 {
         self.p9_block_state.hash(loader)
     }
 }
+

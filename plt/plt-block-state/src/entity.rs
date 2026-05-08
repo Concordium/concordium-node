@@ -1,7 +1,8 @@
-//! Stateful entity model for block state
+//! Entity model for block state. This defines the block state interface to
+//! the scheduler and generally exposes a statically types model.
 
 use crate::block_state::blob_store::BlobStoreLoad;
-use crate::block_state::external::ExternalBlockStateOperations;
+use crate::external::ExternalBlockStateOperations;
 use std::fmt::Debug;
 
 pub mod accounts;
@@ -24,4 +25,31 @@ pub struct EntityContext<C: EntityContextTypes> {
     pub(crate) external: C::ExternalBlockState,
     /// Blob store loader.
     pub(crate) loader: C::Loader,
+}
+
+
+#[cfg(test)]
+pub mod entity_test_stub {
+    use crate::block_state::blob_store::test_stub::BlobStoreStub;
+    use crate::entity::{EntityContext, EntityContextTypes};
+    use crate::external::test_stub::NoExternalBlockStateStub;
+
+    /// Context with no external block state (will panic if accessed).
+    #[derive(Debug)]
+    pub struct NoExternalBlockStateTypes;
+
+    impl EntityContextTypes for NoExternalBlockStateTypes {
+        type ExternalBlockState = NoExternalBlockStateStub;
+        type Loader = BlobStoreStub;
+    }
+
+    /// Create context with no external block state (will panic if accessed).
+    pub fn new_context_no_external() -> EntityContext<NoExternalBlockStateTypes> {
+        let blob_store = BlobStoreStub::default();
+        EntityContext {
+            external: NoExternalBlockStateStub,
+            loader: blob_store,
+        }
+
+    }
 }
