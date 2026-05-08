@@ -176,7 +176,8 @@ impl MutableState {
         trie.insert(&mut loader, key, value).map_err(|err| {
             BlockStateFailure::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
-        // todo ar set dirty
+        drop(trie);
+        self.dirty = true;
         Ok(())
     }
 
@@ -192,7 +193,8 @@ impl MutableState {
         trie.delete(&mut loader, key).map_err(|err| {
             BlockStateFailure::Invariant(format!("Error deleting value from MutableState: {}", err))
         })?;
-        // todo ar set dirty
+        drop(trie);
+        self.dirty = true;
         Ok(())
     }
 
@@ -397,7 +399,6 @@ mod test {
             .unwrap()
             .collect();
         assert_eq!(values, vec![]);
-        assert!(!mutable_state.is_dirty());
 
         // Freeze state
         let state = mutable_state.freeze(&UnreachableBlobStore);

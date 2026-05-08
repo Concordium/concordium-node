@@ -11,11 +11,11 @@ use crate::entity::block_state::p10::BlockStateP10;
 use crate::entity::block_state::p11::BlockStateP11;
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::entity::{EntityContext, EntityContextTypes};
+use crate::external::TokenAccountState;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::external::TokenAccountState;
 
 pub mod blob_reference;
 pub mod blob_store;

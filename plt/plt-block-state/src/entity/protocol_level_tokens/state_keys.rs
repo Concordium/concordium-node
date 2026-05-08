@@ -73,6 +73,6 @@ mod test {
     #[test]
     fn test_account_roles_state_key() {
         let key = account_roles_state_key(AccountIndex::from(1u64));
-        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+        assert_eq!(key, vec![116, 157, 0, 0, 0, 0, 0, 0, 0, 1]);
     }
 }

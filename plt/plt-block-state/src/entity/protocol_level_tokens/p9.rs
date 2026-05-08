@@ -154,7 +154,6 @@ pub struct TokenP9 {
 }
 
 impl TokenP9 {
-
     /// Get the index of the token.
     pub fn token_index(&self) -> TokenIndex {
         self.token_index
@@ -485,10 +484,10 @@ impl TokenP9 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::external::TokenAccountState;
     use concordium_base::common;
     use concordium_base::protocol_level_tokens::TokenModuleRef;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
-    use crate::external::TokenAccountState;
 
     #[test]
     fn test_token_configuration_serial() {

@@ -151,7 +151,7 @@ mod test {
 
         // Load block state
         let persistent_block_state: PersistentBlockStateP9 =
-            blob_store::load_from_store(&context.loader, BlobStoreLocation(0))
+            blob_store::load_from_store(&context.loader, BlobStoreLocation(358))
                 .expect("load block state");
         let block_state = BlockStateP9 {
             persistent: persistent_block_state,

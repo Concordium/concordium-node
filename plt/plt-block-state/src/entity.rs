@@ -27,7 +27,6 @@ pub struct EntityContext<C: EntityContextTypes> {
     pub(crate) loader: C::Loader,
 }
 
-
 #[cfg(test)]
 pub mod entity_test_stub {
     use crate::block_state::blob_store::test_stub::BlobStoreStub;
@@ -50,6 +49,5 @@ pub mod entity_test_stub {
             external: NoExternalBlockStateStub,
             loader: blob_store,
         }
-
     }
 }

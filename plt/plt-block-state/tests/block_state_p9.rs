@@ -50,7 +50,9 @@ fn test_plt_list() {
         module_ref: TokenModuleRef::from([5; 32]),
         decimals: 2,
     };
-    block_state.create_token(&context, configuration.clone()).unwrap();
+    block_state
+        .create_token(&context, configuration.clone())
+        .unwrap();
 
     // Create token 2
     let token_id2: TokenId = "token2".parse().unwrap();
@@ -59,7 +61,9 @@ fn test_plt_list() {
         module_ref: TokenModuleRef::from([5; 32]),
         decimals: 2,
     };
-    block_state.create_token(&context, configuration.clone()).unwrap();
+    block_state
+        .create_token(&context, configuration.clone())
+        .unwrap();
 
     // Read PLT list
     let tokens: Vec<_> = block_state
@@ -334,4 +338,3 @@ fn test_store_and_load_plts() {
     );
     assert_eq!(block_state.token_configuration(&token2), configuration2);
 }
-

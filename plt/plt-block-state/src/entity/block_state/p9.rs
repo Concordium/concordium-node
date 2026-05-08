@@ -5,11 +5,11 @@ use crate::block_state_interface::{
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex, TokenP9};
 use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
+use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 
 /// P9 block state.
 #[derive(Debug, Default)]

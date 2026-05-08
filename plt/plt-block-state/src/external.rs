@@ -110,7 +110,6 @@ pub mod test_stub {
     #[derive(Debug)]
     pub struct NoExternalBlockStateStub;
 
-
     impl ExternalBlockStateQuery for NoExternalBlockStateStub {
         fn read_token_account_balance(
             &self,
@@ -160,5 +159,4 @@ pub mod test_stub {
             unreachable!()
         }
     }
-
 }
