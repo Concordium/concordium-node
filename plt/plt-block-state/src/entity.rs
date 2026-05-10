@@ -22,9 +22,9 @@ pub trait EntityContextTypes: Debug {
 #[derive(Debug)]
 pub struct EntityContext<C: EntityContextTypes> {
     /// Externally managed block state
-    pub(crate) external: C::ExternalBlockState,
+    pub external: C::ExternalBlockState,
     /// Blob store loader.
-    pub(crate) loader: C::Loader,
+    pub loader: C::Loader,
 }
 
 pub mod entity_test_stub {

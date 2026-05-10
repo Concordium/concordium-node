@@ -11,7 +11,7 @@ use std::io::Read;
 #[derive(Debug, Clone, Default)]
 pub struct PersistentBlockStateP9 {
     /// Protocol-level tokens
-    pub tokens: PersistentTokensP9,
+    pub(crate) tokens: PersistentTokensP9,
 }
 
 impl Loadable for PersistentBlockStateP9 {

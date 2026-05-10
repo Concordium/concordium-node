@@ -16,7 +16,7 @@ use concordium_base::protocol_level_tokens::TokenId;
 #[derive(Debug, Default)]
 pub struct BlockStateP9 {
     /// Persistent block state.
-    pub(crate) persistent: PersistentBlockStateP9,
+    pub persistent: PersistentBlockStateP9,
 }
 
 impl BlockStateP9 {

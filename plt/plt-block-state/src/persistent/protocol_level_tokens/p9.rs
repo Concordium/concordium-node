@@ -20,10 +20,10 @@ use std::io::Read;
 #[derive(Debug, Clone, Default)]
 pub struct PersistentTokensP9 {
     /// Persistent tree with tokens by token index. Token are never deleted.
-    pub tokens: LfmbTree<TokenIndex, PersistentTokenP9>,
+    pub(crate) tokens: LfmbTree<TokenIndex, PersistentTokenP9>,
     /// Map for normalized token id to token index. This map is represented in memory
     /// only and reconstructed each time tokens are loaded.
-    pub token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
+    pub(crate) token_id_map: im::HashMap<NormalizedTokenId, TokenIndex>,
 }
 
 impl Storable for PersistentTokensP9 {
@@ -87,11 +87,11 @@ impl LfmbTreeKey for TokenIndex {
 #[derive(Debug, Clone)]
 pub struct PersistentTokenP9 {
     /// Static configuration of the token that never changes.
-    pub configuration: HashedCacheableRef<StoreSerialized<TokenConfiguration>>,
+    pub(crate) configuration: HashedCacheableRef<StoreSerialized<TokenConfiguration>>,
     /// Dynamic key-value state for values related to the token.
-    pub key_value_state: HashedCacheableRef<smart_contract_trie::PersistentState>,
+    pub(crate) key_value_state: HashedCacheableRef<smart_contract_trie::PersistentState>,
     /// Current circulating supply of the token.
-    pub circulating_supply: StoreSerialized<RawTokenAmount>,
+    pub(crate) circulating_supply: StoreSerialized<RawTokenAmount>,
 }
 
 impl<'b> Cow<'b, PersistentTokenP9> {

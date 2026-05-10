@@ -12,7 +12,7 @@ use std::io::Read;
 #[derive(Debug, Clone, Default)]
 pub struct PersistentBlockStateP11 {
     /// Protocol-level tokens
-    pub tokens: HashedCacheableRef<PersistentTokensP9>,
+    pub(crate) tokens: HashedCacheableRef<PersistentTokensP9>,
 }
 
 impl Loadable for PersistentBlockStateP11 {

@@ -8,6 +8,13 @@ use crate::queries::QueryTokenInfoError;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use libc::size_t;
+use plt_block_state::block_state::{
+    ExecutionTimeBlockStateP9, ExecutionTimeBlockStateP10, ExecutionTimeBlockStateP11,
+};
+use plt_block_state::entity::EntityContext;
+use plt_block_state::entity::block_state::p9::BlockStateP9;
+use plt_block_state::entity::block_state::p10::BlockStateP10;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
@@ -48,7 +55,7 @@ use plt_block_state::persistent::block_state::PersistentBlockState;
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_plt_list(
-    load_callback: LoadCallback,
+    loader: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -67,19 +74,47 @@ extern "C" fn ffi_query_plt_list(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateQueryCallbacks {
+        let external = ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let internal_block_state = unsafe { &*block_state };
-        let block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
+        let context = EntityContext { external, loader };
+        let token_ids = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_plt_list(&exec_block_state)
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    p9_block_state: BlockStateP9 {
+                        persistent: persistent.p9_block_state.clone(),
+                    },
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_plt_list(&exec_block_state)
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP11 {
+                    block_state,
+                    context,
+                };
+                queries::query_plt_list(&exec_block_state)
+            }
         };
-        let token_ids = queries::query_plt_list(&block_state);
         let return_data = common::to_bytes(&token_ids);
         (status::FfiStatusCode::Success, return_data)
     });
@@ -127,7 +162,7 @@ extern "C" fn ffi_query_plt_list(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_token_info(
-    load_callback: LoadCallback,
+    loader: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -148,24 +183,52 @@ extern "C" fn ffi_query_token_info(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateQueryCallbacks {
+        let external = ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let internal_block_state = unsafe { &*block_state };
-        let block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
-        };
+        let context = EntityContext { external, loader };
         let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
         let token_id = String::from_utf8(token_id_bytes.to_vec())
             .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
             .try_into()
             .expect("Invalid Token ID provided");
-        let token_info = queries::query_token_info(&block_state, &token_id);
+        let token_info = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_info(&exec_block_state, &token_id)
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    p9_block_state: BlockStateP9 {
+                        persistent: persistent.p9_block_state.clone(),
+                    },
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_info(&exec_block_state, &token_id)
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP11 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_info(&exec_block_state, &token_id)
+            }
+        };
         match token_info {
             Ok(token_info) => (
                 status::FfiStatusCode::Success,
@@ -223,7 +286,7 @@ extern "C" fn ffi_query_token_info(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_token_authorizations(
-    load_callback: LoadCallback,
+    loader: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -244,25 +307,53 @@ extern "C" fn ffi_query_token_authorizations(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateQueryCallbacks {
+        let external = ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let internal_block_state = unsafe { &*block_state };
-        let block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
-        };
+        let context = EntityContext { external, loader };
         let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
         let token_id = String::from_utf8(token_id_bytes.to_vec())
             .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
             .try_into()
             .expect("Invalid Token ID provided");
-        let token_info = queries::query_token_authorizations(&block_state, &token_id);
-        match token_info {
+        let token_auths = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_authorizations(&exec_block_state, &token_id)
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    p9_block_state: BlockStateP9 {
+                        persistent: persistent.p9_block_state.clone(),
+                    },
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_authorizations(&exec_block_state, &token_id)
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP11 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_authorizations(&exec_block_state, &token_id)
+            }
+        };
+        match token_auths {
             Ok(token_info) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_info),
@@ -315,7 +406,7 @@ extern "C" fn ffi_query_token_authorizations(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_token_account_infos(
-    load_callback: LoadCallback,
+    loader: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -335,20 +426,56 @@ extern "C" fn ffi_query_token_account_infos(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateQueryCallbacks {
+        let external = ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let internal_block_state = unsafe { &*block_state };
-        let block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
+        let context = EntityContext { external, loader };
+        let token_account_infos = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_account_infos(
+                    &exec_block_state,
+                    AccountIndex::from(account_index),
+                )
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    p9_block_state: BlockStateP9 {
+                        persistent: persistent.p9_block_state.clone(),
+                    },
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_account_infos(
+                    &exec_block_state,
+                    AccountIndex::from(account_index),
+                )
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP11 {
+                    block_state,
+                    context,
+                };
+                queries::query_token_account_infos(
+                    &exec_block_state,
+                    AccountIndex::from(account_index),
+                )
+            }
         };
-        let token_account_infos =
-            queries::query_token_account_infos(&block_state, AccountIndex::from(account_index));
         let return_data = common::to_bytes(&token_account_infos);
         (status::FfiStatusCode::Success, return_data)
     });

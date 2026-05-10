@@ -31,9 +31,9 @@ pub mod utils;
 #[derive(Debug)]
 pub struct ExecutionTimeBlockStateP9<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub(crate) block_state: BlockStateP9,
+    pub block_state: BlockStateP9,
     /// External function for reading from the blob store.
-    pub(crate) context: EntityContext<C>,
+    pub context: EntityContext<C>,
 }
 
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
@@ -226,9 +226,9 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
 #[derive(Debug)]
 pub struct ExecutionTimeBlockStateP10<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub(crate) block_state: BlockStateP10,
+    pub block_state: BlockStateP10,
     /// External function for reading from the blob store.
-    pub(crate) context: EntityContext<C>,
+    pub context: EntityContext<C>,
 }
 
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<C> {
@@ -443,9 +443,9 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP10<
 #[derive(Debug)]
 pub struct ExecutionTimeBlockStateP11<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub(crate) block_state: BlockStateP11,
+    pub block_state: BlockStateP11,
     /// External function for reading from the blob store.
-    pub(crate) context: EntityContext<C>,
+    pub context: EntityContext<C>,
 }
 
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
