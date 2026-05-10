@@ -74,7 +74,7 @@ impl<T: Storable> Storable for &mut T {
     }
 }
 
-/// Adapter for types implementing [`Serialize`](common::Serialize) that
+/// Adapter for types implementing [`Serialize`] that
 /// allows them to be used as block state components.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct StoreSerialized<T>(pub T);
@@ -139,7 +139,7 @@ pub fn store_to_store(
 }
 
 /// Extension trait for [`common::ParseResult`] that allows mapping error type
-/// to [`DecodeError`].
+/// to [`BlockStateFailure`].
 pub trait ParseResultExt<T> {
     /// Map the error type of [`common::ParseResult`] to [`BlockStateFailure`]
     fn map_parse_err_to_block_state_err(self) -> Result<T, BlockStateFailure>;

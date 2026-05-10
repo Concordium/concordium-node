@@ -28,6 +28,11 @@ pub struct Account {
 }
 
 impl Account {
+    /// Create account from an account index for an account that must exist.
+    pub fn from_existing_account(account_index: AccountIndex) -> Self {
+        Self { account_index }
+    }
+
     /// Get the account index for the account.
     pub fn account_index(&self) -> AccountIndex {
         self.account_index

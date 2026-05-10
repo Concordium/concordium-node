@@ -11,10 +11,11 @@ use libc::size_t;
 use plt_block_state::block_state::{
     ExecutionTimeBlockStateP9, ExecutionTimeBlockStateP10, ExecutionTimeBlockStateP11,
 };
-use plt_block_state::entity::EntityContext;
+use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
@@ -23,6 +24,17 @@ use plt_block_state::ffi::block_state_callbacks::{
 };
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
+
+/// Context with no external block state (will panic if accessed).
+#[derive(Debug)]
+pub struct FfiQueryBlockStateTypes;
+
+impl EntityContextTypes for FfiQueryBlockStateTypes {
+    type ExternalBlockState = ExternalBlockStateQueryCallbacks;
+    type Loader = LoadCallback;
+}
+
+pub type FfiQueryEntityContext = EntityContext<FfiQueryBlockStateTypes>;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///
@@ -55,7 +67,7 @@ use plt_block_state::persistent::block_state::PersistentBlockState;
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_plt_list(
-    loader: LoadCallback,
+    load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -80,7 +92,10 @@ extern "C" fn ffi_query_plt_list(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let context = EntityContext { external, loader };
+        let context = FfiQueryEntityContext {
+            external,
+            loader: load_callback,
+        };
         let token_ids = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
                 let block_state = BlockStateP9 {
@@ -162,7 +177,7 @@ extern "C" fn ffi_query_plt_list(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_token_info(
-    loader: LoadCallback,
+    load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -189,7 +204,10 @@ extern "C" fn ffi_query_token_info(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let context = EntityContext { external, loader };
+        let context = FfiQueryEntityContext {
+            external,
+            loader: load_callback,
+        };
         let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
         let token_id = String::from_utf8(token_id_bytes.to_vec())
             .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
@@ -286,7 +304,7 @@ extern "C" fn ffi_query_token_info(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_token_authorizations(
-    loader: LoadCallback,
+    load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -313,7 +331,10 @@ extern "C" fn ffi_query_token_authorizations(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let context = EntityContext { external, loader };
+        let context = FfiQueryEntityContext {
+            external,
+            loader: load_callback,
+        };
         let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
         let token_id = String::from_utf8(token_id_bytes.to_vec())
             .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
@@ -406,7 +427,7 @@ extern "C" fn ffi_query_token_authorizations(
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_query_token_account_infos(
-    loader: LoadCallback,
+    load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
@@ -432,7 +453,10 @@ extern "C" fn ffi_query_token_account_infos(
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let context = EntityContext { external, loader };
+        let context = FfiQueryEntityContext {
+            external,
+            loader: load_callback,
+        };
         let token_account_infos = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
                 let block_state = BlockStateP9 {
@@ -444,7 +468,7 @@ extern "C" fn ffi_query_token_account_infos(
                 };
                 queries::query_token_account_infos(
                     &exec_block_state,
-                    AccountIndex::from(account_index),
+                    Account::from_existing_account(AccountIndex::from(account_index)),
                 )
             }
             PersistentBlockState::P10(persistent) => {
@@ -459,7 +483,7 @@ extern "C" fn ffi_query_token_account_infos(
                 };
                 queries::query_token_account_infos(
                     &exec_block_state,
-                    AccountIndex::from(account_index),
+                    Account::from_existing_account(AccountIndex::from(account_index)),
                 )
             }
             PersistentBlockState::P11(persistent) => {
@@ -472,7 +496,7 @@ extern "C" fn ffi_query_token_account_infos(
                 };
                 queries::query_token_account_infos(
                     &exec_block_state,
-                    AccountIndex::from(account_index),
+                    Account::from_existing_account(AccountIndex::from(account_index)),
                 )
             }
         };

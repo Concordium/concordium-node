@@ -1,4 +1,5 @@
-//! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
+//! This module contains temporary implementations of [`BlockStateOperations`]. The trait
+//! [`BlockStateOperations`] and [`BlockStateQuery`] will be removed.
 
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,

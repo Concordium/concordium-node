@@ -9,6 +9,7 @@ use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Callbacks for block state queries.
+#[derive(Debug)]
 pub struct ExternalBlockStateQueryCallbacks {
     /// External function for reading the token balance for an account.
     pub read_token_account_balance_ptr: ReadTokenAccountBalanceCallback,
@@ -21,6 +22,7 @@ pub struct ExternalBlockStateQueryCallbacks {
 }
 
 /// Callbacks for block state operations.
+#[derive(Debug)]
 pub struct ExternalBlockStateOperationCallbacks {
     /// Callbacks for block state queries.
     pub queries: ExternalBlockStateQueryCallbacks,
@@ -93,6 +95,25 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
             unsafe { Box::from_raw((self.get_token_account_states_ptr)(account_index.index)) };
         common::from_bytes_complete(*bytes)
             .expect("Invalid serialization of (TokenIndex, TokenAccountState) list")
+    }
+}
+
+impl ExternalBlockStateOperations for ExternalBlockStateQueryCallbacks {
+    fn update_token_account_balance(
+        &mut self,
+        _account: AccountIndex,
+        _token: TokenIndex,
+        _amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), OverflowError> {
+        panic!("operation callback called during query")
+    }
+
+    fn touch_token_account(&mut self, _account: AccountIndex, _token: TokenIndex) {
+        panic!("operation callback called during query")
+    }
+
+    fn increment_plt_update_sequence_number(&mut self) {
+        panic!("operation callback called during query")
     }
 }
 

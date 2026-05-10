@@ -73,7 +73,7 @@ impl<V> HashedCacheableRef<V> {
     ///
     /// # Errors
     ///
-    /// Returns [`BlockStateError`] if decoding data from the blob store fails.
+    /// Returns [`BlockStateFailure`] if decoding data from the blob store fails.
     pub fn value(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Cow<'_, V>>
     where
         V: Loadable,
