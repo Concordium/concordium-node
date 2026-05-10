@@ -6,6 +6,7 @@ use crate::block_state_interface::{
     TokenStateValue,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
+use crate::entity::block_state::Accounts;
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p10::BlockStateP10;
 use crate::entity::block_state::p11::BlockStateP11;
@@ -361,7 +362,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP10<C> {
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
-        ProtocolVersion::P9
+        ProtocolVersion::P10
     }
 }
 
@@ -569,7 +570,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
-        ProtocolVersion::P9
+        ProtocolVersion::P11
     }
 }
 

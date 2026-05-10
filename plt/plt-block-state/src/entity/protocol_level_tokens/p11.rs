@@ -1,5 +1,5 @@
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::entity::block_state::p9::BlockStateP9;
+use crate::entity::block_state::Accounts;
 use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
@@ -94,7 +94,7 @@ impl TokenP11 {
     pub fn get_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        block_state: &BlockStateP9,
+        accounts: &impl Accounts,
     ) -> BlockStateResult<TokenAuthorizations> {
         let mut update_admin_roles = TokenRoleAuthorizations::default();
         let mut mint = TokenRoleAuthorizations::default();
@@ -123,7 +123,7 @@ impl TokenP11 {
                         err
                     ))
                 })?;
-            let account = block_state
+            let account = accounts
                 .account_by_index(context, account_index)
                 .map_err(|err| {
                     BlockStateFailure::Invariant(format!(
@@ -207,7 +207,7 @@ const fn role_bitmask(role: TokenAdminRole) -> u16 {
 }
 
 /// Collection of roles assigned to a single account.
-#[derive(Debug, common::Serialize)]
+#[derive(Debug, Eq, PartialEq, common::Serialize)]
 pub struct Roles {
     bitmap: u16,
 }

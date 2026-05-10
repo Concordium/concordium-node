@@ -62,8 +62,8 @@ mod test {
     /// Store state with PLTs to blob store and load it again.
     #[test]
     fn test_store_and_load_plts() {
-        let context = entity_test_stub::new_context_no_external();
-        let block_state = BlockStateP9::default();
+        let mut context = entity_test_stub::new_context_no_external();
+        let mut block_state = BlockStateP9::default();
 
         // Create tokens
         let configuration1 = TokenConfiguration {
@@ -71,64 +71,59 @@ mod test {
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 2,
         };
-        let token1 = block_state.create_token(configuration1.clone());
-        block_state.set_token_circulating_supply(&token1, RawTokenAmount(100));
-        let mut key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-        block_state.update_token_state_value(
-            &mut key_value_state1,
-            &TokenStateKey(vec![0, 1]),
-            Some(TokenStateValue(vec![0, 0])),
-        );
-        block_state.update_token_state_value(
-            &mut key_value_state1,
-            &TokenStateKey(vec![0, 2]),
-            Some(TokenStateValue(vec![1, 1])),
-        );
-        block_state.set_token_key_value_state(&token1, key_value_state1);
+        let token_index1 = block_state
+            .create_token(&context, configuration1.clone())
+            .unwrap();
+        let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
+        token1.set_token_circulating_supply(RawTokenAmount(100));
+        token1
+            .mutable_key_value_state
+            .insert_value(&context.loader, &[0, 1], vec![0, 0])
+            .unwrap();
+        token1
+            .mutable_key_value_state
+            .insert_value(&context.loader, &[0, 2], vec![1, 1])
+            .unwrap();
+        block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
             token_id: "token2".parse().unwrap(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 4,
         };
-        let _token2 = block_state.create_token(configuration2.clone());
+        let _token_index2 = block_state.create_token(&context, configuration2.clone());
 
-        // Store block state
-        let blob_ref = blob_store::store_to_store(
-            &mut block_state.blob_store_load,
-            block_state.internal_block_state.into_immutable(),
-        );
-
-        // Load block state
-        let immutable_state = BlockState::load_from_store(
-            &block_state.blob_store_load,
-            blob_ref,
-            ProtocolVersion::P11,
-        )
-        .expect("load block state");
-        let block_state =
-            block_state_no_external::with_block_state(block_state.blob_store_load, immutable_state);
+        // Store and load block state
+        let blob_ref = blob_store::store_to_store(&mut context.loader, block_state.persistent);
+        let block_state = entity_test_stub::load_block_state_p9(&context, blob_ref);
 
         // Assert loaded state
-        assert_eq!(block_state.plt_list().len(), 2);
-        let token1 = block_state.token_by_id(&"token1".parse().unwrap()).unwrap();
+        assert_eq!(block_state.plt_list(&context).len(), 2);
+        let token1 = block_state
+            .token_by_id(&context, &"token1".parse().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(token1.token_circulating_supply(), RawTokenAmount(100));
         assert_eq!(
-            block_state.token_circulating_supply(&token1),
-            RawTokenAmount(100)
+            token1.token_configuration(&context).unwrap(),
+            configuration1
         );
-        assert_eq!(block_state.token_configuration(&token1), configuration1);
-        let key_value_state1 = block_state.mutable_token_key_value_state(&token1);
-        let value =
-            block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 1]));
-        assert_eq!(value, Some(TokenStateValue(vec![0, 0])));
-        let value =
-            block_state.lookup_token_state_value(&key_value_state1, &TokenStateKey(vec![0, 2]));
-        assert_eq!(value, Some(TokenStateValue(vec![1, 1])));
-        let token2 = block_state.token_by_id(&"token2".parse().unwrap()).unwrap();
+        let value = token1
+            .mutable_key_value_state
+            .lookup_value(&context.loader, &[0, 1]);
+        assert_eq!(value, Some(vec![0, 0]));
+        let value = token1
+            .mutable_key_value_state
+            .lookup_value(&context.loader, &[0, 2]);
+        assert_eq!(value, Some(vec![1, 1]));
+        let token2 = block_state
+            .token_by_id(&context, &"token2".parse().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(token2.token_circulating_supply(), RawTokenAmount(0));
         assert_eq!(
-            block_state.token_circulating_supply(&token2),
-            RawTokenAmount(0)
+            token2.token_configuration(&context).unwrap(),
+            configuration2
         );
-        assert_eq!(block_state.token_configuration(&token2), configuration2);
     }
 
     /// Assert that hash of an empty block state matches a fixed/snapshot hash. The hash
@@ -199,12 +194,7 @@ mod test {
         };
 
         // Load block state
-        let persistent_block_state: PersistentBlockStateP9 =
-            blob_store::load_from_store(&context.loader, BlobStoreLocation(0))
-                .expect("load block state");
-        let block_state = BlockStateP9 {
-            persistent: persistent_block_state,
-        };
+        let block_state = entity_test_stub::load_block_state_p9(&context, BlobStoreLocation(0));
 
         // Assert loaded state
         assert_eq!(block_state.plt_list(&context).len(), 0);
@@ -222,12 +212,7 @@ mod test {
         };
 
         // Load block state
-        let persistent_block_state: PersistentBlockStateP9 =
-            blob_store::load_from_store(&context.loader, BlobStoreLocation(358))
-                .expect("load block state");
-        let block_state = BlockStateP9 {
-            persistent: persistent_block_state,
-        };
+        let block_state = entity_test_stub::load_block_state_p9(&context, BlobStoreLocation(358));
 
         // Assert loaded state
         assert_eq!(block_state.plt_list(&context).len(), 2);
@@ -249,7 +234,6 @@ mod test {
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
-
         let value = token1
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 2]);

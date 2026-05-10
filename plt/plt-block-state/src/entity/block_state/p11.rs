@@ -4,6 +4,7 @@ use crate::block_state_interface::{
     TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
+use crate::entity::block_state::Accounts;
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
@@ -122,9 +123,10 @@ impl BlockStateP11 {
     ) {
         context.external.increment_plt_update_sequence_number()
     }
+}
 
-    /// Lookup the account using an account address.
-    pub fn account_by_address<C: EntityContextTypes>(
+impl Accounts for BlockStateP11 {
+    fn account_by_address<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         address: &AccountAddress,
@@ -133,9 +135,7 @@ impl BlockStateP11 {
         Ok(Account { account_index })
     }
 
-    /// Lookup the account using an account index. Returns both the opaque account
-    /// representation and the account canonical address.
-    pub fn account_by_index<C: EntityContextTypes>(
+    fn account_by_index<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
