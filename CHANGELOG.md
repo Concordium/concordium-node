@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.
+
 # 11.1.0 (Devnet)
 
 - Support token operations in P11:

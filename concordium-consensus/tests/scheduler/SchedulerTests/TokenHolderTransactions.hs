@@ -90,7 +90,7 @@ testNonExistingToken _ pvString =
                                 { payload =
                                     Runner.TokenUpdate
                                         { tuTokenId = gtu,
-                                          tuOperations = Types.TokenParameter BSS.empty
+                                          tuOperations = Types.rawCborFromBytes ""
                                         },
                                   metadata = makeDummyHeader dummyAddress 1 1_000,
                                   keys = [(0, [(0, dummyKP)])]
@@ -129,7 +129,7 @@ testDeserializationFailure _ pvString =
                       tipBurnable = Just True,
                       tipAdditional = Map.empty
                     }
-            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
             createPLTPayload = Types.CreatePLTUpdatePayload createPLT
             gtuEvent = TokenCreated{etcPayload = createPLT}
@@ -156,7 +156,7 @@ testDeserializationFailure _ pvString =
                                 { payload =
                                     Runner.TokenUpdate
                                         { tuTokenId = gtu2,
-                                          tuOperations = Types.TokenParameter BSS.empty
+                                          tuOperations = Types.rawCborFromBytes ""
                                         },
                                   metadata = makeDummyHeader dummyAddress 1 1_000,
                                   keys = [(0, [(0, dummyKP)])]
@@ -210,7 +210,7 @@ testTwoOperations _ pvString =
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            paramsEncoded = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            paramsEncoded = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 paramsEncoded
             createPLTPayload = Types.CreatePLTUpdatePayload createPLT
             testOps =
@@ -230,7 +230,7 @@ testTwoOperations _ pvString =
                                       ttMemo = Nothing
                                     }
                             ]
-            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
 
             transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
@@ -346,7 +346,7 @@ testRollback ::
     Spec
 testRollback _ pvString =
     specify (pvString ++ ": State rollback") $ do
-        let mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+        let mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
             govAcct = CBOR.accountTokenHolder dummyAddress
             recptAcct = CBOR.accountTokenHolder dummyAddress2
             gtu = Types.TokenId $ fromString "Gtu"
@@ -362,7 +362,7 @@ testRollback _ pvString =
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            paramsEncoded = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            paramsEncoded = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 paramsEncoded
             createPLTPayload = Types.CreatePLTUpdatePayload createPLT
             testOps =
@@ -569,12 +569,12 @@ testTransfer _ = property (ioProperty . theTest)
                       tipBurnable = Nothing,
                       tipAdditional = Map.empty
                     }
-            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             pltName = Types.TokenId $ fromString "PLT"
             createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
             condOp True = Seq.singleton
             condOp False = mempty
-            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
             initOps =
                 mkOps . CBOR.TokenUpdateTransaction $
                     condOp tcSenderAllow (CBOR.TokenAddAllowList govAcct)
@@ -879,12 +879,12 @@ testPauseUnpause spv = do
               tipBurnable = Nothing,
               tipAdditional = Map.empty
             }
-    tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+    tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
     pltName = Types.TokenId $ fromString "PLT"
     createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
     keys1 = [(0, [(0, dummyKP)])]
     keys2 = [(0, [(0, Helpers.keyPairFromSeed 2)])]
-    mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+    mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
     mkUpdateTx sendAddr nonce nrg keys ops =
         Runner.AccountTx
             Runner.TJSON
@@ -1097,12 +1097,12 @@ testMintBurn spv mintEnabled burnEnabled = do
               tipBurnable = Just burnEnabled,
               tipAdditional = Map.empty
             }
-    tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+    tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
     pltName = Types.TokenId $ fromString "PLT"
     createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
     keys1 = [(0, [(0, dummyKP)])]
     keys2 = [(0, [(0, Helpers.keyPairFromSeed 2)])]
-    mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+    mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
     mkUpdateTx sendAddr nonce nrg keys ops =
         Runner.AccountTx
             Runner.TJSON
@@ -1414,9 +1414,9 @@ testNoCoinInfoTransfer _ pvString =
                       tipBurnable = Nothing,
                       tipAdditional = Map.empty
                     }
-            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
-            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
             transferOps =
                 mkOps $
                     CBOR.TokenUpdateTransaction $
@@ -1537,9 +1537,9 @@ testNoCoinInfoAllowDenyList _ pvString =
                       tipBurnable = Nothing,
                       tipAdditional = Map.empty
                     }
-            tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
+            tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
-            mkOps = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
             -- Helper to build a TokenModuleEvent for a list update.
             listEvent evtType target =
                 TokenModuleEvent

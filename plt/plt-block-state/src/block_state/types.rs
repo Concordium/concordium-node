@@ -1,5 +1,6 @@
 //! Types used specifically in the block state.
 
+pub mod protocol_level_locks;
 pub mod protocol_level_tokens;
 
 use concordium_base::contracts_common::AccountAddress;

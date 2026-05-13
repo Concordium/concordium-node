@@ -1,9 +1,11 @@
 use crate::block_state::types::AccountWithCanonicalAddress;
+use crate::block_state::types::protocol_level_locks::LockConfiguration;
 use crate::block_state::types::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -23,6 +25,10 @@ pub enum RawTokenAmountDelta {
 #[derive(Debug, thiserror::Error)]
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
+
+/// Lock with given id does not exist
+#[derive(Debug)]
+pub struct LockNotFoundByIdError(pub LockId);
 
 /// Account with given address does not exist
 #[derive(Debug, thiserror::Error)]
@@ -178,6 +184,38 @@ pub trait BlockStateQuery {
 
     /// Query the protocol version of the block state.
     fn protocol_version(&self) -> ProtocolVersion;
+
+    /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
+    /// end of the block.
+    ///
+    /// If the protocol version does not support protocol-level locks, this will return the empty
+    /// list.
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId>;
+
+    /// Get the lock associated with a [`LockId`] (if it exists).
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The lock id to get the [`Self::Lock`] of.
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError>;
+
+    /// Get the configuration of a protocol-level lock.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the configuration for.
+    fn lock_configuration(&self, lock: &LockId) -> LockConfiguration;
+
+    /// Get the set of account/token balances currently tracked under a lock.
+    ///
+    /// Each returned pair identifies an account and token for which the lock may
+    /// hold a non-zero locked balance. The corresponding amount is tracked in the
+    /// token module state.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the tracked locked balances for.
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)>;
 }
 
 /// Operations on the state of a block in the chain.
@@ -262,6 +300,40 @@ pub trait BlockStateOperations: BlockStateQuery {
         token: &Self::Token,
         token_key_value_state: Self::MutableTokenKeyValueState,
     );
+
+    /// Create a new PLT lock with the given configuration. The initial state will be empty.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The ID of the PLT lock.
+    /// - `configuration` The configuration for the PLT lock.
+    ///
+    /// # Preconditions
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
+    ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
+
+    /// Track that a lock holds a balance for the given account and token.
+    ///
+    /// This records the account/token pair in the lock state so it can later be
+    /// queried through [`BlockStateQuery::lock_balances`].
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to update.
+    /// - `account` The account whose locked balance is tracked.
+    /// - `token` The token whose locked balance is tracked.
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` MUST already exist in the block state, i.e.
+    ///   `s.lock_by_id(lock_id).expect("lock exists")`.
+    fn add_lock_balance_ref(&mut self, lock: &LockId, account: &Self::Account, token: &Self::Token);
 }
 
 /// The computation resulted in overflow (negative or above maximum value).

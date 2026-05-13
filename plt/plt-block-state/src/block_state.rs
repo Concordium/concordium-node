@@ -6,20 +6,23 @@ use crate::block_state::blob_store::{
 use crate::block_state::cacheable::Cacheable;
 use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::block_state::hash::Hashable;
+use crate::block_state::state::protocol_level_locks::{Lock, ProtocolLevelLocks};
 use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
 use crate::block_state::types::AccountWithCanonicalAddress;
+use crate::block_state::types::protocol_level_locks::LockConfiguration;
 use crate::block_state::types::protocol_level_tokens::{
     TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
 };
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
-    BlockStateOperations, BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, BlockStateResult, LockNotFoundByIdError, OverflowError,
+    RawTokenAmountDelta, TokenNotFoundByIdError,
 };
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::hashes::Hash;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
@@ -55,6 +58,8 @@ pub struct BlockState {
 pub struct BlockStateData {
     /// Protocol-level tokens
     tokens: ProtocolLevelTokens,
+    /// Protocol-level locks
+    locks: ProtocolLevelLocks,
 }
 
 /// The actual data in [`BlockState`]
@@ -62,6 +67,7 @@ impl BlockStateData {
     pub fn empty() -> Self {
         BlockStateData {
             tokens: ProtocolLevelTokens::empty(),
+            locks: ProtocolLevelLocks::empty(),
         }
     }
 }
@@ -97,6 +103,11 @@ impl BlockState {
         todo!()
     }
 
+    /// If protocol-level locks are supported by the block state.
+    fn support_locks(&self) -> bool {
+        support_locks_for_pv(self.protocol_version)
+    }
+
     /// See [`blob_store::load_from_store`]. This function only differs by taking
     /// protocol version as argument.
     pub fn load_from_store(
@@ -124,30 +135,51 @@ impl BlockState {
         protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
         let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let locks = if support_locks_for_pv(protocol_version) {
+            Loadable::load_from_buffer(&mut buffer, loader)?
+        } else {
+            ProtocolLevelLocks::empty()
+        };
 
         Ok(Self {
             protocol_version,
-            data: BlockStateData { tokens },
+            data: BlockStateData { tokens, locks },
         })
     }
+}
+
+/// If protocol-level locks are supported by the protocol version.
+fn support_locks_for_pv(protocol_version: ProtocolVersion) -> bool {
+    protocol_version >= ProtocolVersion::P11
 }
 
 impl Storable for BlockState {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.data.tokens.store_to_buffer(&mut buffer, storer);
+        if self.support_locks() {
+            self.data.locks.store_to_buffer(&mut buffer, storer);
+        }
     }
 }
 
 impl Cacheable for BlockState {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.data.tokens.cache_reference_values(loader)?;
+        if self.support_locks() {
+            self.data.locks.cache_reference_values(loader)?;
+        }
         Ok(())
     }
 }
 
 impl Hashable for BlockState {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        self.data.tokens.hash(loader)
+        let mut hash = self.data.tokens.hash(loader)?;
+        if self.support_locks() {
+            hash = hash::hash_of_hashes(hash, self.data.locks.hash(loader)?)
+        }
+
+        Ok(hash)
     }
 }
 
@@ -392,6 +424,44 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
     fn protocol_version(&self) -> ProtocolVersion {
         self.internal_block_state.protocol_version()
     }
+
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        self.internal_block_state
+            .block_state()
+            .locks
+            .locks
+            .0
+            .keys()
+            .cloned()
+    }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
+        if self
+            .internal_block_state
+            .block_state()
+            .locks
+            .locks
+            .0
+            .contains_key(lock_id)
+        {
+            return Ok(lock_id.clone());
+        }
+
+        Err(LockNotFoundByIdError(lock_id.clone()))
+    }
+
+    fn lock_configuration(&self, lock: &LockId) -> LockConfiguration {
+        self.internal_block_state.block_state().locks.locks.0[lock]
+            .configuration
+            .clone()
+    }
+
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        self.internal_block_state.block_state().locks.locks.0[lock]
+            .locked_balances
+            .iter()
+            .cloned()
+    }
 }
 
 impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
@@ -411,6 +481,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                         *token,
                         circulating_supply,
                     )?,
+                    ..state
                 })
             })
             .unwrap();
@@ -423,7 +494,7 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                 let (token_index, tokens) = state
                     .tokens
                     .create_token(&self.blob_store_load, configuration)?;
-                Ok((token_index, BlockStateData { tokens }))
+                Ok((token_index, BlockStateData { tokens, ..state }))
             })
             .unwrap()
     }
@@ -462,7 +533,53 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
                         *token,
                         token_key_value_state,
                     )?,
+                    ..state
                 })
+            })
+            .unwrap();
+    }
+
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let prev = state.locks.locks.0.insert(
+                    lock_id,
+                    Lock {
+                        locked_balances: Default::default(),
+                        configuration,
+                    },
+                );
+                assert!(
+                    prev.is_none(),
+                    "Lock with the same id already exists in the block state"
+                );
+                Ok(state)
+            })
+            .unwrap()
+    }
+
+    fn add_lock_balance_ref(
+        &mut self,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) {
+        let account_index = *account;
+        let token_index = *token;
+        let lock_id = lock.clone();
+        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let lock_entry = state
+                    .locks
+                    .locks
+                    .0
+                    .get_mut(&lock_id)
+                    .expect("add_lock_balance_ref called for an unknown lock id");
+                lock_entry
+                    .locked_balances
+                    .insert((account_index, token_index));
+                Ok(state)
             })
             .unwrap();
     }

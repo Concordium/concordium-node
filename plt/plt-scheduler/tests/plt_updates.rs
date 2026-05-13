@@ -55,6 +55,7 @@ fn test_plt_transfer() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -105,6 +106,7 @@ fn test_plt_transfer() {
     let result = scheduler::execute_transaction(
         account2,
         stub.account_canonical_address(&account2),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -177,6 +179,7 @@ fn test_plt_transfer_using_aliases() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_account_address_alias,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -232,6 +235,7 @@ fn test_plt_transfer_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -287,6 +291,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -315,6 +320,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -359,6 +365,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -387,6 +394,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -436,6 +444,7 @@ fn test_plt_allow_list_disabled() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -480,6 +489,7 @@ fn test_plt_mint() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -537,6 +547,7 @@ fn test_plt_mint_using_alias() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_account_address_alias,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -589,6 +600,7 @@ fn test_plt_mint_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -634,6 +646,7 @@ fn test_plt_mint_unauthorized() {
     let result = scheduler::execute_transaction(
         non_governance_account,
         stub.account_canonical_address(&non_governance_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -695,6 +708,7 @@ fn test_plt_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -752,6 +766,7 @@ fn test_plt_burn_using_alias() {
     let result = scheduler::execute_transaction(
         gov_account,
         gov_account_address_alias,
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -804,6 +819,7 @@ fn test_plt_burn_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -861,6 +877,7 @@ fn test_plt_multiple_operations() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -918,6 +935,7 @@ fn test_plt_pause() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -954,6 +972,7 @@ fn test_plt_pause() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -988,6 +1007,7 @@ fn test_plt_unpause() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1025,6 +1045,7 @@ fn test_non_existing_token_id() {
     let result = scheduler::execute_transaction(
         account1,
         stub.account_canonical_address(&account1),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1067,6 +1088,7 @@ fn test_energy_charge() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1108,6 +1130,7 @@ fn test_energy_charge_at_reject() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -1149,6 +1172,7 @@ fn test_out_of_energy_error() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(150), // needs 300 + 100 to succeed
