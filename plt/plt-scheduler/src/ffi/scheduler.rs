@@ -31,14 +31,14 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 
 /// Context with no external block state (will panic if accessed).
 #[derive(Debug)]
-pub struct FfiQueryBlockStateTypes;
+pub struct FfiSchedulerBlockStateTypes;
 
-impl EntityContextTypes for FfiQueryBlockStateTypes {
+impl EntityContextTypes for FfiSchedulerBlockStateTypes {
     type ExternalBlockState = ExternalBlockStateOperationCallbacks;
     type Loader = LoadCallback;
 }
 
-pub type FfiSchedulerEntityContext = EntityContext<FfiQueryBlockStateTypes>;
+pub type FfiSchedulerEntityContext = EntityContext<FfiSchedulerBlockStateTypes>;
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///
