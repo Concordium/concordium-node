@@ -1,12 +1,12 @@
-use crate::block_state::blob_store::{
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
 };
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::Hashable;
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use crate::persistent::block_state::p10::PersistentBlockStateP10;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash::Hashable;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;

@@ -1,7 +1,7 @@
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::Hashable;
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash::Hashable;
 use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
@@ -46,16 +46,16 @@ impl Hashable for PersistentBlockStateP9 {
 
 #[cfg(test)]
 mod test {
-    use crate::block_state::blob_store;
-    use crate::block_state::blob_store::BlobStoreLocation;
-    use crate::block_state::blob_store::test_stub::BlobStoreStub;
-    use crate::block_state::hash::Hashable;
     use crate::entity::block_state::p9::BlockStateP9;
     use crate::entity::entity_test_stub::NoExternalBlockStateTypes;
     use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
     use crate::entity::{EntityContext, entity_test_stub};
     use crate::external::test_stub::NoExternalBlockStateStub;
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::BlobStoreLocation;
+    use crate::persistent::blob_store::test_stub::BlobStoreStub;
     use crate::persistent::block_state::p9::PersistentBlockStateP9;
+    use crate::persistent::hash::Hashable;
     use concordium_base::protocol_level_tokens::TokenModuleRef;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 

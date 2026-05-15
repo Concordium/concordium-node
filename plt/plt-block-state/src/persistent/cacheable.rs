@@ -1,8 +1,8 @@
 //! Definition of the [`Cacheable`] trait that allows caching block state components wrapped in
 //! [blob references](super::blob_reference) into memory.
 
-use crate::block_state::blob_store::{BlobStoreLoad, StoreSerialized};
 use crate::block_state_interface::BlockStateResult;
+use crate::persistent::blob_store::{BlobStoreLoad, StoreSerialized};
 use concordium_base::common::Deserial;
 
 /// Trait implemented by types that are stored in the blob store and may

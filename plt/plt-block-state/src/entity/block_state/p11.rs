@@ -1,4 +1,3 @@
-use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
     TokenNotFoundByIdError,
@@ -9,6 +8,7 @@ use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
 use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;

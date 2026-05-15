@@ -13,18 +13,11 @@ use crate::entity::block_state::p11::BlockStateP11;
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::external::TokenAccountState;
+use crate::persistent::smart_contract_trie;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-
-pub mod blob_reference;
-pub mod blob_store;
-pub mod cacheable;
-pub mod hash;
-pub mod lfmb_tree;
-pub mod smart_contract_trie;
-pub mod utils;
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].

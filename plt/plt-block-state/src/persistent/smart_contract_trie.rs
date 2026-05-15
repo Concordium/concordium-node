@@ -4,12 +4,12 @@
 //! and the specific definitions of the blob store traits. Hence, this adapter is needed to use
 //! the smart contract trie in the Rust block state.
 
-use crate::block_state::blob_store::{
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
 };
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::Hashable;
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash::Hashable;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
@@ -277,10 +277,10 @@ impl Hashable for PersistentState {
 
 #[cfg(test)]
 mod test {
-    use crate::block_state::blob_store;
-    use crate::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-    use crate::block_state::cacheable::Cacheable;
-    use crate::block_state::smart_contract_trie::PersistentState;
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use crate::persistent::cacheable::Cacheable;
+    use crate::persistent::smart_contract_trie::PersistentState;
 
     #[test]
     fn test_insert_delete_and_lookup() {

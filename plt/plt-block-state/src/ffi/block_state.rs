@@ -3,12 +3,12 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use super::status;
-use crate::block_state::blob_store;
-use crate::block_state::blob_store::BlobStoreLocation;
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::Hashable;
 use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
+use crate::persistent::blob_store;
+use crate::persistent::blob_store::BlobStoreLocation;
 use crate::persistent::block_state::PersistentBlockState;
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash::Hashable;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 
 /// Allocate a new empty PLT block state.

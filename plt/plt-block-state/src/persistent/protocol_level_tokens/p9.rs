@@ -1,16 +1,15 @@
-use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::blob_store::{
-    BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
-};
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash::Hashable;
-use crate::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
-use crate::block_state::utils::Cow;
-use crate::block_state::{hash, smart_contract_trie};
 use crate::block_state_interface::BlockStateResult;
 use crate::entity::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
-use crate::persistent::protocol_level_tokens;
+use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::persistent::blob_store::{
+    BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
+};
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash::Hashable;
+use crate::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::persistent::protocol_level_tokens::NormalizedTokenId;
+use crate::persistent::{hash, protocol_level_tokens, smart_contract_trie};
+use crate::utils::Cow;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::tokens::RawTokenAmount;

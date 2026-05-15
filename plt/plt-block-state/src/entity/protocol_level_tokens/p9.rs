@@ -1,6 +1,3 @@
-use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::blob_store::StoreSerialized;
-use crate::block_state::{smart_contract_trie, utils};
 use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::{
@@ -8,8 +5,11 @@ use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::persistent;
+use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, PersistentTokensP9};
+use crate::persistent::smart_contract_trie;
+use crate::{persistent, utils};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::Serialize;

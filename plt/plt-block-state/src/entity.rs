@@ -1,8 +1,8 @@
 //! Entity model for block state. This defines the block state interface to
 //! the scheduler and generally exposes a statically types model.
 
-use crate::block_state::blob_store::BlobStoreLoad;
 use crate::external::ExternalBlockStateOperations;
+use crate::persistent::blob_store::BlobStoreLoad;
 use std::fmt::Debug;
 
 pub mod accounts;
@@ -28,13 +28,13 @@ pub struct EntityContext<C: EntityContextTypes> {
 }
 
 pub mod entity_test_stub {
-    use crate::block_state::blob_store;
-    use crate::block_state::blob_store::BlobStoreLocation;
-    use crate::block_state::blob_store::test_stub::BlobStoreStub;
     use crate::entity::block_state::p9::BlockStateP9;
     use crate::entity::block_state::p11::BlockStateP11;
     use crate::entity::{EntityContext, EntityContextTypes};
     use crate::external::test_stub::NoExternalBlockStateStub;
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::BlobStoreLocation;
+    use crate::persistent::blob_store::test_stub::BlobStoreStub;
     use crate::persistent::block_state::p9::PersistentBlockStateP9;
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
 

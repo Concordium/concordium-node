@@ -4,5 +4,11 @@
 //! in memory, in the [blob store](super::blob_store), or both (cached), and the representation
 //! may change during the lifetime of components and values (via interior mutability).
 
+pub mod blob_reference;
+pub mod blob_store;
 pub mod block_state;
+pub mod cacheable;
+pub mod hash;
+pub mod lfmb_tree;
 pub mod protocol_level_tokens;
+pub mod smart_contract_trie;

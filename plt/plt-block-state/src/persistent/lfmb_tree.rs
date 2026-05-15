@@ -2,15 +2,15 @@
 //!
 //! See [`LfmbTree`].
 
-use crate::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::block_state::blob_store::{
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, ParseResultExt, Storable,
 };
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::hash;
-use crate::block_state::hash::Hashable;
-use crate::block_state::utils::Cow;
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash;
+use crate::persistent::hash::Hashable;
+use crate::utils::Cow;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use either::Either;
@@ -917,9 +917,9 @@ impl<V: Cacheable + Loadable> Cacheable for Subtree<V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_state::blob_store;
-    use crate::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-    use crate::block_state::blob_store::{BlobStoreLocation, StoreSerialized};
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use crate::persistent::blob_store::{BlobStoreLocation, StoreSerialized};
     use assert_matches::assert_matches;
     use std::fmt::Debug;
 
