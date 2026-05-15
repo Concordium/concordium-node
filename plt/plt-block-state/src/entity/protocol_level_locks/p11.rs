@@ -101,9 +101,9 @@ impl LockP11 {
     ///
     /// # Arguments
     ///
-    /// - `account` The account whose locked balance is tracked.
-    /// - `token` The token whose locked balance is tracked.
-    pub fn add_lock_balance_ref(&mut self, account: AccountIndex, token: TokenIndex) {
-        self.persistent.locked_balances.insert((account, token));
+    /// - `account_index` The index of the account whose locked balance is tracked.
+    /// - `token_index` Index of the token whose locked balance is tracked.
+    pub fn add_lock_balance_ref(&mut self, account_index: AccountIndex, token_index: TokenIndex) {
+        self.persistent.locked_balances.insert((account_index, token_index));
     }
 }

@@ -1,11 +1,16 @@
 //! Tests of the P11 block state.
 
 use concordium_base::base::AccountIndex;
+use concordium_base::common::types::TransactionTime;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenId, TokenModuleRef};
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
-use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;
+use plt_block_state::persistent::protocol_level_locks::p11::{
+    LockConfiguration, LockControllerConfig, LockControllerSimpleV0,
+};
+use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 
 /// Test create a token in the block state and read its configuration.
 #[test]
@@ -38,6 +43,10 @@ fn test_create_plt() {
 fn test_plt_list() {
     let context = entity_test_stub::new_context_no_external();
     let mut block_state = BlockStateP11::default();
+
+    // Read empty PLT list
+    let tokens = block_state.plt_list(&context).unwrap().to_vec();
+    assert_eq!(tokens, vec![]);
 
     // Create token 1
     let token_id1: TokenId = "token1".parse().unwrap();
@@ -184,13 +193,13 @@ fn test_token_properties() {
     );
 }
 
-/// Test getting list of locks. Mirrors `test_plt_list` for the lock side of the block state.
+/// Test create a lock in the block state and read its configuration.
 #[test]
-fn test_lock_list() {
-    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
+fn test_create_lock() {
+    let context = entity_test_stub::new_context_no_external();
+    let mut block_state = BlockStateP11::default();
 
-    // Empty configuration is sufficient for `lock_list` — we only care about which lock ids
-    // were created, not their content.
+    // Create lock
     let configuration = LockConfiguration::new::<std::convert::Infallible>(
         [],
         TransactionTime::from(0u64),
@@ -203,20 +212,172 @@ fn test_lock_list() {
     )
     .unwrap();
 
-    let lock_a = LockId {
+    let lock_id = LockId {
         account_index: 1,
         sequence_number: 1,
         creation_order: 0,
     };
-    let lock_b = LockId {
+
+    block_state
+        .create_lock(&context, lock_id.clone(), configuration.clone())
+        .unwrap();
+
+    // Read configuration
+    let read_configuration = block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .unwrap()
+        .lock_configuration(&context);
+    assert_eq!(read_configuration, configuration);
+}
+
+/// Test getting lock by id.
+#[test]
+fn test_lock_by_id() {
+    let context = entity_test_stub::new_context_no_external();
+    let mut block_state = BlockStateP11::default();
+
+    // Create lock
+    let configuration = LockConfiguration::new::<std::convert::Infallible>(
+        [],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+            grants: Vec::new(),
+            tokens: Vec::new(),
+            keep_alive: false,
+            memo: None,
+        }),
+    )
+    .unwrap();
+
+    let lock_id = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
+
+    block_state
+        .create_lock(&context, lock_id.clone(), configuration.clone())
+        .unwrap();
+
+    // Get lock by id
+    let lock = block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .expect("lock should exist");
+    assert_eq!(lock.lock_id(), &lock_id);
+
+    // Get non-existing lock by id
+    let non_existing_lock_id = LockId {
+        account_index: 1,
+        sequence_number: 2,
+        creation_order: 0,
+    };
+
+    block_state
+        .lock_by_id(&context, &non_existing_lock_id)
+        .unwrap()
+        .expect_err("lock should not exist");
+}
+
+/// Test set and get lock balance refs
+#[test]
+fn test_lock_balance_refs() {
+    let context = entity_test_stub::new_context_no_external();
+    let mut block_state = BlockStateP11::default();
+
+    // Create lock
+    let configuration = LockConfiguration::new::<std::convert::Infallible>(
+        [],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+            grants: Vec::new(),
+            tokens: Vec::new(),
+            keep_alive: false,
+            memo: None,
+        }),
+    )
+    .unwrap();
+
+    let lock_id = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
+
+    block_state
+        .create_lock(&context, lock_id.clone(), configuration.clone())
+        .unwrap();
+    let mut lock = block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .expect("lock should exist");
+
+    // Assert no initial balance refs
+    assert_eq!(lock.lock_balance_refs(), vec![]);
+
+    // Add balance refs
+    lock.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
+    lock.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
+
+    // Update lock
+    block_state.update_lock(&context, lock).unwrap();
+
+    // Read balance refs
+    let lock = block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .expect("lock should exist");
+    assert_eq!(
+        lock.lock_balance_refs(),
+        vec![
+            (AccountIndex::from(0), TokenIndex(0)),
+            (AccountIndex::from(1), TokenIndex(1))
+        ]
+    );
+}
+
+/// Test getting list of locks. Mirrors `test_plt_list` for the lock side of the block state.
+#[test]
+fn test_lock_list() {
+    let context = entity_test_stub::new_context_no_external();
+    let mut block_state = BlockStateP11::default();
+
+    // Read empty lock list
+    let locks = block_state.lock_list(&context).unwrap();
+    assert_eq!(locks, vec![]);
+
+    // Create locks
+    let configuration = LockConfiguration::new::<std::convert::Infallible>(
+        [],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+            grants: Vec::new(),
+            tokens: Vec::new(),
+            keep_alive: false,
+            memo: None,
+        }),
+    )
+    .unwrap();
+
+    let lock_id_a = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
+    let lock_id_b = LockId {
         account_index: 2,
         sequence_number: 7,
         creation_order: 0,
     };
-    block_state.create_lock(lock_a.clone(), configuration.clone());
-    block_state.create_lock(lock_b.clone(), configuration);
+    block_state
+        .create_lock(&context, lock_id_a.clone(), configuration.clone())
+        .unwrap();
+    block_state
+        .create_lock(&context, lock_id_b.clone(), configuration)
+        .unwrap();
 
     // Read lock list
-    let locks: Vec<_> = block_state.lock_list().collect();
-    assert_eq!(locks, vec![lock_a, lock_b]);
+    let locks = block_state.lock_list(&context).unwrap();
+    assert_eq!(locks, vec![lock_id_a, lock_id_b]);
 }

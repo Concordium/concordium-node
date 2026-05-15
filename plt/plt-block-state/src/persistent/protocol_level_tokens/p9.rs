@@ -15,13 +15,11 @@ use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
 
-// todo ar another type for token existence?
-
 /// Index of the protocol-level token in the block state map of tokens.
 ///
 /// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.TokenIndex`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct TokenIndex(pub(crate) u64);
+pub struct TokenIndex(pub u64);
 
 /// Static configuration for a protocol-level token.
 ///

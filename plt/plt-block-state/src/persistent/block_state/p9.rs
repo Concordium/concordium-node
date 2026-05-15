@@ -48,7 +48,6 @@ impl Hashable for PersistentBlockStateP9 {
 mod test {
     use crate::entity::block_state::p9::BlockStateP9;
     use crate::entity::entity_test_stub::NoExternalBlockStateTypes;
-    use crate::entity::protocol_level_tokens::p9::TokenConfiguration;
     use crate::entity::{EntityContext, entity_test_stub};
     use crate::external::test_stub::NoExternalBlockStateStub;
     use crate::persistent::blob_store;
@@ -56,6 +55,7 @@ mod test {
     use crate::persistent::blob_store::test_stub::BlobStoreStub;
     use crate::persistent::block_state::p9::PersistentBlockStateP9;
     use crate::persistent::hash::Hashable;
+    use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::protocol_level_tokens::TokenModuleRef;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 

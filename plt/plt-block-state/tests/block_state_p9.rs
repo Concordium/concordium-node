@@ -4,7 +4,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId, TokenModuleRef};
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::entity_test_stub;
-use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Test create a token in the block state and read its configuration.
