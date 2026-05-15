@@ -2,13 +2,14 @@
 
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenId, TokenModuleRef};
+use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_tokens::{CborMemo, TokenAdminRole, TokenId, TokenModuleRef};
+use concordium_base::transactions::Memo;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfiguration, LockControllerConfig, LockControllerSimpleV0,
+    LockConfiguration, LockControllerConfig, LockControllerSimpleV0, LockControllerSimpleV0Grant,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 
@@ -200,17 +201,22 @@ fn test_create_lock() {
     let mut block_state = BlockStateP11::default();
 
     // Create lock
-    let configuration = LockConfiguration::new::<std::convert::Infallible>(
-        [],
-        TransactionTime::from(0u64),
+    let configuration = LockConfiguration::new(
+        vec![AccountIndex::from(1), AccountIndex::from(2)],
+        TransactionTime::from(100u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: Vec::new(),
-            tokens: Vec::new(),
-            keep_alive: false,
-            memo: None,
+            grants: vec![LockControllerSimpleV0Grant {
+                account: AccountIndex::from(1),
+                roles: vec![
+                    LockControllerSimpleV0Capability::Cancel,
+                    LockControllerSimpleV0Capability::Fund,
+                ],
+            }],
+            tokens: vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+            keep_alive: true,
+            memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
         }),
-    )
-    .unwrap();
+    );
 
     let lock_id = LockId {
         account_index: 1,
@@ -238,8 +244,8 @@ fn test_lock_by_id() {
     let mut block_state = BlockStateP11::default();
 
     // Create lock
-    let configuration = LockConfiguration::new::<std::convert::Infallible>(
-        [],
+    let configuration = LockConfiguration::new(
+        vec![],
         TransactionTime::from(0u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
@@ -247,8 +253,7 @@ fn test_lock_by_id() {
             keep_alive: false,
             memo: None,
         }),
-    )
-    .unwrap();
+    );
 
     let lock_id = LockId {
         account_index: 1,
@@ -287,8 +292,8 @@ fn test_lock_balance_refs() {
     let mut block_state = BlockStateP11::default();
 
     // Create lock
-    let configuration = LockConfiguration::new::<std::convert::Infallible>(
-        [],
+    let configuration = LockConfiguration::new(
+        vec![],
         TransactionTime::from(0u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
@@ -296,8 +301,7 @@ fn test_lock_balance_refs() {
             keep_alive: false,
             memo: None,
         }),
-    )
-    .unwrap();
+    );
 
     let lock_id = LockId {
         account_index: 1,
@@ -348,8 +352,8 @@ fn test_lock_list() {
     assert_eq!(locks, vec![]);
 
     // Create locks
-    let configuration = LockConfiguration::new::<std::convert::Infallible>(
-        [],
+    let configuration = LockConfiguration::new(
+        vec![],
         TransactionTime::from(0u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
@@ -357,8 +361,7 @@ fn test_lock_list() {
             keep_alive: false,
             memo: None,
         }),
-    )
-    .unwrap();
+    );
 
     let lock_id_a = LockId {
         account_index: 1,

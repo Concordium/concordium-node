@@ -78,19 +78,18 @@ pub struct LockConfiguration {
 }
 
 impl LockConfiguration {
-    pub fn new<E>(
-        recipients: impl IntoIterator<Item = Result<AccountIndex, E>>,
+    pub fn new(
+        mut recipients: Vec<AccountIndex>,
         expiry: TransactionTime,
         controller: LockControllerConfig,
-    ) -> Result<Self, E> {
-        let mut recipients: Vec<_> = recipients.into_iter().collect::<Result<_, _>>()?;
+    ) -> Self {
         assert!(recipients.len() <= u16::MAX as usize, "Too many recipients");
         recipients.sort();
-        Ok(Self {
+        Self {
             recipients,
             expiry,
             controller,
-        })
+        }
     }
 
     /// Get an iterator over the recipient accounts.

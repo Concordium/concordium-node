@@ -61,7 +61,7 @@ mod test {
 
     /// Store state with PLTs to blob store and load it again.
     #[test]
-    fn test_store_and_load_plts() {
+    fn test_store_and_load_tokens() {
         let mut context = entity_test_stub::new_context_no_external();
         let mut block_state = BlockStateP9::default();
 
@@ -144,7 +144,7 @@ mod test {
     /// Assert that hash of block state with some simple PLTs matches a fixed/snapshot hash. The hash
     /// must remain stable.
     #[test]
-    fn snapshot_test_hash_simple_plts() {
+    fn snapshot_test_hash_simple_tokens() {
         let context = entity_test_stub::new_context_no_external();
         let mut block_state = BlockStateP9::default();
 
@@ -203,7 +203,7 @@ mod test {
     /// Load block state with some simple PLTs from storage bytes fixture.
     /// The fixture bytes must not change and must be compatible with Haskell PLT state implementation.
     #[test]
-    fn fixture_test_storage_simple_plts() {
+    fn fixture_test_storage_simple_tokens() {
         let store = BlobStoreStub(hex::decode("000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155").unwrap());
 
         let context = EntityContext::<NoExternalBlockStateTypes> {
