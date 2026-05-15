@@ -3,8 +3,8 @@
 
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenNotFoundByIdError, TokenStateKey,
-    TokenStateValue,
+    BlockStateQuery, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
+    TokenNotFoundByIdError, TokenStateKey, TokenStateValue,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::block_state::Accounts;
@@ -12,12 +12,15 @@ use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p11::BlockStateP11;
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::external::TokenAccountState;
+use crate::persistent::protocol_level_locks::p11::LockConfiguration;
+use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::persistent::smart_contract_trie;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+use std::vec;
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
@@ -152,6 +155,22 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     fn protocol_version(&self) -> ProtocolVersion {
         ProtocolVersion::P9
     }
+
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        panic!("no locks on P9") as vec::IntoIter<_>
+    }
+
+    fn lock_by_id(&self, _lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
+        panic!("no locks on P9")
+    }
+
+    fn lock_configuration(&self, _lock: &LockId) -> LockConfiguration {
+        panic!("no locks on P9")
+    }
+
+    fn lock_balances(&self, _lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        panic!("no locks on P9") as vec::IntoIter<_>
+    }
 }
 
 impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C> {
@@ -211,6 +230,19 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
             .unwrap();
         token.mutable_key_value_state = token_key_value_state;
         self.block_state.update_token(&self.context, token).unwrap();
+    }
+
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
+        panic!("no locks on P9")
+    }
+
+    fn add_lock_balance_ref(
+        &mut self,
+        _lock: &LockId,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
+        panic!("no locks on P9")
     }
 }
 
@@ -352,6 +384,29 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     fn protocol_version(&self) -> ProtocolVersion {
         ProtocolVersion::P11
     }
+
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        self.block_state.lock_list(&self.context).unwrap()
+    }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
+        self.block_state
+            .lock_by_id(&self.context, lock_id)
+            .unwrap()
+            .map(|lock| lock.lock_id().clone())
+    }
+
+    fn lock_configuration(&self, lock_id: &LockId) -> LockConfiguration {
+        self.block_state
+            .lock_by_id(&self.context, lock_id)
+            .unwrap()
+            .unwrap()
+            .lock_configuration(&self.context)
+    }
+
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+        todo!() as vec::IntoIter<_> // todo ar
+    }
 }
 
 impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<C> {
@@ -417,5 +472,20 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<
             .unwrap();
         token.token_p9.mutable_key_value_state = token_key_value_state;
         self.block_state.update_token(&self.context, token).unwrap();
+    }
+
+    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
+        self.block_state
+            .create_lock(&self.context, lock_id, configuration)
+            .unwrap();
+    }
+
+    fn add_lock_balance_ref(
+        &mut self,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) {
+        todo!() // todo ar
     }
 }

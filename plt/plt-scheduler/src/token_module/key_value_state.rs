@@ -12,8 +12,8 @@ use concordium_base::{base::AccountIndex, common::Serial};
 use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue,
 };
-use plt_scheduler_types::types::tokens::RawTokenAmount;
 use plt_block_state::utils;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();

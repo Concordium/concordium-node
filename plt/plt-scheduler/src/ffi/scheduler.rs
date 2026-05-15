@@ -178,7 +178,7 @@ extern "C" fn ffi_execute_transaction(
                     scheduler::execute_transaction(
                         Account::from_existing_account(sender_account_index),
                         sender_account_address,
-            transaction_sequence_number,
+                        transaction_sequence_number,
                         &mut exec_block_state,
                         payload,
                         remaining_energy,

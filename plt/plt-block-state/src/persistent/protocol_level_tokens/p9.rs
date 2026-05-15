@@ -11,9 +11,10 @@ use crate::persistent::{hash, protocol_level_tokens, smart_contract_trie};
 use crate::utils::Cow;
 use concordium_base::common::{Buffer, Serialize};
 use concordium_base::hashes::Hash;
+use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
+
 // todo ar another type for token existence?
 
 /// Index of the protocol-level token in the block state map of tokens.
@@ -167,5 +168,47 @@ impl Hashable for PersistentTokenP9 {
         let state = hash::hash_of_serialization((key_value_state, self.circulating_supply.0));
 
         Ok(hash::hash_of_hashes(config, state))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::external::TokenAccountState;
+    use concordium_base::common;
+    use concordium_base::protocol_level_tokens::TokenModuleRef;
+    use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+    #[test]
+    fn test_token_configuration_serial() {
+        let token_configuration = TokenConfiguration {
+            token_id: "tokenid1".parse().unwrap(),
+            module_ref: TokenModuleRef::from([5; 32]),
+            decimals: 4,
+        };
+
+        let bytes = common::to_bytes(&token_configuration);
+        assert_eq!(
+            hex::encode(&bytes),
+            "08746f6b656e696431050505050505050505050505050505050505050505050505050505050505050504"
+        );
+
+        let token_configuration_deserialized: TokenConfiguration =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(token_configuration_deserialized, token_configuration);
+    }
+
+    #[test]
+    fn test_token_account_state_serial() {
+        let state = TokenAccountState {
+            balance: RawTokenAmount(10),
+        };
+
+        let bytes = common::to_bytes(&state);
+        assert_eq!(hex::encode(&bytes), "0a");
+
+        let state_deserialized: TokenAccountState =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(state_deserialized, state);
     }
 }

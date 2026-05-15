@@ -1,18 +1,23 @@
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
-    TokenNotFoundByIdError,
+    LockNotFoundByIdError, TokenNotFoundByIdError,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::block_state::Accounts;
+use crate::entity::protocol_level_locks::p11::LockP11;
 use crate::entity::protocol_level_tokens::p11::TokenP11;
-use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
+use crate::entity::{
+    EntityContext, EntityContextTypes, protocol_level_locks, protocol_level_tokens,
+};
 use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
+use crate::persistent::protocol_level_locks::p11::LockConfiguration;
+use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
-use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 
 /// P11 block state.
 #[derive(Debug, Default)]
@@ -27,9 +32,11 @@ impl BlockStateP11 {
         &self,
         context: &EntityContext<C>,
     ) -> BlockStateResult<Vec<TokenId>> {
-        let persistent_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
-        protocol_level_tokens::p9::plt_list(context, &persistent_tokens)
-            .collect::<BlockStateResult<Vec<_>>>()
+        protocol_level_tokens::p9::plt_list(
+            context,
+            &*self.persistent.tokens.value(&context.loader)?,
+        )
+        .collect::<BlockStateResult<Vec<_>>>()
     }
 
     /// Get the token associated with a [`TokenId`] (if it exists).
@@ -122,6 +129,59 @@ impl BlockStateP11 {
         context: &mut EntityContext<C>,
     ) {
         context.external.increment_plt_update_sequence_number()
+    }
+
+    /// Create a new PLT lock with the given configuration. The initial state will be empty.
+    /// Returns [`BlockStateFailure::Invariant`] if a lock with the given id already exists.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The ID of the PLT lock.
+    /// - `configuration` The configuration for the PLT lock.
+    pub fn create_lock<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+        lock_id: LockId,
+        configuration: LockConfiguration,
+    ) -> BlockStateResult<()> {
+        let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
+        protocol_level_locks::p11::create_lock(context, &mut new_locks, lock_id, configuration)?;
+
+        self.persistent.locks = HashedCacheableRef::new(new_locks);
+
+        Ok(())
+    }
+
+    /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
+    /// end of the block.
+    pub fn lock_list<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<Vec<LockId>> {
+        Ok(protocol_level_locks::p11::lock_list(
+            context,
+            &*self.persistent.locks.value(&context.loader)?,
+        )
+        .collect())
+    }
+
+    /// Get the lock associated with a [`LockId`] (if it exists).
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The lock id to get the [`Self::Lock`] of.
+    pub fn lock_by_id<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        lock_id: &LockId,
+    ) -> BlockStateResult<Result<LockP11, LockNotFoundByIdError>> {
+        let lock_option = protocol_level_locks::p11::lock_by_id(
+            context,
+            &*self.persistent.locks.value(&context.loader)?,
+            lock_id.clone(),
+        )?;
+
+        Ok(lock_option.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))
     }
 }
 

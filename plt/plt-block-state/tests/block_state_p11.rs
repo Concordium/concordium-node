@@ -184,7 +184,6 @@ fn test_token_properties() {
     );
 }
 
-
 /// Test getting list of locks. Mirrors `test_plt_list` for the lock side of the block state.
 #[test]
 fn test_lock_list() {
@@ -202,7 +201,7 @@ fn test_lock_list() {
             memo: None,
         }),
     )
-        .unwrap();
+    .unwrap();
 
     let lock_a = LockId {
         account_index: 1,

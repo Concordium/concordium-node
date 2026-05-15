@@ -7,6 +7,7 @@ use std::fmt::Debug;
 
 pub mod accounts;
 pub mod block_state;
+pub mod protocol_level_locks;
 pub mod protocol_level_tokens;
 
 /// Types needed to define the [`EntityContext`]

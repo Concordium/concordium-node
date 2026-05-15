@@ -90,7 +90,6 @@ impl TokenP11 {
         self.update_account_roles_state(context, account, roles)
     }
 
-
     // todo ar move to scheduler with accounts trait
     /// Get authorization roles and assigned accounts for the token.
     pub fn get_token_authorizations<C: EntityContextTypes>(

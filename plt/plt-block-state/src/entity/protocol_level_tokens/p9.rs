@@ -7,7 +7,9 @@ use crate::entity::protocol_level_tokens::state_keys::{
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::StoreSerialized;
-use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, PersistentTokensP9, TokenConfiguration, TokenIndex};
+use crate::persistent::protocol_level_tokens::p9::{
+    PersistentTokenP9, PersistentTokensP9, TokenConfiguration, TokenIndex,
+};
 use crate::persistent::smart_contract_trie;
 use crate::{persistent, utils};
 use concordium_base::base::AccountIndex;
@@ -117,8 +119,6 @@ pub(crate) fn token_index_by_id(
         ))
         .copied()
 }
-
-
 
 /// Representation of protocol-level token on P9 and later protocols with compatible model.
 #[derive(Debug)]
@@ -456,47 +456,5 @@ impl TokenP9 {
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::external::TokenAccountState;
-    use concordium_base::common;
-    use concordium_base::protocol_level_tokens::TokenModuleRef;
-    use plt_scheduler_types::types::tokens::RawTokenAmount;
-
-    #[test]
-    fn test_token_configuration_serial() {
-        let token_configuration = TokenConfiguration {
-            token_id: "tokenid1".parse().unwrap(),
-            module_ref: TokenModuleRef::from([5; 32]),
-            decimals: 4,
-        };
-
-        let bytes = common::to_bytes(&token_configuration);
-        assert_eq!(
-            hex::encode(&bytes),
-            "08746f6b656e696431050505050505050505050505050505050505050505050505050505050505050504"
-        );
-
-        let token_configuration_deserialized: TokenConfiguration =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(token_configuration_deserialized, token_configuration);
-    }
-
-    #[test]
-    fn test_token_account_state_serial() {
-        let state = TokenAccountState {
-            balance: RawTokenAmount(10),
-        };
-
-        let bytes = common::to_bytes(&state);
-        assert_eq!(hex::encode(&bytes), "0a");
-
-        let state_deserialized: TokenAccountState =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(state_deserialized, state);
     }
 }
