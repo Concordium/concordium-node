@@ -184,20 +184,6 @@ fn test_token_properties() {
         RawTokenAmount(100)
     );
 
-    // todo ar token authoriations
-    // let expected_token_auths = TokenAuthorizations {
-    //     update_admin_roles: None,
-    //     mint: Some(TokenRoleAuthorizations {
-    //         accounts: vec![],
-    //     }),
-    //     burn: None,
-    //     update_allow_list: None,
-    //     update_deny_list: None,
-    //     pause: None,
-    //     update_metadata: None,
-    // };
-    // assert_eq!(token.get_token_authorizations(&context, &block_state).unwrap(), expected_token_auths);
-
     // Update values
     token
         .revoke_account_roles(&context, account_index1, &[TokenAdminRole::Mint])
