@@ -64,6 +64,7 @@ pub type FfiSchedulerEntityContext = EntityContext<FfiSchedulerBlockStateTypes>;
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
+/// - `transaction_sequence_number` The account sequence number of the transaction to execute.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 ///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
@@ -198,6 +199,7 @@ extern "C" fn ffi_execute_transaction(
                     scheduler::execute_transaction(
                         Account::from_existing_account(sender_account_index),
                         sender_account_address,
+                        transaction_sequence_number,
                         &mut exec_block_state,
                         payload,
                         remaining_energy,
@@ -217,6 +219,7 @@ extern "C" fn ffi_execute_transaction(
                     scheduler::execute_transaction(
                         Account::from_existing_account(sender_account_index),
                         sender_account_address,
+                        transaction_sequence_number,
                         &mut exec_block_state,
                         payload,
                         remaining_energy,

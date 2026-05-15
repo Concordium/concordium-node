@@ -12,7 +12,7 @@ use plt_block_state::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenStateKey,
     TokenStateValue,
 };
-use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };

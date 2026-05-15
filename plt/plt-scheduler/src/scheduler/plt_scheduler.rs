@@ -18,9 +18,10 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_block_state::block_state::types::protocol_level_locks::LockConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
-use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
+use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
+use plt_block_state::utils;
 use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::locks::MetaUpdateOperationKind;
@@ -161,7 +162,7 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
     let mut events = Vec::new();
 
     let operations: Vec<MetaUpdateOperation> =
-        match token_module::util::cbor_decode::<MetaUpdateOperations>(payload.operations) {
+        match utils::cbor_decode::<MetaUpdateOperations>(payload.operations) {
             Ok(payload) => payload.operations,
             Err(_) => {
                 return Ok(TransactionOutcome::Rejected(
@@ -268,21 +269,23 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 Err(reject_reason) => return Ok(Some(reject_reason)),
             };
 
-            let configuration = match LockConfiguration::new(
-                config.recipients.iter().map(|recipient| {
-                    match block_state.account_by_address(&recipient.address) {
+            let recipients = match config
+                .recipients
+                .iter()
+                .map(
+                    |recipient| match block_state.account_by_address(&recipient.address) {
                         Ok(account) => Ok(block_state.account_index(&account)),
                         Err(_) => Err(TransactionRejectReason::InvalidAccountReference(
                             recipient.address,
                         )),
-                    }
-                }),
-                config.expiry,
-                controller,
-            ) {
-                Ok(configuration) => configuration,
+                    },
+                )
+                .collect::<Result<Vec<_>, TransactionRejectReason>>()
+            {
+                Ok(recipients) => recipients,
                 Err(reject_reason) => return Ok(Some(reject_reason)),
             };
+            let configuration = LockConfiguration::new(recipients, config.expiry, controller);
 
             // We reconstruct the lock config for the event, rather than using
             // the original one from the transaction. This results in a config

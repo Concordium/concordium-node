@@ -2,7 +2,7 @@
 
 use crate::token_module::errors::TokenAmountDecimalsMismatchError;
 use concordium_base::protocol_level_tokens::TokenAmount;
-use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Checks that token amount has the right number of decimals and converts it to a plain

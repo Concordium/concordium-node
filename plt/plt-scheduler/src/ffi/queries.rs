@@ -212,7 +212,7 @@ extern "C" fn ffi_query_token_info(
             .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
             .try_into()
             .expect("Invalid Token ID provided");
-        let token_info = match unsafe { &*block_state } {
+        let token_info_res = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
                 let block_state = BlockStateP9 {
                     persistent: persistent.clone(),
@@ -244,7 +244,7 @@ extern "C" fn ffi_query_token_info(
                 queries::query_token_info(&exec_block_state, &token_id)
             }
         };
-        match token_info {
+        match token_info_res {
             Ok(token_info) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_info),
@@ -337,7 +337,7 @@ extern "C" fn ffi_query_token_authorizations(
             .expect("Bytes for the Token ID is not a valid UTF-8 encoding")
             .try_into()
             .expect("Invalid Token ID provided");
-        let token_auths = match unsafe { &*block_state } {
+        let token_auths_res = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
                 let block_state = BlockStateP9 {
                     persistent: persistent.clone(),
@@ -369,10 +369,10 @@ extern "C" fn ffi_query_token_authorizations(
                 queries::query_token_authorizations(&exec_block_state, &token_id)
             }
         };
-        match token_auths {
-            Ok(token_info) => (
+        match token_auths_res {
+            Ok(token_auths) => (
                 status::FfiStatusCode::Success,
-                common::to_bytes(&token_info),
+                common::to_bytes(&token_auths),
             ),
             Err(QueryTokenInfoError::TokenDoesNotExist(_)) => {
                 (status::FfiStatusCode::Failed, Vec::new())
@@ -416,7 +416,7 @@ extern "C" fn ffi_query_token_authorizations(
 ///
 /// - All callback arguments must be a valid function pointers to functions with a signature matching the
 ///   signature of Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::BlockState`].
+/// - Argument `block_state` must be a non-null pointer to well-formed [`crate::block_state::PersistentBlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing
 /// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
@@ -529,7 +529,7 @@ extern "C" fn ffi_query_token_account_infos(
 ///
 /// - All callback arguments must be valid function pointers to functions with a signature matching
 ///   the signature of the Rust type of the function pointer.
-/// - Argument `block_state` must be a non-null pointer to a well-formed [`crate::block_state::BlockState`].
+/// - Argument `block_state` must be a non-null pointer to a well-formed [`crate::block_state::PersistentBlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through
 ///   interior mutability).
 /// - Argument `return_data_out` must be a non-null and valid pointer for writing.
@@ -541,7 +541,7 @@ extern "C" fn ffi_query_lock_list(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> status::FfiStatusCode {
@@ -555,19 +555,48 @@ extern "C" fn ffi_query_lock_list(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateQueryCallbacks {
+        let external = ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let internal_block_state = unsafe { &*block_state };
-        let block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
+        let context = FfiQueryEntityContext {
+            external,
+            loader: load_callback,
         };
-        let lock_ids = queries::query_lock_list(&block_state);
+        let lock_ids = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_list(&exec_block_state)
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_list(&exec_block_state)
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP11 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_list(&exec_block_state)
+            }
+        };
         let return_data = common::to_bytes(&lock_ids);
         (status::FfiStatusCode::Success, return_data)
     });
@@ -621,7 +650,7 @@ extern "C" fn ffi_query_lock_info(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     lock_id: *const [u8; 24],
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -637,23 +666,53 @@ extern "C" fn ffi_query_lock_info(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateQueryCallbacks {
+        let external = ExternalBlockStateQueryCallbacks {
             read_token_account_balance_ptr: read_token_account_balance_callback,
             get_account_address_by_index_ptr: get_account_address_by_index_callback,
             get_account_index_by_address_ptr: get_account_index_by_address_callback,
             get_token_account_states_ptr: get_token_account_states_callback,
         };
-        let internal_block_state = unsafe { &*block_state };
-        let block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
+        let context = FfiQueryEntityContext {
+            external,
+            loader: load_callback,
         };
         // The Haskell side serializes a `LockId` as three big-endian `u64`s, exactly 24 bytes.
-        let lock_id_bytes = unsafe { lock_id.as_ref_unchecked() };
+        let lock_id_bytes = unsafe { lock_id.as_ref().expect("lock_id is a null pointer") };
         let lock_id: LockId = common::from_bytes_complete(lock_id_bytes)
             .expect("Bytes for the LockId could not be deserialized");
-        match queries::query_lock_info(&block_state, &lock_id) {
+        let lock_info_res = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_info(&exec_block_state, &lock_id)
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_info(&exec_block_state, &lock_id)
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP11 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_info(&exec_block_state, &lock_id)
+            }
+        };
+        match lock_info_res {
             Ok(cbor_bytes) => (status::FfiStatusCode::Success, cbor_bytes),
             Err(QueryLockError::LockDoesNotExist) => (status::FfiStatusCode::Failed, Vec::new()),
             Err(QueryLockError::StateInvariantViolation(message)) => {
