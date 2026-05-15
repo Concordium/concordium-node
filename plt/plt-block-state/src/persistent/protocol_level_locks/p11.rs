@@ -68,8 +68,9 @@ pub struct LockConfiguration {
     /// The recipients are stored as a sorted vector of account indices, and
     /// the number of recipients is limited to `u16::MAX` to ensure that the
     /// serialized form fits within the size limits of the block state.
+    // todo use newtype for the type for this field and make all fields public (for consistency with the other block state types)
     #[size_length = 2]
-    recipients: Vec<AccountIndex>, // todo ar newtype this one?
+    recipients: Vec<AccountIndex>,
     /// Expiry time of the lock (seconds since epoch).
     expiry: TransactionTime,
     /// Controller configuration for the lock.
@@ -133,6 +134,7 @@ pub struct LockControllerSimpleV0 {
     pub grants: Vec<LockControllerSimpleV0Grant>,
     /// Tokens affected by this lock controller.
     #[size_length = 2]
+    // todo change to TokenIndex?
     pub tokens: Vec<TokenId>,
     /// Whether the lock should be kept alive after all funds are
     /// returned.

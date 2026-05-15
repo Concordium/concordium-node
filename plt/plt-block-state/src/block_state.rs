@@ -168,7 +168,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
         panic!("no locks on P9")
     }
 
-    fn lock_balances(&self, _lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
+    fn lock_balances(&self, _lock: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
         panic!("no locks on P9") as vec::IntoIter<_>
     }
 }
@@ -232,7 +232,7 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
         self.block_state.update_token(&self.context, token).unwrap();
     }
 
-    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
+    fn create_lock(&mut self, _lock_id: LockId, _®configuration: LockConfiguration) {
         panic!("no locks on P9")
     }
 
@@ -386,7 +386,10 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     }
 
     fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
-        self.block_state.lock_list(&self.context).unwrap()
+        self.block_state
+            .lock_list(&self.context)
+            .unwrap()
+            .into_iter()
     }
 
     fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
@@ -404,8 +407,13 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
             .lock_configuration(&self.context)
     }
 
-    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)> {
-        todo!() as vec::IntoIter<_> // todo ar
+    fn lock_balances(&self, lock_id: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+        let lock = self
+            .block_state
+            .lock_by_id(&self.context, lock_id)
+            .unwrap()
+            .unwrap();
+        lock.lock_balance_refs().into_iter()
     }
 }
 
@@ -482,10 +490,16 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<
 
     fn add_lock_balance_ref(
         &mut self,
-        lock: &LockId,
+        lock_id: &LockId,
         account: &Self::Account,
         token: &Self::Token,
     ) {
-        todo!() // todo ar
+        let mut lock = self
+            .block_state
+            .lock_by_id(&self.context, lock_id)
+            .unwrap()
+            .unwrap();
+        lock.add_lock_balance_ref(account.account_index(), *token);
+        self.block_state.update_lock(&self.context, lock).unwrap();
     }
 }

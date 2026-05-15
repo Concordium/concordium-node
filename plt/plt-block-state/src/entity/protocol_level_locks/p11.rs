@@ -3,6 +3,8 @@ use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::protocol_level_locks::p11::{
     LockConfiguration, PersistentLockP11, PersistentLocksP11,
 };
+use crate::persistent::protocol_level_tokens::p9::TokenIndex;
+use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
 
 pub(crate) fn lock_list<C: EntityContextTypes>(
@@ -30,6 +32,18 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
         )));
     }
 
+    Ok(())
+}
+
+pub(crate) fn update_lock<C: EntityContextTypes>(
+    _context: &EntityContext<C>,
+    persistent_locks: &mut PersistentLocksP11,
+    lock: LockP11,
+) -> BlockStateResult<()> {
+    persistent_locks
+        .locks
+        .0
+        .insert(lock.lock_id, lock.persistent);
     Ok(())
 }
 
@@ -69,5 +83,27 @@ impl LockP11 {
         _context: &EntityContext<C>,
     ) -> LockConfiguration {
         self.persistent.configuration.clone()
+    }
+
+    /// Get the set of account/token balances currently tracked under the lock.
+    ///
+    /// Each returned pair identifies an account and token for which the lock may
+    /// hold a non-zero locked balance. The corresponding amount is tracked in the
+    /// token module state.
+    pub fn lock_balance_refs(&self) -> Vec<(AccountIndex, TokenIndex)> {
+        self.persistent.locked_balances.iter().cloned().collect()
+    }
+
+    /// Track that the lock holds a balance for the given account and token.
+    ///
+    /// This records the account/token pair in the lock state so it can later be
+    /// queried through [`Self::lock_balance_refs`].
+    ///
+    /// # Arguments
+    ///
+    /// - `account` The account whose locked balance is tracked.
+    /// - `token` The token whose locked balance is tracked.
+    pub fn add_lock_balance_ref(&mut self, account: AccountIndex, token: TokenIndex) {
+        self.persistent.locked_balances.insert((account, token));
     }
 }

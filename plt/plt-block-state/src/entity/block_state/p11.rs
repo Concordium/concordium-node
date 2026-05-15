@@ -108,7 +108,7 @@ impl BlockStateP11 {
     }
 
     /// Update the token in the block state. Any modifications
-    /// to [`TokenP11`] are not applied before the token is updated.
+    /// to [`TokenP11`] are only applied when the token is updated.
     pub fn update_token<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
@@ -182,6 +182,20 @@ impl BlockStateP11 {
         )?;
 
         Ok(lock_option.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))
+    }
+
+    /// Update the lock in the block state. Any modifications
+    /// to [`LockP11`] are only applied when the lock is updated.
+    pub fn update_lock<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+        lock: LockP11,
+    ) -> BlockStateResult<()> {
+        let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
+        protocol_level_locks::p11::update_lock(context, &mut new_locks, lock)?;
+        self.persistent.locks = HashedCacheableRef::new(new_locks);
+
+        Ok(())
     }
 }
 

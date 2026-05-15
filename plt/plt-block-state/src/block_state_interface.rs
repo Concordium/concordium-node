@@ -229,7 +229,7 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock` The lock to get the tracked locked balances for.
-    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)>;
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)>;
 }
 
 // todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
