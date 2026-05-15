@@ -103,12 +103,13 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
 /// External block state stubs to be used in tests.
 pub mod test_stub {
     use super::*;
+    use std::collections::BTreeMap;
 
     /// Non-accessible block state representing the Haskell maintained part of the block state.
     #[derive(Debug)]
-    pub struct NoExternalBlockStateStub;
+    pub struct UnreachableExternalBlockState;
 
-    impl ExternalBlockStateQuery for NoExternalBlockStateStub {
+    impl ExternalBlockStateQuery for UnreachableExternalBlockState {
         fn read_token_account_balance(
             &self,
             _account: AccountIndex,
@@ -139,7 +140,7 @@ pub mod test_stub {
         }
     }
 
-    impl ExternalBlockStateOperations for NoExternalBlockStateStub {
+    impl ExternalBlockStateOperations for UnreachableExternalBlockState {
         fn update_token_account_balance(
             &mut self,
             _account: AccountIndex,
@@ -155,6 +156,151 @@ pub mod test_stub {
 
         fn increment_plt_update_sequence_number(&mut self) {
             unreachable!()
+        }
+    }
+
+    /// Stubbed block state representing the Haskell maintained part of the block state.
+    #[derive(Debug)]
+    pub struct ExternalBlockStateStub {
+        /// List of accounts in the stub.
+        accounts: Vec<Account>,
+        /// PLT update instruction sequence number
+        plt_update_instruction_sequence_number: u64,
+    }
+
+    impl ExternalBlockStateStub {
+        /// Create account in the stub and return stub representation of the account.
+        pub fn create_account(&mut self) -> AccountIndex {
+            let index = self.accounts.len();
+            let mut address = AccountAddress([0u8; 32]);
+            address.0[..8].copy_from_slice(&index.to_be_bytes());
+            let account_index = AccountIndex::from(index as u64);
+            let account = Account {
+                index: account_index,
+                address,
+                tokens: Default::default(),
+            };
+            let stub_index = AccountIndex::from(index as u64);
+            self.accounts.push(account);
+
+            stub_index
+        }
+
+        /// Get the canonical address of an account in the stub
+        pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
+            self.accounts[account.index as usize].address
+        }
+    }
+
+    /// Internal representation of an account in [`BlockStateWithExternalStateStubbed`].
+    #[derive(Debug)]
+    struct Account {
+        /// The index of the account
+        index: AccountIndex,
+        /// The canonical account address of the account.
+        address: AccountAddress,
+        /// Tokens the account is holding
+        tokens: BTreeMap<TokenIndex, AccountToken>,
+    }
+
+    /// Internal representation of a token in an account.
+    #[derive(Debug, Default)]
+    struct AccountToken {
+        /// Account balance
+        balance: RawTokenAmount,
+    }
+
+    impl ExternalBlockStateQuery for ExternalBlockStateStub {
+        fn read_token_account_balance(
+            &self,
+            account: AccountIndex,
+            token: TokenIndex,
+        ) -> RawTokenAmount {
+            self.accounts[account.index as usize]
+                .tokens
+                .get(&token)
+                .map(|token| token.balance)
+                .unwrap_or_default()
+        }
+
+        fn account_canonical_address_by_account_index(
+            &self,
+            account_index: AccountIndex,
+        ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
+            if let Some(account) = self.accounts.get(account_index.index as usize) {
+                Ok(account.address)
+            } else {
+                Err(AccountNotFoundByIndexError(account_index))
+            }
+        }
+
+        fn account_index_by_account_address(
+            &self,
+            account_address: &AccountAddress,
+        ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
+            self.accounts
+                .iter()
+                .enumerate()
+                .find_map(|(i, account)| {
+                    if account.address.is_alias(account_address) {
+                        Some(AccountIndex::from(i as u64))
+                    } else {
+                        None
+                    }
+                })
+                .ok_or(AccountNotFoundByAddressError(*account_address))
+        }
+
+        fn token_account_states(
+            &self,
+            account_index: AccountIndex,
+        ) -> Vec<(TokenIndex, TokenAccountState)> {
+            self.accounts[account_index.index as usize]
+                .tokens
+                .iter()
+                .map(|(token, state)| {
+                    let token_account_state = TokenAccountState {
+                        balance: state.balance,
+                    };
+
+                    (*token, token_account_state)
+                })
+                .collect()
+        }
+    }
+
+    impl ExternalBlockStateOperations for ExternalBlockStateStub {
+        fn update_token_account_balance(
+            &mut self,
+            account: AccountIndex,
+            token: TokenIndex,
+            amount_delta: RawTokenAmountDelta,
+        ) -> Result<(), OverflowError> {
+            let balance = &mut self.accounts[account.index as usize]
+                .tokens
+                .entry(token)
+                .or_default()
+                .balance;
+            match amount_delta {
+                RawTokenAmountDelta::Add(add) => {
+                    balance.0 = balance.0.checked_add(add.0).ok_or(OverflowError)?;
+                }
+                RawTokenAmountDelta::Subtract(subtract) => {
+                    balance.0 = balance.0.checked_sub(subtract.0).ok_or(OverflowError)?;
+                }
+            }
+            Ok(())
+        }
+
+        fn touch_token_account(&mut self, account: AccountIndex, token: TokenIndex) {
+            self.accounts[account.index as usize]
+                .tokens
+                .entry(token)
+                .or_default();
+        }
+
+        fn increment_plt_update_sequence_number(&mut self) {
+            self.plt_update_instruction_sequence_number += 1;
         }
     }
 }

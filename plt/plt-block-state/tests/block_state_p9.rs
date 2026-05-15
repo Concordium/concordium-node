@@ -10,7 +10,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 /// Test create a token in the block state and read its configuration.
 #[test]
 fn test_create_plt() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP9::default();
 
     // Create token
@@ -35,7 +35,7 @@ fn test_create_plt() {
 /// Test getting list of tokens.
 #[test]
 fn test_plt_list() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP9::default();
 
     // Create token 1
@@ -71,7 +71,7 @@ fn test_plt_list() {
 /// Test getting token by id.
 #[test]
 fn test_token_by_id() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP9::default();
 
     // Create token
@@ -112,7 +112,7 @@ fn test_token_by_id() {
 /// Test set and read circulating supply
 #[test]
 fn test_circulating_supply() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP9::default();
 
     // Create token
@@ -144,7 +144,7 @@ fn test_circulating_supply() {
 /// Test set and get token properties stored in the key-value state.
 #[test]
 fn test_token_properties() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP9::default();
 
     // Create token

@@ -713,7 +713,7 @@ extern "C" fn ffi_query_lock_info(
             }
         };
         match lock_info_res {
-            Ok(cbor_bytes) => (status::FfiStatusCode::Success, cbor_bytes),
+            Ok(cbor_bytes) => (status::FfiStatusCode::Success, cbor_bytes.into()),
             Err(QueryLockError::LockDoesNotExist) => (status::FfiStatusCode::Failed, Vec::new()),
             Err(QueryLockError::StateInvariantViolation(message)) => {
                 (status::FfiStatusCode::Panic, message.into_bytes())

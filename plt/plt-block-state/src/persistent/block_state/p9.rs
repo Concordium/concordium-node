@@ -49,7 +49,7 @@ mod test {
     use crate::entity::block_state::p9::BlockStateP9;
     use crate::entity::entity_test_stub::NoExternalBlockStateTypes;
     use crate::entity::{EntityContext, entity_test_stub};
-    use crate::external::test_stub::NoExternalBlockStateStub;
+    use crate::external::test_stub::UnreachableExternalBlockState;
     use crate::persistent::blob_store;
     use crate::persistent::blob_store::BlobStoreLocation;
     use crate::persistent::blob_store::test_stub::BlobStoreStub;
@@ -62,7 +62,7 @@ mod test {
     /// Store state with PLTs to blob store and load it again.
     #[test]
     fn test_store_and_load_tokens() {
-        let mut context = entity_test_stub::new_context_no_external();
+        let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP9::default();
 
         // Create tokens
@@ -130,7 +130,7 @@ mod test {
     /// must remain stable.
     #[test]
     fn snapshot_test_hash_empty() {
-        let context = entity_test_stub::new_context_no_external();
+        let context = entity_test_stub::new_no_external_context();
         let persistent_block_state = PersistentBlockStateP9::default();
 
         // Assert hash
@@ -145,7 +145,7 @@ mod test {
     /// must remain stable.
     #[test]
     fn snapshot_test_hash_simple_tokens() {
-        let context = entity_test_stub::new_context_no_external();
+        let context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP9::default();
 
         // Create tokens
@@ -189,7 +189,7 @@ mod test {
     fn fixture_test_storage_empty() {
         let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
         let context = EntityContext::<NoExternalBlockStateTypes> {
-            external: NoExternalBlockStateStub,
+            external: UnreachableExternalBlockState,
             loader: store,
         };
 
@@ -207,7 +207,7 @@ mod test {
         let store = BlobStoreStub(hex::decode("000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155").unwrap());
 
         let context = EntityContext::<NoExternalBlockStateTypes> {
-            external: NoExternalBlockStateStub,
+            external: UnreachableExternalBlockState,
             loader: store,
         };
 

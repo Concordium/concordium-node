@@ -77,7 +77,7 @@ mod test {
     // Store state with PLLs to blob store and load it again.
     #[test]
     fn test_store_and_load_locks() {
-        let mut context = entity_test_stub::new_context_no_external();
+        let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP11::default();
 
         // Create locks
@@ -161,7 +161,7 @@ mod test {
     /// The hash and bytes should remain fixed.
     #[test]
     fn snapshot_test_hash_and_storage_empty() {
-        let mut context = entity_test_stub::new_context_no_external();
+        let mut context = entity_test_stub::new_no_external_context();
         let persistent_block_state = PersistentBlockStateP11::default();
 
         // Assert hash
@@ -184,7 +184,7 @@ mod test {
     /// The hash and bytes should remain fixed.
     #[test]
     fn snapshot_test_hash_and_storage_simple_tokens_and_locks() {
-        let mut context = entity_test_stub::new_context_no_external();
+        let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP11::default();
 
         // Create tokens

@@ -32,7 +32,7 @@ pub mod entity_test_stub {
     use crate::entity::block_state::p9::BlockStateP9;
     use crate::entity::block_state::p11::BlockStateP11;
     use crate::entity::{EntityContext, EntityContextTypes};
-    use crate::external::test_stub::NoExternalBlockStateStub;
+    use crate::external::test_stub::{ExternalBlockStateStub, UnreachableExternalBlockState};
     use crate::persistent::blob_store;
     use crate::persistent::blob_store::BlobStoreLocation;
     use crate::persistent::blob_store::test_stub::BlobStoreStub;
@@ -44,15 +44,33 @@ pub mod entity_test_stub {
     pub struct NoExternalBlockStateTypes;
 
     impl EntityContextTypes for NoExternalBlockStateTypes {
-        type ExternalBlockState = NoExternalBlockStateStub;
+        type ExternalBlockState = UnreachableExternalBlockState;
         type Loader = BlobStoreStub;
     }
 
     /// Create context with no external block state (will panic if accessed).
-    pub fn new_context_no_external() -> EntityContext<NoExternalBlockStateTypes> {
+    pub fn new_no_external_context() -> EntityContext<NoExternalBlockStateTypes> {
         let blob_store = BlobStoreStub::default();
         EntityContext {
-            external: NoExternalBlockStateStub,
+            external: UnreachableExternalBlockState,
+            loader: blob_store,
+        }
+    }
+
+    /// Context with no external block state (will panic if accessed).
+    #[derive(Debug)]
+    pub struct StubbedBlockStateTypes;
+
+    impl EntityContextTypes for StubbedBlockStateTypes {
+        type ExternalBlockState = ExternalBlockStateStub;
+        type Loader = BlobStoreStub;
+    }
+
+    /// Create context with no external block state (will panic if accessed).
+    pub fn new_stubbed_context() -> EntityContext<StubbedBlockStateTypes> {
+        let blob_store = BlobStoreStub::default();
+        EntityContext {
+            external: UnreachableExternalBlockState,
             loader: blob_store,
         }
     }

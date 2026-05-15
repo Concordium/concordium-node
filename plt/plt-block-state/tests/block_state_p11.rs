@@ -17,7 +17,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 /// Test create a token in the block state and read its configuration.
 #[test]
 fn test_create_plt() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Create token
@@ -43,7 +43,7 @@ fn test_create_plt() {
 /// Test getting list of tokens.
 #[test]
 fn test_plt_list() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Read empty PLT list
@@ -80,7 +80,7 @@ fn test_plt_list() {
 /// Test getting token by id.
 #[test]
 fn test_token_by_id() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Create token
@@ -121,7 +121,7 @@ fn test_token_by_id() {
 /// Test set and get token properties stored in the key-value state.
 #[test]
 fn test_token_properties() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Create token
@@ -214,7 +214,7 @@ fn test_token_properties() {
 /// Test create a lock in the block state and read its configuration.
 #[test]
 fn test_create_lock() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Create lock
@@ -257,7 +257,7 @@ fn test_create_lock() {
 /// Test getting lock by id.
 #[test]
 fn test_lock_by_id() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Create lock
@@ -305,7 +305,7 @@ fn test_lock_by_id() {
 /// Test set and get lock balance refs
 #[test]
 fn test_lock_balance_refs() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Create lock
@@ -361,7 +361,7 @@ fn test_lock_balance_refs() {
 /// Test getting list of locks. Mirrors `test_plt_list` for the lock side of the block state.
 #[test]
 fn test_lock_list() {
-    let context = entity_test_stub::new_context_no_external();
+    let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
 
     // Read empty lock list
