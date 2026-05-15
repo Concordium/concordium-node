@@ -44,6 +44,7 @@ fn test_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -67,6 +68,7 @@ fn test_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -104,6 +106,7 @@ fn test_unauthorized_burn() {
     let result = scheduler::execute_transaction(
         non_governance_account,
         stub.account_canonical_address(&non_governance_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -152,6 +155,7 @@ fn test_burn_insufficient_balance() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -189,6 +193,7 @@ fn test_burn_decimals_mismatch() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -230,6 +235,7 @@ fn test_burn_paused() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -266,6 +272,7 @@ fn test_not_burnable() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -306,6 +313,7 @@ fn test_burn_event() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -347,6 +355,7 @@ fn test_role_authorization_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -366,6 +375,7 @@ fn test_role_authorization_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        2.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -415,6 +425,7 @@ fn test_new_account_with_role_succeeds_burn() {
     let result = scheduler::execute_transaction(
         gov_account,
         stub.account_canonical_address(&gov_account),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),
@@ -434,6 +445,7 @@ fn test_new_account_with_role_succeeds_burn() {
     let result = scheduler::execute_transaction(
         account2,
         stub.account_canonical_address(&account2),
+        1.into(),
         stub.state_mut(),
         Payload::TokenUpdate { payload },
         Energy::from(u64::MAX),

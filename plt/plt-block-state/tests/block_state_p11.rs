@@ -183,3 +183,41 @@ fn test_token_properties() {
         expected_roles
     );
 }
+
+
+/// Test getting list of locks. Mirrors `test_plt_list` for the lock side of the block state.
+#[test]
+fn test_lock_list() {
+    let mut block_state = block_state_no_external::new_mutable_block_state(ProtocolVersion::P11);
+
+    // Empty configuration is sufficient for `lock_list` — we only care about which lock ids
+    // were created, not their content.
+    let configuration = LockConfiguration::new::<std::convert::Infallible>(
+        [],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+            grants: Vec::new(),
+            tokens: Vec::new(),
+            keep_alive: false,
+            memo: None,
+        }),
+    )
+        .unwrap();
+
+    let lock_a = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
+    let lock_b = LockId {
+        account_index: 2,
+        sequence_number: 7,
+        creation_order: 0,
+    };
+    block_state.create_lock(lock_a.clone(), configuration.clone());
+    block_state.create_lock(lock_b.clone(), configuration);
+
+    // Read lock list
+    let locks: Vec<_> = block_state.lock_list().collect();
+    assert_eq!(locks, vec![lock_a, lock_b]);
+}

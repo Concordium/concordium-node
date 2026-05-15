@@ -36,7 +36,8 @@ testExecuteTransaction = describe "executeTransaction" $ do
                           _wtcEnergyAmount = 500_000,
                           _wtcTransactionCheckHeaderCost = 1_000,
                           _wtcCurrentlyUsedBlockEnergy = 0,
-                          _wtcTransactionIndex = 0
+                          _wtcTransactionIndex = 0,
+                          _wtcTransactionSequenceNumber = 1
                         }
             let schedulerComputation =
                     RustPLTScheduler.executeTransaction

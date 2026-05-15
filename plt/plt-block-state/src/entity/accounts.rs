@@ -1,10 +1,10 @@
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
-use crate::entity::protocol_level_tokens::p9::TokenIndex;
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 
 /// Account with its canonical address.
 ///

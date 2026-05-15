@@ -3,6 +3,7 @@
 pub mod events;
 pub mod execution;
 pub mod protocol_version;
+pub mod locks;
 pub mod queries;
 pub mod reject_reasons;
 pub mod tokens;

@@ -1,6 +1,6 @@
 //! Context for transaction execution.
 
-use concordium_base::base::Energy;
+use concordium_base::base::{Energy, Nonce};
 use concordium_base::contracts_common::AccountAddress;
 
 /// Transaction execution ran out of energy.
@@ -20,6 +20,11 @@ pub struct TransactionExecution<Account> {
     /// The address of the account which signed as the sender of the transaction. This need not be
     /// the canonical address of the account, it can be an account alias.
     sender_account_address: AccountAddress,
+    /// The sequence number of the transaction as specified in the transaction header.
+    transaction_sequence_number: Nonce,
+    /// The number of locks that have been created during the execution of the transaction so far.
+    /// This is used to generate unique lock IDs for locks created during execution.
+    locks_created: u64,
 }
 
 impl<Account> TransactionExecution<Account> {
@@ -28,12 +33,15 @@ impl<Account> TransactionExecution<Account> {
         energy_limit: Energy,
         sender_account: Account,
         sender_account_address: AccountAddress,
+        transaction_sequence_number: Nonce,
     ) -> Self {
         Self {
             energy_used: 0.into(),
             energy_limit,
             sender_account,
             sender_account_address,
+            transaction_sequence_number,
+            locks_created: 0,
         }
     }
 
@@ -77,5 +85,17 @@ impl<Account> TransactionExecution<Account> {
             self.energy_used = self.energy_limit;
             Err(OutOfEnergyError)
         }
+    }
+
+    /// The sequence number of the transaction as specified in the transaction header.
+    pub fn transaction_sequence_number(&self) -> Nonce {
+        self.transaction_sequence_number
+    }
+
+    /// Get the next lock creation order number and increment the counter.
+    pub fn next_lock_creation_order(&mut self) -> u64 {
+        let creation_order = self.locks_created;
+        self.locks_created += 1;
+        creation_order
     }
 }

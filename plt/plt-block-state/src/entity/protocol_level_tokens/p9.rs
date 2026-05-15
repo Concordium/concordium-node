@@ -7,13 +7,12 @@ use crate::entity::protocol_level_tokens::state_keys::{
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::StoreSerialized;
-use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, PersistentTokensP9};
+use crate::persistent::protocol_level_tokens::p9::{PersistentTokenP9, PersistentTokensP9, TokenConfiguration, TokenIndex};
 use crate::persistent::smart_contract_trie;
 use crate::{persistent, utils};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
-use concordium_base::common::Serialize;
-use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId, TokenModuleRef};
+use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 pub(crate) fn plt_list<C: EntityContextTypes>(
@@ -119,28 +118,7 @@ pub(crate) fn token_index_by_id(
         .copied()
 }
 
-// todo ar another type for token existence?
 
-/// Index of the protocol-level token in the block state map of tokens.
-///
-/// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.TokenIndex`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct TokenIndex(pub(crate) u64);
-
-/// Static configuration for a protocol-level token.
-///
-/// Corresponding Haskell type: `Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.PLTConfiguration`
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize)]
-pub struct TokenConfiguration {
-    /// The token ID in its canonical form. Token IDs are case-insensitive when compared,
-    /// but the canonical token ID preserves the original casing specified when
-    /// the token was created.
-    pub token_id: TokenId,
-    /// The token module reference.
-    pub module_ref: TokenModuleRef,
-    /// The number of decimal places used in the representation of the token.
-    pub decimals: u8,
-}
 
 /// Representation of protocol-level token on P9 and later protocols with compatible model.
 #[derive(Debug)]

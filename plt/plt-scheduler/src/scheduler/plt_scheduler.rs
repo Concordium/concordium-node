@@ -1,20 +1,29 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::locks::get_lock_config;
+use crate::locks::lock_controller::LockController;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_context::TokenOperationContext;
 use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
+use concordium_base::common::cbor::{self};
+use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::RawCbor;
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
-    meta_operations::{MetaUpdateOperation, MetaUpdateOperationKind, MetaUpdatePayload},
+    meta_operations::{
+        LockOperation, MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
+    },
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
+use plt_block_state::block_state::types::protocol_level_locks::LockConfiguration;
 use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
+use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
 use plt_block_state::entity::protocol_level_tokens::p9::TokenConfiguration;
-use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
+use plt_scheduler_types::types::locks::MetaUpdateOperationKind;
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
@@ -151,14 +160,15 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
 
     let mut events = Vec::new();
 
-    let operations: Vec<MetaUpdateOperation> = match payload.decode_operations() {
-        Ok(payload) => payload.operations,
-        Err(_) => {
-            return Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::SerializationFailure,
-            ));
-        }
-    };
+    let operations: Vec<MetaUpdateOperation> =
+        match token_module::util::cbor_decode::<MetaUpdateOperations>(payload.operations) {
+            Ok(payload) => payload.operations,
+            Err(_) => {
+                return Ok(TransactionOutcome::Rejected(
+                    TransactionRejectReason::SerializationFailure,
+                ));
+            }
+        };
 
     for (index, operation) in operations.into_iter().enumerate() {
         match operation.into() {
@@ -219,9 +229,81 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                     }
                 }
             }
+            MetaUpdateOperationKind::Lock(lock_operation) => {
+                let result = execute_lock_operation(
+                    transaction_execution,
+                    block_state,
+                    index,
+                    lock_operation,
+                    &mut events,
+                )?;
+                if let Some(reject_reason) = result {
+                    return Ok(TransactionOutcome::Rejected(reject_reason));
+                }
+            }
         }
     }
     Ok(TransactionOutcome::Success(events))
+}
+
+fn execute_lock_operation<BSO: BlockStateOperations>(
+    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    block_state: &mut BSO,
+    _index: usize,
+    lock_operation: LockOperation,
+    events: &mut Vec<BlockItemEvent>,
+) -> Result<Option<TransactionRejectReason>, TransactionExecutionError> {
+    match lock_operation {
+        LockOperation::Fund(_meta_lock_fund_details) => todo!(),
+        LockOperation::Send(_meta_lock_send_details) => todo!(),
+        LockOperation::Return(_meta_lock_return_details) => todo!(),
+        LockOperation::Create(meta_lock_create_details) => {
+            let config = meta_lock_create_details.config;
+            let account_index = block_state.account_index(transaction_execution.sender_account());
+            let sequence_number = transaction_execution.transaction_sequence_number();
+            let creation_order = transaction_execution.next_lock_creation_order();
+            let lock_id = LockId::new(account_index, sequence_number, creation_order);
+            let controller = match LockController::new(block_state, config.controller) {
+                Ok(controller) => controller,
+                Err(reject_reason) => return Ok(Some(reject_reason)),
+            };
+
+            let configuration = match LockConfiguration::new(
+                config.recipients.iter().map(|recipient| {
+                    match block_state.account_by_address(&recipient.address) {
+                        Ok(account) => Ok(block_state.account_index(&account)),
+                        Err(_) => Err(TransactionRejectReason::InvalidAccountReference(
+                            recipient.address,
+                        )),
+                    }
+                }),
+                config.expiry,
+                controller,
+            ) {
+                Ok(configuration) => configuration,
+                Err(reject_reason) => return Ok(Some(reject_reason)),
+            };
+
+            // We reconstruct the lock config for the event, rather than using
+            // the original one from the transaction. This results in a config
+            // that is in a canonical form.
+            let config = get_lock_config(block_state, &configuration).map_err(|err| {
+                TransactionExecutionError::StateInvariantBroken(format!(
+                    "Failed to get lock config for created lock: {err}"
+                ))
+            })?;
+            let event = events::LockCreateEvent {
+                lock_id: lock_id.clone(),
+                lock_config: RawCbor::from(cbor::cbor_encode(&config)),
+            };
+            events.push(BlockItemEvent::LockCreated(event));
+
+            block_state.create_lock(lock_id.clone(), configuration);
+
+            Ok(None)
+        }
+        LockOperation::Cancel(_meta_lock_cancel_details) => todo!(),
+    }
 }
 
 /// Execute a create protocol-level token chain update modifying `block_state` accordingly.
