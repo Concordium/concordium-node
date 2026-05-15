@@ -109,9 +109,7 @@ extern "C" fn ffi_query_plt_list(
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
-                    p9_block_state: BlockStateP9 {
-                        persistent: persistent.p9_block_state.clone(),
-                    },
+                    persistent: persistent.clone(),
                 };
                 let exec_block_state = ExecutionTimeBlockStateP10 {
                     block_state,
@@ -226,9 +224,7 @@ extern "C" fn ffi_query_token_info(
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
-                    p9_block_state: BlockStateP9 {
-                        persistent: persistent.p9_block_state.clone(),
-                    },
+                    persistent: persistent.clone(),
                 };
                 let exec_block_state = ExecutionTimeBlockStateP10 {
                     block_state,
@@ -353,9 +349,7 @@ extern "C" fn ffi_query_token_authorizations(
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
-                    p9_block_state: BlockStateP9 {
-                        persistent: persistent.p9_block_state.clone(),
-                    },
+                    persistent: persistent.clone(),
                 };
                 let exec_block_state = ExecutionTimeBlockStateP10 {
                     block_state,
@@ -473,9 +467,7 @@ extern "C" fn ffi_query_token_account_infos(
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
-                    p9_block_state: BlockStateP9 {
-                        persistent: persistent.p9_block_state.clone(),
-                    },
+                    persistent: persistent.clone(),
                 };
                 let exec_block_state = ExecutionTimeBlockStateP10 {
                     block_state,

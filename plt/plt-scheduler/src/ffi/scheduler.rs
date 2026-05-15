@@ -27,7 +27,6 @@ use plt_block_state::ffi::block_state_callbacks::{
 };
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
-use plt_block_state::persistent::block_state::p10::PersistentBlockStateP10;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 
 /// Context with no external block state (will panic if accessed).
@@ -187,9 +186,7 @@ extern "C" fn ffi_execute_transaction(
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
-                    p9_block_state: BlockStateP9 {
-                        persistent: persistent.p9_block_state.clone(),
-                    },
+                    persistent: persistent.clone(),
                 };
                 let mut exec_block_state = ExecutionTimeBlockStateP10 {
                     block_state,
@@ -203,9 +200,7 @@ extern "C" fn ffi_execute_transaction(
                         payload,
                         remaining_energy,
                     ),
-                    PersistentBlockState::P10(PersistentBlockStateP10 {
-                        p9_block_state: exec_block_state.block_state.p9_block_state.persistent,
-                    }),
+                    PersistentBlockState::P10(exec_block_state.block_state.persistent),
                 )
             }
             PersistentBlockState::P11(persistent) => {
@@ -364,9 +359,7 @@ extern "C" fn ffi_execute_chain_update(
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
-                    p9_block_state: BlockStateP9 {
-                        persistent: persistent.p9_block_state.clone(),
-                    },
+                    persistent: persistent.clone(),
                 };
                 let mut exec_block_state = ExecutionTimeBlockStateP10 {
                     block_state,
@@ -374,9 +367,7 @@ extern "C" fn ffi_execute_chain_update(
                 };
                 (
                     scheduler::execute_chain_update(&mut exec_block_state, payload),
-                    PersistentBlockState::P10(PersistentBlockStateP10 {
-                        p9_block_state: exec_block_state.block_state.p9_block_state.persistent,
-                    }),
+                    PersistentBlockState::P10(exec_block_state.block_state.persistent),
                 )
             }
             PersistentBlockState::P11(persistent) => {
