@@ -1,5 +1,6 @@
 //! Internal constants and utilities for token key-value state.
 
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::{base::AccountIndex, common::Serial};
 
 /// Little-endian prefix used to distinguish module state keys.
@@ -22,6 +23,7 @@ pub(crate) const STATE_KEY_MINTABLE: &[u8] = b"mintable";
 pub(crate) const STATE_KEY_BURNABLE: &[u8] = b"burnable";
 pub(crate) const STATE_KEY_PAUSED: &[u8] = b"paused";
 pub(crate) const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
+pub(crate) const ACCOUNT_STATE_KEY_QUANTA: &[u8] = b"quanta";
 
 /// Construct a [`TokenStateKey`] for a module key. This prefixes the key to
 /// distinguish it from other keys.
@@ -51,6 +53,15 @@ pub(crate) fn account_roles_state_key(account_index: AccountIndex) -> Vec<u8> {
     account_key
 }
 
+/// Construct a key for the account quanta for the given lock
+pub(crate) fn account_quanta_state_key(account_index: AccountIndex, lock_id: &LockId) -> Vec<u8> {
+    let mut locked_balance_key =
+        Vec::with_capacity(ACCOUNT_STATE_KEY_QUANTA.len() + size_of::<LockId>());
+    locked_balance_key.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
+    lock_id.serial(&mut locked_balance_key);
+    account_state_key(account_index, &locked_balance_key)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -74,5 +85,23 @@ mod test {
     fn test_account_roles_state_key() {
         let key = account_roles_state_key(AccountIndex::from(1u64));
         assert_eq!(key, vec![116, 157, 0, 0, 0, 0, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn test_account_quanta_state_key() {
+        let account = AccountIndex::from(1u64);
+        let lock_id = LockId {
+            account_index: 7,
+            sequence_number: 11,
+            creation_order: 3,
+        };
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&ACCOUNT_STATE_PREFIX);
+        account.serial(&mut expected);
+        expected.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
+        lock_id.serial(&mut expected);
+
+        assert_eq!(account_quanta_state_key(account, &lock_id), expected);
     }
 }

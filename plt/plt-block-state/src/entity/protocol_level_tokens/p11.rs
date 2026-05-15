@@ -6,9 +6,11 @@ use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX
 use crate::entity::{EntityContext, EntityContextTypes};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
     TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Representation of protocol-level token on P11 and later protocols with compatible model.
 #[derive(Debug)]
@@ -88,6 +90,50 @@ impl TokenP11 {
             roles.revoke(*role)
         }
         self.update_account_roles_state(context, account, roles)
+    }
+
+    /// Get the locked balance for the given account and lock.
+    pub fn get_locked_balance_for<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        account_index: AccountIndex,
+        lock_id: &LockId,
+    ) -> BlockStateResult<RawTokenAmount> {
+        let Some(value) = self.token_p9.mutable_key_value_state.lookup_value(
+            &context.loader,
+            &state_keys::account_quanta_state_key(account_index, lock_id),
+        ) else {
+            return Ok(RawTokenAmount(0));
+        };
+        common::from_bytes_complete(value).map_err(|err| {
+            BlockStateFailure::BlobStoreDecode(format!(
+                "Stored locked balance cannot be decoded: {}",
+                err
+            ))
+        })
+    }
+
+    /// Set the locked balance for the given account and lock.
+    pub fn set_locked_balance_for<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+        account_index: AccountIndex,
+        lock_id: &LockId,
+        amount: RawTokenAmount,
+    ) -> BlockStateResult<()> {
+        if amount == RawTokenAmount(0) {
+            self.token_p9.mutable_key_value_state.delete_value(
+                &context.loader,
+                &state_keys::account_quanta_state_key(account_index, lock_id),
+            )?;
+        } else {
+            self.token_p9.mutable_key_value_state.insert_value(
+                &context.loader,
+                &state_keys::account_quanta_state_key(account_index, lock_id),
+                common::to_bytes(&amount),
+            )?;
+        }
+        Ok(())
     }
 
     // todo ar move to scheduler with accounts trait

@@ -12,6 +12,7 @@ use plt_block_state::persistent::protocol_level_locks::p11::{
     LockConfiguration, LockControllerConfig, LockControllerSimpleV0, LockControllerSimpleV0Grant,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Test create a token in the block state and read its configuration.
 #[test]
@@ -136,9 +137,20 @@ fn test_token_properties() {
 
     // Assert initial values
     let account_index1 = AccountIndex::from(1);
+    let lock_id = LockId {
+        account_index: 7,
+        sequence_number: 11,
+        creation_order: 3,
+    };
     assert_eq!(
         token.get_account_roles(&context, account_index1).unwrap(),
         Roles::none()
+    );
+    assert_eq!(
+        token
+            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .unwrap(),
+        RawTokenAmount(0)
     );
 
     // Set values
@@ -148,6 +160,9 @@ fn test_token_properties() {
             account_index1,
             &[TokenAdminRole::Burn, TokenAdminRole::Mint],
         )
+        .unwrap();
+    token
+        .set_locked_balance_for(&context, account_index1, &lock_id, RawTokenAmount(100))
         .unwrap();
 
     // Update token
@@ -162,6 +177,13 @@ fn test_token_properties() {
         token.get_account_roles(&context, account_index1).unwrap(),
         expected_roles
     );
+    assert_eq!(
+        token
+            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .unwrap(),
+        RawTokenAmount(100)
+    );
+
     // todo ar token authoriations
     // let expected_token_auths = TokenAuthorizations {
     //     update_admin_roles: None,
@@ -180,6 +202,9 @@ fn test_token_properties() {
     token
         .revoke_account_roles(&context, account_index1, &[TokenAdminRole::Mint])
         .unwrap();
+    token
+        .set_locked_balance_for(&context, account_index1, &lock_id, RawTokenAmount(0))
+        .unwrap();
 
     // Update token
     block_state.update_token(&context, token).unwrap();
@@ -191,6 +216,12 @@ fn test_token_properties() {
     assert_eq!(
         token.get_account_roles(&context, account_index1).unwrap(),
         expected_roles
+    );
+    assert_eq!(
+        token
+            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .unwrap(),
+        RawTokenAmount(0)
     );
 }
 
