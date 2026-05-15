@@ -232,7 +232,7 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
         self.block_state.update_token(&self.context, token).unwrap();
     }
 
-    fn create_lock(&mut self, _lock_id: LockId, _®configuration: LockConfiguration) {
+    fn create_lock(&mut self, _lock_id: LockId, _configuration: LockConfiguration) {
         panic!("no locks on P9")
     }
 
