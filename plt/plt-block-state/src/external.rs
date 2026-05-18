@@ -103,7 +103,6 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
 /// External block state stubs to be used in tests.
 pub mod test_stub {
     use super::*;
-    use crate::entity;
     use crate::entity::accounts::Account;
     use std::collections::BTreeMap;
 

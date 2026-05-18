@@ -3,7 +3,6 @@
 use crate::utils::BlockStateLatest;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_block_state::entity::block_state::Accounts;
 use plt_block_state::entity::entity_test_stub;
 
@@ -13,7 +12,7 @@ mod utils;
 #[test]
 fn test_account_lookup_address() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let mut block_state = BlockStateLatest::default();
+    let block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
     let address = context
@@ -35,7 +34,7 @@ fn test_account_lookup_address() {
 #[test]
 fn test_account_lookup_index() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let mut block_state = BlockStateLatest::default();
+    let block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
 
@@ -85,7 +84,7 @@ fn test_account_lookup_index() {
 #[test]
 fn test_account_by_alias() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let mut block_state = BlockStateLatest::default();
+    let block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
     let account_address = context

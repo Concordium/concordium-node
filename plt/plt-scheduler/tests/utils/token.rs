@@ -109,11 +109,15 @@ pub fn create_and_init_token(
 pub fn increment_account_balance_p11(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
     block_state: &mut BlockStateP11,
-    account: AccountIndex,
-    token: &TokenId,
+    account_index: AccountIndex,
+    token_id: &TokenId,
     balance: RawTokenAmount,
 ) {
-    let token_configuration = block_state.token_configuration(&token);
+    let token = block_state
+        .token_by_id(context, token_id)
+        .unwrap()
+        .expect("created token");
+    let token_configuration = token.token_p9.token_configuration(context).unwrap();
     let operations = vec![
         TokenOperation::Mint(TokenSupplyUpdateDetails {
             amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
@@ -121,7 +125,7 @@ pub fn increment_account_balance_p11(
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
             recipient: CborHolderAccount::from(
-                context.external.account_canonical_address(&account),
+                context.external.account_canonical_address(account_index),
             ),
             memo: None,
         }),
@@ -150,7 +154,7 @@ pub fn increment_account_balance_p11(
     let outcome = block_state
         .execute_transaction(
             context,
-            gov_account,
+            gov_account.account_index(),
             token_module_state.governance_account.unwrap().address,
             1.into(),
             Payload::TokenUpdate { payload },

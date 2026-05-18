@@ -1,5 +1,6 @@
 //! Tests for token transfer operations via the scheduler.
 
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;

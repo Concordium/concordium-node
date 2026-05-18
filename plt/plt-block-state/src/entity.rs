@@ -20,7 +20,7 @@ pub trait EntityContextTypes: Debug {
 
 /// Context needed to call functions on the block state and entities
 /// in the block state.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct EntityContext<C: EntityContextTypes> {
     /// Externally managed block state
     pub external: C::ExternalBlockState,

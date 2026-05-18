@@ -3,7 +3,7 @@
 // items in the file.
 #![allow(unused)]
 
-mod entity_traits;
+pub mod entity_traits;
 mod lock;
 mod token;
 

@@ -3,6 +3,7 @@
 //! higher level tests are implemented.
 
 use crate::utils::BlockStateLatest;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -87,7 +88,7 @@ fn test_plt_create() {
     assert_eq!(
         token
             .token_p9
-            .token_configuration(&token)
+            .token_configuration(&context)
             .unwrap()
             .module_ref,
         TOKEN_MODULE_REF

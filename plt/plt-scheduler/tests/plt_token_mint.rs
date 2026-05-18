@@ -1,6 +1,7 @@
 //! Tests for token mint operations via the scheduler.
 
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::common::cbor;
@@ -45,13 +46,14 @@ fn test_mint_p10() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
+    let gov_account_address = context
+        .external
+        .account_canonical_address(gov_account.account_index());
     let result = block_state
         .execute_transaction(
             &mut context,
             gov_account.account_index(),
-            context
-                .external
-                .account_canonical_address(gov_account.account_index()),
+            gov_account_address,
             1.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -80,9 +82,7 @@ fn test_mint_p10() {
         .execute_transaction(
             &mut context,
             gov_account.account_index(),
-            context
-                .external
-                .account_canonical_address(gov_account.account_index()),
+            gov_account_address,
             2.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
