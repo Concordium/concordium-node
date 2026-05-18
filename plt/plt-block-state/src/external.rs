@@ -104,9 +104,11 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
 pub mod test_stub {
     use super::*;
     use std::collections::BTreeMap;
+    use crate::entity;
+    use crate::entity::accounts::Account;
 
     /// Non-accessible block state representing the Haskell maintained part of the block state.
-    #[derive(Debug)]
+    #[derive(Debug, Default, Clone)]
     pub struct UnreachableExternalBlockState;
 
     impl ExternalBlockStateQuery for UnreachableExternalBlockState {
@@ -160,52 +162,55 @@ pub mod test_stub {
     }
 
     /// Stubbed block state representing the Haskell maintained part of the block state.
-    #[derive(Debug)]
+    #[derive(Debug, Default, Clone)]
     pub struct ExternalBlockStateStub {
         /// List of accounts in the stub.
-        accounts: Vec<Account>,
+        accounts: Vec<AccountStub>,
         /// PLT update instruction sequence number
         plt_update_instruction_sequence_number: u64,
     }
 
+
     impl ExternalBlockStateStub {
         /// Create account in the stub and return stub representation of the account.
-        pub fn create_account(&mut self) -> AccountIndex {
+        pub fn create_account(&mut self) -> Account {
             let index = self.accounts.len();
             let mut address = AccountAddress([0u8; 32]);
             address.0[..8].copy_from_slice(&index.to_be_bytes());
-            let account_index = AccountIndex::from(index as u64);
-            let account = Account {
-                index: account_index,
+            let account = AccountStub {
                 address,
                 tokens: Default::default(),
             };
             let stub_index = AccountIndex::from(index as u64);
             self.accounts.push(account);
 
-            stub_index
+            Account::from_existing_account(stub_index)
+
         }
 
         /// Get the canonical address of an account in the stub
-        pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
+        pub fn account_canonical_address(&self, account: AccountIndex) -> AccountAddress {
             self.accounts[account.index as usize].address
+        }
+
+        /// Get next PLT update sequence number
+        pub fn plt_update_instruction_sequence_number(&self) -> u64 {
+            self.plt_update_instruction_sequence_number
         }
     }
 
     /// Internal representation of an account in [`BlockStateWithExternalStateStubbed`].
-    #[derive(Debug)]
-    struct Account {
-        /// The index of the account
-        index: AccountIndex,
+    #[derive(Debug, Clone)]
+    struct AccountStub {
         /// The canonical account address of the account.
         address: AccountAddress,
         /// Tokens the account is holding
-        tokens: BTreeMap<TokenIndex, AccountToken>,
+        tokens: BTreeMap<TokenIndex, AccountTokenStub>,
     }
 
     /// Internal representation of a token in an account.
-    #[derive(Debug, Default)]
-    struct AccountToken {
+    #[derive(Debug, Default, Clone)]
+    struct AccountTokenStub {
         /// Account balance
         balance: RawTokenAmount,
     }

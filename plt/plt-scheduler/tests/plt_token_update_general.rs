@@ -15,9 +15,7 @@ use plt_scheduler::scheduler;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
+
 
 mod utils;
 

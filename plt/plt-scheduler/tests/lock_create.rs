@@ -21,6 +21,7 @@ use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
 use crate::utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;
+mod scheduler;
 
 #[test]
 fn test_create_simple_lock() {

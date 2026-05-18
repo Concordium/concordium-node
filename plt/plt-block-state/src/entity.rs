@@ -20,7 +20,7 @@ pub trait EntityContextTypes: Debug {
 
 /// Context needed to call functions on the block state and entities
 /// in the block state.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct EntityContext<C: EntityContextTypes> {
     /// Externally managed block state
     pub external: C::ExternalBlockState,
@@ -40,7 +40,7 @@ pub mod entity_test_stub {
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
 
     /// Context with no external block state (will panic if accessed).
-    #[derive(Debug)]
+    #[derive(Debug, Default, Clone)]
     pub struct NoExternalBlockStateTypes;
 
     impl EntityContextTypes for NoExternalBlockStateTypes {
@@ -58,19 +58,19 @@ pub mod entity_test_stub {
     }
 
     /// Context with no external block state (will panic if accessed).
-    #[derive(Debug)]
-    pub struct StubbedBlockStateTypes;
+    #[derive(Debug, Default, Clone)]
+    pub struct StubbedExternalBlockStateTypes;
 
-    impl EntityContextTypes for StubbedBlockStateTypes {
+    impl EntityContextTypes for StubbedExternalBlockStateTypes {
         type ExternalBlockState = ExternalBlockStateStub;
         type Loader = BlobStoreStub;
     }
 
     /// Create context with no external block state (will panic if accessed).
-    pub fn new_stubbed_context() -> EntityContext<StubbedBlockStateTypes> {
+    pub fn new_stubbed_context() -> EntityContext<StubbedExternalBlockStateTypes> {
         let blob_store = BlobStoreStub::default();
         EntityContext {
-            external: UnreachableExternalBlockState,
+            external: ExternalBlockStateStub::default(),
             loader: blob_store,
         }
     }

@@ -20,7 +20,7 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 
 /// P11 block state.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BlockStateP11 {
     /// Persistent block state.
     pub persistent: PersistentBlockStateP11,
@@ -206,7 +206,7 @@ impl Accounts for BlockStateP11 {
         address: &AccountAddress,
     ) -> Result<Account, AccountNotFoundByAddressError> {
         let account_index = context.external.account_index_by_account_address(address)?;
-        Ok(Account { account_index })
+        Ok(Account::from_existing_account(account_index))
     }
 
     fn account_by_index<C: EntityContextTypes>(
@@ -218,7 +218,7 @@ impl Accounts for BlockStateP11 {
             .external
             .account_canonical_address_by_account_index(account_index)?;
 
-        let account = Account { account_index };
+        let account = Account::from_existing_account(account_index);
 
         Ok(AccountWithCanonicalAddress {
             account,

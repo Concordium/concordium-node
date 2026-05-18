@@ -19,7 +19,6 @@ use plt_scheduler_types::types::events::{
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{self, TokenHolder};
-use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;
 

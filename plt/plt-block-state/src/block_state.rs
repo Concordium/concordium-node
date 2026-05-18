@@ -29,7 +29,7 @@ pub struct ExecutionTimeBlockStateP9<C: EntityContextTypes> {
     /// The library block state implementation.
     pub block_state: BlockStateP9,
     /// External function for reading from the blob store.
-    pub context: EntityContext<C>,
+    pub context:  EntityContext<C>,
 }
 
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {

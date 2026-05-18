@@ -1,7 +1,27 @@
-use concordium_base::base::AccountIndex;
-use concordium_base::protocol_level_tokens::TokenId;
-use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use super::scheduler::SchedulerOperations;
+use assert_matches::assert_matches;
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::common::cbor;
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
+    TokenModuleInitializationParameters, TokenModuleRejectReason, TokenModuleRejectReasonType,
+    TokenModuleState, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
+};
+use concordium_base::transactions::Payload;
+use concordium_base::updates::{CreatePlt, UpdatePayload};
+use plt_block_state::block_state;
+use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
+use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex;
+use plt_scheduler::TOKEN_MODULE_REF;
+use plt_scheduler_types::types::events::BlockItemEvent;
+use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler_types::types::reject_reasons::{
+    EncodedTokenModuleRejectReason, TransactionRejectReason,
+};
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct TokenInitTestParams {
@@ -41,22 +61,21 @@ impl TokenInitTestParams {
     }
 }
 
-
-
-
-/// Create and initialize token in the stub and return stub representation of the token, together with
-/// the governance account.
-pub fn create_and_init_token<C: EntityContextTypes>(
-    context: &EntityContext<C>,
-    block_state: &mut BlockStateP11,
+/// Create and initialize token in the stub. Returns the governance account for the token.
+pub fn create_and_init_token(
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut impl SchedulerOperations,
     token_id: TokenId,
     params: TokenInitTestParams,
     decimals: u8,
     initial_supply: Option<RawTokenAmount>,
-) -> (Token, AccountIndex) {
-    let gov_account = self.create_account();
-    let gov_holder_account =
-        CborHolderAccount::from(self.account_canonical_address(&gov_account));
+) -> Account {
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -76,20 +95,20 @@ pub fn create_and_init_token<C: EntityContextTypes>(
         decimals,
         initialization_parameters,
     });
-    scheduler::execute_chain_update(self.state_mut(), payload)
+    block_state
+        .execute_chain_update(context, payload)
         .expect("create and initialize token");
 
-    let token = self.state().token_by_id(&token_id).expect("created token");
-
-    (token, gov_account)
+    gov_account
 }
 
 /// Add amount to account balance in the stub. This is done by minting
 /// and transferring the given amount
 pub fn increment_account_balance(
-    &mut self,
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut impl SchedulerOperations,
     account: AccountIndex,
-    token: Token,
+    token: TokenId,
     balance: RawTokenAmount,
 ) {
     let token_configuration = self.state().token_configuration(&token);
@@ -108,12 +127,12 @@ pub fn increment_account_balance(
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let token_info =
-        queries::query_token_info(self.state(), &token_configuration.token_id).unwrap();
+    let token_info = block_state
+        .query_token_info(context, &token_configuration.token_id)
+        .unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
-    let gov_account = self
-        .state()
+    let gov_account = block_state
         .account_by_address(
             &token_module_state
                 .governance_account
@@ -123,54 +142,67 @@ pub fn increment_account_balance(
         )
         .unwrap();
 
-    let outcome = scheduler::execute_transaction(
-        gov_account,
-        token_module_state.governance_account.unwrap().address,
-        1.into(),
-        self.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
+    let outcome = block_state
+        .execute_transaction(
+            context,
+            gov_account,
+            token_module_state.governance_account.unwrap().address,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
         .expect("transaction internal error");
     assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
 }
 
 /// Pause the given token as the governance account. Panics if the operation fails.
-pub fn pause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
+pub fn pause_token(
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut impl SchedulerOperations,
+    token_id: &TokenId,
+    gov_account: AccountIndex,
+) {
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let gov_addr = self.account_canonical_address(&gov_account);
-    let result = scheduler::execute_transaction(
-        gov_account,
-        gov_addr,
-        1.into(),
-        self.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
+    let gov_addr = context.external.account_canonical_address(&gov_account);
+    let result = block_state
+        .execute_transaction(
+            context,
+            gov_account,
+            gov_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 }
 
 /// Unpause the given token as the governance account. Panics if the operation fails.
-pub fn unpause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
+pub fn unpause_token(
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut impl SchedulerOperations,
+    token_id: &TokenId,
+    gov_account: AccountIndex,
+) {
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let gov_addr = self.account_canonical_address(&gov_account);
-    let result = scheduler::execute_transaction(
-        gov_account,
-        gov_addr,
-        1.into(),
-        self.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
+    let gov_addr = context.external.account_canonical_address(&gov_account);
+    let result = block_state
+        .execute_transaction(
+            context,
+            gov_account,
+            gov_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 }
@@ -178,7 +210,8 @@ pub fn unpause_token(&mut self, token_id: &TokenId, gov_account: AccountIndex) {
 /// Execute token operations as the given sender account. Returns the block item events on
 /// success, panics if the transaction fails.
 pub fn execute_token_operations(
-    &mut self,
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
     sender: AccountIndex,
     operations: Vec<TokenOperation>,
@@ -187,26 +220,19 @@ pub fn execute_token_operations(
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let sender_addr = self.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        self.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
+    let sender_addr = context.external.account_canonical_address(&sender);
+    let result = block_state
+        .execute_transaction(
+            context,
+            sender,
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
 }
-
-/// Return protocol-level token update instruction sequence number
-pub fn plt_update_instruction_sequence_number(&self) -> u64 {
-    self.block_state
-        .external_block_state
-        .plt_update_instruction_sequence_number
-}
-
 
 fn decode_token_module_reject_reason(
     reject_reason: &EncodedTokenModuleRejectReason,
@@ -218,9 +244,8 @@ fn decode_token_module_reject_reason(
         reject_reason_type,
         reject_reason.details.as_ref().unwrap(),
     )
-        .unwrap()
+    .unwrap()
 }
-
 
 pub fn assert_token_module_reject_reason(
     token_id: &TokenId,

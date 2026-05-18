@@ -162,7 +162,7 @@ pub mod test_stub {
     use super::*;
 
     /// In-memory blob store stub implemented via a `Vec`.
-    #[derive(Default, Debug)]
+    #[derive(Default, Debug, Clone)]
     pub struct BlobStoreStub(pub Vec<u8>);
 
     impl BlobStoreStore for BlobStoreStub {

@@ -3,15 +3,17 @@
 // items in the file.
 #![allow(unused)]
 
-use plt_scheduler_types::types::protocol_version::ProtocolVersion;
-
-mod account;
 mod lock;
+mod entity_traits;
 mod token;
 
-pub use account::*;
 pub use lock::*;
 pub use token::*;
 
+use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_scheduler_types::types::protocol_version::ProtocolVersion;
+
 /// The latest protocol version supported by the scheduler, used as default in tests.
 pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
+
+pub type BlockStateLatest = BlockStateP11;
