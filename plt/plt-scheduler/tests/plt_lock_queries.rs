@@ -36,7 +36,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         .account_canonical_address(funding_account.account_index());
 
     let token_id: TokenId = "TokenLockA".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

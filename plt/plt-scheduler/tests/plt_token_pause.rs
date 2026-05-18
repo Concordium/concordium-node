@@ -27,7 +27,7 @@ fn test_token_pause_state() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -100,7 +100,7 @@ fn test_double_pause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -165,7 +165,7 @@ fn test_redundant_unpause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -212,7 +212,7 @@ fn test_unauthorized_pause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -274,7 +274,7 @@ fn test_unauthorized_unpause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -356,7 +356,7 @@ fn test_pause_multiple_ops() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -420,7 +420,7 @@ fn test_unpause_multiple_ops() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -497,7 +497,7 @@ fn test_role_authorization_pause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -579,7 +579,7 @@ fn test_new_account_with_role_succeeds_pause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

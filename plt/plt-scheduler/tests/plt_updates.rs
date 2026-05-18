@@ -32,7 +32,7 @@ fn test_plt_transfer() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -86,11 +86,11 @@ fn test_plt_transfer() {
 
     // Assert balance of sender and receiver
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(3000)
     );
 
@@ -146,11 +146,11 @@ fn test_plt_transfer() {
 
     // Assert balance of sender and receiver
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        account3.account_token_balance(&context, token.token_p9.token_index()),
+        account3.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -172,7 +172,7 @@ fn test_plt_transfer_using_aliases() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -217,18 +217,13 @@ fn test_plt_transfer_using_aliases() {
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
-
     // Assert balance of sender and receiver
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(3000)
     );
 
@@ -250,7 +245,7 @@ fn test_plt_transfer_reject() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -299,11 +294,11 @@ fn test_plt_transfer_reject() {
         RawTokenAmount(5000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 
@@ -323,7 +318,7 @@ fn test_plt_transfer_allow_list_flow() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -400,11 +395,11 @@ fn test_plt_transfer_allow_list_flow() {
         RawTokenAmount(5000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 
@@ -481,11 +476,11 @@ fn test_plt_transfer_allow_list_flow() {
         RawTokenAmount(5000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -506,7 +501,7 @@ fn test_plt_allow_list_disabled() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -557,7 +552,7 @@ fn test_plt_mint() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -602,7 +597,7 @@ fn test_plt_mint() {
 
     // Assert account balance increased
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -622,7 +617,7 @@ fn test_plt_mint_using_alias() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -670,7 +665,7 @@ fn test_plt_mint_using_alias() {
 
     // Assert account balance increased
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -690,7 +685,7 @@ fn test_plt_mint_reject() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -733,7 +728,7 @@ fn test_plt_mint_reject() {
         RawTokenAmount(5000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 
@@ -747,7 +742,7 @@ fn test_plt_mint_unauthorized() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -788,7 +783,7 @@ fn test_plt_mint_unauthorized() {
     // Assert circulating supply and account balance unchanged
     assert_eq!(token.token_p9.token_circulating_supply(), RawTokenAmount(0));
     assert_eq!(
-        non_governance_account.account_token_balance(&context, token.token_p9.token_index()),
+        non_governance_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 
@@ -816,7 +811,7 @@ fn test_plt_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -861,7 +856,7 @@ fn test_plt_burn() {
 
     // Assert account balance decreased
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
 
@@ -881,7 +876,7 @@ fn test_plt_burn_using_alias() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -929,7 +924,7 @@ fn test_plt_burn_using_alias() {
 
     // Assert account balance decreased
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
 
@@ -949,7 +944,7 @@ fn test_plt_burn_reject() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -992,7 +987,7 @@ fn test_plt_burn_reject() {
         RawTokenAmount(5000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 
@@ -1009,7 +1004,7 @@ fn test_plt_multiple_operations() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -1065,11 +1060,11 @@ fn test_plt_multiple_operations() {
         RawTokenAmount(3000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -1097,7 +1092,7 @@ fn test_plt_pause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -1184,7 +1179,7 @@ fn test_plt_unpause() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -1275,7 +1270,7 @@ fn test_energy_charge() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -1331,7 +1326,7 @@ fn test_energy_charge_at_reject() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -1391,7 +1386,7 @@ fn test_out_of_energy_error() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

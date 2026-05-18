@@ -24,7 +24,7 @@ fn test_rbac_initial_governance_account_have_every_role() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -69,7 +69,7 @@ fn test_rbac_assign_roles() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -171,7 +171,7 @@ fn test_rbac_assign_same_roles() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -276,7 +276,7 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -317,7 +317,7 @@ fn test_rbac_assign_rejects_p10() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateP10::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p9(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -358,7 +358,7 @@ fn test_rbac_assign_role_works_when_paused() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -449,7 +449,7 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -490,7 +490,7 @@ fn test_rbac_revoke_roles() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -560,7 +560,7 @@ fn test_rbac_revoke_same_roles() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -666,7 +666,7 @@ fn test_rbac_revoke_rejects_without_admin_role() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -711,7 +711,7 @@ fn test_rbac_revoke_rejects_p10() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateP10::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p9(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -751,7 +751,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -844,7 +844,7 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -884,7 +884,7 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -924,7 +924,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

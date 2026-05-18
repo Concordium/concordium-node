@@ -29,7 +29,7 @@ fn test_mint_p10() {
     let mut block_state = BlockStateP10::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p9(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -61,12 +61,8 @@ fn test_mint_p10() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -91,7 +87,7 @@ fn test_mint_p10() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 }
@@ -103,7 +99,7 @@ fn test_unauthorized_mint_p10() {
     let mut block_state = BlockStateP10::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p9(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -111,10 +107,6 @@ fn test_unauthorized_mint_p10() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let non_governance_account = context.external.create_account();
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -157,11 +149,11 @@ fn test_unauthorized_mint_p10() {
 
     // Assert balances remain unchanged.
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
     assert_eq!(
-        non_governance_account.account_token_balance(&context, token.token_index()),
+        non_governance_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 }
@@ -173,7 +165,7 @@ fn test_mint() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -181,10 +173,6 @@ fn test_mint() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
 
     // First mint
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -210,7 +198,7 @@ fn test_mint() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 
@@ -235,7 +223,7 @@ fn test_mint() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 }
@@ -247,7 +235,7 @@ fn test_unauthorized_mint() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -255,10 +243,6 @@ fn test_unauthorized_mint() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let non_governance_account = context.external.create_account();
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -301,11 +285,11 @@ fn test_unauthorized_mint() {
 
     // Assert balances remain unchanged.
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
     assert_eq!(
-        non_governance_account.account_token_balance(&context, token.token_p9.token_index()),
+        non_governance_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 }
@@ -318,7 +302,7 @@ fn test_unauthorized_mint_using_alias() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -375,7 +359,7 @@ fn test_mint_overflow() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -383,10 +367,6 @@ fn test_mint_overflow() {
         2,
         Some(RawTokenAmount(1000)),
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
@@ -424,6 +404,10 @@ fn test_mint_overflow() {
     });
 
     // Supply unchanged
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         token.token_p9.token_circulating_supply(),
         RawTokenAmount(1000)
@@ -437,7 +421,7 @@ fn test_mint_decimals_mismatch() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -484,7 +468,7 @@ fn test_mint_paused() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -542,7 +526,7 @@ fn test_not_mintable() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -591,7 +575,7 @@ fn test_mint_event() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -638,7 +622,7 @@ fn test_reject_without_role() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -714,7 +698,7 @@ fn test_new_account_with_role_succeeds_mint() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -722,10 +706,6 @@ fn test_new_account_with_role_succeeds_mint() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let account2 = context.external.create_account();
 
     // Assign mint role to account2.
@@ -782,11 +762,11 @@ fn test_new_account_with_role_succeeds_mint() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(200)
     );
 }

@@ -15,7 +15,7 @@ fn test_query_token_module_account_state_default() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id,

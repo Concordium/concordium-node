@@ -27,7 +27,7 @@ fn test_transfer() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -35,10 +35,6 @@ fn test_transfer() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
     utils::increment_account_balance_p11(
@@ -85,11 +81,11 @@ fn test_transfer() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(3000)
     );
 }
@@ -100,7 +96,7 @@ fn test_transfer_with_memo() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -108,10 +104,6 @@ fn test_transfer_with_memo() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
     utils::increment_account_balance_p11(
@@ -152,11 +144,11 @@ fn test_transfer_with_memo() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 }
@@ -167,7 +159,7 @@ fn test_transfer_self() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -175,10 +167,6 @@ fn test_transfer_self() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let sender = context.external.create_account();
     utils::increment_account_balance_p11(
         &mut context,
@@ -214,7 +202,7 @@ fn test_transfer_self() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 }
@@ -225,7 +213,7 @@ fn test_transfer_insufficient_balance() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -285,7 +273,7 @@ fn test_transfer_decimals_mismatch() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -344,7 +332,7 @@ fn test_transfer_to_non_existing_receiver() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -399,7 +387,7 @@ fn test_transfer_allow_list_success() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -407,10 +395,6 @@ fn test_transfer_allow_list_success() {
         2,
         Some(RawTokenAmount(5000)),
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let receiver = context.external.create_account();
 
     // Gov is NOT auto-added to allow list — must add explicitly.
@@ -462,11 +446,11 @@ fn test_transfer_allow_list_success() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 }
@@ -477,7 +461,7 @@ fn test_transfer_deny_list_success() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -485,10 +469,6 @@ fn test_transfer_deny_list_success() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
     let denied = context.external.create_account();
@@ -549,11 +529,11 @@ fn test_transfer_deny_list_success() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(3000)
     );
 }
@@ -564,7 +544,7 @@ fn test_transfer_sender_not_in_allow_list() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -631,7 +611,7 @@ fn test_transfer_recipient_not_in_allow_list() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -639,10 +619,6 @@ fn test_transfer_recipient_not_in_allow_list() {
         2,
         Some(RawTokenAmount(5000)),
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let receiver = context.external.create_account();
 
     // Gov is NOT auto-added to allow list — add gov so it can transfer,
@@ -696,11 +672,11 @@ fn test_transfer_recipient_not_in_allow_list() {
         }
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 }
@@ -711,7 +687,7 @@ fn test_transfer_sender_in_deny_list() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -719,10 +695,6 @@ fn test_transfer_sender_in_deny_list() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
     utils::increment_account_balance_p11(
@@ -789,11 +761,11 @@ fn test_transfer_sender_in_deny_list() {
         }
     );
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
 }
@@ -804,7 +776,7 @@ fn test_transfer_recipient_in_deny_list() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -812,10 +784,6 @@ fn test_transfer_recipient_in_deny_list() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .unwrap();
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
     utils::increment_account_balance_p11(
@@ -882,11 +850,11 @@ fn test_transfer_recipient_in_deny_list() {
         }
     );
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
 }
@@ -897,7 +865,7 @@ fn test_transfer_paused() {
     let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

@@ -26,7 +26,7 @@ fn test_query_plt_list() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id1: TokenId = "TokenId1".parse().unwrap();
-    let _gov1 = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id1.clone(),
@@ -35,7 +35,7 @@ fn test_query_plt_list() {
         None,
     );
     let token_id2: TokenId = "TokenId2".parse().unwrap();
-    let _gov2 = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id2.clone(),
@@ -54,7 +54,7 @@ fn test_query_token_info() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -89,7 +89,7 @@ fn test_query_token_account_info() {
     let mut block_state = BlockStateLatest::default();
     let account = context.external.create_account();
     let token_id1: TokenId = "TokenId1".parse().unwrap();
-    let _gov1 = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id1.clone(),
@@ -98,7 +98,7 @@ fn test_query_token_account_info() {
         None,
     );
     let token_id2: TokenId = "TokenId2".parse().unwrap();
-    let _gov2 = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id2.clone(),
@@ -107,7 +107,7 @@ fn test_query_token_account_info() {
         None,
     );
     let token_id3: TokenId = "TokenId3".parse().unwrap();
-    let _gov3 = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id3,
@@ -156,7 +156,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     let mut block_state = BlockStateLatest::default();
     let account = context.external.create_account();
     let token_id: TokenId = "TokenId3".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

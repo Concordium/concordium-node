@@ -29,7 +29,7 @@ fn test_update_token_decode_failure() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -70,7 +70,7 @@ fn test_update_token_additional_fields() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -135,7 +135,7 @@ fn test_multiple_operations() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -143,10 +143,6 @@ fn test_multiple_operations() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .expect("created token");
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
     utils::increment_account_balance_p11(
@@ -204,11 +200,11 @@ fn test_multiple_operations() {
 
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        sender.account_token_balance(&context, token.token_p9.token_index()),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
     assert_eq!(
-        receiver.account_token_balance(&context, token.token_p9.token_index()),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 }
@@ -220,7 +216,7 @@ fn test_single_failing_operation() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -287,7 +283,7 @@ fn test_energy_charge() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -343,7 +339,7 @@ fn test_out_of_energy_error() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),

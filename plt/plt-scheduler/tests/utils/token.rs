@@ -13,8 +13,8 @@ use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::Accounts;
-use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex;
 use plt_scheduler::TOKEN_MODULE_REF;
@@ -101,7 +101,11 @@ pub fn create_and_init_token_p9(
         .execute_chain_update(context, payload)
         .expect("create and initialize token");
 
-    let token_index = block_state.token_by_id(context, &token_id).unwrap().unwrap().token_index();
+    let token_index = block_state
+        .token_by_id(context, &token_id)
+        .unwrap()
+        .unwrap()
+        .token_index();
 
     (gov_account, token_index)
 }
@@ -144,11 +148,15 @@ pub fn create_and_init_token_p11(
         .execute_chain_update(context, payload)
         .expect("create and initialize token");
 
-    let token_index = block_state.token_by_id(context, &token_id).unwrap().unwrap().token_p9.token_index();
+    let token_index = block_state
+        .token_by_id(context, &token_id)
+        .unwrap()
+        .unwrap()
+        .token_p9
+        .token_index();
 
     (gov_account, token_index)
 }
-
 
 /// Add amount to account balance in the stub. This is done by minting
 /// and transferring the given amount

@@ -27,7 +27,7 @@ fn test_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -35,10 +35,6 @@ fn test_burn() {
         2,
         Some(RawTokenAmount(5000)),
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .expect("created token");
 
     // First burn
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -64,7 +60,7 @@ fn test_burn() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
 
@@ -92,7 +88,7 @@ fn test_burn() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
 }
@@ -104,7 +100,7 @@ fn test_unauthorized_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let _gov_account = utils::create_and_init_token(
+    utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -161,7 +157,7 @@ fn test_burn_insufficient_balance() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -210,7 +206,7 @@ fn test_burn_decimals_mismatch() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -256,7 +252,7 @@ fn test_burn_paused() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -312,7 +308,7 @@ fn test_not_burnable() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -360,7 +356,7 @@ fn test_burn_event() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -406,7 +402,7 @@ fn test_role_authorization_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -484,7 +480,7 @@ fn test_new_account_with_role_succeeds_burn() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let gov_account = utils::create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         token_id.clone(),
@@ -492,10 +488,6 @@ fn test_new_account_with_role_succeeds_burn() {
         2,
         None,
     );
-    let token = block_state
-        .token_by_id(&context, &token_id)
-        .unwrap()
-        .expect("created token");
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
@@ -565,11 +557,11 @@ fn test_new_account_with_role_succeeds_burn() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(10000)
     );
     assert_eq!(
-        account2.account_token_balance(&context, token.token_p9.token_index()),
+        account2.account_token_balance(&context, token_index),
         RawTokenAmount(4800)
     );
 }
