@@ -3,8 +3,8 @@
 // items in the file.
 #![allow(unused)]
 
-mod lock;
 mod entity_traits;
+mod lock;
 mod token;
 
 pub use lock::*;

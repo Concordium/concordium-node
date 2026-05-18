@@ -1,4 +1,4 @@
-use super::scheduler::SchedulerOperations;
+use super::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
@@ -6,15 +6,15 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
     TokenModuleInitializationParameters, TokenModuleRejectReason, TokenModuleRejectReasonType,
     TokenModuleState, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
+    TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state;
+use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::block_state::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
-use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
@@ -102,23 +102,27 @@ pub fn create_and_init_token(
     gov_account
 }
 
+// todo ar make generic?
+
 /// Add amount to account balance in the stub. This is done by minting
 /// and transferring the given amount
-pub fn increment_account_balance(
+pub fn increment_account_balance_p11(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
-    block_state: &mut impl SchedulerOperations,
+    block_state: &mut BlockStateP11,
     account: AccountIndex,
-    token: TokenId,
+    token: &TokenId,
     balance: RawTokenAmount,
 ) {
-    let token_configuration = self.state().token_configuration(&token);
+    let token_configuration = block_state.token_configuration(&token);
     let operations = vec![
         TokenOperation::Mint(TokenSupplyUpdateDetails {
             amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
-            recipient: CborHolderAccount::from(self.account_canonical_address(&account)),
+            recipient: CborHolderAccount::from(
+                context.external.account_canonical_address(&account),
+            ),
             memo: None,
         }),
     ];
@@ -134,6 +138,7 @@ pub fn increment_account_balance(
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
     let gov_account = block_state
         .account_by_address(
+            context,
             &token_module_state
                 .governance_account
                 .as_ref()
@@ -167,7 +172,7 @@ pub fn pause_token(
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let gov_addr = context.external.account_canonical_address(&gov_account);
+    let gov_addr = context.external.account_canonical_address(gov_account);
     let result = block_state
         .execute_transaction(
             context,
@@ -193,7 +198,7 @@ pub fn unpause_token(
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let gov_addr = context.external.account_canonical_address(&gov_account);
+    let gov_addr = context.external.account_canonical_address(gov_account);
     let result = block_state
         .execute_transaction(
             context,
@@ -220,7 +225,7 @@ pub fn execute_token_operations(
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let sender_addr = context.external.account_canonical_address(&sender);
+    let sender_addr = context.external.account_canonical_address(sender);
     let result = block_state
         .execute_transaction(
             context,

@@ -103,9 +103,9 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
 /// External block state stubs to be used in tests.
 pub mod test_stub {
     use super::*;
-    use std::collections::BTreeMap;
     use crate::entity;
     use crate::entity::accounts::Account;
+    use std::collections::BTreeMap;
 
     /// Non-accessible block state representing the Haskell maintained part of the block state.
     #[derive(Debug, Default, Clone)]
@@ -170,7 +170,6 @@ pub mod test_stub {
         plt_update_instruction_sequence_number: u64,
     }
 
-
     impl ExternalBlockStateStub {
         /// Create account in the stub and return stub representation of the account.
         pub fn create_account(&mut self) -> Account {
@@ -185,7 +184,6 @@ pub mod test_stub {
             self.accounts.push(account);
 
             Account::from_existing_account(stub_index)
-
         }
 
         /// Get the canonical address of an account in the stub

@@ -13,7 +13,6 @@ use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;
 

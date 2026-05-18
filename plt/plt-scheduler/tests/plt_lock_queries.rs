@@ -1,5 +1,6 @@
 //! Tests for the new `query_lock_list` and `query_lock_info` scheduler query functions.
 
+use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
@@ -8,12 +9,9 @@ use concordium_base::protocol_level_locks::{
     LockController, LockControllerSimpleV0Capability, LockId,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, TokenId};
+use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
 use plt_scheduler::queries::{self, QueryLockError};
-use plt_scheduler_types::types::locks::LockControllerSimpleV0Grant;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 
 mod utils;
 

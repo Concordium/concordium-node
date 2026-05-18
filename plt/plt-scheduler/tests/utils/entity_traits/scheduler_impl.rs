@@ -20,7 +20,7 @@ use std::mem;
 
 impl SchedulerOperations for BlockStateP9 {
     fn execute_transaction<C: EntityContextTypes>(
-        &self,
+        &mut self,
         context: &mut EntityContext<C>,
         sender_account: AccountIndex,
         sender_account_address: AccountAddress,
@@ -34,7 +34,7 @@ impl SchedulerOperations for BlockStateP9 {
         let sender_account = Account::from_existing_account(sender_account);
 
         let mut exec_block_state = ExecutionTimeBlockStateP9 {
-            block_state: self.clone(),
+            block_state: mem::take(self),
             context: mem::take(context),
         };
 
@@ -48,12 +48,13 @@ impl SchedulerOperations for BlockStateP9 {
         );
 
         mem::swap(context, &mut exec_block_state.context);
+        mem::swap(self, &mut exec_block_state.block_state);
 
         res
     }
 
     fn execute_chain_update<C: EntityContextTypes>(
-        &self,
+        &mut self,
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
     ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError>
@@ -61,13 +62,14 @@ impl SchedulerOperations for BlockStateP9 {
         EntityContext<C>: Default,
     {
         let mut exec_block_state = ExecutionTimeBlockStateP9 {
-            block_state: self.clone(),
+            block_state: mem::take(self),
             context: mem::take(context),
         };
 
         let res = scheduler::execute_chain_update(&mut exec_block_state, payload);
 
         mem::swap(context, &mut exec_block_state.context);
+        mem::swap(self, &mut exec_block_state.block_state);
 
         res
     }
@@ -165,7 +167,7 @@ impl SchedulerOperations for BlockStateP9 {
 
 impl SchedulerOperations for BlockStateP11 {
     fn execute_transaction<C: EntityContextTypes>(
-        &self,
+        &mut self,
         context: &mut EntityContext<C>,
         sender_account: AccountIndex,
         sender_account_address: AccountAddress,
@@ -182,7 +184,7 @@ impl SchedulerOperations for BlockStateP11 {
             .account;
 
         let mut exec_block_state = ExecutionTimeBlockStateP11 {
-            block_state: self.clone(),
+            block_state: mem::take(self),
             context: mem::take(context),
         };
 
@@ -196,12 +198,13 @@ impl SchedulerOperations for BlockStateP11 {
         );
 
         mem::swap(context, &mut exec_block_state.context);
+        mem::swap(self, &mut exec_block_state.block_state);
 
         res
     }
 
     fn execute_chain_update<C: EntityContextTypes>(
-        &self,
+        &mut self,
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
     ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError>
@@ -209,13 +212,14 @@ impl SchedulerOperations for BlockStateP11 {
         EntityContext<C>: Default,
     {
         let mut exec_block_state = ExecutionTimeBlockStateP11 {
-            block_state: self.clone(),
+            block_state: mem::take(self),
             context: mem::take(context),
         };
 
         let res = scheduler::execute_chain_update(&mut exec_block_state, payload);
 
         mem::swap(context, &mut exec_block_state.context);
+        mem::swap(self, &mut exec_block_state.block_state);
 
         res
     }

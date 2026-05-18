@@ -1,10 +1,8 @@
 //! Tests for token module account state queries via the scheduler.
 
+use crate::utils::TokenInitTestParams;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler::queries;
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 
 mod utils;
 

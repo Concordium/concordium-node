@@ -16,7 +16,9 @@ fn test_account_lookup_address() {
     let mut block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
-    let address = context.external.account_canonical_address(account.account_index());
+    let address = context
+        .external
+        .account_canonical_address(account.account_index());
 
     block_state
         .account_by_address(&context, &address)
@@ -47,7 +49,6 @@ fn test_account_lookup_index() {
         "Account is not expected to exist"
     );
 }
-
 
 // todo ar
 // /// Test get account token balance.
@@ -87,7 +88,9 @@ fn test_account_by_alias() {
     let mut block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
-    let account_address = context.external.account_canonical_address(account.account_index());
+    let account_address = context
+        .external
+        .account_canonical_address(account.account_index());
     let account_by_alias = block_state
         .account_by_address(&context, &account_address.get_alias(0).unwrap())
         .unwrap();

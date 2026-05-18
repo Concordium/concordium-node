@@ -1,5 +1,6 @@
 //! Tests for token mint operations via the scheduler.
 
+use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::{Energy, ProtocolVersion};
 use concordium_base::common::cbor;
@@ -11,22 +12,25 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_block_state::entity::block_state::p10::BlockStateP10;
+use plt_block_state::entity::entity_test_stub;
 use plt_scheduler::scheduler;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 
 mod utils;
 
 /// Test successful mints on P10.
 #[test]
 fn test_mint_p10() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(ProtocolVersion::P10);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateP10::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
@@ -41,19 +45,26 @@ fn test_mint_p10() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            context
+                .external
+                .account_canonical_address(gov_account.account_index()),
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_index()),
         RawTokenAmount(1000)
     );
 
@@ -65,19 +76,22 @@ fn test_mint_p10() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        2.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            context
+                .external
+                .account_canonical_address(gov_account.account_index()),
+            2.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_index()),
         RawTokenAmount(5000)
     );
 }

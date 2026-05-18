@@ -1,4 +1,3 @@
-
 use concordium_base::base::{AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
@@ -15,52 +14,62 @@ use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations,
 /// protocol version block states.
 pub trait SchedulerOperations {
     fn execute_transaction<C: EntityContextTypes>(
-        &self,
+        &mut self,
         context: &mut EntityContext<C>,
         sender_account: AccountIndex,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
         payload: Payload,
         energy_limit: Energy,
-    ) -> Result<TransactionExecutionSummary, TransactionExecutionError> where EntityContext<C>: Default ;
+    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
+    where
+        EntityContext<C>: Default;
 
     fn execute_chain_update<C: EntityContextTypes>(
-        &self,
+        &mut self,
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
-    ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> where EntityContext<C>: Default ;
+    ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError>
+    where
+        EntityContext<C>: Default;
 
-    fn query_plt_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<TokenId>     where
-        EntityContext<C>: Clone,;
+    fn query_plt_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<TokenId>
+    where
+        EntityContext<C>: Clone;
 
     fn query_token_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> Result<TokenInfo, QueryTokenInfoError>    where
-        EntityContext<C>: Clone,;
+    ) -> Result<TokenInfo, QueryTokenInfoError>
+    where
+        EntityContext<C>: Clone;
 
     fn query_token_account_infos<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo>    where
-        EntityContext<C>: Clone,;
+    ) -> Vec<TokenAccountInfo>
+    where
+        EntityContext<C>: Clone;
 
     fn query_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> Result<TokenAuthorizations, QueryTokenInfoError>    where
-        EntityContext<C>: Clone,;
+    ) -> Result<TokenAuthorizations, QueryTokenInfoError>
+    where
+        EntityContext<C>: Clone;
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>    where
-        EntityContext<C>: Clone,;
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
+    where
+        EntityContext<C>: Clone;
 
     fn query_lock_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError>    where
-        EntityContext<C>: Clone,;
+    ) -> Result<RawCbor, QueryLockError>
+    where
+        EntityContext<C>: Clone;
 }
