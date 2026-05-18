@@ -14,7 +14,9 @@ use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
@@ -62,14 +64,14 @@ impl TokenInitTestParams {
 }
 
 /// Create and initialize token in the stub. Returns the governance account for the token.
-pub fn create_and_init_token(
+pub fn create_and_init_token_p9(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
-    block_state: &mut impl SchedulerOperations,
+    block_state: &mut BlockStateP9,
     token_id: TokenId,
     params: TokenInitTestParams,
     decimals: u8,
     initial_supply: Option<RawTokenAmount>,
-) -> Account {
+) -> (Account, TokenIndex) {
     let gov_account = context.external.create_account();
     let gov_holder_account = CborHolderAccount::from(
         context
@@ -99,10 +101,54 @@ pub fn create_and_init_token(
         .execute_chain_update(context, payload)
         .expect("create and initialize token");
 
-    gov_account
+    let token_index = block_state.token_by_id(context, &token_id).unwrap().unwrap().token_index();
+
+    (gov_account, token_index)
 }
 
-// todo ar make generic?
+/// Create and initialize token in the stub. Returns the governance account for the token.
+pub fn create_and_init_token_p11(
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut BlockStateP11,
+    token_id: TokenId,
+    params: TokenInitTestParams,
+    decimals: u8,
+    initial_supply: Option<RawTokenAmount>,
+) -> (Account, TokenIndex) {
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
+    let metadata = MetadataUrl::from("https://plt.token".to_string());
+    let parameters = TokenModuleInitializationParameters {
+        name: Some("Protocol-level token".to_owned()),
+        metadata: Some(metadata.clone()),
+        governance_account: Some(gov_holder_account.clone()),
+        allow_list: params.allow_list,
+        deny_list: params.deny_list,
+        initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.0, decimals)),
+        mintable: params.mintable,
+        burnable: params.burnable,
+    };
+    let initialization_parameters = cbor::cbor_encode(&parameters).into();
+
+    let payload = UpdatePayload::CreatePlt(CreatePlt {
+        token_id: token_id.clone(),
+        token_module: TOKEN_MODULE_REF,
+        decimals,
+        initialization_parameters,
+    });
+    block_state
+        .execute_chain_update(context, payload)
+        .expect("create and initialize token");
+
+    let token_index = block_state.token_by_id(context, &token_id).unwrap().unwrap().token_p9.token_index();
+
+    (gov_account, token_index)
+}
+
 
 /// Add amount to account balance in the stub. This is done by minting
 /// and transferring the given amount

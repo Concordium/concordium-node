@@ -1,35 +1,44 @@
 //! Tests for token burn operations via the scheduler.
 
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
-    RawCbor, TokenAdminRole, TokenAmount, TokenBalanceInsufficientRejectReason, TokenId,
-    TokenModuleRejectReason, TokenOperation, TokenOperationsPayload, TokenSupplyUpdateDetails,
-    TokenUpdateAdminRolesDetails, UnsupportedOperationRejectReason,
+    RawCbor, TokenAdminRole, TokenAmount, TokenId, TokenModuleRejectReason, TokenOperation,
+    TokenOperationsPayload, TokenSupplyUpdateDetails, TokenUpdateAdminRolesDetails,
+    UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Payload;
-use plt_block_state::block_state_interface::BlockStateQuery;
-use plt_scheduler::scheduler;
+use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
+
+use crate::utils::BlockStateLatest;
 
 mod utils;
 
 /// Test successful burns.
 #[test]
 fn test_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
         Some(RawTokenAmount(5000)),
     );
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .expect("created token");
 
     // First burn
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -39,19 +48,23 @@ fn test_burn() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(4000)
     );
 
@@ -63,19 +76,23 @@ fn test_burn() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        2.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            2.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(2000)
     );
 }
@@ -84,15 +101,18 @@ fn test_burn() {
 /// The governance check is performed before the burnable feature check.
 #[test]
 fn test_unauthorized_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, _gov_account) = stub.create_and_init_token(
+    let _gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
         None,
     );
-    let non_governance_account = stub.create_account();
+    let non_governance_account = context.external.create_account();
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
@@ -101,15 +121,19 @@ fn test_unauthorized_burn() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let non_gov_addr = context
+        .external
+        .account_canonical_address(non_governance_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            non_governance_account.account_index(),
+            non_gov_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -124,7 +148,7 @@ fn test_unauthorized_burn() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    context.external.account_canonical_address(non_governance_account.account_index())
                 ))
             );
         }
@@ -134,9 +158,12 @@ fn test_unauthorized_burn() {
 /// Test burn amount that exceeds account balance.
 #[test]
 fn test_burn_insufficient_balance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
@@ -150,20 +177,24 @@ fn test_burn_insufficient_balance() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
-        TokenBalanceInsufficientRejectReason {
+        concordium_base::protocol_level_tokens::TokenBalanceInsufficientRejectReason {
             available_balance,
             required_balance,
             ..
@@ -176,10 +207,17 @@ fn test_burn_insufficient_balance() {
 /// Test burn with amount specified with wrong number of decimals.
 #[test]
 fn test_burn_decimals_mismatch() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        2,
+        None,
+    );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
@@ -188,15 +226,19 @@ fn test_burn_decimals_mismatch() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -211,16 +253,24 @@ fn test_burn_decimals_mismatch() {
 /// Reject "burn" operations while token is paused.
 #[test]
 fn test_burn_paused() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable().mintable(),
         2,
         Some(RawTokenAmount(5000)),
     );
 
-    stub.pause_token(&token_id, gov_account);
+    utils::pause_token(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
+    );
 
     // Now attempt to burn while paused
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -230,15 +280,19 @@ fn test_burn_paused() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -255,10 +309,17 @@ fn test_burn_paused() {
 /// Reject "burn" operation if the feature is not enabled.
 #[test]
 fn test_not_burnable() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 2, None);
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        2,
+        None,
+    );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 2),
@@ -267,15 +328,19 @@ fn test_not_burnable() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -292,9 +357,12 @@ fn test_not_burnable() {
 /// Test that burn events contain expected data.
 #[test]
 fn test_burn_event() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
@@ -308,15 +376,19 @@ fn test_burn_event() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
@@ -324,16 +396,19 @@ fn test_burn_event() {
         assert_eq!(burn.token_id, token_id);
         assert_eq!(burn.amount.amount, RawTokenAmount(1000));
         assert_eq!(burn.amount.decimals, 2);
-        assert_eq!(burn.target, TokenHolder::Account(stub.account_canonical_address(&gov_account)));
+        assert_eq!(burn.target, TokenHolder::Account(context.external.account_canonical_address(gov_account.account_index())));
     });
 }
 
 /// Rejects burn when governance account does not hold the burn role.
 #[test]
 fn test_role_authorization_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
@@ -341,24 +416,28 @@ fn test_role_authorization_burn() {
     );
 
     // Revoke burn role from governance account.
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Burn],
-                account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+                account: CborHolderAccount::from(gov_account_addr),
             },
         )])),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Attempting to burn as governance account (no longer has burn role).
@@ -370,15 +449,19 @@ fn test_role_authorization_burn() {
             },
         )])),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        2.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            2.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -390,7 +473,7 @@ fn test_role_authorization_burn() {
             reason: Some(reason),
         }) => {
             assert_eq!(reason, "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+            assert_eq!(address, CborHolderAccount::from(context.external.account_canonical_address(gov_account.account_index())));
         }
     );
 }
@@ -398,37 +481,63 @@ fn test_role_authorization_burn() {
 /// Succeeds for another account holding the burn role.
 #[test]
 fn test_new_account_with_role_succeeds_burn() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let gov_account = utils::create_and_init_token(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().burnable().mintable(),
         2,
         None,
     );
-    stub.increment_account_balance(gov_account, token, RawTokenAmount(10000));
-    let account2 = stub.create_account();
-    stub.increment_account_balance(account2, token, RawTokenAmount(5000));
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .expect("created token");
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        gov_account.account_index(),
+        &token_id,
+        RawTokenAmount(10000),
+    );
+    let account2 = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        account2.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
     // Assign burn role to account2.
+    let account2_addr = context
+        .external
+        .account_canonical_address(account2.account_index());
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Burn],
-                account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+                account: CborHolderAccount::from(account2_addr),
             },
         )])),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Burn as account2.
@@ -440,23 +549,27 @@ fn test_new_account_with_role_succeeds_burn() {
             },
         )])),
     };
-    let result = scheduler::execute_transaction(
-        account2,
-        stub.account_canonical_address(&account2),
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let account2_addr = context
+        .external
+        .account_canonical_address(account2.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            account2.account_index(),
+            account2_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(10000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&account2, &token),
+        account2.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(4800)
     );
 }

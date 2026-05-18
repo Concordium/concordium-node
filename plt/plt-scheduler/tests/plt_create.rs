@@ -11,10 +11,8 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleInitializationParameters, TokenModuleRef,
 };
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler::TOKEN_MODULE_REF;
-use plt_scheduler::scheduler;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
@@ -182,10 +180,15 @@ fn test_plt_create_with_minting() {
 /// ids which only differ in casing are considered equal.
 #[test]
 fn test_plt_create_duplicate_id() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
 
-    let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -208,7 +211,8 @@ fn test_plt_create_duplicate_id() {
     });
 
     // Create first token
-    scheduler::execute_chain_update(stub.state_mut(), payload1)
+    block_state
+        .execute_chain_update(&mut context, payload1)
         .expect("create and initialize token");
 
     // Try to use same token id just with different casing
@@ -221,7 +225,9 @@ fn test_plt_create_duplicate_id() {
     });
 
     // Create second token
-    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload2).unwrap();
+    let outcome = block_state
+        .execute_chain_update(&mut context, payload2)
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
@@ -236,10 +242,15 @@ fn test_plt_create_duplicate_id() {
 /// Test create protocol-level token where the token module reference is to an unknown token module.
 #[test]
 fn test_plt_create_unknown_token_module_reference() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
 
-    let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -262,7 +273,9 @@ fn test_plt_create_unknown_token_module_reference() {
         initialization_parameters: initialization_parameters.clone(),
     });
 
-    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload).unwrap();
+    let outcome = block_state
+        .execute_chain_update(&mut context, payload)
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
@@ -277,10 +290,15 @@ fn test_plt_create_unknown_token_module_reference() {
 /// Test create protocol-level token where the token module returns an error.
 #[test]
 fn test_plt_create_token_module_initialization_error() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
 
-    let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         // No name specified
@@ -303,7 +321,9 @@ fn test_plt_create_token_module_initialization_error() {
         initialization_parameters: initialization_parameters.clone(),
     });
 
-    let outcome = scheduler::execute_chain_update(stub.state_mut(), payload).unwrap();
+    let outcome = block_state
+        .execute_chain_update(&mut context, payload)
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
