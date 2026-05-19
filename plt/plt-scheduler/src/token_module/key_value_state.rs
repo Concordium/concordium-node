@@ -1,7 +1,6 @@
 //! Internal constants and utilities for token key-value state.
 
 use super::roles::Roles;
-use super::util;
 use crate::token_context::{TokenOperationContext, TokenQueryContext};
 use crate::token_module::errors::TokenStateInvariantError;
 use concordium_base::common;
@@ -10,8 +9,10 @@ use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
 };
 use concordium_base::{base::AccountIndex, common::Serial};
-use plt_block_state::block_state::types::protocol_level_tokens::{TokenStateKey, TokenStateValue};
-use plt_block_state::block_state_interface::{BlockStateOperations, BlockStateQuery};
+use plt_block_state::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue,
+};
+use plt_block_state::utils;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Little-endian prefix used to distinguish module state keys.
@@ -267,7 +268,7 @@ pub fn get_metadata(
 ) -> Result<MetadataUrl, TokenStateInvariantError> {
     let metadata_cbor = get_module_state(context, STATE_KEY_METADATA)
         .ok_or_else(|| TokenStateInvariantError("Metadata not present".to_string()))?;
-    let metadata: MetadataUrl = util::cbor_decode(metadata_cbor.0).map_err(|err| {
+    let metadata: MetadataUrl = utils::cbor_decode(metadata_cbor.0).map_err(|err| {
         TokenStateInvariantError(format!("Stored metadata CBOR not decodable: {}", err))
     })?;
     Ok(metadata)

@@ -1,7 +1,9 @@
 use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
-use plt_scheduler_types::types::locks::{LockControllerSimpleV0, LockControllerSimpleV0Grant};
+use plt_block_state::persistent::protocol_level_locks::p11::{
+    LockControllerSimpleV0, LockControllerSimpleV0Grant,
+};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
 use crate::locks::lock_controller::{LockController, LockOperation};

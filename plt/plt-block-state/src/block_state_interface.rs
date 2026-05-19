@@ -1,8 +1,7 @@
-use crate::block_state::types::AccountWithCanonicalAddress;
-use crate::block_state::types::protocol_level_locks::LockConfiguration;
-use crate::block_state::types::protocol_level_tokens::{
-    TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
-};
+use crate::entity::accounts::AccountWithCanonicalAddress;
+use crate::external::TokenAccountState;
+use crate::persistent::protocol_level_locks::p11::LockConfiguration;
+use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
@@ -59,10 +58,25 @@ pub enum BlockStateFailure {
     /// stored block state or a runtime logical invariant related to the in-memory block state.
     #[error("State invariant broken: {0}")]
     Invariant(String),
+    /// When looking up a value with in an owned
+    /// [blob reference](super::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef),
+    /// a borrowed value was returned. This should generally never happen in they way we maintain
+    /// blob references.
+    #[error("Borrowed value found inside of owned value: {0}")]
+    CowJoin(&'static str),
 }
 
 pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
 
+/// Key in the key-value state.
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct TokenStateKey(pub Vec<u8>);
+
+/// Value in the key-value state.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct TokenStateValue(pub Vec<u8>);
+
+// todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the thawed (mutable) token key-value map.
@@ -166,7 +180,7 @@ pub trait BlockStateQuery {
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
     fn account_index(&self, account: &Self::Account) -> AccountIndex;
@@ -215,9 +229,10 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock` The lock to get the tracked locked balances for.
-    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (Self::Account, Self::Token)>;
+    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)>;
 }
 
+// todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
     /// Set the recorded total circulating supply for a protocol-level token.
