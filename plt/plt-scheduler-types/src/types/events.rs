@@ -321,8 +321,8 @@ mod test {
             from: TokenHolder::Account(AccountAddress([13; 32])),
             to: TokenHolder::Account(AccountAddress([64; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1024),
-                decimals: 19,
+                amount: RawTokenAmount(u64::MAX),
+                decimals: 255,
             },
             memo: Some(Memo::try_from((0x00..=0xff).collect::<Vec<u8>>()).unwrap()),
             from_lock: Some(LockId::new(
