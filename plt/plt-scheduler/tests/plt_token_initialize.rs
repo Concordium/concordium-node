@@ -8,12 +8,13 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleState,
 };
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_block_state::entity::entity_test_stub;
 use plt_scheduler::TOKEN_MODULE_REF;
-use plt_scheduler::{queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
+
+use crate::utils::BlockStateLatest;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 
 mod utils;
 
@@ -22,18 +23,20 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 /// In this example, the parameters are not a valid encoding.
 #[test]
 fn test_initialize_token_parameters_decode_failure() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let outcome = scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id,
-            token_module: TOKEN_MODULE_REF,
-            decimals: 0,
-            initialization_parameters: vec![].into(),
-        }),
-    )
-    .unwrap();
+    let outcome = block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id,
+                token_module: TOKEN_MODULE_REF,
+                decimals: 0,
+                initialization_parameters: vec![].into(),
+            }),
+        )
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
     assert_matches!(
@@ -47,12 +50,18 @@ fn test_initialize_token_parameters_decode_failure() {
 /// In this example, a parameter is missing from the required initialization parameters.
 #[test]
 fn test_initialize_token_parameters_missing() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: None,
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(
+            context
+                .external
+                .account_canonical_address(gov_account.account_index())
+                .into(),
+        ),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -61,16 +70,17 @@ fn test_initialize_token_parameters_missing() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let outcome = scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id,
-            token_module: TOKEN_MODULE_REF,
-            decimals: 0,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    let outcome = block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id,
+                token_module: TOKEN_MODULE_REF,
+                decimals: 0,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
     assert_matches!(
@@ -83,12 +93,18 @@ fn test_initialize_token_parameters_missing() {
 /// parameters.
 #[test]
 fn test_initialize_token_additional_parameter() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(
+            context
+                .external
+                .account_canonical_address(gov_account.account_index())
+                .into(),
+        ),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -104,16 +120,17 @@ fn test_initialize_token_additional_parameter() {
 
     let encoded_parameters = cbor::cbor_encode(&dynamic_parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let outcome = scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id,
-            token_module: TOKEN_MODULE_REF,
-            decimals: 0,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    let outcome = block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id,
+                token_module: TOKEN_MODULE_REF,
+                decimals: 0,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
     assert_matches!(
@@ -127,9 +144,14 @@ fn test_initialize_token_additional_parameter() {
 /// In this example, minimal parameters are specified to check defaulting behaviour.
 #[test]
 fn test_initialize_token_default_values() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -143,19 +165,20 @@ fn test_initialize_token_default_values() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id.clone(),
-            token_module: TOKEN_MODULE_REF,
-            decimals: 0,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id: token_id.clone(),
+                token_module: TOKEN_MODULE_REF,
+                decimals: 0,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
 
     // Assertions using token module state query
-    let token_info = queries::query_token_info(stub.state(), &token_id).unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
     let state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));
@@ -167,9 +190,12 @@ fn test_initialize_token_default_values() {
     assert_eq!(state.paused, Some(false));
 
     // Assert governance account balance
-    let token = stub.state().token_by_id(&token_id).unwrap();
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .expect("created token");
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(0)
     );
 }
@@ -177,9 +203,14 @@ fn test_initialize_token_default_values() {
 /// In this example, the parameters are valid, no minting.
 #[test]
 fn test_initialize_token_no_minting() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -193,19 +224,20 @@ fn test_initialize_token_no_minting() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id.clone(),
-            token_module: TOKEN_MODULE_REF,
-            decimals: 0,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id: token_id.clone(),
+                token_module: TOKEN_MODULE_REF,
+                decimals: 0,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
 
     // Assertions using token module state query
-    let token_info = queries::query_token_info(stub.state(), &token_id).unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
     let state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));
@@ -217,9 +249,12 @@ fn test_initialize_token_no_minting() {
     assert_eq!(state.paused, Some(false));
 
     // Assert governance account balance
-    let token = stub.state().token_by_id(&token_id).unwrap();
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .expect("created token");
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(0)
     );
 }
@@ -227,9 +262,14 @@ fn test_initialize_token_no_minting() {
 /// In this example, the parameters are valid, with minting.
 #[test]
 fn test_initialize_token_with_minting() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
+    let gov_holder_account = CborHolderAccount::from(
+        context
+            .external
+            .account_canonical_address(gov_account.account_index()),
+    );
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
@@ -243,19 +283,20 @@ fn test_initialize_token_with_minting() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id: token_id.clone(),
-            token_module: TOKEN_MODULE_REF,
-            decimals: 2,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id: token_id.clone(),
+                token_module: TOKEN_MODULE_REF,
+                decimals: 2,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
 
     // Assertions using token module state query
-    let token_info = queries::query_token_info(stub.state(), &token_id).unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
     let state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));
@@ -267,13 +308,16 @@ fn test_initialize_token_with_minting() {
     assert_eq!(state.paused, Some(false));
 
     // Assert governance account balance and circulating supply
-    let token = stub.state().token_by_id(&token_id).unwrap();
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .expect("created token");
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token.token_p9.token_index()),
         RawTokenAmount(500000)
     );
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        token.token_p9.token_circulating_supply(),
         RawTokenAmount(500000)
     );
 }
@@ -282,12 +326,18 @@ fn test_initialize_token_with_minting() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_excessive_mint_decimals() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(
+            context
+                .external
+                .account_canonical_address(gov_account.account_index())
+                .into(),
+        ),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 6)),
@@ -296,16 +346,17 @@ fn test_initialize_token_excessive_mint_decimals() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let outcome = scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id,
-            token_module: TOKEN_MODULE_REF,
-            decimals: 2,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    let outcome = block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id,
+                token_module: TOKEN_MODULE_REF,
+                decimals: 2,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
     assert_matches!(
@@ -320,12 +371,18 @@ fn test_initialize_token_excessive_mint_decimals() {
 /// than the token allows.
 #[test]
 fn test_initialize_token_insufficient_mint_decimals() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
-    let gov_account = stub.create_account();
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let gov_account = context.external.create_account();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(
+            context
+                .external
+                .account_canonical_address(gov_account.account_index())
+                .into(),
+        ),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
@@ -334,16 +391,17 @@ fn test_initialize_token_insufficient_mint_decimals() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let outcome = scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id,
-            token_module: TOKEN_MODULE_REF,
-            decimals: 6,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    let outcome = block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id,
+                token_module: TOKEN_MODULE_REF,
+                decimals: 6,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
     assert_matches!(
@@ -357,7 +415,8 @@ fn test_initialize_token_insufficient_mint_decimals() {
 /// In this example, the parameters specify a non-existing governance account.
 #[test]
 fn test_initialize_token_non_existing_governance_account() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
@@ -370,16 +429,17 @@ fn test_initialize_token_non_existing_governance_account() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let outcome = scheduler::execute_chain_update(
-        stub.state_mut(),
-        UpdatePayload::CreatePlt(CreatePlt {
-            token_id,
-            token_module: TOKEN_MODULE_REF,
-            decimals: 0,
-            initialization_parameters: encoded_parameters,
-        }),
-    )
-    .unwrap();
+    let outcome = block_state
+        .execute_chain_update(
+            &mut context,
+            UpdatePayload::CreatePlt(CreatePlt {
+                token_id,
+                token_module: TOKEN_MODULE_REF,
+                decimals: 0,
+                initialization_parameters: encoded_parameters,
+            }),
+        )
+        .unwrap();
     let failure_kind =
         assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
     assert_matches!(

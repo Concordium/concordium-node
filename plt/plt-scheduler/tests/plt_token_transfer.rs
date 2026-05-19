@@ -1,5 +1,7 @@
 //! Tests for token transfer operations via the scheduler.
 
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -11,13 +13,9 @@ use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload, TokenPauseDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
-use plt_block_state::block_state_interface::BlockStateQuery;
-use plt_scheduler::scheduler;
+use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
 
 mod utils;
 
@@ -25,177 +23,241 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
 #[test]
 fn test_transfer() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
-    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        receiver.account_index(),
+        &token_id,
+        RawTokenAmount(2000),
+    );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(3000)
     );
 }
 
 #[test]
 fn test_transfer_with_memo() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
     let memo = CborMemo::Cbor(Memo::try_from(cbor::cbor_encode("testvalue")).unwrap());
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: Some(memo),
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: Some(memo),
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 }
 
 #[test]
 fn test_transfer_self() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    let (_, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    let sender = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(sender_addr),
-                        memo: None,
-                    },
-                )])),
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(sender_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
 }
 
 #[test]
 fn test_transfer_insufficient_balance() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(10000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(10000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
@@ -207,40 +269,55 @@ fn test_transfer_insufficient_balance() {
 
 #[test]
 fn test_transfer_decimals_mismatch() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 4),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 4),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
@@ -251,38 +328,51 @@ fn test_transfer_decimals_mismatch() {
 
 #[test]
 fn test_transfer_to_non_existing_receiver() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
+    let sender = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
-                        memo: None,
-                    },
-                )])),
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(reject_reason, TokenModuleRejectReason::AddressNotFound(
@@ -293,166 +383,215 @@ fn test_transfer_to_non_existing_receiver() {
 
 #[test]
 fn test_transfer_allow_list_success() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         2,
         Some(RawTokenAmount(5000)),
     );
-    let receiver = stub.create_account();
+    let receiver = context.external.create_account();
 
     // Gov is NOT auto-added to allow list — must add explicitly.
-    let gov_addr = stub.account_canonical_address(&gov_account);
-    stub.execute_token_operations(
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(gov_addr),
+            target: CborHolderAccount::from(gov_account_addr),
         })],
     );
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    stub.execute_token_operations(
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(receiver_addr),
         })],
     );
 
-    let result = scheduler::execute_transaction(
-        gov_account,
-        gov_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(1000)
     );
 }
 
 #[test]
 fn test_transfer_deny_list_success() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().deny_list().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    let denied = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
-    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
-
-    let denied_addr = stub.account_canonical_address(&denied);
-    stub.execute_token_operations(
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    let denied = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
         &token_id,
-        gov_account,
+        RawTokenAmount(5000),
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        receiver.account_index(),
+        &token_id,
+        RawTokenAmount(2000),
+    );
+
+    let denied_addr = context
+        .external
+        .account_canonical_address(denied.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(denied_addr),
         })],
     );
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(4000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(3000)
     );
 }
 
 #[test]
 fn test_transfer_sender_not_in_allow_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) = stub.create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         2,
         Some(RawTokenAmount(5000)),
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    stub.execute_token_operations(
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(receiver_addr),
         })],
     );
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
@@ -468,48 +607,59 @@ fn test_transfer_sender_not_in_allow_list() {
 
 #[test]
 fn test_transfer_recipient_not_in_allow_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         2,
         Some(RawTokenAmount(5000)),
     );
-    let receiver = stub.create_account();
+    let receiver = context.external.create_account();
 
     // Gov is NOT auto-added to allow list — add gov so it can transfer,
     // but do NOT add receiver — transfer should fail with "recipient not in allow list".
-    let gov_addr = stub.account_canonical_address(&gov_account);
-    stub.execute_token_operations(
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(gov_addr),
+            target: CborHolderAccount::from(gov_account_addr),
         })],
     );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = scheduler::execute_transaction(
-        gov_account,
-        gov_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
@@ -522,60 +672,83 @@ fn test_transfer_recipient_not_in_allow_list() {
         }
     );
     assert_eq!(
-        stub.state().account_token_balance(&gov_account, &token),
+        gov_account.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(0)
     );
 }
 
 #[test]
 fn test_transfer_sender_in_deny_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().deny_list().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
-    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
-
-    let sender_addr = stub.account_canonical_address(&sender);
-    stub.execute_token_operations(
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
         &token_id,
-        gov_account,
+        RawTokenAmount(5000),
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        receiver.account_index(),
+        &token_id,
+        RawTokenAmount(2000),
+    );
+
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(sender_addr),
         })],
     );
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
@@ -588,60 +761,83 @@ fn test_transfer_sender_in_deny_list() {
         }
     );
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
 }
 
 #[test]
 fn test_transfer_recipient_in_deny_list() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().deny_list().mintable(),
         2,
         None,
     );
-    let sender = stub.create_account();
-    let receiver = stub.create_account();
-    stub.increment_account_balance(sender, token, RawTokenAmount(5000));
-    stub.increment_account_balance(receiver, token, RawTokenAmount(2000));
-
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    stub.execute_token_operations(
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
         &token_id,
-        gov_account,
+        RawTokenAmount(5000),
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        receiver.account_index(),
+        &token_id,
+        RawTokenAmount(2000),
+    );
+
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(receiver_addr),
         })],
     );
 
-    let sender_addr = stub.account_canonical_address(&sender);
-    let result = scheduler::execute_transaction(
-        sender,
-        sender_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            sender.account_index(),
+            sender_addr,
+            1.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
@@ -654,66 +850,82 @@ fn test_transfer_recipient_in_deny_list() {
         }
     );
     assert_eq!(
-        stub.state().account_token_balance(&sender, &token),
+        sender.account_token_balance(&context, token_index),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        stub.state().account_token_balance(&receiver, &token),
+        receiver.account_token_balance(&context, token_index),
         RawTokenAmount(2000)
     );
 }
 
 #[test]
 fn test_transfer_paused() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
-    let receiver = stub.create_account();
-    stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        gov_account.account_index(),
+        &token_id,
+        RawTokenAmount(5000),
+    );
 
-    let gov_addr = stub.account_canonical_address(&gov_account);
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
     let pause_ops = vec![TokenOperation::Pause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&pause_ops)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        gov_addr,
-        1.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("pause");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            1.into(),
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("pause");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let receiver_addr = stub.account_canonical_address(&receiver);
-    let result = scheduler::execute_transaction(
-        gov_account,
-        gov_addr,
-        2.into(),
-        stub.state_mut(),
-        Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id: token_id.clone(),
-                operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
-                    TokenTransfer {
-                        amount: TokenAmount::from_raw(1000, 2),
-                        recipient: CborHolderAccount::from(receiver_addr),
-                        memo: None,
-                    },
-                )])),
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            gov_account.account_index(),
+            gov_account_addr,
+            2.into(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
             },
-        },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(

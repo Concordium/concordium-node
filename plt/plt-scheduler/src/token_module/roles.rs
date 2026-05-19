@@ -2,7 +2,7 @@
 
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::TokenAdminRole;
-use plt_block_state::block_state::types::protocol_level_tokens::TokenStateValue;
+use plt_block_state::block_state_interface::TokenStateValue;
 
 /// List roles which are unaffected by which features are enabled.
 pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[

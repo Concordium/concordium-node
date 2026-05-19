@@ -1,12 +1,12 @@
 //! Benchmarks for the [`LfmbTree`] covering asymptotic behavior with varying tree size.
 
 use divan::Bencher;
-use plt_block_state::block_state::blob_store;
-use plt_block_state::block_state::blob_store::StoreSerialized;
-use plt_block_state::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-use plt_block_state::block_state::cacheable::Cacheable;
-use plt_block_state::block_state::hash::Hashable;
-use plt_block_state::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
+use plt_block_state::persistent::blob_store;
+use plt_block_state::persistent::blob_store::StoreSerialized;
+use plt_block_state::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+use plt_block_state::persistent::cacheable::Cacheable;
+use plt_block_state::persistent::hash::Hashable;
+use plt_block_state::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 
 fn main() {
     divan::main();

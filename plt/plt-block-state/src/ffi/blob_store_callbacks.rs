@@ -1,4 +1,4 @@
-use crate::block_state::blob_store::{BlobStoreLoad, BlobStoreLocation, BlobStoreStore};
+use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreLocation, BlobStoreStore};
 use libc::size_t;
 
 /// A [loader](BlobStoreLoad) implemented by an external function.

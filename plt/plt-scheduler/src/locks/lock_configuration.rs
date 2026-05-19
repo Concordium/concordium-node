@@ -1,19 +1,16 @@
 use std::collections::BTreeMap;
 
+use crate::{
+    locks::lock_controller::LockController, queries::QueryLockError,
+    token_context::TokenQueryContext, token_module,
+};
 use concordium_base::{
     base::AccountIndex,
     protocol_level_locks::{LockAccountFunds, LockConfig, LockId, LockInfo, LockedTokenAmount},
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
-use plt_block_state::{
-    block_state::types::protocol_level_locks::LockConfiguration,
-    block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery},
-};
-
-use crate::{
-    locks::lock_controller::LockController, queries::QueryLockError,
-    token_context::TokenQueryContext, token_module,
-};
+use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
+use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 
 /// Get the list of recipient accounts for a lock configuration, resolving
 /// [`AccountIndex`]es to [`CborHolderAccount`]s.
@@ -66,8 +63,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
-    for (account, token) in bsq.lock_balances(lock_id) {
-        let account_index = bsq.account_index(&account);
+    for (account_index, token) in bsq.lock_balances(lock_id) {
         let token_configuration = bsq.token_configuration(&token);
         let token_module_state = bsq.mutable_token_key_value_state(&token);
         let context = TokenQueryContext {
