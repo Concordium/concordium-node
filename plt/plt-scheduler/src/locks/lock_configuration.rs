@@ -6,10 +6,12 @@ use crate::{
 };
 use concordium_base::{
     base::AccountIndex,
-    protocol_level_locks::{LockAccountFunds, LockConfig, LockId, LockInfo, LockedTokenAmount},
+    protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
-use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
+use plt_block_state::block_state_interface::{
+    AccountNotFoundByIndexError, BlockStateQuery, HasLockId,
+};
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 
 /// Get the list of recipient accounts for a lock configuration, resolving
@@ -47,7 +49,7 @@ pub fn get_lock_config<BSQ: BlockStateQuery>(
 /// per-`(account, token)` balances held by the lock.
 pub fn get_lock_info<BSQ: BlockStateQuery>(
     bsq: &BSQ,
-    lock_id: &LockId,
+    lock: &BSQ::Lock,
     configuration: &LockConfiguration,
 ) -> Result<LockInfo, QueryLockError> {
     // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
@@ -63,7 +65,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
-    for (account_index, token) in bsq.lock_balances(lock_id) {
+    for (account_index, token) in bsq.lock_balances(lock) {
         let token_configuration = bsq.token_configuration(&token);
         let token_module_state = bsq.mutable_token_key_value_state(&token);
         let context = TokenQueryContext {
@@ -74,7 +76,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         // for each locked balance record for the lock, get the locked token amount recorded in the
         // account state of the token.
         let raw_balance =
-            token_module::query_locked_balance(&context, account_index, lock_id)?;
+            token_module::query_locked_balance(&context, account_index, lock.lock_id())?;
         let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
         funds_by_account
             .entry(account_index)
@@ -103,7 +105,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         .collect::<Result<_, QueryLockError>>()?;
 
     Ok(LockInfo {
-        lock: lock_id.clone(),
+        lock: lock.lock_id().clone(),
         recipients,
         expiry: configuration.expiry(),
         controller,

@@ -55,6 +55,7 @@ fn test_mint_p10() {
             gov_account.account_index(),
             gov_account_address,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -80,6 +81,7 @@ fn test_mint_p10() {
             gov_account.account_index(),
             gov_account_address,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -125,6 +127,7 @@ fn test_unauthorized_mint_p10() {
             non_governance_account.account_index(),
             non_governance_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -191,6 +194,7 @@ fn test_mint() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -216,6 +220,7 @@ fn test_mint() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -261,6 +266,7 @@ fn test_unauthorized_mint() {
             non_governance_account.account_index(),
             non_governance_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -330,6 +336,7 @@ fn test_unauthorized_mint_using_alias() {
             non_gov_account.account_index(),
             non_gov_account_address_alias,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -384,6 +391,7 @@ fn test_mint_overflow() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -446,6 +454,7 @@ fn test_mint_decimals_mismatch() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -502,6 +511,7 @@ fn test_mint_paused() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -551,6 +561,7 @@ fn test_not_mintable() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -600,6 +611,7 @@ fn test_mint_event() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -650,6 +662,7 @@ fn test_reject_without_role() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -671,6 +684,7 @@ fn test_reject_without_role() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -731,6 +745,7 @@ fn test_new_account_with_role_succeeds_mint() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -755,6 +770,7 @@ fn test_new_account_with_role_succeeds_mint() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )

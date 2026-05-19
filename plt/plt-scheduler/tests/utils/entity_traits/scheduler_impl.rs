@@ -1,6 +1,6 @@
 use super::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
-use concordium_base::contracts_common::AccountAddress;
+use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -25,6 +25,7 @@ impl SchedulerOperations for BlockStateP9 {
         sender_account: AccountIndex,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
+        block_timestamp: Timestamp,
         payload: Payload,
         energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
@@ -42,6 +43,7 @@ impl SchedulerOperations for BlockStateP9 {
             sender_account,
             sender_account_address,
             transaction_sequence_number,
+            block_timestamp,
             &mut exec_block_state,
             payload,
             energy_limit,
@@ -172,6 +174,7 @@ impl SchedulerOperations for BlockStateP11 {
         sender_account: AccountIndex,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
+        block_timestamp: Timestamp,
         payload: Payload,
         energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
@@ -192,6 +195,7 @@ impl SchedulerOperations for BlockStateP11 {
             sender_account,
             sender_account_address,
             transaction_sequence_number,
+            block_timestamp,
             &mut exec_block_state,
             payload,
             energy_limit,

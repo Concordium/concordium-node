@@ -64,6 +64,7 @@ fn test_transfer() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -127,6 +128,7 @@ fn test_transfer_with_memo() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -185,6 +187,7 @@ fn test_transfer_self() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -243,6 +246,7 @@ fn test_transfer_insufficient_balance() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -303,6 +307,7 @@ fn test_transfer_decimals_mismatch() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -358,6 +363,7 @@ fn test_transfer_to_non_existing_receiver() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -429,6 +435,7 @@ fn test_transfer_allow_list_success() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -512,6 +519,7 @@ fn test_transfer_deny_list_success() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -577,6 +585,7 @@ fn test_transfer_sender_not_in_allow_list() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -645,6 +654,7 @@ fn test_transfer_recipient_not_in_allow_list() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -734,6 +744,7 @@ fn test_transfer_sender_in_deny_list() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -823,6 +834,7 @@ fn test_transfer_recipient_in_deny_list() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -896,6 +908,7 @@ fn test_transfer_paused() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -911,6 +924,7 @@ fn test_transfer_paused() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),

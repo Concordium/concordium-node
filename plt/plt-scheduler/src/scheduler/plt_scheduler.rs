@@ -19,7 +19,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, HasLockId, TokenNotFoundByIdError,
 };
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
@@ -286,7 +286,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             let lock_id = LockId::new(account_index, sequence_number, creation_order);
             let controller = LockController::new(block_state, config.controller)?;
 
-            let recipients = match config
+            let recipients = config
                 .recipients
                 .iter()
                 .map(
@@ -342,17 +342,17 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 // The lock is neither expired, nor is the sender authorized to
                 // cancel the lock, so we reject the transaction.
                 return Err(TransactionRejectReason::LockCancelNotAuthorized(
-                    lock,
+                    lock.lock_id().clone(),
                     transaction_execution.sender_account_address(),
                 )
                 .into());
             }
-            for (account, token) in block_state.lock_balances(&lock).collect::<Vec<_>>() {
+            for (account_index, token) in block_state.lock_balances(&lock).collect::<Vec<_>>() {
                 with_token(block_state, &token, events, |kernel| {
-                    kernel.unlock_balance(&account, &lock, &memo)
+                    kernel.unlock_balance(account_index, lock.lock_id(), &memo)
                 })?;
             }
-            block_state.delete_lock(lock);
+            block_state.delete_lock(lock.lock_id());
 
             Ok(())
         }

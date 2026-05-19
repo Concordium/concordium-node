@@ -67,6 +67,7 @@ fn test_plt_transfer() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -127,6 +128,7 @@ fn test_plt_transfer() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -211,6 +213,7 @@ fn test_plt_transfer_using_aliases() {
             gov_account.account_index(),
             gov_account_address_alias,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -277,6 +280,7 @@ fn test_plt_transfer_reject() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -349,6 +353,7 @@ fn test_plt_transfer_allow_list_flow() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -379,6 +384,7 @@ fn test_plt_transfer_allow_list_flow() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -430,6 +436,7 @@ fn test_plt_transfer_allow_list_flow() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -460,6 +467,7 @@ fn test_plt_transfer_allow_list_flow() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -526,6 +534,7 @@ fn test_plt_allow_list_disabled() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -578,6 +587,7 @@ fn test_plt_mint() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -646,6 +656,7 @@ fn test_plt_mint_using_alias() {
             gov_account.account_index(),
             gov_account_address_alias,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -711,6 +722,7 @@ fn test_plt_mint_reject() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -769,6 +781,7 @@ fn test_plt_mint_unauthorized() {
             non_governance_account.account_index(),
             non_gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -837,6 +850,7 @@ fn test_plt_burn() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -905,6 +919,7 @@ fn test_plt_burn_using_alias() {
             gov_account.account_index(),
             gov_account_address_alias,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -970,6 +985,7 @@ fn test_plt_burn_reject() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1043,6 +1059,7 @@ fn test_plt_multiple_operations() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1117,6 +1134,7 @@ fn test_plt_pause() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1158,6 +1176,7 @@ fn test_plt_pause() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1204,6 +1223,7 @@ fn test_plt_unpause() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1250,6 +1270,7 @@ fn test_non_existing_token_id() {
             account1.account_index(),
             account1_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1309,6 +1330,7 @@ fn test_energy_charge() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1367,6 +1389,7 @@ fn test_energy_charge_at_reject() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1425,6 +1448,7 @@ fn test_out_of_energy_error() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(150), // needs 300 + 100 to succeed
         )

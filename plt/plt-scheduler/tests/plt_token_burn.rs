@@ -53,6 +53,7 @@ fn test_burn() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -81,6 +82,7 @@ fn test_burn() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -126,6 +128,7 @@ fn test_unauthorized_burn() {
             non_governance_account.account_index(),
             non_gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -182,6 +185,7 @@ fn test_burn_insufficient_balance() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -231,6 +235,7 @@ fn test_burn_decimals_mismatch() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -285,6 +290,7 @@ fn test_burn_paused() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -333,6 +339,7 @@ fn test_not_burnable() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -381,6 +388,7 @@ fn test_burn_event() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -430,6 +438,7 @@ fn test_role_authorization_burn() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -454,6 +463,7 @@ fn test_role_authorization_burn() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -526,6 +536,7 @@ fn test_new_account_with_role_succeeds_burn() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -550,6 +561,7 @@ fn test_new_account_with_role_succeeds_burn() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )

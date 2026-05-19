@@ -51,6 +51,7 @@ fn test_update_token_decode_failure() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -116,6 +117,7 @@ fn test_update_token_additional_fields() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -193,6 +195,7 @@ fn test_multiple_operations() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -263,6 +266,7 @@ fn test_single_failing_operation() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -323,6 +327,7 @@ fn test_energy_charge() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(1000),
         )
@@ -380,6 +385,7 @@ fn test_out_of_energy_error() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(50),
         )

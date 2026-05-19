@@ -5,6 +5,7 @@ use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, TokenAdminRole, TokenId, TokenModuleRef};
 use concordium_base::transactions::Memo;
+use plt_block_state::block_state_interface::HasLockId;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;

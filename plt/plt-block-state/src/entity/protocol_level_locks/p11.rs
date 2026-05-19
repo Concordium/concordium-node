@@ -1,4 +1,4 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult, HasLockId};
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::protocol_level_locks::p11::{
     LockConfiguration, PersistentLockP11, PersistentLocksP11,
@@ -35,6 +35,18 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     Ok(())
 }
 
+pub(crate) fn delete_lock<C: EntityContextTypes>(
+    _context: &EntityContext<C>,
+    persistent_locks: &mut PersistentLocksP11,
+    lock_id: &LockId,
+) -> BlockStateResult<Option<LockP11>> {
+    let existing = persistent_locks.locks.0.remove(lock_id);
+    Ok(existing.map(|persistent| LockP11 {
+        lock_id: lock_id.clone(),
+        persistent,
+    }))
+}
+
 pub(crate) fn update_lock<C: EntityContextTypes>(
     _context: &EntityContext<C>,
     persistent_locks: &mut PersistentLocksP11,
@@ -62,21 +74,16 @@ pub(crate) fn lock_by_id<C: EntityContextTypes>(
     }))
 }
 
-/// Representation of protocol-level token on P9 and later protocols with compatible model.
+/// Representation of protocol-level lock on P11 and later protocols with compatible model.
 #[derive(Debug)]
 pub struct LockP11 {
-    /// Token index
+    /// Lock ID
     pub(crate) lock_id: LockId,
-    /// Persistent model of the protoco-level token.
+    /// Persistent model of the protocol-level lock.
     pub(crate) persistent: PersistentLockP11,
 }
 
 impl LockP11 {
-    /// Get the id of the lock.
-    pub fn lock_id(&self) -> &LockId {
-        &self.lock_id
-    }
-
     /// Get the configuration of the protocol-level lock.
     pub fn lock_configuration<C: EntityContextTypes>(
         &self,
@@ -107,5 +114,11 @@ impl LockP11 {
         self.persistent
             .locked_balances
             .insert((account_index, token_index));
+    }
+}
+
+impl HasLockId for LockP11 {
+    fn lock_id(&self) -> &LockId {
+        &self.lock_id
     }
 }

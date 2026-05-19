@@ -101,6 +101,7 @@ fn test_rbac_assign_roles() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -203,6 +204,7 @@ fn test_rbac_assign_same_roles() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -231,6 +233,7 @@ fn test_rbac_assign_same_roles() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -304,6 +307,7 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -345,6 +349,7 @@ fn test_rbac_assign_rejects_p10() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -384,6 +389,7 @@ fn test_rbac_assign_role_works_when_paused() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -412,6 +418,7 @@ fn test_rbac_assign_role_works_when_paused() {
             gov_account.account_index(),
             gov_account_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -477,6 +484,7 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -521,6 +529,7 @@ fn test_rbac_revoke_roles() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -591,6 +600,7 @@ fn test_rbac_revoke_same_roles() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -616,6 +626,7 @@ fn test_rbac_revoke_same_roles() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -698,6 +709,7 @@ fn test_rbac_revoke_rejects_without_admin_role() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -738,6 +750,7 @@ fn test_rbac_revoke_rejects_p10() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -776,6 +789,7 @@ fn test_rbac_revoke_role_works_when_paused() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -801,6 +815,7 @@ fn test_rbac_revoke_role_works_when_paused() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -871,6 +886,7 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -911,6 +927,7 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -956,6 +973,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -984,6 +1002,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )

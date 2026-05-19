@@ -76,6 +76,12 @@ pub struct TokenStateKey(pub Vec<u8>);
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct TokenStateValue(pub Vec<u8>);
 
+/// This trait allows getting the lock ID associated with a lock.
+pub trait HasLockId {
+    /// Get the lock ID of the lock.
+    fn lock_id(&self) -> &LockId;
+}
+
 // todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
@@ -89,6 +95,11 @@ pub trait BlockStateQuery {
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
+
+    /// Opaque type that represents a protocol-level lock on chain.
+    /// An instance of this type *does not* guarantee that the lock exists on chain, as it
+    /// may have been deleted.
+    type Lock: HasLockId;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
@@ -211,14 +222,14 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock_id` The lock id to get the [`Self::Lock`] of.
-    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError>;
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError>;
 
     /// Get the configuration of a protocol-level lock.
     ///
     /// # Arguments
     ///
     /// - `lock` The lock to get the configuration for.
-    fn lock_configuration(&self, lock: &LockId) -> LockConfiguration;
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration;
 
     /// Get the set of account/token balances currently tracked under a lock.
     ///
@@ -229,7 +240,8 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock` The lock to get the tracked locked balances for.
-    fn lock_balances(&self, lock: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)>;
+    fn lock_balances(&self, lock: &Self::Lock)
+    -> impl Iterator<Item = (AccountIndex, Self::Token)>;
 }
 
 // todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
@@ -333,11 +345,11 @@ pub trait BlockStateOperations: BlockStateQuery {
     fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
 
     /// Delete a PLT lock with the given Lock ID.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// - `lock_id` The ID of the PLT lock.
-    fn delete_lock(&mut self, lock_id: LockId);
+    fn delete_lock(&mut self, lock_id: &LockId) -> Option<Self::Lock>;
 
     /// Track that a lock holds a balance for the given account and token.
     ///

@@ -201,6 +201,7 @@ fn test_add_allow_list_reject_non_governance() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -265,6 +266,7 @@ fn test_remove_allow_list_reject_non_governance() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -328,6 +330,7 @@ fn test_add_deny_list_reject_non_governance() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -391,6 +394,7 @@ fn test_remove_deny_list_reject_non_governance() {
             sender.account_index(),
             sender_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -621,6 +625,7 @@ fn test_add_to_not_enabled_allow_list() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -674,6 +679,7 @@ fn test_remove_from_not_enabled_allow_list() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -727,6 +733,7 @@ fn test_add_to_not_enabled_deny_list() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -780,6 +787,7 @@ fn test_remove_from_not_enabled_deny_list() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -831,6 +839,7 @@ fn test_reject_add_denylist_without_role() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -852,6 +861,7 @@ fn test_reject_add_denylist_without_role() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -906,6 +916,7 @@ fn test_reject_add_allowlist_without_role() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -927,6 +938,7 @@ fn test_reject_add_allowlist_without_role() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -991,6 +1003,7 @@ fn test_reject_remove_denylist_without_role() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1012,6 +1025,7 @@ fn test_reject_remove_denylist_without_role() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1076,6 +1090,7 @@ fn test_reject_remove_allowlist_without_role() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1097,6 +1112,7 @@ fn test_reject_remove_allowlist_without_role() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1156,6 +1172,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1177,6 +1194,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1228,6 +1246,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -1249,6 +1268,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )

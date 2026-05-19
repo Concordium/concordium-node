@@ -62,6 +62,7 @@ fn test_token_metadata_updates() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -111,6 +112,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             gov_account.account_index(),
             gov_account_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -137,6 +139,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             account2.account_index(),
             account2_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -182,6 +185,7 @@ fn test_role_authorization_update_metadata() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -208,6 +212,7 @@ fn test_role_authorization_update_metadata() {
             gov_account.account_index(),
             gov_addr,
             2.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )
@@ -266,6 +271,7 @@ fn test_update_metadata_rejects_with_additional_data() {
             gov_account.account_index(),
             gov_addr,
             1.into(),
+            0.into(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
         )

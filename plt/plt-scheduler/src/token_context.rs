@@ -5,7 +5,7 @@ use crate::token_module::errors::{
     TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::key_value_state;
-use concordium_base::base::ProtocolVersion;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
@@ -247,17 +247,16 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     /// this particular token.
     pub fn unlock_balance(
         &mut self,
-        account: &BSO::Account,
-        lock: &LockId,
+        account_index: AccountIndex,
+        lock_id: &LockId,
         memo: &Option<Memo>,
     ) -> Result<(), TokenStateInvariantError> {
-        let account_index = self.block_state.account_index(account);
-        let old_balance = key_value_state::get_locked_balance_for(self, account_index, lock)?;
+        let old_balance = key_value_state::get_locked_balance_for(self, account_index, lock_id)?;
         if old_balance == RawTokenAmount(0) {
             // No locked balance, nothing to do.
             return Ok(());
         }
-        key_value_state::set_locked_balance_for(self, account_index, lock, RawTokenAmount(0));
+        key_value_state::set_locked_balance_for(self, account_index, lock_id, RawTokenAmount(0));
         let account = self
             .block_state
             .account_by_index(account_index)
@@ -273,7 +272,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
                     decimals: self.block_state.token_configuration(self.token).decimals,
                 },
                 memo: memo.clone(),
-                from_lock: Some(lock.clone()),
+                from_lock: Some(lock_id.clone()),
                 to_lock: None,
             }));
         Ok(())

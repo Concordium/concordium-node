@@ -93,6 +93,8 @@ fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
     TokenModuleAccountState {
         allow_list,
         deny_list,
+        locks: vec![],   // FIXME: COR-2316
+        available: None, // FIXME: COR-2316
     }
 }
 

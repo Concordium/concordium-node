@@ -65,6 +65,7 @@ pub fn create_lock(
             sender.account.account_index(),
             sender.canonical_account_address,
             lock_id.sequence_number(),
+            0.into(),
             Payload::MetaUpdate {
                 payload: MetaUpdatePayload {
                     operations: RawCbor::from(cbor::cbor_encode(&operations)),

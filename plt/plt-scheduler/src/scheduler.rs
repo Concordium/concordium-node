@@ -37,15 +37,17 @@ pub enum TransactionFailure {
     Error(#[from] TransactionExecutionError),
 }
 
-impl From<TransactionRejectReason> for TransactionFailure where {
+impl From<TransactionRejectReason> for TransactionFailure {
     fn from(value: TransactionRejectReason) -> Self {
         Self::Reject(value)
     }
 }
 
-impl From<TokenStateInvariantError> for TransactionFailure where {
+impl From<TokenStateInvariantError> for TransactionFailure {
     fn from(value: TokenStateInvariantError) -> Self {
-        Self::Error(TransactionExecutionError::StateInvariantBroken(value.to_string()))
+        Self::Error(TransactionExecutionError::StateInvariantBroken(
+            value.to_string(),
+        ))
     }
 }
 

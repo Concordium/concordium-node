@@ -3,7 +3,7 @@
 
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
+    BlockStateQuery, HasLockId, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError, TokenStateKey, TokenStateValue,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
@@ -20,7 +20,6 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use std::vec;
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
@@ -32,10 +31,19 @@ pub struct ExecutionTimeBlockStateP9<C: EntityContextTypes> {
     pub context: EntityContext<C>,
 }
 
+pub enum NoLock {}
+
+impl HasLockId for NoLock {
+    fn lock_id(&self) -> &LockId {
+        match *self {}
+    }
+}
+
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
+    type Lock = NoLock;
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         self.block_state
@@ -157,19 +165,25 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     }
 
     fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
-        panic!("no locks on P9") as vec::IntoIter<_>
+        std::iter::empty()
     }
 
-    fn lock_by_id(&self, _lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
-        panic!("no locks on P9")
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError> {
+        // There are no locks, so always return not found.
+        Err(LockNotFoundByIdError(lock_id.clone()))
     }
 
-    fn lock_configuration(&self, _lock: &LockId) -> LockConfiguration {
-        panic!("no locks on P9")
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration {
+        match *lock {}
     }
 
-    fn lock_balances(&self, _lock: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
-        panic!("no locks on P9") as vec::IntoIter<_>
+    fn lock_balances(
+        &self,
+        lock: &Self::Lock,
+    ) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+        match *lock {}
+        #[allow(unreachable_code)]
+        std::iter::empty()
     }
 }
 
@@ -236,13 +250,8 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
         panic!("no locks on P9")
     }
 
-    fn delete_lock(&mut self, lock_id: LockId) {
-        self.internal_block_state
-            .update_block_state_(|mut state| {
-                let _prev = state.locks.locks.0.remove(&lock_id);
-                Ok(state)
-            })
-            .unwrap()
+    fn delete_lock(&mut self, _lock_id: &LockId) -> Option<Self::Lock> {
+        panic!("no locks on P9")
     }
 
     fn add_lock_balance_ref(
@@ -273,6 +282,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
+    type Lock = crate::entity::protocol_level_locks::p11::LockP11;
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         self.block_state
@@ -401,27 +411,18 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
             .into_iter()
     }
 
-    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
-        self.block_state
-            .lock_by_id(&self.context, lock_id)
-            .unwrap()
-            .map(|lock| lock.lock_id().clone())
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError> {
+        self.block_state.lock_by_id(&self.context, lock_id).unwrap()
     }
 
-    fn lock_configuration(&self, lock_id: &LockId) -> LockConfiguration {
-        self.block_state
-            .lock_by_id(&self.context, lock_id)
-            .unwrap()
-            .unwrap()
-            .lock_configuration(&self.context)
+    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration {
+        lock.lock_configuration(&self.context)
     }
 
-    fn lock_balances(&self, lock_id: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
-        let lock = self
-            .block_state
-            .lock_by_id(&self.context, lock_id)
-            .unwrap()
-            .unwrap();
+    fn lock_balances(
+        &self,
+        lock: &Self::Lock,
+    ) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
         lock.lock_balance_refs().into_iter()
     }
 }
@@ -495,6 +496,12 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<
         self.block_state
             .create_lock(&self.context, lock_id, configuration)
             .unwrap();
+    }
+
+    fn delete_lock(&mut self, lock_id: &LockId) -> Option<Self::Lock> {
+        self.block_state
+            .delete_lock(&self.context, lock_id)
+            .unwrap()
     }
 
     fn add_lock_balance_ref(
