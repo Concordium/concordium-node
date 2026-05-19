@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- upgraded rust version to 1.94
+
 # 10.0.8
 
 - Treat scheduled transfers where the total transferred amount overflows as invalid.
