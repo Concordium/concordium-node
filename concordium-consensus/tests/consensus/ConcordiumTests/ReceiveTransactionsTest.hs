@@ -217,6 +217,7 @@ instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
 
 instance (Monad m) => MonadLogger (FixedTimeT m) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 instance (Monad m) => TimeMonad (FixedTimeT m) where
     currentTime = FixedTime return
@@ -238,6 +239,7 @@ newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 -- | Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runTestSkovQueryMonad' :: TestSkovQueryMonad a -> UTCTime -> GenesisData PV -> IO (a, TestSkovState)

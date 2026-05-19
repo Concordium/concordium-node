@@ -56,11 +56,12 @@ import Concordium.GlobalState.Types
 import Concordium.Logger
 import Concordium.Scheduler
 import qualified Concordium.Scheduler.DummyData as DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import qualified Concordium.Scheduler.Runner as SchedTest
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 import Concordium.Types (SProtocolVersion)
+import qualified Control.Monad.Catch as Catch
 
 getResults :: [(a, Types.TransactionSummary tov)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))
@@ -99,7 +100,9 @@ newtype PersistentBSM pv a = PersistentBSM
           Functor,
           Monad,
           BlockStateTypes,
-          MonadIO
+          MonadIO,
+          Catch.MonadThrow,
+          Catch.MonadCatch
         )
 
 deriving instance (Types.IsProtocolVersion pv) => BS.AccountOperations (PersistentBSM pv)
@@ -123,6 +126,7 @@ deriving instance
 
 instance MonadLogger (PersistentBSM pv) where
     logEvent src lvl msg = PersistentBSM (logEvent src lvl msg)
+    logEventIO = PersistentBSM logEventIO
 
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
@@ -144,7 +148,8 @@ forEveryProtocolVersion check =
       check Types.SP7 "P7",
       check Types.SP8 "P8",
       check Types.SP9 "P9",
-      check Types.SP10 "P10"
+      check Types.SP10 "P10",
+      check Types.SP11 "P11"
     ]
 
 -- | Convert an energy value to an amount, based on the exchange rates used in
@@ -806,17 +811,22 @@ assertFailureWithReason expectedReason result =
         [] -> assertFailure "No transaction failed"
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
 
--- | Assert the scheduler result has failed one chain update and check the reason.
-assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult tov -> Assertion
-assertUpdateFailureWithReason expectedReason result =
+-- | Assert the scheduler result has failed one chain update and check the failure kind.
+assertUpdateFailureWhere :: (Types.FailureKind -> Assertion) -> SchedulerResult tov -> Assertion
+assertUpdateFailureWhere assertFailureKind result =
     case ftFailedUpdates $ srTransactions result of
-        [(_, reason)] ->
-            assertEqual
-                "The correct reason for failure is produced"
-                expectedReason
-                reason
+        [(_, failureKind)] ->
+            assertFailureKind failureKind
         [] -> assertFailure "No transaction failed"
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
+
+-- | Assert the scheduler result has failed one chain update and check the reason.
+assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult tov -> Assertion
+assertUpdateFailureWithReason expectedReason =
+    assertUpdateFailureWhere $
+        assertEqual
+            "The correct reason for failure is produced"
+            expectedReason
 
 -- | Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
 --  contract module. Assuming the transaction was signed with a single signature.

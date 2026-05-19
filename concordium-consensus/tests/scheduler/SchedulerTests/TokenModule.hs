@@ -46,7 +46,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.Scheduler.DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
@@ -336,7 +336,7 @@ testInitializeToken = describe "initializeToken" $ do
                 abortPLTError $
                     ITEDeserializationFailure "DeserialiseFailure 0 \"end of input\""
         assertTrace
-            (initializeToken (TokenParameter mempty))
+            (initializeToken (rawCborFromBytes mempty))
             trace
     -- In this example, a parameter is missing from the required initialization parameters
     it "invalid parameters: missing parameter" $ do
@@ -358,7 +358,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just True,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
@@ -386,7 +386,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Nothing,
                       tipAdditional = Map.fromList [("_param1", CBOR.TString "extravalue1")]
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
@@ -414,7 +414,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Nothing,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token") :-> Just False)
@@ -444,7 +444,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just True,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token") :-> Just False)
@@ -477,7 +477,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -510,7 +510,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -543,7 +543,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -575,7 +575,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -598,7 +598,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
-            (executeTokenUpdateTransaction (sender 0) (TokenParameter mempty))
+            (executeTokenUpdateTransaction (sender 0) (rawCborFromBytes mempty))
             trace
     it "empty operations" $ do
         let transaction = TokenUpdateTransaction Seq.empty
@@ -837,7 +837,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted = Just receiver1,
+                                  trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount receiver1,
                                   trrReason = Just "recipient not in allow list"
                                 }
                          )
@@ -903,7 +903,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted = Just receiver1,
+                                  trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount receiver1,
                                   trrReason = Just "recipient in deny list"
                                 }
                          )
@@ -965,7 +965,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
     longMemo = Memo $ SBS.replicate maxMemoSize 60
     badMemo = Memo $ SBS.replicate (maxMemoSize + 1) 60
     mkTransferOp ttAmount ttRecipient ttMemo = TokenTransfer TokenTransferBody{..}
-    encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+    encodeTransaction = rawCborFromBytes . tokenUpdateTransactionToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 testExecuteTokenUpdateTransactionMintBurnPause :: Spec
@@ -976,7 +976,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
-            (executeTokenUpdateTransaction (sender 0) (TokenParameter mempty))
+            (executeTokenUpdateTransaction (sender 0) (rawCborFromBytes mempty))
             trace
     it "empty operations" $ do
         let transaction = TokenUpdateTransaction Seq.empty
@@ -1214,7 +1214,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
-    encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+    encodeTransaction = rawCborFromBytes . tokenUpdateTransactionToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 data AddRemove = Add | Remove
@@ -1289,7 +1289,7 @@ testLists = do
                                  )
                 assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
-    encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+    encodeTransaction = rawCborFromBytes . tokenUpdateTransactionToBytes
     receiver1 = CborAccountAddress (dummyAccountAddress 1) Nothing
     receiver2 = CborAccountAddress (dummyAccountAddress 2) (Just CoinInfoConcordium)
     ltcFeature :: ListTestConf -> TokenStateKey
@@ -1333,11 +1333,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
 
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
-            governanceAccount =
-                CborAccountAddress
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
+            governanceAccount = accountTokenHolder $ dummyAccountAddress 1
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (getModuleStateCall "name") :-> Just "My protocol-level token")
@@ -1367,11 +1363,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
         assertTrace queryTokenModuleState trace
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
-            governanceAccount =
-                CborAccountAddress
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
+            governanceAccount = accountTokenHolder $ dummyAccountAddress 1
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (getModuleStateCall "name") :-> Just "Another PLT")
@@ -1627,9 +1619,9 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         TokenUpdateTransaction . Seq.fromList $
             [mkTransferOp amt10'000 receiver1 Nothing, mkTransferOp amt10'000 receiver1 Nothing]
     encodeTxTH =
-        TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+        rawCborFromBytes . tokenUpdateTransactionToBytes
     encodeTxGV =
-        TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+        rawCborFromBytes . tokenUpdateTransactionToBytes
     receiver1 = CborAccountAddress (dummyAccountAddress 0) Nothing
     amt10'000 = TokenAmount 10_000 3
     mkMintOp toMintAmount = TokenMint{..}
@@ -1695,7 +1687,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
                 }
 
     initialBlockState ::
-        (Types.IsProtocolVersion pv, PVSupportsPLT pv) =>
+        (Types.IsProtocolVersion pv, PVSupportsHaskellManagedPLT pv) =>
         Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
     initialBlockState = do
         bs0 <-

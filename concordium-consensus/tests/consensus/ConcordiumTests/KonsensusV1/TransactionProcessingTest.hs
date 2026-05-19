@@ -53,6 +53,7 @@ import Concordium.Genesis.Data hiding (GenesisConfiguration)
 import qualified Concordium.Genesis.Data.Base as Base
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Genesis.Data.P10
+import Concordium.Genesis.Data.P11
 import Concordium.Genesis.Data.P6
 import Concordium.Genesis.Data.P7
 import Concordium.Genesis.Data.P8
@@ -160,6 +161,7 @@ newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 -- | A test monad that is suitable for testing transaction processing
 --  as it derives the required capabilities.
@@ -294,6 +296,12 @@ makeTestingGenesisData idps =
                         { genesisCore = coreGenesisParams,
                           genesisInitialState = Base.GenesisState{..}
                         }
+            SP11 ->
+                GDP11
+                    GDP11Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
 
 -- | Utility function for parrsing identity providers.
 readIps :: BSL.ByteString -> Maybe IdentityProviders
@@ -384,7 +392,7 @@ dummyUpdateInstruction effTime =
                 { _cpltTokenId = TokenId "dummyToken",
                   _cpltTokenModule = TokenModuleRef $ Hash.hash "dummyToken",
                   _cpltDecimals = 4,
-                  _cpltInitializationParameters = TokenParameter ""
+                  _cpltInitializationParameters = RawCbor ""
                 }
 
 -- | The block item for 'dummyNormalTransaction'.

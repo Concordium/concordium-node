@@ -2,8 +2,23 @@
 
 ## Unreleased changes
 
-# 10.0.8
-- upgraded rust version to 1.94
+## 11.2.0 (Devnet)
+
+- Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.
+- Added support for the new "meta update" transaction, which supports the same operations as any "token update" transaction
+  and additionally supports the following operations:
+  - `lockCreate`: create a PLT Lock from a given lock configuration
+
+# 11.1.0 (Devnet)
+
+- Support token operations in P11:
+  - `assignAdminRoles` and `revokeAdminRoles` for managing admin roles for a protocol-level token.
+  - `updateMetadata` for setting the metadata URL and checksum of a protocol-level token.
+- Extend gRPC API with `getTokenAuthorizations` query for listing accounts holding roles for a given protocol-level token.
+
+# 11.0.0 (DevNet)
+
+- Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
 
 # 10.0.7
 
@@ -14,7 +29,7 @@
 
 - Prohibit peers from sending unsolicited PeerList messages
 - Enhance node performance by limiting inbound queue saturation from peers that send messages aggressively by using backpressure.
-- Introduce a background queue for processing messages that don't require the global block state lock. 
+- Introduce a background queue for processing messages that don't require the global block state lock.
 
 # 10.0.5
 

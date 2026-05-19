@@ -59,7 +59,7 @@ propBBMerkleProofParse spv =
     theTest :: BakedBlock pv -> Property
     theTest bb@BakedBlock{..} =
         let proof = runIdentity (buildMerkleProof (const True) bb)
-        in  case uncurry parseMerkleProof blockSchema proof of
+        in  case uncurry parseMerkleProof (blockSchema $ demoteProtocolVersion spv) proof of
                 Left err -> counterexample ("Failed to parse proof" ++ show err) False
                 Right (pt, hsh) ->
                     blockHash (getHash bb) === hsh

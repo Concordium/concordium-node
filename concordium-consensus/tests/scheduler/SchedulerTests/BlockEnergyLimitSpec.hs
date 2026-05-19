@@ -11,7 +11,7 @@ import Test.Hspec
 
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 

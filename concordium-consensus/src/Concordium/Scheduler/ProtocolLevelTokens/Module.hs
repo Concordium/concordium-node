@@ -5,7 +5,6 @@ module Concordium.Scheduler.ProtocolLevelTokens.Module where
 
 import Control.Monad
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BS.Builder
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -91,7 +90,7 @@ toTokenAmount decimals rawAmount =
 --  (if necessary) minting the initial supply to the token governance account.
 initializeToken ::
     (PLTKernelPrivilegedUpdate m, PLTKernelFail InitializeTokenError m, Monad m) =>
-    TokenParameter ->
+    RawCbor ->
     m ()
 initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
@@ -136,8 +135,7 @@ initializeToken tokenParam = do
                                 mintOK <- mint govAccount amt
                                 unless mintOK $ pltError (ITEInvalidMintAmount "Kernel failed to mint")
   where
-    tokenParamLBS =
-        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+    tokenParamLBS = rawCborToLazyBytes tokenParam
 
 -- | A pre-processed token operation. This has all amounts converted to
 --  'TokenRawAmount's and removes tags from memos.
@@ -219,6 +217,7 @@ preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
         return PTOTokenRemoveDenyList{ptgoTarget = receiver}
     preproc TokenPause = return PTOTokenPause
     preproc TokenUnpause = return PTOTokenUnpause
+    preproc _ = pltError . encodeTokenRejectReason $ DeserializationFailure $ Just "token-operation: unsupported operation type"
 
 -- | Encode and log a 'TokenEvent'.
 logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
@@ -267,7 +266,7 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 executeTokenUpdateTransaction ::
     (PLTKernelPrivilegedUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
-    TokenParameter ->
+    RawCbor ->
     m ()
 executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     parsedTransaction <- case tokenUpdateTransactionFromBytes tokenParamLBS of
@@ -300,7 +299,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just pthoRecipient,
+                                      trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount pthoRecipient,
                                       trrReason = Just "recipient not in allow list"
                                     }
                     enforceDenyList <- isJust <$> getModuleState "denyList"
@@ -321,7 +320,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just pthoRecipient,
+                                      trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
                     success <- transfer tcSender recipientAccount pthoAmount pthoMemo
@@ -424,8 +423,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
             return (opIndex + 1)
     foldM_ handleOperation 0 operations
   where
-    tokenParamLBS =
-        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+    tokenParamLBS = rawCborToLazyBytes tokenParam
     failTH = pltError . encodeTokenRejectReason
     checkPaused opIndex op = do
         paused <- isJust <$> getModuleState "paused"
@@ -514,12 +512,14 @@ requireAccount ::
     -- | The account to check.
     CborAccountAddress ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@CborAccountAddress{..} = do
-    getAccount chaAccount >>= \case
-        Nothing ->
-            pltError . encodeTokenRejectReason $
-                AddressNotFound{trrAddress = holder, ..}
-        Just acc -> return acc
+requireAccount
+    trrOperationIndex
+    CborAccountAddress{..} = do
+        getAccount chaAccount >>= \case
+            Nothing ->
+                pltError . encodeTokenRejectReason $
+                    AddressNotFound{trrAddress = accountTokenHolder chaAccount, ..}
+            Just acc -> return acc
 
 -- | An error that may be when querying the token state.
 newtype QueryTokenError
@@ -552,7 +552,7 @@ queryTokenModuleState = do
             getAccountByIndex govAccountIndex >>= \case
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
-        Just <$> accountTokenHolderShort <$> getAccountCanonicalAddress account
+        Just <$> accountTokenHolder <$> getAccountCanonicalAddress account
     tmsPaused <- Just . isJust <$> getModuleState "paused"
     tmsAllowList <- Just . isJust <$> getModuleState "allowList"
     tmsDenyList <- Just . isJust <$> getModuleState "denyList"

@@ -54,6 +54,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     -- * In-memory blob store
     MemBlobStore (..),
     newMemBlobStore,
+    newMemBlobStoreWithBytes,
     destroyMemBlobStore,
     MemBlobStoreT (..),
 
@@ -698,6 +699,10 @@ data MemBlobStore = MemBlobStore
 -- | Create a fresh, empty 'MemBlobStore'.
 newMemBlobStore :: IO MemBlobStore
 newMemBlobStore = MemBlobStore <$> newMVar LBS.empty <*> newEmptyMVar
+
+-- | Create a new 'MemBlobStore' containing given bytes.
+newMemBlobStoreWithBytes :: LBS.ByteString -> IO MemBlobStore
+newMemBlobStoreWithBytes bs = MemBlobStore <$> newMVar bs <*> newEmptyMVar
 
 -- | Destroy a 'MemBlobStore'. The caller should ensure that no operations on the 'MemBlobStore'
 --  can happen after the call to 'destroyMemBlobStore'.

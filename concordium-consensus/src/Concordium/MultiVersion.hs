@@ -575,7 +575,9 @@ newtype MVR finconf a = MVR {runMVR :: MultiVersionRunner finconf -> IO a}
 
 instance MonadLogger (MVR finconf) where
     logEvent src lvl msg = MVR $ \mvr -> mvLog mvr src lvl msg
+    logEventIO = MVR $ \mvr -> return $ mvLog mvr
     {-# INLINE logEvent #-}
+    {-# INLINE logEventIO #-}
 
 -- | Catch and log exceptions in the 'MVR' monad.
 --  Returns a specified value in the event of an exception.

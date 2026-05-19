@@ -58,6 +58,7 @@ newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 type PV = 'P5
 

@@ -41,6 +41,7 @@ import Concordium.Types.Accounts.Releases
 import Concordium.Types.Conditionally
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Migration
 import Concordium.Types.Parameters
 import Concordium.Types.Tokens
 import Concordium.Utils
@@ -117,24 +118,12 @@ migratePersistentBakerInfoEx ::
     StateMigrationParameters oldpv pv ->
     PersistentBakerInfoEx (AccountVersionFor oldpv) ->
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
-migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference return
-migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference return
-migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference migrateBakerInfoExV1
-  where
-    migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'False, Monad m') =>
-        BakerInfoEx av1 ->
-        m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CFalse, ..}
-migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = migrateReference migrateBakerInfoExV1
-  where
-    migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'True, Monad m') =>
-        BakerInfoEx av1 ->
-        m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
-migratePersistentBakerInfoEx StateMigrationParametersP8ToP9{} = migrateReference (return . coerceBakerInfoExV1)
-migratePersistentBakerInfoEx StateMigrationParametersP9ToP10{} = migrateReference return
+migratePersistentBakerInfoEx migration = case accountTypeMigrationFor migration of
+    AccountMigrationTrivial -> migrateReference return
+    AccountMigrationV2ToV3 -> migrateReference $ return . coerceBakerInfoExV1
+    AccountMigrationV3ToV4 -> migrateReference $ \BakerInfoExV1{..} ->
+        return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
+    AccountMigrationV4ToV5 -> migrateReference $ return . coerceBakerInfoExV1
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -2440,43 +2429,6 @@ migrateV5ToV5 acc = do
               accountStakedAmount = accountStakedAmount acc,
               ..
             }
-
--- | Migration for 'PersistentAccount'. Supports 'AccountV2', 'AccountV3', 'AccountV4'.
---
---  When migrating P6->P7 (account version 2 to 3), the 'AccountMigration' interface is used as
---  follows:
---
---   * Accounts that previously had a pending change are updated to have a pre-pre-cooldown, and
---     'addAccountInPrePreCooldown' is called. If the pending change is a reduction in stake,
---     the reduction is applied immediately to the active stake. If the pending change is a removal,
---     the baker or delegator record is removed altogether.
---
---   * Accounts that are still delegating but were delegating to a baker for which 'isBakerRemoved'
---     returns @True@ are updated to delegate to passive delegation.
---
---   * For accounts that are still delegating, 'retainDelegator' is called to record the (new)
---     delegation amount and target.
-migratePersistentAccount ::
-    forall m t oldpv pv.
-    ( IsProtocolVersion oldpv,
-      SupportMigration m t,
-      AccountMigration (AccountVersionFor pv) (t m),
-      AccountStructureVersionFor (AccountVersionFor oldpv) ~ 'AccountStructureV1,
-      MonadLogger (t m)
-    ) =>
-    StateMigrationParameters oldpv pv ->
-    PersistentAccount (AccountVersionFor oldpv) ->
-    t m (PersistentAccount (AccountVersionFor pv))
-migratePersistentAccount StateMigrationParametersTrivial acc = case accountVersion @(AccountVersionFor oldpv) of
-    SAccountV2 -> migrateV2ToV2 acc
-    SAccountV3 -> migrateV3ToV3 acc
-    SAccountV4 -> migrateV4ToV4 acc
-    SAccountV5 -> migrateV5ToV5 acc
-migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
-migratePersistentAccount StateMigrationParametersP6ToP7{} acc = migrateV2ToV3 acc
-migratePersistentAccount StateMigrationParametersP7ToP8{} acc = migrateV3ToV4 acc
-migratePersistentAccount StateMigrationParametersP8ToP9{} acc = migrateV4ToV5 acc
-migratePersistentAccount StateMigrationParametersP9ToP10{} acc = migrateV5ToV5 acc
 
 -- | Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 --  'P4' to 'P5'.

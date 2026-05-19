@@ -5,6 +5,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 -- The scheduler executes transactions (including credential deployment), updating the current block state.
@@ -72,6 +75,7 @@ import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.BlockState (
     AccountAllowance (..),
     AccountOperations (..),
+    BlockStateOperations,
     ContractStateOperations (..),
     InstanceInfoType (..),
     InstanceInfoTypeV (..),
@@ -104,7 +108,9 @@ import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..))
+import Concordium.Scheduler.ProtocolLevelTokens.KernelImplementation (PLTExecutionError (..))
 import qualified Concordium.Scheduler.ProtocolLevelTokens.Module as TokenModule
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler as RustScheduler
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
 import Concordium.Types.Option
@@ -146,10 +152,10 @@ type CheckHeaderResult m = CheckHeaderResult' (IndexedAccount m)
 --  Returns the sender account and the cost to be charged for checking the header.
 checkHeader ::
     forall msg m.
-    (TransactionData msg, SchedulerMonad m) =>
+    (TransactionData msg, BlockStateOperations m) =>
     msg ->
     Maybe TVer.VerificationResult ->
-    ExceptT (Maybe FailureKind) m (CheckHeaderResult m)
+    ExceptT (Maybe FailureKind) (SchedulerT m) (CheckHeaderResult m)
 checkHeader meta mVerRes = do
     case sSupportsSponsoredTransactions (protocolVersion @(MPV m)) of
         SFalse
@@ -281,7 +287,10 @@ checkTransactionVerificationResult (TVer.NotOk TVer.SponsoredTransactionMissingS
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
+dispatch ::
+    forall msg m.
+    (TransactionData msg, BlockStateOperations m) =>
+    (msg, Maybe TVer.VerificationResult) -> SchedulerT m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
 dispatch (msg, mVerRes) = do
     validMeta <- runExceptT (checkHeader msg mVerRes)
     case validMeta of
@@ -310,12 +319,12 @@ dispatch (msg, mVerRes) = do
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
 dispatchTransactionBody ::
     forall msg m res.
-    (TransactionData msg, SchedulerMonad m, TransactionResult res) =>
+    (TransactionData msg, BlockStateOperations m, TransactionResult res) =>
     -- | Transaction to execute.
     msg ->
     -- | Sender/sponsor account and header check energy cost.
     CheckHeaderResult m ->
-    m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
+    SchedulerT m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
 dispatchTransactionBody msg CheckHeaderResult{..} = do
     let meta = transactionHeader msg
     -- At this point the transaction is going to be committed to the block.
@@ -369,6 +378,7 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                           -- NB: We already account for the cost we used here.
                           _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + chrCheckHeaderCost,
                           _wtcTransactionIndex = tsIndex,
+                          _wtcTransactionSequenceNumber = thNonce meta,
                           ..
                         }
             -- Now pass the decoded payload to the respective transaction handler which contains
@@ -447,8 +457,10 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
                         TokenUpdate{..} ->
-                            onlyWithPLT $
-                                handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
+                            onlyWithPLT $ handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
+                        MetaUpdate{..} ->
+                            -- 'MetaUpdate' is only supported from P11, where we have 'PLTStateV1'.
+                            onlyWithPLTV1 $ handleMetaUpdate (mkWTC TTMetaUpdate) muOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -475,17 +487,21 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
     onlyWithPLT c = case sSupportsPLT (accountVersion @(AccountVersionFor (MPV m))) of
         SFalse -> error "Operation unsupported at this protocol version."
         STrue -> c
+    onlyWithPLTV1 :: ((PltStateVersionFor (MPV m) ~ PLTStateV1) => a) -> a
+    onlyWithPLTV1 c = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+        SPLTStateV1 -> c
+        _ -> error "Operation unsupported at this protocol version."
     cHasSponsorDetails = (sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m))))
 
 handleTransferWithSchedule ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     AccountAddress ->
     [(Timestamp, Amount)] ->
     -- | Nothing in case of a TransferWithSchedule and Just in case of a TransferWithScheduleAndMemo
     Maybe Memo ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
@@ -559,10 +575,10 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
         return (TxSuccess eventList)
 
 handleTransferToPublic ::
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     SecToPubAmountTransferData ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
     cryptoParams <- TVer.getCryptographicParameters
     withDeposit wtc (c cryptoParams) k
@@ -611,10 +627,10 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
                 ]
 
 handleTransferToEncrypted ::
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     Amount ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTransferToEncrypted wtc toEncrypted = do
     cryptoParams <- TVer.getCryptographicParameters
     withDeposit wtc (c cryptoParams) k
@@ -655,14 +671,14 @@ handleTransferToEncrypted wtc toEncrypted = do
 
 handleEncryptedAmountTransfer ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     -- | Receiver address.
     AccountAddress ->
     EncryptedAmountTransferData ->
     -- | Nothing in case of an EncryptedAmountTransfer and Just in case of an EncryptedAmountTransferWithMemo
     Maybe Memo ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} maybeMemo = do
     cryptoParams <- TVer.getCryptographicParameters
     withDeposit wtc (c cryptoParams) k
@@ -746,11 +762,11 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 -- | Handle the deployment of a module.
 handleDeployModule ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     -- | The module to deploy.
     Wasm.WasmModule ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleDeployModule wtc mod =
     withDeposit wtc c k
   where
@@ -833,7 +849,7 @@ getCurrentContractInstanceTicking' cref = do
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
     forall m res.
-    (SchedulerMonad m, TransactionResult res) =>
+    (BlockStateOperations m, TransactionResult res) =>
     WithDepositContext m ->
     -- | The amount to initialize the contract instance with.
     Amount ->
@@ -843,7 +859,7 @@ handleInitContract ::
     Wasm.InitName ->
     -- | Parameter expression to initialize with.
     Wasm.Parameter ->
-    m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
+    SchedulerT m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
 handleInitContract wtc initAmount modref initName param =
     withDeposit wtc c k
   where
@@ -1005,7 +1021,7 @@ handleInitContract wtc initAmount modref initName param =
                 ]
 
 handleSimpleTransfer ::
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     -- | Address to send the amount to, either account or contract.
     AccountAddress ->
@@ -1013,7 +1029,7 @@ handleSimpleTransfer ::
     Amount ->
     -- | Nothing in case of a Transfer and Just in case of a TransferWithMemo
     Maybe Memo ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleSimpleTransfer wtc toAddr transferamount maybeMemo =
     withDeposit wtc c defaultSuccess
   where
@@ -1036,7 +1052,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
-    (SchedulerMonad m, TransactionResult res) =>
+    (BlockStateOperations m, TransactionResult res) =>
     WithDepositContext m ->
     -- | Amount to invoke the contract's receive method with.
     Amount ->
@@ -1046,7 +1062,7 @@ handleUpdateContract ::
     Wasm.ReceiveName ->
     -- | Message to send to the receive method.
     Wasm.Parameter ->
-    m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
+    SchedulerT m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
     withDeposit wtc computeAndCharge defaultSuccess
   where
@@ -1299,18 +1315,11 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                             Nothing -> do
                                                 -- In protocol version 4 we did not emit the interrupt event in this failing case.
                                                 -- That was a mistake which is fixed in P5.
-                                                let newEvents =
-                                                        case demoteProtocolVersion (protocolVersion @(MPV m)) of
-                                                            P1 -> events
-                                                            P2 -> events
-                                                            P3 -> events
-                                                            P4 -> events
-                                                            P5 -> resumeEvent False : interruptEvent : events
-                                                            P6 -> resumeEvent False : interruptEvent : events
-                                                            P7 -> resumeEvent False : interruptEvent : events
-                                                            P8 -> resumeEvent False : interruptEvent : events
-                                                            P9 -> resumeEvent False : interruptEvent : events
-                                                            P10 -> resumeEvent False : interruptEvent : events
+                                                let newEvents
+                                                        | demoteProtocolVersion (protocolVersion @(MPV m)) < P5 =
+                                                            events
+                                                        | otherwise =
+                                                            resumeEvent False : interruptEvent : events
                                                 go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                                             Just (InstanceInfoV0 targetInstance) -> do
                                                 -- we are invoking a V0 instance.
@@ -1999,7 +2008,7 @@ checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 --  If the balance check has not been made, the behaviour is undefined. (Most likely,
 --  this will lead to an underflow and an invariant violation.)
 handleAddBaker ::
-    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
+    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m) =>
     WithDepositContext m ->
     BakerElectionVerifyKey ->
     BakerSignVerifyKey ->
@@ -2011,7 +2020,7 @@ handleAddBaker ::
     Amount ->
     -- | Whether to restake the baker's earnings
     Bool ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings =
     withDeposit wtc c k
   where
@@ -2099,7 +2108,7 @@ checkConfigureBakerKeys senderAddress BakerKeysWithProofs{..} =
 handleConfigureBaker ::
     forall m.
     ( PVSupportsDelegation (MPV m),
-      SchedulerMonad m
+      BlockStateOperations m
     ) =>
     WithDepositContext m ->
     -- | The equity capital of the baker
@@ -2120,7 +2129,7 @@ handleConfigureBaker ::
     Maybe AmountFraction ->
     -- | Whether to suspend/resume the baker.
     Maybe Bool ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleConfigureBaker
     wtc
     cbCapital
@@ -2304,12 +2313,12 @@ data ConfigureDelegationCont (av :: AccountVersion)
 -- | Handler for a configure delegation transaction.
 handleConfigureDelegation ::
     forall m.
-    (PVSupportsDelegation (MPV m), SchedulerMonad m) =>
+    (PVSupportsDelegation (MPV m), BlockStateOperations m) =>
     WithDepositContext m ->
     Maybe Amount ->
     Maybe Bool ->
     Maybe DelegationTarget ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
     withDeposit wtc tickAndGetAccountBalance (const executeConfigure)
   where
@@ -2415,9 +2424,9 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
 --   * If the account is the cool-down period for another baker change, the transaction fails ('BakerInCooldown').
 --   * Otherwise, the baker is removed, which takes effect after the cool-down period.
 handleRemoveBaker ::
-    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
+    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m) =>
     WithDepositContext m ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleRemoveBaker wtc =
     withDeposit wtc c k
   where
@@ -2438,11 +2447,11 @@ handleRemoveBaker wtc =
             BI.BRChangePending _ -> return (TxReject BakerInCooldown)
 
 handleUpdateBakerStake ::
-    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
+    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m) =>
     WithDepositContext m ->
     -- | new stake
     Amount ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleUpdateBakerStake wtc newStake =
     withDeposit wtc c k
   where
@@ -2474,11 +2483,11 @@ handleUpdateBakerStake wtc newStake =
                         return (TxReject StakeUnderMinimumThresholdForBaking)
 
 handleUpdateBakerRestakeEarnings ::
-    (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m) =>
+    (AccountVersionFor (MPV m) ~ 'AccountV0, BlockStateOperations m) =>
     WithDepositContext m ->
     -- | Whether to restake earnings
     Bool ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
@@ -2507,7 +2516,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
 --  If the balance check has not been made, the behaviour is undefined. (Most likely,
 --  this will lead to an underflow and an invariant violation.)
 handleUpdateBakerKeys ::
-    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
+    (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m) =>
     WithDepositContext m ->
     BakerElectionVerifyKey ->
     BakerSignVerifyKey ->
@@ -2515,7 +2524,7 @@ handleUpdateBakerKeys ::
     Proofs.Dlog25519Proof ->
     Proofs.Dlog25519Proof ->
     BakerAggregationProof ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSig bkuProofElection bkuProofAggregation =
     withDeposit wtc c k
   where
@@ -2569,11 +2578,11 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
 --  Note that the function only fails with `TxInvalid` and thus failed transactions are not committed to chain.
 handleDeployCredential ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     -- | Credentials to deploy with the current verification status.
     TVer.CredentialDeploymentWithStatus ->
     TransactionHash ->
-    m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
 handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpiry = messageExpiry, credential = cdi}}, mVerRes) cdiHash = do
     res <- runExceptT $ do
         cm <- lift getChainMetadata
@@ -2638,7 +2647,7 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
 -- | Updates the credential keys in the credential with the given Credential ID.
 --  It rejects if there is no credential with the given Credential ID.
 handleUpdateCredentialKeys ::
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     -- | Registration ID of the credential we are updating.
     ID.CredentialRegistrationID ->
@@ -2646,7 +2655,7 @@ handleUpdateCredentialKeys ::
     ID.CredentialPublicKeys ->
     -- | Signatures on the transaction. This is needed to check that a specific credential signed.
     TransactionSignature ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleUpdateCredentialKeys wtc cid keys sigs =
     withDeposit wtc c k
   where
@@ -2677,15 +2686,31 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 handleTokenUpdate ::
     forall m.
     ( PVSupportsPLT (MPV m),
-      SchedulerMonad m
+      BlockStateOperations m
     ) =>
     WithDepositContext m ->
     -- | Token symbol identifying the token to receive the operations.
     TokenId ->
     -- | Operations for the token.
-    TokenParameter ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
-handleTokenUpdate depositContext tokenId tokenOperations =
+    RawCbor ->
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+handleTokenUpdate depositContext tokenId tokenOperations = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateV0 -> handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations
+    SPLTStateV1 -> RustScheduler.executeTransaction depositContext (TokenUpdate tokenId tokenOperations)
+
+-- | Handler for a token update transaction, for protocol version where PLT state is managed in Haskell.
+handleTokenUpdateHaskellManaged ::
+    forall m.
+    ( PVSupportsHaskellManagedPLT (MPV m),
+      BlockStateOperations m
+    ) =>
+    WithDepositContext m ->
+    -- | Token symbol identifying the token to receive the operations.
+    TokenId ->
+    -- | Operations for the token.
+    RawCbor ->
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations =
     withDeposit depositContext computeTransaction commitTransaction
   where
     senderAccount = depositContext ^. wtcSenderAccount
@@ -2721,8 +2746,8 @@ handleTokenUpdate depositContext tokenId tokenOperations =
         TokenModuleRef ->
         Token.TokenIndex ->
         IndexedAccount m ->
-        TokenParameter ->
-        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
+        RawCbor ->
+        SchedulerT m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
     invokeTokenOperations energy _ tokenIndex sender parameter = do
         withBlockStateRollback $ do
             let tc =
@@ -2733,14 +2758,27 @@ handleTokenUpdate depositContext tokenId tokenOperations =
             (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenUpdateTransaction tc parameter
             return ((events <$ res, energyUsed), isLeft res)
 
+-- | Handler for a meta update transaction.
+handleMetaUpdate ::
+    forall m.
+    ( PltStateVersionFor (MPV m) ~ PLTStateV1,
+      BlockStateOperations m
+    ) =>
+    WithDepositContext m ->
+    -- | Operations.
+    RawCbor ->
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+handleMetaUpdate depositContext tokenOperations =
+    RustScheduler.executeTransaction depositContext (MetaUpdate tokenOperations)
+
 -- * Chain updates
 
 -- | Handle a chain update message
 handleChainUpdate ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     TVer.ChainUpdateWithStatus ->
-    m (TxResult (TransactionOutcomesVersionFor (MPV m)))
+    SchedulerT m (TxResult (TransactionOutcomesVersionFor (MPV m)))
 handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVerificationResult) = do
     cm <- getChainMetadata
     -- check that payload si
@@ -2844,7 +2882,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
     scpv = chainParametersVersion
     sauv :: SAuthorizationsVersion (AuthorizationsVersionFor (MPV m))
     sauv = sAuthorizationsVersionFor $ protocolVersion @(MPV m)
-    checkSigThen :: m (TxResult tov) -> m (TxResult tov)
+    checkSigThen :: SchedulerT m (TxResult tov) -> SchedulerT m (TxResult tov)
     checkSigThen cont = do
         case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
@@ -2866,7 +2904,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                 case checkTransactionVerificationResult newVerRes of
                     Left failure -> return $ TxInvalid failure
                     Right _ -> cont
-    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m (TxResult (TransactionOutcomesVersionFor (MPV m)))
+    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> SchedulerT m (TxResult (TransactionOutcomesVersionFor (MPV m)))
     checkSigAndEnqueue = checkSigThen . enqueue
     enqueue change = do
         enqueueUpdate (updateEffectiveTime uiHeader) change
@@ -2895,8 +2933,24 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
 --
 -- Unlike the other chain updates there is no support for queuing the update and the effective time
 -- is required to be zero.
-handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
-handleCreatePLT updateHeader payload = runExceptT $ do
+handleCreatePLT ::
+    forall m.
+    (BlockStateOperations m, PVSupportsPLT (MPV m)) =>
+    UpdateHeader -> CreatePLT -> SchedulerT m (Either FailureKind ValidResult)
+handleCreatePLT updateHeader payload = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateV0 ->
+        handleCreatePLTHaskellManaged updateHeader payload
+    SPLTStateV1 -> RustScheduler.executeChainUpdate updateHeader payload
+
+-- | Handler for processing chain update creating a new protocol level token, for protocol version where PLT state is managed in Haskell.
+-- It is assumed that the signatures have already been checked.
+--
+-- Unlike the other chain updates there is no support for queuing the update and the effective time
+-- is required to be zero.
+handleCreatePLTHaskellManaged ::
+    (BlockStateOperations m, PVSupportsHaskellManagedPLT (MPV m)) =>
+    UpdateHeader -> CreatePLT -> SchedulerT m (Either FailureKind ValidResult)
+handleCreatePLTHaskellManaged updateHeader payload = runExceptT $ do
     unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
     let tokenId = payload ^. cpltTokenId
     maybeExistingToken <- lift $ getTokenIndex tokenId
@@ -2920,12 +2974,12 @@ handleCreatePLT updateHeader payload = runExceptT $ do
             return $ TxSuccess events
 
 handleUpdateCredentials ::
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     OrdMap.Map ID.CredentialIndex ID.CredentialDeploymentInformation ->
     [ID.CredentialRegistrationID] ->
     ID.AccountThreshold ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleUpdateCredentials wtc cdis removeRegIds threshold =
     withDeposit wtc c k
   where
@@ -3044,11 +3098,11 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
 
 -- | Charges energy based on payload size and emits a 'DataRegistered' event.
 handleRegisterData ::
-    (SchedulerMonad m) =>
+    (BlockStateOperations m) =>
     WithDepositContext m ->
     -- | The data to register.
     RegisteredData ->
-    m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleRegisterData wtc regData =
     withDeposit wtc c defaultSuccess
   where
@@ -3126,7 +3180,7 @@ handleRegisterData wtc regData =
 --  and `ftUnprocessedCredentials`.
 filterTransactions ::
     forall m.
-    (SchedulerMonad m, TimeMonad m) =>
+    (BlockStateOperations m, MonadLogger m, TimeMonad m, MonadProtocolVersion m) =>
     -- | Maximum block size in bytes.
     Integer ->
     -- | Timeout for block construction.
@@ -3134,7 +3188,7 @@ filterTransactions ::
     UTCTime ->
     -- | Transactions to make a block out of.
     [TransactionGroup] ->
-    m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
+    SchedulerT m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
 filterTransactions maxSize timeout groups0 = do
     maxEnergy <- getMaxBlockEnergy
     credLimit <- getAccountCreationLimit
@@ -3161,7 +3215,7 @@ filterTransactions maxSize timeout groups0 = do
         Bool -> -- \^Whether or not the block timeout is reached
         FilteredTransactions (TransactionOutcomesVersionFor (MPV m)) -> -- \^Currently accumulated result
         [TransactionGroup] -> -- \^Grouped transactions to process
-        m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
+        SchedulerT m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
     -- All block items are processed. We accumulate the added items
     -- in reverse order, so reverse the list before returning.
     runNext _ _ _ _ fts [] = return fts{ftAdded = reverse (ftAdded fts)}
@@ -3233,7 +3287,7 @@ filterTransactions maxSize timeout groups0 = do
                                 in  runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Run a single credential and continue with 'runNext'.
-        runCredential :: TVer.CredentialDeploymentWithStatus -> m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
+        runCredential :: TVer.CredentialDeploymentWithStatus -> SchedulerT m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
         runCredential cws@(c@WithMetadata{..}, verRes) = do
             totalEnergyUsed <- getUsedEnergy
             let csize = size + fromIntegral wmdSize
@@ -3273,7 +3327,7 @@ filterTransactions maxSize timeout groups0 = do
             Integer -> -- \^Current size of transactions in the block.
             FilteredTransactions (TransactionOutcomesVersionFor (MPV m)) ->
             [TVer.TransactionWithStatus] -> -- \^Current group to process.
-            m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
+            SchedulerT m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)))
         runTransactionGroup currentSize currentFts (t : ts) = do
             totalEnergyUsed <- getUsedEnergy
             let csize = currentSize + fromIntegral (transactionSize (fst t))
@@ -3375,9 +3429,9 @@ filterTransactions maxSize timeout groups0 = do
 --  * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m, MonadLogger m) =>
     [TVer.BlockItemWithStatus] ->
-    m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary (TransactionOutcomesVersionFor (MPV m)))])
+    SchedulerT m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary (TransactionOutcomesVersionFor (MPV m)))])
 runTransactions = go []
   where
     go valid (bi : ts) =
@@ -3391,7 +3445,9 @@ runTransactions = go []
             Nothing -> return (Left Nothing)
     go valid [] = return (Right (reverse $ map (\(x, y) -> (fst x, y)) valid))
 
-    predispatch :: TVer.BlockItemWithStatus -> m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
+    predispatch ::
+        TVer.BlockItemWithStatus ->
+        SchedulerT m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
     predispatch (WithMetadata{wmdData = NormalTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)
@@ -3409,9 +3465,9 @@ runTransactions = go []
 --  of results.
 execTransactions ::
     forall m.
-    (SchedulerMonad m) =>
+    (BlockStateOperations m, MonadLogger m) =>
     [TVer.BlockItemWithStatus] ->
-    m (Either (Maybe FailureKind) ())
+    SchedulerT m (Either (Maybe FailureKind) ())
 execTransactions = go
   where
     -- Same implementation as 'runTransactions', just that valid block items
@@ -3427,7 +3483,7 @@ execTransactions = go
                 return (Left (Just reason))
     go [] = return (Right ())
 
-    predispatch :: TVer.BlockItemWithStatus -> m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
+    predispatch :: TVer.BlockItemWithStatus -> SchedulerT m (Maybe (TxResult (TransactionOutcomesVersionFor (MPV m))))
     predispatch (WithMetadata{wmdData = NormalTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)

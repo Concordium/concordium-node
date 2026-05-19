@@ -11,11 +11,10 @@ use tonic::transport::{channel::Channel, ClientTlsConfig};
 #[macro_use]
 extern crate log;
 
-//added more allow here as some generated code invoked warnings
 #[allow(
+    unused,
     clippy::large_enum_variant,
     clippy::enum_variant_names,
-    dead_code,
     clippy::doc_overindented_list_items
 )]
 mod grpc {

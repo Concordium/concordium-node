@@ -32,7 +32,7 @@ import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.Kontrol.Bakers
 import Concordium.Scheduler
-import qualified Concordium.Scheduler.EnvironmentImplementation as EnvImpl
+import qualified Concordium.Scheduler.Environment as Env
 import Concordium.Scheduler.TreeStateEnvironment (FreeTransactionCounts (countAccountCreation), countFreeTransactions, distributeRewards, doBlockRewardP4, doCalculatePaydayMintAmounts)
 import Concordium.Scheduler.Types
 import qualified Concordium.TransactionVerification as TVer
@@ -562,18 +562,18 @@ constructBlockTransactions runtimeParams startTime transTable pendingTable block
     -- The block energy limit and account creation limit are taken from the current chain parameters.
     chainParams <- bsoGetChainParameters theState0
     let context =
-            EnvImpl.ContextState
+            Env.ContextState
                 { _chainMetadata = ChainMetadata blockTimestamp,
                   _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
                   _accountCreationLimit = chainParams ^. cpAccountCreationLimit
                 }
     -- Filter the transactions, executing the valid ones.
     (ft, finState) <-
-        EnvImpl.runSchedulerT
+        Env.runSchedulerT
             (filterTransactions maxBlockSize timeout transactionGroups)
             context
-            (EnvImpl.makeInitialSchedulerState theState0)
-    let theState1 = finState ^. EnvImpl.ssBlockState
+            (Env.makeInitialSchedulerState theState0)
+    let theState1 = finState ^. Env.ssBlockState
     -- Record the transaction outcomes.
     theState2 <- bsoSetTransactionOutcomes theState1 (snd <$> ftAdded ft)
     let result =
@@ -583,9 +583,9 @@ constructBlockTransactions runtimeParams startTime transTable pendingTable block
                         { trpFreeTransactionCounts =
                             countFreeTransactions (fst . fst <$> ftAdded ft) False,
                           trpTransactionFees =
-                            finState ^. EnvImpl.ssExecutionCosts
+                            finState ^. Env.ssExecutionCosts
                         },
-                  terEnergyUsed = finState ^. EnvImpl.ssEnergyUsed,
+                  terEnergyUsed = finState ^. Env.ssEnergyUsed,
                   terBlockState = theState2
                 }
     return (ft, result)
@@ -618,18 +618,18 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
             return $ Left $ Just ExceedsMaxCredentialDeployments
         else do
             let context =
-                    EnvImpl.ContextState
+                    Env.ContextState
                         { _chainMetadata = ChainMetadata blockTimestamp,
                           _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
                           _accountCreationLimit = accountCreationLim
                         }
-            let initState = EnvImpl.makeInitialSchedulerState theState0
+            let initState = Env.makeInitialSchedulerState theState0
             (res, finState) <-
-                EnvImpl.runSchedulerT
+                Env.runSchedulerT
                     (runTransactions ((_2 %~ Just) <$> transactions))
                     context
                     initState
-            let theState1 = finState ^. EnvImpl.ssBlockState
+            let theState1 = finState ^. Env.ssBlockState
             case res of
                 Left failKind -> do
                     dropUpdatableBlockState theState1
@@ -641,9 +641,9 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
                                 { terTransactionRewardParameters =
                                     TransactionRewardParameters
                                         { trpFreeTransactionCounts = freeCounts,
-                                          trpTransactionFees = finState ^. EnvImpl.ssExecutionCosts
+                                          trpTransactionFees = finState ^. Env.ssExecutionCosts
                                         },
-                                  terEnergyUsed = finState ^. EnvImpl.ssEnergyUsed,
+                                  terEnergyUsed = finState ^. Env.ssEnergyUsed,
                                   terBlockState = theState2
                                 }
                     return $ Right result
