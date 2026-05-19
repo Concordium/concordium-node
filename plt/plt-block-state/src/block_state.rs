@@ -558,6 +558,15 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
             .unwrap()
     }
 
+    fn delete_lock(&mut self, lock_id: LockId) {
+        self.internal_block_state
+            .update_block_state_(|mut state| {
+                let _prev = state.locks.locks.0.remove(&lock_id);
+                Ok(state)
+            })
+            .unwrap()
+    }
+
     fn add_lock_balance_ref(
         &mut self,
         lock: &LockId,

@@ -1,6 +1,7 @@
 //! Entry points to calling the scheduler. The scheduler is responsible for executing
 //! transaction and update instruction payloads.
 
+use crate::token_module::errors::TokenStateInvariantError;
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::base::{Energy, Nonce, ProtocolVersion};
 use concordium_base::contracts_common::{AccountAddress, Timestamp};
@@ -39,6 +40,12 @@ pub enum TransactionFailure {
 impl From<TransactionRejectReason> for TransactionFailure where {
     fn from(value: TransactionRejectReason) -> Self {
         Self::Reject(value)
+    }
+}
+
+impl From<TokenStateInvariantError> for TransactionFailure where {
+    fn from(value: TokenStateInvariantError) -> Self {
+        Self::Error(TransactionExecutionError::StateInvariantBroken(value.to_string()))
     }
 }
 

@@ -57,7 +57,7 @@ executeTransaction ::
     -- | Transaction summary
     EI.SchedulerT m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
 executeTransaction depositContext payload = do
-    ChainMetadata{..} <- getChainMetadata
+    Types.ChainMetadata{..} <- EI.getChainMetadata
     executeTransactionWithTimestamp slotTime depositContext payload
 
 -- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The transaction
@@ -66,7 +66,7 @@ executeTransactionWithTimestamp ::
     forall m.
     (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     -- | Timestamp of the block in which the transaction occurs.
-    Timestamp ->
+    Types.Timestamp ->
     EI.WithDepositContext m ->
     -- | Transaction payload.
     Types.Payload ->

@@ -78,7 +78,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         // for each locked balance record for the lock, get the locked token amount recorded in the
         // account state of the token.
         let raw_balance =
-            token_module::query_locked_balance(&context, account_index, lock_id.clone())?;
+            token_module::query_locked_balance(&context, account_index, lock_id)?;
         let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
         funds_by_account
             .entry(account_index)

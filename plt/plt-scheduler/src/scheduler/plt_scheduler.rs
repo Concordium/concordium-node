@@ -21,7 +21,7 @@ use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state::types::protocol_level_locks::LockConfiguration;
 use plt_block_state::block_state::types::protocol_level_tokens::TokenConfiguration;
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, LockNotFoundByIdError, TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError,
 };
 use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
@@ -185,29 +185,17 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                     }
                 };
 
-                let token_configuration = block_state.token_configuration(&token);
-                let mut token_module_state = block_state.mutable_token_key_value_state(&token);
-                let mut token_module_state_dirty = false;
-                let mut kernel = TokenOperationContext {
-                    block_state,
-                    token: &token,
-                    token_configuration: &token_configuration,
-                    token_module_state: &mut token_module_state,
-                    token_module_state_dirty: &mut token_module_state_dirty,
-                    events: &mut events,
-                };
-                let token_update_result = token_module::execute_token_update_operation_at_index(
-                    transaction_execution,
-                    &mut kernel,
-                    index,
-                    &operation,
-                );
+                let token_update_result = with_token(block_state, &token, &mut events, |kernel| {
+                    token_module::execute_token_update_operation_at_index(
+                        transaction_execution,
+                        kernel,
+                        index,
+                        &operation,
+                    )
+                });
+
                 match token_update_result {
-                    Ok(()) => {
-                        if token_module_state_dirty {
-                            block_state.set_token_key_value_state(&token, token_module_state);
-                        }
-                    }
+                    Ok(()) => {}
                     Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
                         return Ok(TransactionOutcome::Rejected(
                             TransactionRejectReason::TokenUpdateTransactionFailed(
@@ -250,6 +238,33 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
         }
     }
     Ok(TransactionOutcome::Success(events))
+}
+
+fn with_token<BSO: BlockStateOperations, F, R, E>(
+    block_state: &mut BSO,
+    token: &<BSO as BlockStateQuery>::Token,
+    events: &mut Vec<BlockItemEvent>,
+    f: F,
+) -> Result<R, E>
+where
+    F: FnOnce(&mut TokenOperationContext<BSO>) -> Result<R, E>,
+{
+    let token_configuration = block_state.token_configuration(token);
+    let mut token_module_state = block_state.mutable_token_key_value_state(token);
+    let mut token_module_state_dirty = false;
+    let mut kernel = TokenOperationContext {
+        block_state,
+        token,
+        token_configuration: &token_configuration,
+        token_module_state: &mut token_module_state,
+        token_module_state_dirty: &mut token_module_state_dirty,
+        events,
+    };
+    let result = f(&mut kernel)?;
+    if token_module_state_dirty {
+        block_state.set_token_key_value_state(token, token_module_state);
+    }
+    Ok(result)
 }
 
 fn execute_lock_operation<BSO: BlockStateOperations>(
@@ -309,6 +324,10 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
             let lock_configuration = block_state.lock_configuration(&lock);
+            let memo: Option<transactions::Memo> = meta_lock_cancel_details
+                .memo
+                .clone()
+                .map(transactions::Memo::from);
 
             if !lock_configuration
                 .expiry()
@@ -319,15 +338,22 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                     &lock_controller::LockOperation::Cancel(meta_lock_cancel_details),
                 )
             {
-                Err(TransactionRejectReason::LockCancelNotAuthorized(
+                // The lock is neither expired, nor is the sender authorized to
+                // cancel the lock, so we reject the transaction.
+                return Err(TransactionRejectReason::LockCancelNotAuthorized(
                     lock,
                     transaction_execution.sender_account_address(),
-                ))?
+                )
+                .into());
             }
-            // TODO: release locked balances.
-            
+            for (account, token) in block_state.lock_balances(&lock).collect::<Vec<_>>() {
+                with_token(block_state, &token, events, |kernel| {
+                    kernel.unlock_balance(&account, &lock, &memo)
+                })?;
+            }
+            block_state.delete_lock(lock);
 
-            todo!()
+            Ok(())
         }
     }
 }

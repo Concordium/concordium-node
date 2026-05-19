@@ -1,8 +1,7 @@
 //! Runtime interface for protocol-level lock controllers.
 
-use concordium_base::{
-    protocol_level_locks::LockId,
-    protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId, meta_operations::{MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails}},
+use concordium_base::protocol_level_tokens::meta_operations::{
+    MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
 };
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
 use plt_scheduler_types::types::{
@@ -13,16 +12,13 @@ use plt_scheduler_types::types::{
 /// Runtime lock operation model. This corresponds to the "fund", "send", "return", and "cancel"
 /// CBOR operations for interacting with locks from concordium-base.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[allow(dead_code)] // FIXME: remove this when all operations are implemented.
 pub enum LockOperation {
     Fund(MetaLockFundDetails),
     Send(MetaLockSendDetails),
     Return(MetaLockReturnDetails),
     Cancel(MetaLockCancelDetails),
 }
-
-/// Lock-controller specific rejection.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LockControllerRejectReason;
 
 /// Runtime interface implemented by protocol-level locks.
 pub trait LockController {

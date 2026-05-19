@@ -128,6 +128,8 @@ fn test_meta_update_transaction() {
             to: TokenHolder::Account(account_2),
             amount: tokens::TokenAmount::from_raw(100, 2),
             memo: None,
+            from_lock: None,
+            to_lock: None,
         })
     );
     assert_eq!(
@@ -198,6 +200,8 @@ fn test_meta_update_transaction() {
             to: TokenHolder::Account(account_2),
             amount: tokens::TokenAmount::from_raw(2200, 0),
             memo: Some(vec![0xa0u8].try_into().unwrap()),
+            from_lock: None,
+            to_lock: None,
         })
     );
     assert_eq!(

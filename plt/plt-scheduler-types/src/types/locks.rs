@@ -111,7 +111,7 @@ impl LockControllerSimpleV0 {
     pub fn has_role(&self, account: AccountIndex, role: LockControllerSimpleV0Capability) -> bool {
         self.grants
             .iter()
-            .any(|grant| grant.account == account && grant.roles.iter().any(|cap| *cap == role))
+            .any(|grant| grant.account == account && grant.roles.contains(&role))
     }
 }
 

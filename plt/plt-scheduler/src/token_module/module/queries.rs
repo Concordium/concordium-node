@@ -109,7 +109,7 @@ pub fn query_token_authorizations<BSQ: BlockStateQuery>(
 pub fn query_locked_balance<BSQ: BlockStateQuery>(
     context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,
-    lock: LockId,
+    lock: &LockId,
 ) -> Result<RawTokenAmount, QueryTokenModuleError> {
     Ok(key_value_state::get_locked_balance_for(
         context, account, lock,

@@ -147,7 +147,7 @@ fn account_roles_state_key(account_index: AccountIndex) -> TokenStateKey {
     TokenStateKey(account_key)
 }
 
-fn account_quanta_state_key(lock_id: LockId) -> Vec<u8> {
+fn account_quanta_state_key(lock_id: &LockId) -> Vec<u8> {
     let mut locked_balance_key =
         Vec::with_capacity(ACCOUNT_STATE_KEY_QUANTA.len() + size_of::<LockId>());
     locked_balance_key.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
@@ -455,7 +455,7 @@ pub fn set_deny_list_for<BSO: BlockStateOperations>(
 pub fn get_locked_balance_for(
     context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
-    lock: LockId,
+    lock: &LockId,
 ) -> Result<RawTokenAmount, TokenStateInvariantError> {
     let Some(value) = lookup_account_state(context, account, &account_quanta_state_key(lock))
     else {
@@ -467,12 +467,10 @@ pub fn get_locked_balance_for(
 }
 
 /// Set the locked balance for the given account and lock.
-// FIXME: Remove `dead_code` allowance once locked-balance state is wired into module flows.
-#[allow(dead_code)] // Public helper kept for upcoming locked-balance usage.
 pub fn set_locked_balance_for<BSO: BlockStateOperations>(
     context: &mut TokenOperationContext<BSO>,
     account: AccountIndex,
-    lock: LockId,
+    lock: &LockId,
     amount: RawTokenAmount,
 ) {
     let state_value = if amount == RawTokenAmount(0) {
@@ -528,7 +526,7 @@ mod test {
         expected.extend_from_slice(ACCOUNT_STATE_KEY_QUANTA);
         lock_id.serial(&mut expected);
 
-        let key = account_state_key(account, &account_quanta_state_key(lock_id));
+        let key = account_state_key(account, &account_quanta_state_key(&lock_id));
         assert_eq!(key, TokenStateKey(expected));
     }
 }

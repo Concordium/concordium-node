@@ -80,6 +80,14 @@ pub struct TokenTransferEvent {
     /// An optional memo field that can be used to attach a message to the token
     /// transfer.
     pub memo: Option<Memo>,
+    /// When the funds originate on the locked balance of an account, the
+    /// identity of the lock controlling the funds. Absent when the funds
+    /// are not on the locked balance of the originating account.
+    pub from_lock: Option<LockId>,
+    /// When the funds are transferred into the control of a lock, the
+    /// identity of the lock assuming control of the funds. Absent when the
+    /// funds are sent to the available balance of the receiving account.
+    pub to_lock: Option<LockId>,
 }
 
 /// Serial implementation matching the serialization of `TokenTransfer` in `Event`
@@ -87,7 +95,9 @@ pub struct TokenTransferEvent {
 impl Serial for TokenTransferEvent {
     fn serial<B: Buffer>(&self, out: &mut B) {
         let set_if = |n, b| if b { 1u16 << n } else { 0 };
-        let bitmap: u16 = set_if(0, self.memo.is_some());
+        let bitmap: u16 = set_if(0, self.memo.is_some())
+            | set_if(1, self.from_lock.is_some())
+            | set_if(2, self.to_lock.is_some());
         out.put(&bitmap);
 
         out.put(&self.token_id);
@@ -96,6 +106,12 @@ impl Serial for TokenTransferEvent {
         out.put(&self.amount);
         if let Some(memo) = &self.memo {
             out.put(memo);
+        }
+        if let Some(from_lock) = &self.from_lock {
+            out.put(from_lock);
+        }
+        if let Some(to_lock) = &self.to_lock {
+            out.put(to_lock);
         }
     }
 }
@@ -223,6 +239,8 @@ mod test {
                 decimals: 4,
             },
             memo: None,
+            from_lock: None,
+            to_lock: None,
         });
 
         let bytes = common::to_bytes(&event);
@@ -241,12 +259,96 @@ mod test {
                 decimals: 4,
             },
             memo: Some(Memo::try_from(vec![1, 2, 3]).unwrap()),
+            from_lock: None,
+            to_lock: None,
         });
 
         let bytes = common::to_bytes(&reject_reason);
         assert_eq!(
             hex::encode(&bytes),
             "27000108746f6b656e6964310001010101010101010101010101010101010101010101010101010101010101010002020202020202020202020202020202020202020202020202020202020202028768040003010203"
+        );
+
+        // with from lock
+        let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
+            token_id: "tokenid1".parse().unwrap(),
+            from: TokenHolder::Account(AccountAddress([1; 32])),
+            to: TokenHolder::Account(AccountAddress([2; 32])),
+            amount: TokenAmount {
+                amount: RawTokenAmount(1000),
+                decimals: 4,
+            },
+            memo: None,
+            from_lock: Some(LockId::new(
+                0x0f0e0d0c0b0a0908,
+                0x1122334455667788,
+                0x99aabbccddeeff00,
+            )),
+            to_lock: None,
+        });
+        let bytes = common::to_bytes(&event);
+        assert_eq!(
+            hex::encode(&bytes),
+            "27000208746f6b656e6964310001010101010101010101010101010101010101010101010101010101010101010002020202020202020202020202020202020202020202020202020202020202028768040f0e0d0c0b0a0908112233445566778899aabbccddeeff00"
+        );
+
+        // with to lock
+        let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
+            token_id: "tokenid1".parse().unwrap(),
+            from: TokenHolder::Account(AccountAddress([1; 32])),
+            to: TokenHolder::Account(AccountAddress([2; 32])),
+            amount: TokenAmount {
+                amount: RawTokenAmount(1000),
+                decimals: 4,
+            },
+            memo: None,
+            from_lock: None,
+            to_lock: Some(LockId::new(
+                0x99aabbccddeeff00,
+                0x0f0e0d0c0b0a0908,
+                0x1122334455667788,
+            )),
+        });
+        let bytes = common::to_bytes(&event);
+        assert_eq!(
+            hex::encode(&bytes),
+            "27000408746f6b656e69643100010101010101010101010101010101010101010101010101010101010101010100020202020202020202020202020202020202020202020202020202020202020287680499aabbccddeeff000f0e0d0c0b0a09081122334455667788"
+        );
+
+        // with everything
+        let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
+            token_id: "TestTT".parse().unwrap(),
+            from: TokenHolder::Account(AccountAddress([13; 32])),
+            to: TokenHolder::Account(AccountAddress([64; 32])),
+            amount: TokenAmount {
+                amount: RawTokenAmount(1024),
+                decimals: 19,
+            },
+            memo: Some(Memo::try_from((0x00..=0xff).collect::<Vec<u8>>()).unwrap()),
+            from_lock: Some(LockId::new(
+                0x0f0e0d0c0b0a0908,
+                0x1122334455667788,
+                0x99aabbccddeeff00,
+            )),
+            to_lock: Some(LockId::new(
+                0x7071727374757677,
+                0x88898a8b8c8d8e8f,
+                0x9f9e9d9c9b9a9998,
+            )),
+        });
+        let bytes = common::to_bytes(&event);
+        assert_eq!(
+            hex::encode(&bytes),
+            concat!(
+                "27",
+                "000706546573745454",
+                "000d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d",
+                "004040404040404040404040404040404040404040404040404040404040404040",
+                "81ffffffffffffffff7fff",
+                "0100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+                "0f0e0d0c0b0a0908112233445566778899aabbccddeeff00",
+                "707172737475767788898a8b8c8d8e8f9f9e9d9c9b9a9998"
+            )
         );
     }
 
