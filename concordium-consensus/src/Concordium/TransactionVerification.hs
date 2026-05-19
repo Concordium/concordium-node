@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -13,6 +14,7 @@ import qualified Concordium.ID.AnonymityRevoker as AR
 import qualified Concordium.ID.IdentityProvider as IP
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Types as Types
+import Concordium.Types.Execution (Payload (..), decodePayload)
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.Option
 import qualified Concordium.Types.Parameters as Params
@@ -315,6 +317,25 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
                 return $ Ok $ ChainUpdateSuccess (getHash keys) nonce
             )
 
+-- | Check if a transaction payload includes a schedule with a total amount that exceeds the
+-- maximum representable amount.
+canScheduleOverflow ::
+    forall pv msg.
+    (Tx.TransactionData msg) =>
+    Types.SProtocolVersion pv -> msg -> Bool
+canScheduleOverflow spv meta =
+    case decodePayload spv (Tx.transactionPayload meta) of
+        Left _ -> False
+        Right TransferWithSchedule{..} -> checkSchedule twsSchedule
+        Right TransferWithScheduleAndMemo{..} -> checkSchedule twswmSchedule
+        Right _ -> False
+  where
+    checkSchedule = doCheckSchedule 0
+    doCheckSchedule _ [] = False
+    doCheckSchedule !acc ((_, amt) : rest)
+        | acc > maxBound - amt = True
+        | otherwise = doCheckSchedule (acc + amt) rest
+
 -- | Verifies a 'NormalTransaction' transaction.
 --  This function verifies the following:
 --  * Checks that enough energy is supplied for the transaction.
@@ -366,6 +387,8 @@ verifyNormalTransaction meta =
                         keys <- lift (getAccountVerificationKeys acc)
                         let sigCheck = Tx.verifyTransaction keys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
+                        let scheduleOverflow = canScheduleOverflow (Types.protocolVersion @(Types.MPV m)) meta
+                        when scheduleOverflow $ throwError $ MaybeOk NormalTransactionInsufficientFunds
                         return $ Ok $ NormalTransactionSuccess (getHash keys) nonce
             )
 
@@ -439,7 +462,7 @@ verifyExtendedTransaction meta =
                 unless (depositedAmount <= amnt) $ throwError $ MaybeOk NormalTransactionInsufficientFunds
                 -- Check the sender and sponsor signatures
                 senderKeys <- lift (getAccountVerificationKeys senderAcc)
-                case mbSponsorAcc of
+                sigResult <- case mbSponsorAcc of
                     Nothing -> do
                         let sigCheck = Tx.verifyTransaction senderKeys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
@@ -449,6 +472,9 @@ verifyExtendedTransaction meta =
                         let sigCheck = Tx.verifySponsoredTransaction senderKeys sponsorKeys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
                         return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) (Present $ getHash sponsorKeys) nonce
+                let scheduleOverflow = canScheduleOverflow (Types.protocolVersion @(Types.MPV m)) meta
+                when scheduleOverflow $ throwError $ MaybeOk NormalTransactionInsufficientFunds
+                return sigResult
             )
 
 -- | Wrapper types for pairing a transaction with its verification result (if it has one).
