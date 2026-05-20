@@ -3,7 +3,6 @@
 use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenAmount,
@@ -73,12 +72,9 @@ fn test_token_pause_state() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -125,12 +121,9 @@ fn test_double_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -188,12 +181,9 @@ fn test_redundant_unpause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -236,12 +226,9 @@ fn test_unauthorized_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(non_gov_addr),
             non_governance_account.account_index(),
-            non_gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -314,12 +301,9 @@ fn test_unauthorized_unpause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(non_gov_addr),
             non_governance_account.account_index(),
-            non_gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -390,12 +374,9 @@ fn test_pause_multiple_ops() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -466,12 +447,9 @@ fn test_unpause_multiple_ops() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -529,12 +507,9 @@ fn test_role_authorization_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -552,12 +527,9 @@ fn test_role_authorization_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            gov_account_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -617,12 +589,9 @@ fn test_new_account_with_role_succeeds_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -640,12 +609,9 @@ fn test_new_account_with_role_succeeds_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

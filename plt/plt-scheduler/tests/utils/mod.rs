@@ -7,6 +7,7 @@ pub mod entity_traits;
 mod lock;
 mod token;
 
+use concordium_base::{base::Energy, contracts_common::AccountAddress, transactions};
 pub use lock::*;
 pub use token::*;
 
@@ -17,3 +18,27 @@ use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 pub const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::P11;
 
 pub type BlockStateLatest = BlockStateP11;
+
+/// Creates a [`TransactionContext`] with the given sender account address and
+/// transaction sequence number. The energy limit is set to the maximum value,
+/// and the block timestamp is set to 0.
+pub fn simple_transaction_context_with_nonce(
+    sender_account_address: AccountAddress,
+    transaction_sequence_number: u64,
+) -> plt_scheduler::TransactionContext {
+    plt_scheduler::TransactionContext {
+        energy_limit: Energy::from(u64::MAX),
+        sender_account_address,
+        transaction_sequence_number: transaction_sequence_number.into(),
+        block_timestamp: 0.into(),
+    }
+}
+
+/// Creates a [`TransactionContext`] with the given sender account address.
+/// The energy limit is set to the maximum value, and the block timestamp is set
+/// to 0. The transaction sequence number is set to 1.
+pub fn simple_transaction_context(
+    sender_account_address: AccountAddress,
+) -> plt_scheduler::TransactionContext {
+    simple_transaction_context_with_nonce(sender_account_address, 1)
+}

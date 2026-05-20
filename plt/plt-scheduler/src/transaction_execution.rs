@@ -8,6 +8,20 @@ use concordium_base::contracts_common::{AccountAddress, Timestamp};
 #[error("Execution out of energy")]
 pub struct OutOfEnergyError;
 
+#[derive(Debug, Clone)]
+pub struct TransactionContext {
+    /// Limit for how much energy the execution can use. An [`OutOfEnergyError`] error is
+    /// returned if the limit is reached.
+    pub energy_limit: Energy,
+    /// The address of the account which signed as the sender of the transaction. This need not be
+    /// the canonical address of the account, it can be an account alias.
+    pub sender_account_address: AccountAddress,
+    /// The sequence number of the transaction as specified in the transaction header.
+    pub transaction_sequence_number: Nonce,
+    /// Timestamp of the block in which the transaction is executed.
+    pub block_timestamp: Timestamp,
+}
+
 /// Tracks the energy remaining and some context during the execution.
 pub struct TransactionExecution<Account> {
     /// Limit for how much energy the execution can use. An [`OutOfEnergyError`] error is
@@ -31,20 +45,14 @@ pub struct TransactionExecution<Account> {
 
 impl<Account> TransactionExecution<Account> {
     /// Construct new transaction execution context.
-    pub fn new(
-        energy_limit: Energy,
-        sender_account: Account,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
-        block_timestamp: Timestamp,
-    ) -> Self {
+    pub fn new(transaction_context: TransactionContext, sender_account: Account) -> Self {
         Self {
             energy_used: 0.into(),
-            energy_limit,
+            energy_limit: transaction_context.energy_limit,
             sender_account,
-            sender_account_address,
-            transaction_sequence_number,
-            block_timestamp,
+            sender_account_address: transaction_context.sender_account_address,
+            transaction_sequence_number: transaction_context.transaction_sequence_number,
+            block_timestamp: transaction_context.block_timestamp,
             locks_created: 0,
         }
     }

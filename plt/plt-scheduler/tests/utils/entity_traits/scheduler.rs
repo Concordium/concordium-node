@@ -6,6 +6,7 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::persistent::blob_reference;
+use plt_scheduler::TransactionContext;
 use plt_scheduler::queries::{QueryLockError, QueryTokenInfoError};
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
@@ -17,12 +18,9 @@ pub trait SchedulerOperations {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
+        transaction_context: TransactionContext,
         sender_account: AccountIndex,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
-        block_timestamp: Timestamp,
         payload: Payload,
-        energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
     where
         EntityContext<C>: Default;

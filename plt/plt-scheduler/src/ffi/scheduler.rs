@@ -4,6 +4,7 @@
 
 use crate::ffi::status;
 use crate::scheduler;
+use crate::transaction_execution::TransactionContext;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::transactions::Payload;
@@ -168,6 +169,12 @@ extern "C" fn ffi_execute_transaction(
         let payload: Payload = common::from_bytes_complete(payload_bytes)
             .expect("Failed decoding transaction payload");
         let remaining_energy = Energy::from(remaining_energy);
+        let transaction_context = TransactionContext {
+            sender_account_address,
+            transaction_sequence_number,
+            block_timestamp,
+            energy_limit: remaining_energy,
+        };
         let (result, new_block_state) = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
                 let block_state = BlockStateP9 {
@@ -179,13 +186,10 @@ extern "C" fn ffi_execute_transaction(
                 };
                 (
                     scheduler::execute_transaction(
+                        transaction_context,
                         Account::from_existing_account(sender_account_index),
-                        sender_account_address,
-                        transaction_sequence_number,
-                        block_timestamp,
                         &mut exec_block_state,
                         payload,
-                        remaining_energy,
                     ),
                     PersistentBlockState::P9(exec_block_state.block_state.persistent),
                 )
@@ -200,13 +204,10 @@ extern "C" fn ffi_execute_transaction(
                 };
                 (
                     scheduler::execute_transaction(
+                        transaction_context,
                         Account::from_existing_account(sender_account_index),
-                        sender_account_address,
-                        transaction_sequence_number,
-                        block_timestamp,
                         &mut exec_block_state,
                         payload,
-                        remaining_energy,
                     ),
                     PersistentBlockState::P10(exec_block_state.block_state.persistent),
                 )
@@ -221,13 +222,10 @@ extern "C" fn ffi_execute_transaction(
                 };
                 (
                     scheduler::execute_transaction(
+                        transaction_context,
                         Account::from_existing_account(sender_account_index),
-                        sender_account_address,
-                        transaction_sequence_number,
-                        block_timestamp,
                         &mut exec_block_state,
                         payload,
-                        remaining_energy,
                     ),
                     PersistentBlockState::P11(exec_block_state.block_state.persistent),
                 )

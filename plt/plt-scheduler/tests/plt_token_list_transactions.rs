@@ -3,7 +3,6 @@
 use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenId,
@@ -198,12 +197,9 @@ fn test_add_allow_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -263,12 +259,9 @@ fn test_remove_allow_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -327,12 +320,9 @@ fn test_add_deny_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -391,12 +381,9 @@ fn test_remove_deny_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -622,12 +609,9 @@ fn test_add_to_not_enabled_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -676,12 +660,9 @@ fn test_remove_from_not_enabled_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -730,12 +711,9 @@ fn test_add_to_not_enabled_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -784,12 +762,9 @@ fn test_remove_from_not_enabled_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -836,12 +811,9 @@ fn test_reject_add_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -858,12 +830,9 @@ fn test_reject_add_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            gov_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -913,12 +882,9 @@ fn test_reject_add_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -935,12 +901,9 @@ fn test_reject_add_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            gov_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -1000,12 +963,9 @@ fn test_reject_remove_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -1022,12 +982,9 @@ fn test_reject_remove_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            gov_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -1087,12 +1044,9 @@ fn test_reject_remove_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -1109,12 +1063,9 @@ fn test_reject_remove_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            gov_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -1169,12 +1120,9 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -1191,12 +1139,9 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -1243,12 +1188,9 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -1265,12 +1207,9 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

@@ -132,12 +132,14 @@ fn test_meta_update_transaction() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account_1_addr,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
             account_1.account_index(),
-            account_1_addr,
-            1.into(),
-            0.into(),
             Payload::MetaUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -276,12 +278,14 @@ fn test_meta_update_transaction_cbor_extra_fields() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account_1_addr,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
             account_1.account_index(),
-            account_1_addr,
-            1.into(),
-            0.into(),
             Payload::MetaUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(

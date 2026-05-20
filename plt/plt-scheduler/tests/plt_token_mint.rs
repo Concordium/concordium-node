@@ -3,7 +3,6 @@
 use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
@@ -52,12 +51,9 @@ fn test_mint_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_address),
             gov_account.account_index(),
-            gov_account_address,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -78,12 +74,9 @@ fn test_mint_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_address, 2),
             gov_account.account_index(),
-            gov_account_address,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -124,12 +117,9 @@ fn test_unauthorized_mint_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(non_governance_account_addr),
             non_governance_account.account_index(),
-            non_governance_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -191,12 +181,9 @@ fn test_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -217,12 +204,9 @@ fn test_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            gov_account_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -263,12 +247,9 @@ fn test_unauthorized_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(non_governance_account_addr),
             non_governance_account.account_index(),
-            non_governance_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -333,12 +314,9 @@ fn test_unauthorized_mint_using_alias() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(non_gov_account_address_alias),
             non_gov_account.account_index(),
-            non_gov_account_address_alias,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -388,12 +366,9 @@ fn test_mint_overflow() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -451,12 +426,9 @@ fn test_mint_decimals_mismatch() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -508,12 +480,9 @@ fn test_mint_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -558,12 +527,9 @@ fn test_not_mintable() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -608,12 +574,9 @@ fn test_mint_event() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -659,12 +622,9 @@ fn test_reject_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -681,12 +641,9 @@ fn test_reject_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            gov_account_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -742,12 +699,9 @@ fn test_new_account_with_role_succeeds_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -767,12 +721,9 @@ fn test_new_account_with_role_succeeds_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

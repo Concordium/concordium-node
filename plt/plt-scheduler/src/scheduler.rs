@@ -2,9 +2,8 @@
 //! transaction and update instruction payloads.
 
 use crate::token_module::errors::TokenStateInvariantError;
-use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::{Energy, Nonce, ProtocolVersion};
-use concordium_base::contracts_common::{AccountAddress, Timestamp};
+use crate::transaction_execution::{TransactionContext, TransactionExecution};
+use concordium_base::base::ProtocolVersion;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
@@ -72,21 +71,12 @@ impl From<TokenStateInvariantError> for TransactionFailure {
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_transaction<BSO: BlockStateOperations>(
+    transaction_context: TransactionContext,
     sender_account: BSO::Account,
-    sender_account_address: AccountAddress,
-    transaction_sequence_number: Nonce,
-    block_timestamp: Timestamp,
     block_state: &mut BSO,
     payload: Payload,
-    energy_limit: Energy,
 ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-    let mut execution = TransactionExecution::new(
-        energy_limit,
-        sender_account,
-        sender_account_address,
-        transaction_sequence_number,
-        block_timestamp,
-    );
+    let mut execution = TransactionExecution::new(transaction_context, sender_account);
 
     match payload {
         Payload::TokenUpdate { payload } => {

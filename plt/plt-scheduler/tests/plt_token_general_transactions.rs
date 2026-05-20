@@ -48,12 +48,9 @@ fn test_update_token_decode_failure() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -114,12 +111,9 @@ fn test_update_token_additional_fields() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -192,12 +186,9 @@ fn test_multiple_operations() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -263,12 +254,9 @@ fn test_single_failing_operation() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
 
@@ -324,12 +312,14 @@ fn test_energy_charge() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(1000),
+                sender_account_address: sender_addr,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(1000),
         )
         .expect("transaction internal error");
 
@@ -382,12 +372,14 @@ fn test_out_of_energy_error() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(50),
+                sender_account_address: sender_addr,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(50),
         )
         .expect("transaction internal error");
 

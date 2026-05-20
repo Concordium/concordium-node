@@ -62,16 +62,18 @@ pub fn create_lock(
     block_state
         .execute_transaction(
             context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: sender.canonical_account_address,
+                transaction_sequence_number: lock_id.sequence_number(),
+                block_timestamp: 0.into(),
+            },
             sender.account.account_index(),
-            sender.canonical_account_address,
-            lock_id.sequence_number(),
-            0.into(),
             Payload::MetaUpdate {
                 payload: MetaUpdatePayload {
                     operations: RawCbor::from(cbor::cbor_encode(&operations)),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("create lock transaction must succeed");
 }

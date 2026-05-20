@@ -3,7 +3,6 @@
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -61,10 +60,8 @@ fn test_transfer() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -77,7 +74,6 @@ fn test_transfer() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -125,10 +121,8 @@ fn test_transfer_with_memo() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -141,7 +135,6 @@ fn test_transfer_with_memo() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -184,10 +177,8 @@ fn test_transfer_self() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -200,7 +191,6 @@ fn test_transfer_self() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -243,10 +233,8 @@ fn test_transfer_insufficient_balance() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -259,7 +247,6 @@ fn test_transfer_insufficient_balance() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -304,10 +291,8 @@ fn test_transfer_decimals_mismatch() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -320,7 +305,6 @@ fn test_transfer_decimals_mismatch() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -360,10 +344,8 @@ fn test_transfer_to_non_existing_receiver() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -376,7 +358,6 @@ fn test_transfer_to_non_existing_receiver() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -432,10 +413,8 @@ fn test_transfer_allow_list_success() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -448,7 +427,6 @@ fn test_transfer_allow_list_success() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -516,10 +494,8 @@ fn test_transfer_deny_list_success() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -532,7 +508,6 @@ fn test_transfer_deny_list_success() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -582,10 +557,8 @@ fn test_transfer_sender_not_in_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -598,7 +571,6 @@ fn test_transfer_sender_not_in_allow_list() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -651,10 +623,8 @@ fn test_transfer_recipient_not_in_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -667,7 +637,6 @@ fn test_transfer_recipient_not_in_allow_list() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -741,10 +710,8 @@ fn test_transfer_sender_in_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -757,7 +724,6 @@ fn test_transfer_sender_in_deny_list() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -831,10 +797,8 @@ fn test_transfer_recipient_in_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(sender_addr),
             sender.account_index(),
-            sender_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -847,7 +811,6 @@ fn test_transfer_recipient_in_deny_list() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -905,12 +868,9 @@ fn test_transfer_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
-            0.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("pause");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -921,10 +881,8 @@ fn test_transfer_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            gov_account_addr,
-            2.into(),
-            0.into(),
             Payload::TokenUpdate {
                 payload: TokenOperationsPayload {
                     token_id: token_id.clone(),
@@ -937,7 +895,6 @@ fn test_transfer_paused() {
                     )])),
                 },
             },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
