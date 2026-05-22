@@ -46,33 +46,25 @@ pub fn execute_transaction<C: EntityContextTypes>(
         transaction_sequence_number,
     );
 
-    match payload {
+    let outcome = match payload {
         Payload::TokenUpdate { payload } => {
-            let outcome = protocol_level_tokens::p11::execute_token_update_transaction(
+            protocol_level_tokens::p11::execute_token_update_transaction(
+                context,
                 &mut execution,
                 block_state,
                 payload,
-            )?;
-
-            Ok(TransactionExecutionSummary {
-                outcome,
-                energy_used: execution.energy_used(),
-            })
+            )?
         }
         Payload::MetaUpdate { payload } => {
-            let outcome = plt_scheduler::execute_meta_update_transaction(
-                &mut execution,
-                block_state,
-                payload,
-            )?;
-
-            Ok(TransactionExecutionSummary {
-                outcome,
-                energy_used: execution.energy_used(),
-            })
+            plt_scheduler::execute_meta_update_transaction(&mut execution, block_state, payload)?
         }
-        _ => Err(TransactionExecutionError::UnexpectedPayload),
-    }
+        _ => return Err(TransactionExecutionError::UnexpectedPayload),
+    };
+
+    Ok(TransactionExecutionSummary {
+        outcome,
+        energy_used: execution.energy_used(),
+    })
 }
 
 /// Execute a chain update modifying `block_state` accordingly.

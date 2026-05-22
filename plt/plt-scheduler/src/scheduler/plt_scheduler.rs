@@ -3,26 +3,21 @@
 
 use crate::locks::get_lock_config;
 use crate::locks::lock_controller::LockController;
-use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
+use crate::scheduler::TransactionExecutionError;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenOperation};
-use concordium_base::protocol_level_tokens::{
-    TokenOperationsPayload,
-    meta_operations::{
-        LockOperation, MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
-    },
+use concordium_base::protocol_level_tokens::meta_operations::{
+    LockOperation, MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
 };
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenOperation};
 use concordium_base::transactions;
-use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state_interface::BlockStateOperations;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
-use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_block_state::utils;
-use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenCreateEvent};
-use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
+use plt_scheduler_types::types::events::{self, BlockItemEvent};
+use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
@@ -47,7 +42,7 @@ use plt_scheduler_types::types::reject_reasons::{
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<BSO::Account>,
+    transaction_execution: &mut TransactionExecution<>,
     block_state: &mut BSO,
     payload: MetaUpdatePayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {

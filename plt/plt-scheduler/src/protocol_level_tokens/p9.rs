@@ -4,7 +4,9 @@ use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenOperationsPayload};
+use concordium_base::protocol_level_tokens::{
+    RawCbor, TokenId, TokenOperation, TokenOperations, TokenOperationsPayload,
+};
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::entity::accounts::Account;
@@ -13,12 +15,15 @@ use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
+use plt_block_state::utils;
 use plt_scheduler_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
-use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
+use plt_scheduler_types::types::reject_reasons::{
+    EncodedTokenModuleRejectReason, TransactionRejectReason,
+};
 use plt_scheduler_types::types::tokens::TokenAmount;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
@@ -234,7 +239,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
     }
 
     // Lookup token
-    let token = match block_state.token_by_id(context, &payload.token_id)? {
+    let mut token = match block_state.token_by_id(context, &payload.token_id)? {
         Ok(token) => token,
         Err(TokenNotFoundByIdError(_)) => {
             return Ok(TransactionOutcome::Rejected(
@@ -242,43 +247,56 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
             ));
         }
     };
-
     let token_configuration = block_state.token_configuration(&token);
 
     let mut events = Vec::new();
 
-    // Call token module to execute operations
-    let token_update_result = token_module::execute_token_update_transaction(
-        transaction_execution,
-        &mut kernel,
-        payload.operations,
-    );
-
-    match token_update_result {
-        Ok(()) => {
-            // Write back the token
-            block_state.update_token(context, token)?;
-
-            // Return events
-            Ok(TransactionOutcome::Success(events))
+    // Decode operations
+    let operations: TokenOperations = match utils::cbor_decode(payload.operations) {
+        Ok(operations) => operations,
+        Err(_) => {
+            return Ok(TransactionOutcome::Rejected(
+                TransactionRejectReason::SerializationFailure,
+            ));
         }
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::TokenUpdateTransactionFailed(
-                    EncodedTokenModuleRejectReason {
-                        // Use the canonical token id from the token configuration
-                        token_id: token_configuration.token_id.clone(),
-                        reason_type: reject_reason.reason_type,
-                        details: reject_reason.details,
-                    },
-                ),
-            ))
-        }
-        Err(TokenUpdateError::OutOfEnergy(_)) => Ok(TransactionOutcome::Rejected(
-            TransactionRejectReason::OutOfEnergy,
-        )),
-        Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
-            TransactionExecutionError::BlockStateFailure(err.to_string()),
-        ),
+    };
+
+    // Execute operations
+    for (index, operation) in operations.into_iter().enumerate() {
+        match token_module::execute_token_update_operation_at_index(
+            transaction_execution,
+            context,
+            block_state,
+            &mut events,
+            &mut token,
+            index,
+            &operation,
+        )? {
+            Ok(()) => (),
+            Err(TokenUpdateError::OutOfEnergy(err)) => {
+                return Ok(TransactionOutcome::Rejected(
+                    TransactionRejectReason::OutOfEnergy,
+                ));
+            }
+            Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
+                let (reason_type, cbor) = reject_reason.encode_reject_reason();
+                return Ok(TransactionOutcome::Rejected(
+                    TransactionRejectReason::TokenUpdateTransactionFailed(
+                        EncodedTokenModuleRejectReason {
+                            // Use the canonical token id from the token configuration
+                            token_id: token_configuration.token_id.clone(),
+                            reason_type,
+                            details: Some(cbor),
+                        },
+                    ),
+                ));
+            }
+        };
     }
+
+    // Write back the token
+    block_state.update_token(context, token)?;
+
+    // Return events
+    Ok(TransactionOutcome::Success(events))
 }
