@@ -21,7 +21,7 @@ pub fn lookup_account_index<BSQ: BlockStateQuery>(
     }
 }
 
-// todo ar remove
+// todo ar remove?
 
 /// Look up the token ID in the block state. If the token ID does not exist, a
 /// [`TransactionRejectReason::NonExistentTokenId`] is returned.

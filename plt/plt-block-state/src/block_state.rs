@@ -23,7 +23,8 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::vec;
-// todo ar delete
+
+// todo delete as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].

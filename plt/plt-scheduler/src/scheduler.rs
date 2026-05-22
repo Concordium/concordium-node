@@ -7,9 +7,12 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
+use plt_block_state::failure::BlockStateFailure;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 
 pub mod helpers;
+mod p11;
+mod p9;
 mod plt_scheduler;
 
 /// Unrecoverable error executing transaction. This represents the
@@ -19,76 +22,9 @@ mod plt_scheduler;
 pub enum TransactionExecutionError {
     #[error("Unexpected transaction payload that cannot be handled")]
     UnexpectedPayload,
-    /// An invariant in the state that should be enforced
-    /// is broken. This is generally an error that should never happen and is unrecoverable.
-    #[error("State invariant broken: {0}")]
-    StateInvariantBroken(String),
-}
-
-/// Execute a transaction payload modifying `block_state` accordingly.
-/// Returns the events produced if successful, otherwise a reject reason. Additionally, the
-/// amount of energy used by the execution is returned. The returned values are represented
-/// via the type [`TransactionExecutionSummary`].
-///
-/// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
-///
-/// # Arguments
-///
-/// - `sender_account` The account initiating the transaction (signer of the transaction)
-/// - `sender_account_address` The address of the account initiating the transaction (from the transaction header)
-/// - `transaction_sequence_number` The sequence number of the transaction
-/// - `block_state` Block state that can be queried and updated during execution.
-/// - `payload` The transaction payload to execute
-/// - `energy_limit` The payload to execute
-///
-/// # Errors
-///
-/// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
-///   Returning this error will terminate the scheduler.
-pub fn execute_transaction<BSO: BlockStateOperations>(
-    sender_account: BSO::Account,
-    sender_account_address: AccountAddress,
-    transaction_sequence_number: Nonce,
-    block_state: &mut BSO,
-    payload: Payload,
-    energy_limit: Energy,
-) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-    let mut execution = TransactionExecution::new(
-        energy_limit,
-        sender_account,
-        sender_account_address,
-        transaction_sequence_number,
-    );
-
-    match payload {
-        Payload::TokenUpdate { payload } => {
-            let outcome = plt_scheduler::execute_token_update_transaction(
-                &mut execution,
-                block_state,
-                payload,
-            )?;
-
-            Ok(TransactionExecutionSummary {
-                outcome,
-                energy_used: execution.energy_used(),
-            })
-        }
-        Payload::MetaUpdate { payload }
-            if block_state.protocol_version() >= ProtocolVersion::P11 =>
-        {
-            let outcome = plt_scheduler::execute_meta_update_transaction(
-                &mut execution,
-                block_state,
-                payload,
-            )?;
-
-            Ok(TransactionExecutionSummary {
-                outcome,
-                energy_used: execution.energy_used(),
-            })
-        }
-        _ => Err(TransactionExecutionError::UnexpectedPayload),
-    }
+    /// Error in the block state. This is generally an error that should never happen and is unrecoverable.
+    #[error("Block state failure: {0}")]
+    BlockStateFailure(#[from] BlockStateFailure),
 }
 
 /// Account with given id does not exist
@@ -96,34 +32,7 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
 pub enum ChainUpdateExecutionError {
     #[error("Unexpected chain update payload that cannot be handled")]
     UnexpectedPayload,
-    /// An invariant in the state that should be enforced
-    /// is broken. This is generally an error that should never happen and is unrecoverable.
-    #[error("State invariant broken: {0}")]
-    StateInvariantBroken(String),
-}
-
-/// Execute a chain update modifying `block_state` accordingly.
-/// Returns the events produced if successful, otherwise a failure kind.
-///
-/// NOTICE: The caller must ensure to rollback state changes in case a failure kind is returned.
-///
-/// # Arguments
-///
-/// - `block_state` Block state that can be queried and updated during execution.
-/// - `payload` The chain update payload to execute
-///
-/// # Errors
-///
-/// - [`ChainUpdateExecutionError`] If executing the chain update failed in an unrecoverable way.
-///   Returning this error will terminate the scheduler.
-pub fn execute_chain_update<BSO: BlockStateOperations>(
-    block_state: &mut BSO,
-    payload: UpdatePayload,
-) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
-    match payload {
-        UpdatePayload::CreatePlt(create_plt) => {
-            plt_scheduler::execute_create_plt_chain_update(block_state, create_plt)
-        }
-        _ => Err(ChainUpdateExecutionError::UnexpectedPayload),
-    }
+    /// Error in the block state. This is generally an error that should never happen and is unrecoverable.
+    #[error("Block state failure: {0}")]
+    BlockStateFailure(#[from] BlockStateFailure),
 }

@@ -207,23 +207,3 @@ pub fn transfer<C: EntityContextTypes>(
 
     Ok(Ok(()))
 }
-
-// todo ar remove?
-
-// /// Log a token module event with the specified type and details.
-// ///
-// /// # Events
-// ///
-// /// This will produce a `TokenModuleEvent` in the logs.
-// pub fn log_token_event(
-//     &mut self,
-//     event_type: TokenModuleCborTypeDiscriminator,
-//     details: RawCbor,
-// ) {
-//     self.events
-//         .push(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
-//             token_id: self.token_configuration.token_id.clone(),
-//             event_type,
-//             details,
-//         }))
-// }

@@ -13,7 +13,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-// todo ar delete
+
+// todo delete as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 
 /// Key in the key-value state.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]

@@ -8,10 +8,13 @@ use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    MetadataUrl, RawCbor, TokenAdminRole, TokenListUpdateDetails, TokenListUpdateEventDetails,
-    TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleRejectReason, TokenOperation,
-    TokenPauseEventDetails, TokenSupplyUpdateDetails, TokenTransfer, TokenUpdateAdminRolesDetails,
-    TokenUpdateAdminRolesEventDetails, TokenUpdateMetadataEventDetails,
+    AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
+    MetadataUrl, MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
+    TokenAdminRole, TokenBalanceInsufficientRejectReason, TokenListUpdateDetails,
+    TokenListUpdateEventDetails, TokenModuleCborTypeDiscriminator, TokenModuleEvent,
+    TokenModuleRejectReason, TokenOperation, TokenPauseEventDetails, TokenSupplyUpdateDetails,
+    TokenTransfer, TokenUpdateAdminRolesDetails, TokenUpdateAdminRolesEventDetails,
+    TokenUpdateMetadataEventDetails, UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
@@ -21,188 +24,169 @@ use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::BlockStateResult;
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
 
-/// Details provided by the token module in the event of rejecting a
-/// transaction.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct RejectReason {
-    /// The type of the reject reason.
-    pub reason_type: TokenModuleCborTypeDiscriminator,
-    /// (Optional) CBOR-encoded details.
-    pub details: Option<RawCbor>,
-}
-
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUpdateError {
     #[error("Token module rejection")]
-    TokenModuleReject(RejectReason),
+    TokenModuleReject(TokenModuleRejectReason),
     #[error("{0}")]
     OutOfEnergy(#[from] OutOfEnergyError),
 }
 
-// /// Execute a token update operation using the token context to
-// /// update state and produce events.
-// ///
-// /// The caller must ensure to rollback state changes in case of
-// /// an error is returned.
-// ///
-// /// The following checks and operations are performed:
-// ///
-// /// - For a transfer operation:
-// ///
-// ///    - Check that the transfer amount is specified with the correct number of decimals.
-// ///    - Tick energy required for the operation.
-// ///    - Check that the module is not paused.
-// ///    - Check that the recipient is valid.
-// ///    - Check allow and deny list restrictions.
-// ///    - Transfer the amount from the sender to the recipient, if the sender's balance is
-// ///      sufficient (checked by the context).
-// ///
-// /// - For a list update operation:
-// ///
-// ///    - Tick energy required for the operation.
-// ///    - Check that the governance account is the sender.
-// ///    - Check that the module configuration allows the list operation.
-// ///    - Check that the account to add/remove exists on-chain.
-// ///    - Add or remove the account to/from the list.
-// ///
-// /// - For a mint operation:
-// ///
-// ///    - Check that the mint amount is specified with the correct number of decimals.
-// ///    - Tick energy required for the operation.
-// ///    - Check that the governance account is the sender.
-// ///    - Check that the module is not paused.
-// ///    - Check that the module configuration allows minting.
-// ///    - Mint the amount to the sender, if the resulting circulating supply is
-// ///      within representable range (checked by the context).
-// ///
-// /// - For a burn operation:
-// ///
-// ///    - Check that the burn amount is specified with the correct number of decimals.
-// ///    - Tick energy required for the operation.
-// ///    - Check that the governance account is the sender.
-// ///    - Check that the module is not paused.
-// ///    - Check that the module configuration allows burning.
-// ///    - Burn the amount from the sender, if the sender's balance is
-// ///      sufficient (checked by the context).
-// ///
-// /// - For a pause/unpause operation:
-// ///
-// ///    - Tick energy required for the operation
-// ///    - Check that the governance account is the sender.
-// ///    - Pause/unpause the token.
-// ///
-// /// If the state stored in the token module contains data that breaks the invariants
-// /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
-// /// is returned. This is an unrecoverable error and should never happen.
-// ///
-// ///
-// /// # Arguments
-// ///
-// /// - `transaction_execution`: the transaction execution context
-// /// - `context`: the token context operations interface
-// /// - `index`: the index of the operation in the transaction, used for error reporting
-// /// - `operation`: the token operation to execute
-// pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
-//     transaction_execution: &mut TransactionExecution<BSO::Account>,
-//     context: &mut TokenOperationContext<'_, BSO>,
-//     index: usize,
-//     operation: &TokenOperation,
-// ) -> Result<(), TokenUpdateError> {
-//     execute_token_update_operation(transaction_execution, context, operation).map_err(|err| {
-//         match err {
-//             TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
-//                 TokenUpdateError::TokenModuleReject(make_reject_reason(
-//                     TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
-//                         index: index as u64,
-//                         address: CborHolderAccount::from(err.0),
-//                     }),
-//                 ))
-//             }
-//             TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
-//                 TokenUpdateError::TokenModuleReject(make_reject_reason(
-//                     TokenModuleRejectReason::DeserializationFailure(
-//                         DeserializationFailureRejectReason {
-//                             cause: Some(err.to_string()),
-//                         },
-//                     ),
-//                 ))
-//             }
-//             TokenUpdateErrorInternal::InsufficientBalance(err) => {
-//                 TokenUpdateError::TokenModuleReject(make_reject_reason(
-//                     TokenModuleRejectReason::TokenBalanceInsufficient(
-//                         TokenBalanceInsufficientRejectReason {
-//                             index: index as u64,
-//                             available_balance: util::to_token_amount(
-//                                 context.token_configuration,
-//                                 err.available,
-//                             ),
-//                             required_balance: util::to_token_amount(
-//                                 context.token_configuration,
-//                                 err.required,
-//                             ),
-//                         },
-//                     ),
-//                 ))
-//             }
-//             TokenUpdateErrorInternal::MintWouldOverflow(err) => {
-//                 TokenUpdateError::TokenModuleReject(make_reject_reason(
-//                     TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
-//                         index: index as u64,
-//                         requested_amount: util::to_token_amount(
-//                             context.token_configuration,
-//                             err.requested_amount,
-//                         ),
-//                         current_supply: util::to_token_amount(
-//                             context.token_configuration,
-//                             err.current_supply,
-//                         ),
-//                         max_representable_amount: util::to_token_amount(
-//                             context.token_configuration,
-//                             err.max_representable_amount,
-//                         ),
-//                     }),
-//                 ))
-//             }
-//             TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
-//             TokenUpdateErrorInternal::StateInvariantViolation(err) => {
-//                 TokenUpdateError::StateInvariantViolation(err)
-//             }
-//             TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
-//                 make_reject_reason(TokenModuleRejectReason::OperationNotPermitted(
-//                     OperationNotPermittedRejectReason {
-//                         index: index as u64,
-//                         address: None,
-//                         reason: format!("token operation {} is paused", operation_name(operation))
-//                             .to_string()
-//                             .into(),
-//                     },
-//                 )),
-//             ),
-//             TokenUpdateErrorInternal::OperationNotPermitted {
-//                 account_address,
-//                 reason,
-//             } => TokenUpdateError::TokenModuleReject(make_reject_reason(
-//                 TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-//                     index: index as u64,
-//                     address: account_address.map(Into::into),
-//                     reason: reason.to_string().into(),
-//                 }),
-//             )),
-//             TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
-//                 TokenUpdateError::TokenModuleReject(make_reject_reason(
-//                     TokenModuleRejectReason::UnsupportedOperation(
-//                         UnsupportedOperationRejectReason {
-//                             index: index as u64,
-//                             operation_type: operation_name(operation).to_string(),
-//                             reason: reason.to_string().into(),
-//                         },
-//                     ),
-//                 ))
-//             }
-//         }
-//     })
-// }
+/// Execute a token update operation using the token context to
+/// update state and produce events.
+///
+/// The caller must ensure to rollback state changes in case of
+/// an error is returned.
+///
+/// The following checks and operations are performed:
+///
+/// - For a transfer operation:
+///
+///    - Check that the transfer amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
+///    - Check that the module is not paused.
+///    - Check that the recipient is valid.
+///    - Check allow and deny list restrictions.
+///    - Transfer the amount from the sender to the recipient, if the sender's balance is
+///      sufficient (checked by the context).
+///
+/// - For a list update operation:
+///
+///    - Tick energy required for the operation.
+///    - Check that the governance account is the sender.
+///    - Check that the module configuration allows the list operation.
+///    - Check that the account to add/remove exists on-chain.
+///    - Add or remove the account to/from the list.
+///
+/// - For a mint operation:
+///
+///    - Check that the mint amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
+///    - Check that the governance account is the sender.
+///    - Check that the module is not paused.
+///    - Check that the module configuration allows minting.
+///    - Mint the amount to the sender, if the resulting circulating supply is
+///      within representable range (checked by the context).
+///
+/// - For a burn operation:
+///
+///    - Check that the burn amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
+///    - Check that the governance account is the sender.
+///    - Check that the module is not paused.
+///    - Check that the module configuration allows burning.
+///    - Burn the amount from the sender, if the sender's balance is
+///      sufficient (checked by the context).
+///
+/// - For a pause/unpause operation:
+///
+///    - Tick energy required for the operation
+///    - Check that the governance account is the sender.
+///    - Pause/unpause the token.
+///
+/// If the state stored in the token module contains data that breaks the invariants
+/// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
+/// is returned. This is an unrecoverable error and should never happen.
+///
+///
+/// # Arguments
+///
+/// - `transaction_execution`: the transaction execution context
+/// - `context`: the token context operations interface
+/// - `index`: the index of the operation in the transaction, used for error reporting
+/// - `operation`: the token operation to execute
+pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
+    transaction_execution: &mut TransactionExecution,
+    context: &mut EntityContext<C>,
+    accounts: &impl AccountsT,
+    events: &mut impl Extend<BlockItemEvent>,
+    token: &mut impl TokenT,
+    index: usize,
+    operation: &TokenOperation,
+) -> BlockStateResult<Result<(), TokenUpdateError>> {
+    Ok(execute_token_update_operation_internal(
+        transaction_execution,
+        context,
+        accounts,
+        events,
+        token,
+        operation,
+    )?
+    .map_err(|err| match err {
+        TokenUpdateErrorInternal::AccountDoesNotExist(err) => TokenUpdateError::TokenModuleReject(
+            TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
+                index: index as u64,
+                address: CborHolderAccount::from(err.0),
+            }),
+        ),
+        TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
+            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::DeserializationFailure(
+                DeserializationFailureRejectReason {
+                    cause: Some(err.to_string()),
+                },
+            ))
+        }
+        TokenUpdateErrorInternal::InsufficientBalance(err) => {
+            let token_configuration = token.token_p9().token_configuration(context)?;
+
+            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
+                TokenBalanceInsufficientRejectReason {
+                    index: index as u64,
+                    available_balance: util::to_token_amount(&token_configuration, err.available),
+                    required_balance: util::to_token_amount(&token_configuration, err.required),
+                },
+            ))
+        }
+        TokenUpdateErrorInternal::MintWouldOverflow(err) => {
+            let token_configuration = token.token_p9().token_configuration(context)?;
+
+            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::MintWouldOverflow(
+                MintWouldOverflowRejectReason {
+                    index: index as u64,
+                    requested_amount: util::to_token_amount(
+                        &token_configuration,
+                        err.requested_amount,
+                    ),
+                    current_supply: util::to_token_amount(&token_configuration, err.current_supply),
+                    max_representable_amount: util::to_token_amount(
+                        &token_configuration,
+                        err.max_representable_amount,
+                    ),
+                },
+            ))
+        }
+        TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
+        TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
+            TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+                index: index as u64,
+                address: None,
+                reason: format!("token operation {} is paused", operation_name(operation))
+                    .to_string()
+                    .into(),
+            }),
+        ),
+        TokenUpdateErrorInternal::OperationNotPermitted {
+            account_address,
+            reason,
+        } => TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::OperationNotPermitted(
+            OperationNotPermittedRejectReason {
+                index: index as u64,
+                address: account_address.map(Into::into),
+                reason: reason.to_string().into(),
+            },
+        )),
+        TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
+            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::UnsupportedOperation(
+                UnsupportedOperationRejectReason {
+                    index: index as u64,
+                    operation_type: operation_name(operation).to_string(),
+                    reason: reason.to_string().into(),
+                },
+            ))
+        }
+    }))
+}
 
 fn operation_name(operation: &TokenOperation) -> &'static str {
     match operation {
@@ -220,16 +204,6 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
         TokenOperation::UpdateMetadata(_) => "updateMetadata",
     }
 }
-
-fn make_reject_reason(reject_reason: TokenModuleRejectReason) -> RejectReason {
-    let (reason_type, cbor) = reject_reason.encode_reject_reason();
-    RejectReason {
-        reason_type: reason_type.to_type_discriminator(),
-        details: Some(cbor),
-    }
-}
-
-// todo ar rename
 
 /// Internal variant of `TokenUpdateError` where the reject reason is
 /// not encoded as CBOR
@@ -256,7 +230,7 @@ enum TokenUpdateErrorInternal {
     UnsupportedOperation { reason: &'static str },
 }
 
-fn execute_token_update_operation<C: EntityContextTypes>(
+fn execute_token_update_operation_internal<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     accounts: &impl AccountsT,
@@ -455,6 +429,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
+
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
     let receiver = match accounts.account_by_address(context, &transfer_operation.recipient.address)
