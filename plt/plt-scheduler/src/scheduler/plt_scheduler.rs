@@ -353,6 +353,10 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 })?;
             }
             block_state.delete_lock(lock.lock_id());
+            let event = events::LockDestroyEvent {
+                lock_id: lock.lock_id().clone(),
+            };
+            events.push(BlockItemEvent::LockDestroyed(event));
 
             Ok(())
         }

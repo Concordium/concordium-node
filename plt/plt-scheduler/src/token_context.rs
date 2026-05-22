@@ -244,7 +244,8 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     }
 
     /// Unlock the balance of an account associated with a particular lock for
-    /// this particular token.
+    /// this particular token. This generates a `TokenTransferEvent` to reflect
+    /// the change in the locked balance.
     pub fn unlock_balance(
         &mut self,
         account_index: AccountIndex,
