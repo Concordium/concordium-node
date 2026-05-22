@@ -1,11 +1,19 @@
 //! This module contains temporary implementations of [`BlockStateOperations`]. The trait
 //! [`BlockStateOperations`] and [`BlockStateQuery`] will be removed.
 
+use crate::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue,
+};
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p11::BlockStateP11;
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateQuery, OverflowError, RawTokenAmountDelta, TokenAccountState};
+use crate::external::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateQuery,
+    OverflowError, RawTokenAmountDelta, TokenAccountState,
+};
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::persistent::smart_contract_trie;
@@ -15,8 +23,6 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::vec;
-use crate::block_state_interface::{BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue};
-use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 // todo ar delete
 
 /// Runtime/execution state relevant for providing an implementation of
@@ -33,6 +39,11 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
+    type EntityContextTypes = C;
+
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes> {
+        &self.context
+    }
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         self.block_state
@@ -64,6 +75,10 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
             .token_by_index(&self.context, *token)
             .unwrap();
         token.token_configuration(&self.context).unwrap()
+    }
+
+    fn token_p11(&self, _token: &Self::Token) -> TokenP11 {
+        panic!("cannot get P11 token on P9")
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
@@ -275,6 +290,11 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
     type Account = Account;
     type Token = TokenIndex;
+    type EntityContextTypes = C;
+
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes> {
+        &self.context
+    }
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
         self.block_state
@@ -307,6 +327,12 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
             .token_by_index(&self.context, *token)
             .unwrap();
         token.token_p9.token_configuration(&self.context).unwrap()
+    }
+
+    fn token_p11(&self, token: &Self::Token) -> TokenP11 {
+        self.block_state
+            .token_by_index(&self.context, *token)
+            .unwrap()
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {

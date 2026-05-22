@@ -18,7 +18,6 @@ pub enum RawTokenAmountDelta {
     Subtract(RawTokenAmount),
 }
 
-
 /// Token account state at block state level.
 ///
 /// Corresponding Haskell type: `Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens.TokenAccountState`
@@ -32,7 +31,6 @@ pub struct TokenAccountState {
 #[derive(Debug, thiserror::Error)]
 #[error("Token amount overflow")]
 pub struct OverflowError;
-
 
 /// Account with given address does not exist
 #[derive(Debug, thiserror::Error)]

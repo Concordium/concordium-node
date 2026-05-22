@@ -33,5 +33,3 @@ pub struct MintWouldOverflowError {
     /// Maximum representable token amount
     pub max_representable_amount: RawTokenAmount,
 }
-
-

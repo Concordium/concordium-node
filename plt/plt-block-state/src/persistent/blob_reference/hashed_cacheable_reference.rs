@@ -2,6 +2,7 @@
 //!
 //! See [`HashedCacheableRef`].
 
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, ParseResultExt, Storable,
@@ -13,7 +14,6 @@ use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
-use crate::failure::{BlockStateFailure, BlockStateResult};
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,

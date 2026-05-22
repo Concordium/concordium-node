@@ -16,7 +16,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_block_state::block_state_interface::{BlockStateOperations};
+use plt_block_state::block_state_interface::BlockStateOperations;
+use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_block_state::utils;

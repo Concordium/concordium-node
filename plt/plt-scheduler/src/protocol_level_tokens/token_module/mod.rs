@@ -7,18 +7,16 @@
 
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
+mod balance_operations;
 pub mod errors;
-mod util;
 mod initialize;
 mod queries;
 mod update;
-mod balance_operations;
+mod util;
 
-pub use update::*;
-pub use queries::*;
 pub use initialize::*;
-
-
+pub use queries::*;
+pub use update::*;
 
 /// Module ref for the currently implemented token module. It is the SHA-256 of "TokenModuleV0"
 pub const TOKEN_MODULE_REF: TokenModuleRef = TokenModuleRef::new([

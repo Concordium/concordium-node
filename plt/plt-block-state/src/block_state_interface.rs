@@ -1,5 +1,7 @@
 use crate::entity::accounts::AccountWithCanonicalAddress;
 use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use crate::entity::protocol_level_tokens::p11::TokenP11;
+use crate::entity::{EntityContext, EntityContextTypes};
 use crate::external::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
     TokenAccountState,
@@ -11,7 +13,6 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-
 // todo ar delete
 
 /// Key in the key-value state.
@@ -35,6 +36,11 @@ pub trait BlockStateQuery {
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
+
+    type EntityContextTypes: EntityContextTypes;
+
+    /// Get entity context.
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes>;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
@@ -66,6 +72,9 @@ pub trait BlockStateQuery {
     ///
     /// - `token` The token to get the config for.
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration;
+
+    /// Get token P11 entity.
+    fn token_p11(&self, token: &Self::Token) -> TokenP11;
 
     /// Get the circulating supply of a protocol-level token.
     ///

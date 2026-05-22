@@ -1,5 +1,5 @@
 use concordium_base::protocol_level_tokens::CborHolderAccount;
-use plt_block_state::block_state_interface::{ BlockStateQuery};
+use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerSimpleV0, LockControllerSimpleV0Grant,

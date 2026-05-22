@@ -2,7 +2,7 @@ use concordium_base::{
     base::AccountIndex,
     protocol_level_tokens::{CborHolderAccount, TokenId},
 };
-use plt_block_state::block_state_interface::{BlockStateQuery};
+use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 

@@ -1,5 +1,5 @@
 use crate::protocol_level_tokens::token_module::errors::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError,
 };
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;

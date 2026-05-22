@@ -1,3 +1,4 @@
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
@@ -5,7 +6,6 @@ use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use std::io::Read;
-use crate::failure::{BlockStateFailure, BlockStateResult};
 
 /// P9 block state.
 #[derive(Debug, Clone, Default)]

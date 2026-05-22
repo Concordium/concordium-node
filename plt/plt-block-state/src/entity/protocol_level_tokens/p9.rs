@@ -4,6 +4,7 @@ use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
 use crate::entity::{EntityContext, EntityContextTypes};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_tokens::p9::{
@@ -15,7 +16,6 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::failure::{BlockStateFailure, BlockStateResult};
 
 pub(crate) fn plt_list<C: EntityContextTypes>(
     context: &EntityContext<C>,

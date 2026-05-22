@@ -5,8 +5,8 @@ use crate::protocol_level_tokens::token_module::errors::{
 use crate::protocol_level_tokens::token_module::{balance_operations, util};
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
-use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
+use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::BlockStateResult;

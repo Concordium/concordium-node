@@ -4,6 +4,7 @@
 //! and the specific definitions of the blob store traits. Hence, this adapter is needed to use
 //! the smart contract trie in the Rust block state.
 
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
 };
@@ -14,7 +15,6 @@ use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
 use std::io::Read;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use crate::failure::{BlockStateFailure, BlockStateResult};
 
 /// Immutable (persistent) trie. The internal structure may be changed via interior mutability,
 /// but the entries in the trie never change. This is the frozen/persistent dual to [`MutableState`].
