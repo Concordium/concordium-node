@@ -1,6 +1,8 @@
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 
+// todo ar just use enum instead?
+
 /// Access to token from code that is generic over the protocol version.
 pub trait TokenT {
     /// Access the token as a P9 token.

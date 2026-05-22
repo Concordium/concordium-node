@@ -8,6 +8,8 @@ use plt_block_state::external::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateQuery,
 };
 
+// todo ar just use enum instead?
+
 /// Trait that defines block state operations related to accounts.
 pub trait AccountsT {
     /// Lookup the account using an account address.
