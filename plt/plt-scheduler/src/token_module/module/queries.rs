@@ -1,41 +1,21 @@
+use crate::block_state_traits::accounts::Accounts;
 use crate::token_context::TokenQueryContext;
-use crate::token_module::errors::TokenStateInvariantError;
-use crate::token_module::key_value_state;
 use concordium_base::base::AccountIndex;
-use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
+    CborHolderAccount, TokenAdminRole, TokenAuthorizations, TokenModuleAccountState,
+    TokenModuleState, TokenRoleAuthorizations,
 };
 use plt_block_state::block_state_interface::{
     AccountNotFoundByIndexError, BlockStateFailure, BlockStateQuery, BlockStateResult,
 };
-use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-// todo ar delete
-
-/// Represents the reasons why a query to the token module can fail.
-#[derive(Debug, thiserror::Error)]
-pub enum QueryTokenModuleError {
-    #[error("{0}")]
-    StateInvariantViolation(#[from] TokenStateInvariantError),
-}
-
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<C: EntityContextTypes>(
-    context: &EntityContext<C>,
-    accounts: &impl Accounts,
-    token: &TokenP9,
-) -> BlockStateResult<RawCbor> {
-    let state = query_token_module_state_impl(context, accounts, token)?;
-
-    Ok(RawCbor::from(cbor::cbor_encode(&state)))
-}
-
-fn query_token_module_state_impl<C: EntityContextTypes>(
     context: &EntityContext<C>,
     accounts: &impl Accounts,
     token: &TokenP9,
@@ -71,15 +51,6 @@ pub fn query_token_module_account_state<C: EntityContextTypes>(
     context: &EntityContext<C>,
     token: &TokenP9,
     account: AccountIndex,
-) -> BlockStateResult<RawCbor> {
-    let state = query_token_module_account_state_impl(context, token, account)?;
-    Ok(RawCbor::from(cbor::cbor_encode(&state)))
-}
-
-fn query_token_module_account_state_impl<C: EntityContextTypes>(
-    context: &EntityContext<C>,
-    token: &TokenP9,
-    account: AccountIndex,
 ) -> BlockStateResult<TokenModuleAccountState> {
     let has_allow_list = token.has_allow_list(context);
     let allow_list = if has_allow_list {
@@ -101,12 +72,59 @@ fn query_token_module_account_state_impl<C: EntityContextTypes>(
 }
 
 /// Get authorization roles and assigned accounts for the token.
-pub fn query_token_authorizations<BSQ: BlockStateQuery>(
-    context: &TokenQueryContext<'_, BSQ>,
-) -> Result<RawCbor, QueryTokenModuleError> {
-    Ok(RawCbor::from(cbor::cbor_encode(
-        &key_value_state::get_token_authorizations(context)?,
-    )))
+pub fn query_token_authorizations<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    accounts: &impl Accounts,
+    token: &TokenP11,
+) -> BlockStateResult<TokenAuthorizations> {
+    let mut update_admin_roles = TokenRoleAuthorizations::default();
+    let mut mint = TokenRoleAuthorizations::default();
+    let mut burn = TokenRoleAuthorizations::default();
+    let mut update_allow_list = TokenRoleAuthorizations::default();
+    let mut update_deny_list = TokenRoleAuthorizations::default();
+    let mut pause = TokenRoleAuthorizations::default();
+    let mut update_metadata = TokenRoleAuthorizations::default();
+
+    for (account_index, roles) in token.all_roles(context)?.into_iter() {
+        let account = accounts
+            .account_by_index(context, account_index)
+            .map_err(|err| {
+                BlockStateFailure::Invariant(format!(
+                    "Stored account index in authorizations cannot be found: {}",
+                    err
+                ))
+            })?
+            .canonical_account_address;
+
+        for role in roles.iter_assigned() {
+            match role {
+                TokenAdminRole::UpdateAdminRoles => {
+                    update_admin_roles.accounts.push(account.into())
+                }
+                TokenAdminRole::Mint => mint.accounts.push(account.into()),
+                TokenAdminRole::Burn => burn.accounts.push(account.into()),
+                TokenAdminRole::UpdateAllowList => update_allow_list.accounts.push(account.into()),
+                TokenAdminRole::UpdateDenyList => update_deny_list.accounts.push(account.into()),
+                TokenAdminRole::Pause => pause.accounts.push(account.into()),
+                TokenAdminRole::UpdateMetadata => update_metadata.accounts.push(account.into()),
+            }
+        }
+    }
+    Ok(TokenAuthorizations {
+        update_admin_roles: Some(update_admin_roles),
+        mint: token.token_p9.is_mintable(context).then_some(mint),
+        burn: token.token_p9.is_burnable(context).then_some(burn),
+        update_allow_list: token
+            .token_p9
+            .has_allow_list(context)
+            .then_some(update_allow_list),
+        update_deny_list: token
+            .token_p9
+            .has_deny_list(context)
+            .then_some(update_deny_list),
+        pause: Some(pause),
+        update_metadata: Some(update_metadata),
+    })
 }
 
 /// Get the locked balance of `account` under `lock` for the token in context.

@@ -28,25 +28,6 @@ use plt_scheduler_types::types::tokens::TokenAmount;
 
 
 
-/// Get the authorizations of a token.
-pub fn query_token_authorizations(
-    block_state: &impl BlockStateQuery,
-    token_id: &TokenId,
-) -> Result<TokenAuthorizations, QueryTokenInfoError> {
-    let token = block_state.token_by_id(token_id)?;
-    let token_module_state = block_state.mutable_token_key_value_state(&token);
-    let context = TokenQueryContext {
-        block_state,
-        token_module_state: &token_module_state,
-    };
-    let details = token_module::query_token_authorizations(&context)?;
-    let token_configuration = block_state.token_configuration(&token);
-    Ok(TokenAuthorizations {
-        token_id: token_configuration.token_id,
-        details,
-    })
-}
-
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.
 ///

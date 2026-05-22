@@ -1,11 +1,12 @@
 use crate::token_module;
-use concordium_base::protocol_level_tokens::TokenId;
+use concordium_base::common::cbor;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use plt_block_state::block_state_interface::{BlockStateResult, TokenNotFoundByIdError};
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_scheduler_types::types::queries::{
-    TokenAccountInfo, TokenAccountState, TokenInfo, TokenState,
+    TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
 
@@ -43,7 +44,7 @@ pub fn query_token_info<C: EntityContextTypes>(
         token_module_ref: token_configuration.module_ref,
         decimals: token_configuration.decimals,
         total_supply,
-        module_state,
+        module_state: RawCbor::from(cbor::cbor_encode(&module_state)),
     };
 
     let token_info = TokenInfo {
@@ -80,7 +81,7 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
 
             let account_state = TokenAccountState {
                 balance,
-                module_state: Some(module_state),
+                module_state: Some(RawCbor::from(cbor::cbor_encode(&module_state))),
             };
 
             Ok(TokenAccountInfo {
@@ -89,4 +90,26 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
             })
         })
         .collect()
+}
+
+/// Get the authorizations of a token.
+pub fn query_token_authorizations<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    block_state: &BlockStateP9,
+    token_id: &TokenId,
+) -> BlockStateResult<Result<TokenAuthorizations, TokenNotFoundByIdError>> {
+    let token_res = block_state.token_by_id(context, token_id)?;
+    let token = match token_res {
+        Ok(token) => token,
+        Err(err) => return Ok(Err(err)),
+    };
+
+    let token_configuration = token.token_configuration(context)?;
+
+    let details = concordium_base::protocol_level_tokens::TokenAuthorizations::default();
+
+    Ok(Ok(TokenAuthorizations {
+        token_id: token_configuration.token_id,
+        details: RawCbor::from(cbor::cbor_encode(&details)),
+    }))
 }

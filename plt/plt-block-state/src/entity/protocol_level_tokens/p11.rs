@@ -136,88 +136,40 @@ impl TokenP11 {
         Ok(())
     }
 
-    // todo ar move to scheduler with accounts trait
-    /// Get authorization roles and assigned accounts for the token.
-    pub fn get_token_authorizations<C: EntityContextTypes>(
+    /// Iterate all authorization roles assigned for the token, together
+    /// with the account they are assigned to.
+    pub fn all_roles<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        accounts: &impl Accounts,
-    ) -> BlockStateResult<TokenAuthorizations> {
-        let mut update_admin_roles = TokenRoleAuthorizations::default();
-        let mut mint = TokenRoleAuthorizations::default();
-        let mut burn = TokenRoleAuthorizations::default();
-        let mut update_allow_list = TokenRoleAuthorizations::default();
-        let mut update_deny_list = TokenRoleAuthorizations::default();
-        let mut pause = TokenRoleAuthorizations::default();
-        let mut update_metadata = TokenRoleAuthorizations::default();
-
-        for (key, roles) in self
-            .token_p9
+    ) -> BlockStateResult<Vec<(AccountIndex, Roles)>> {
+        self.token_p9
             .mutable_key_value_state
             .iter_prefix(&context.loader, &ACCOUNT_ROLES_STATE_PREFIX)?
-        {
-            let account_index_bytes =
-                key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
+            .map(|(key, value)| {
+                let account_index_bytes = key
+                    .strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
                     .ok_or_else(|| {
                         BlockStateFailure::Invariant(
                             "Iterator over account roles state produced invalid key".to_string(),
                         )
                     })?;
-            let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
-                .map_err(|err| {
+                let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
+                    .map_err(|err| {
+                        BlockStateFailure::Invariant(format!(
+                            "Stored account index in authorizations cannot be decoded: {}",
+                            err
+                        ))
+                    })?;
+                let roles = Roles::try_from_state_value(Some(&value)).map_err(|err| {
                     BlockStateFailure::Invariant(format!(
-                        "Stored account index in authorizations cannot be decoded: {}",
+                        "Stored account authorization roles cannot be decoded: {}",
                         err
                     ))
                 })?;
-            let account = accounts
-                .account_by_index(context, account_index)
-                .map_err(|err| {
-                    BlockStateFailure::Invariant(format!(
-                        "Stored account index in authorizations cannot be found: {}",
-                        err
-                    ))
-                })?
-                .canonical_account_address;
-            let roles = Roles::try_from_state_value(Some(&roles)).map_err(|err| {
-                BlockStateFailure::Invariant(format!(
-                    "Stored account authorization roles cannot be decoded: {}",
-                    err
-                ))
-            })?;
-            for role in roles.iter_assigned() {
-                match role {
-                    TokenAdminRole::UpdateAdminRoles => {
-                        update_admin_roles.accounts.push(account.into())
-                    }
-                    TokenAdminRole::Mint => mint.accounts.push(account.into()),
-                    TokenAdminRole::Burn => burn.accounts.push(account.into()),
-                    TokenAdminRole::UpdateAllowList => {
-                        update_allow_list.accounts.push(account.into())
-                    }
-                    TokenAdminRole::UpdateDenyList => {
-                        update_deny_list.accounts.push(account.into())
-                    }
-                    TokenAdminRole::Pause => pause.accounts.push(account.into()),
-                    TokenAdminRole::UpdateMetadata => update_metadata.accounts.push(account.into()),
-                }
-            }
-        }
-        Ok(TokenAuthorizations {
-            update_admin_roles: Some(update_admin_roles),
-            mint: self.token_p9.is_mintable(context).then_some(mint),
-            burn: self.token_p9.is_burnable(context).then_some(burn),
-            update_allow_list: self
-                .token_p9
-                .has_allow_list(context)
-                .then_some(update_allow_list),
-            update_deny_list: self
-                .token_p9
-                .has_deny_list(context)
-                .then_some(update_deny_list),
-            pause: Some(pause),
-            update_metadata: Some(update_metadata),
-        })
+
+                Ok((account_index, roles))
+            })
+            .collect()
     }
 }
 
