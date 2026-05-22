@@ -5,12 +5,11 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, TokenAdminRole, TokenAuthorizations, TokenModuleAccountState,
     TokenModuleState, TokenRoleAuthorizations,
 };
-use plt_block_state::block_state_interface::{
-    AccountNotFoundByIndexError, BlockStateFailure, BlockStateResult,
-};
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::external::AccountNotFoundByIndexError;
+use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Get the CBOR-encoded representation of the token module state.

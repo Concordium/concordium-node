@@ -170,12 +170,7 @@ impl TokenP11 {
     }
 }
 
-/// List roles which are unaffected by which features are enabled.
-pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
-    TokenAdminRole::UpdateAdminRoles,
-    TokenAdminRole::Pause,
-    TokenAdminRole::UpdateMetadata,
-];
+
 
 /// List all roles.
 const ALL_ROLES: &[TokenAdminRole] = &[

@@ -1,6 +1,6 @@
 //! Internal utilities for the token module implementation.
 
-use crate::token_module::errors::TokenAmountDecimalsMismatchError;
+use crate::protocol_level_tokens::token_module::errors::TokenAmountDecimalsMismatchError;
 use concordium_base::protocol_level_tokens::TokenAmount;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;

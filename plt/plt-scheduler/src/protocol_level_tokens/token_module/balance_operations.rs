@@ -21,8 +21,7 @@ use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolde
 ///
 /// # Errors
 ///
-/// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
-/// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
+/// - [`MintWouldOverflowError`] The total supply would exceed the representable amount.
 pub fn mint<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
@@ -88,8 +87,7 @@ pub fn mint<C: EntityContextTypes>(
 ///
 /// # Errors
 ///
-/// - [`TokenBurnError::InsufficientBalance`] The sender has insufficient balance.
-/// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
+/// - [`InsufficientBalanceError`] The sender has insufficient balance.
 pub fn burn<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
@@ -141,7 +139,7 @@ pub fn burn<C: EntityContextTypes>(
 
     events.extend(Some(event));
 
-    Ok(())
+    Ok(Ok(()))
 }
 
 /// Transfer a token amount from one account to another, with an optional memo.
@@ -152,8 +150,7 @@ pub fn burn<C: EntityContextTypes>(
 ///
 /// # Errors
 ///
-/// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
-/// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
+/// - [`InsufficientBalanceError`] The sender has insufficient balance.
 pub fn transfer<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,

@@ -307,12 +307,12 @@ impl TokenP9 {
     pub fn set_token_name<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        name: String,
+        name: &str,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &context.loader,
             &state_keys::module_state_key(STATE_KEY_NAME),
-            name.into(),
+            name.as_bytes().to_vec(),
         )
     }
 
