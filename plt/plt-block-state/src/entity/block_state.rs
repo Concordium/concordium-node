@@ -8,7 +8,7 @@ pub mod p10;
 pub mod p11;
 pub mod p9;
 
-// move to scheduler
+// todo ar move to scheduler
 
 /// Trait that defines block state operations related to accounts.
 pub trait Accounts {

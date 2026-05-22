@@ -7,8 +7,15 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
 };
-use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_block_state::block_state_interface::{
+    AccountNotFoundByIndexError, BlockStateFailure, BlockStateQuery, BlockStateResult,
+};
+use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
+use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+// todo ar delete
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
@@ -18,82 +25,79 @@ pub enum QueryTokenModuleError {
 }
 
 /// Get the CBOR-encoded representation of the token module state.
-pub fn query_token_module_state<BSQ: BlockStateQuery>(
-    context: &TokenQueryContext<'_, BSQ>,
-) -> Result<RawCbor, QueryTokenModuleError> {
-    let state = query_token_module_state_impl(context)?;
+pub fn query_token_module_state<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    accounts: &impl Accounts,
+    token: &TokenP9,
+) -> BlockStateResult<RawCbor> {
+    let state = query_token_module_state_impl(context, accounts, token)?;
 
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-fn query_token_module_state_impl<BSQ: BlockStateQuery>(
-    context: &TokenQueryContext<'_, BSQ>,
-) -> Result<TokenModuleState, QueryTokenModuleError> {
-    let name = key_value_state::get_token_name(context)?;
-    let metadata = key_value_state::get_metadata(context)?;
-    let allow_list = key_value_state::has_allow_list(context);
-    let deny_list = key_value_state::has_deny_list(context);
-    let mintable = key_value_state::is_mintable(context);
-    let burnable = key_value_state::is_burnable(context);
-    let paused = key_value_state::is_paused(context);
-
-    let governance_account_index = key_value_state::get_governance_account_index(context)?;
-    let governance_account = context
-        .block_state
-        .account_by_index(governance_account_index)
-        .map_err(|_| {
-            TokenStateInvariantError(format!(
+fn query_token_module_state_impl<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    accounts: &impl Accounts,
+    token: &TokenP9,
+) -> BlockStateResult<TokenModuleState> {
+    let governance_account_index = token.get_governance_account_index(context)?;
+    let governance_account = accounts
+        .account_by_index(context, governance_account_index)
+        .map_err(|_: AccountNotFoundByIndexError| {
+            BlockStateFailure::Invariant(format!(
                 "Stored governance account with index {} does not exist",
                 governance_account_index
             ))
         })?;
 
     let state = TokenModuleState {
-        name: Some(name),
-        metadata: Some(metadata),
+        name: Some(token.get_token_name(context)?),
+        metadata: Some(token.get_metadata(context)?),
         governance_account: Some(CborHolderAccount::from(
             governance_account.canonical_account_address,
         )),
-        allow_list: Some(allow_list),
-        deny_list: Some(deny_list),
-        mintable: Some(mintable),
-        burnable: Some(burnable),
-        paused: Some(paused),
+        allow_list: Some(token.has_allow_list(context)),
+        deny_list: Some(token.has_deny_list(context)),
+        mintable: Some(token.is_mintable(context)),
+        burnable: Some(token.is_burnable(context)),
+        paused: Some(token.is_paused(context)),
     };
 
     Ok(state)
 }
 
 /// Get the CBOR-encoded representation of the token module account state.
-pub fn query_token_module_account_state<BSQ: BlockStateQuery>(
-    context: &TokenQueryContext<'_, BSQ>,
+pub fn query_token_module_account_state<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    token: &TokenP9,
     account: AccountIndex,
-) -> RawCbor {
-    let state = query_token_module_account_state_impl(context, account);
-    RawCbor::from(cbor::cbor_encode(&state))
+) -> BlockStateResult<RawCbor> {
+    let state = query_token_module_account_state_impl(context, token, account)?;
+    Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
-    context: &TokenQueryContext<'_, BSQ>,
+fn query_token_module_account_state_impl<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    token: &TokenP9,
     account: AccountIndex,
-) -> TokenModuleAccountState {
-    let has_allow_list = key_value_state::has_allow_list(context);
+) -> BlockStateResult<TokenModuleAccountState> {
+    let has_allow_list = token.has_allow_list(context);
     let allow_list = if has_allow_list {
-        key_value_state::get_allow_list_for(context, account).into()
+        token.get_allow_list_for(context, account).into()
     } else {
         None
     };
-    let has_deny_list = key_value_state::has_deny_list(context);
+    let has_deny_list = token.has_deny_list(context);
     let deny_list = if has_deny_list {
-        key_value_state::get_deny_list_for(context, account).into()
+        token.get_deny_list_for(context, account).into()
     } else {
         None
     };
 
-    TokenModuleAccountState {
+    Ok(TokenModuleAccountState {
         allow_list,
         deny_list,
-    }
+    })
 }
 
 /// Get authorization roles and assigned accounts for the token.

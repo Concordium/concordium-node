@@ -22,6 +22,8 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::vec;
 
+// todo ar delete
+
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
 #[derive(Debug)]
