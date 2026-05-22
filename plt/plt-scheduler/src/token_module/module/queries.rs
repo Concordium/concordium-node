@@ -1,5 +1,4 @@
 use crate::block_state_traits::accounts::Accounts;
-use crate::token_context::TokenQueryContext;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
@@ -7,7 +6,7 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleState, TokenRoleAuthorizations,
 };
 use plt_block_state::block_state_interface::{
-    AccountNotFoundByIndexError, BlockStateFailure, BlockStateQuery, BlockStateResult,
+    AccountNotFoundByIndexError, BlockStateFailure, BlockStateResult,
 };
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
@@ -128,12 +127,11 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
 }
 
 /// Get the locked balance of `account` under `lock` for the token in context.
-pub fn query_locked_balance<BSQ: BlockStateQuery>(
-    context: &TokenQueryContext<'_, BSQ>,
+pub fn query_locked_balance<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    token: &TokenP11,
     account: AccountIndex,
-    lock: LockId,
-) -> Result<RawTokenAmount, QueryTokenModuleError> {
-    Ok(key_value_state::get_locked_balance_for(
-        context, account, lock,
-    )?)
+    lock_id: &LockId,
+) -> BlockStateResult<RawTokenAmount> {
+    token.get_locked_balance_for(context, account, lock_id)
 }

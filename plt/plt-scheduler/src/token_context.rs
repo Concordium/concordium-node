@@ -19,13 +19,6 @@ use plt_scheduler_types::types::events::{
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
 // todo ar delete
-/// Context for running token queries with a specific token in context.
-pub struct TokenQueryContext<'a, BSQ: BlockStateQuery> {
-    /// The block state
-    pub block_state: &'a BSQ,
-    /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::MutableTokenKeyValueState,
-}
 
 /// Context for running token operations with a specific token in context.
 pub struct TokenOperationContext<'a, BSQ: BlockStateQuery> {

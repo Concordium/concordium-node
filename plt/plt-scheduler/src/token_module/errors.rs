@@ -34,6 +34,8 @@ pub struct MintWouldOverflowError {
     pub max_representable_amount: RawTokenAmount,
 }
 
+// todo ar delete
+
 /// An invariant in the token state that should be enforced
 /// is broken. This is generally an error that should never happen and is unrecoverable.
 #[derive(Debug, thiserror::Error)]
