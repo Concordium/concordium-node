@@ -3,8 +3,7 @@ use crate::token_module::errors::{
     MintWouldOverflowError, TokenAmountDecimalsMismatchError, TokenMintError,
     TokenStateInvariantError,
 };
-use crate::token_module::key_value_state;
-use crate::token_module::{roles, util};
+use crate::token_module::{util};
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAdminRole, TokenModuleInitializationParameters,

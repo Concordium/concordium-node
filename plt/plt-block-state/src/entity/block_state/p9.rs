@@ -1,16 +1,12 @@
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
+    BlockStateResult,
     TokenNotFoundByIdError,
 };
-use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::block_state::Accounts;
 use crate::entity::protocol_level_tokens::p9::TokenP9;
-use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
-use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::entity::{protocol_level_tokens, EntityContext, EntityContextTypes};
+use crate::external::ExternalBlockStateOperations;
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
-use concordium_base::base::AccountIndex;
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 
 /// P9 block state.

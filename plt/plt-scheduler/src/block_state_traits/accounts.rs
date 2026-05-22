@@ -5,6 +5,7 @@ use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::entity::accounts::{Account, AccountWithCanonicalAddress};
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
+use plt_block_state::external::ExternalBlockStateQuery;
 
 /// Trait that defines block state operations related to accounts.
 pub trait Accounts {
@@ -30,7 +31,8 @@ impl Accounts for BlockStateP9 {
         context: &EntityContext<C>,
         address: &AccountAddress,
     ) -> Result<Account, AccountNotFoundByAddressError> {
-        self.ac
+        let account_index = context.external.account_index_by_account_address(address)?;
+        Ok(Account::from_existing_account(account_index))
     }
 
     fn account_by_index<C: EntityContextTypes>(

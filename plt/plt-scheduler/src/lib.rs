@@ -8,6 +8,5 @@ mod token_module;
 mod transaction_execution;
 mod block_state_traits;
 pub mod protocol_level_tokens;
-mod protocol_level_locks;
 
 pub use token_module::TOKEN_MODULE_REF;

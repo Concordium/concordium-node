@@ -3,20 +3,20 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::ffi::status;
-use crate::queries::{QueryLockError, QueryTokenInfoError};
+use crate::queries::QueryLockError;
 use crate::{protocol_level_tokens, queries};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
 use libc::size_t;
 use plt_block_state::block_state::{
-    ExecutionTimeBlockStateP9, ExecutionTimeBlockStateP10, ExecutionTimeBlockStateP11,
+    ExecutionTimeBlockStateP10, ExecutionTimeBlockStateP11, ExecutionTimeBlockStateP9,
 };
-use plt_block_state::block_state_interface::{BlockStateResult, TokenNotFoundByIdError};
+use plt_block_state::block_state_interface::TokenNotFoundByIdError;
 use plt_block_state::entity::accounts::Account;
-use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
@@ -320,44 +320,40 @@ extern "C" fn ffi_query_token_authorizations(
                 let block_state = BlockStateP9 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP9 {
-                    block_state,
-                    context,
-                };
-                queries::query_token_authorizations(&exec_block_state, &token_id)
+                protocol_level_tokens::p9::query_token_authorizations(
+                    &context,
+                    &block_state,
+                    &token_id,
+                )
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP10 {
-                    block_state,
-                    context,
-                };
-                queries::query_token_authorizations(&exec_block_state, &token_id)
+                protocol_level_tokens::p9::query_token_authorizations(
+                    &context,
+                    &block_state,
+                    &token_id,
+                )
             }
             PersistentBlockState::P11(persistent) => {
                 let block_state = BlockStateP11 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP11 {
-                    block_state,
-                    context,
-                };
-                queries::query_token_authorizations(&exec_block_state, &token_id)
+                protocol_level_tokens::p11::query_token_authorizations(
+                    &context,
+                    &block_state,
+                    &token_id,
+                )
             }
         };
         match token_auths_res {
-            Ok(token_auths) => (
+            Ok(Ok(token_auths)) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_auths),
             ),
-            Err(QueryTokenInfoError::TokenDoesNotExist(_)) => {
-                (status::FfiStatusCode::Failed, Vec::new())
-            }
-            Err(QueryTokenInfoError::QueryTokenModule(err)) => {
-                (status::FfiStatusCode::Panic, err.to_string().into_bytes())
-            }
+            Ok(Err(TokenNotFoundByIdError(_))) => (status::FfiStatusCode::Failed, Vec::new()),
+            Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
         }
     });
     let array = memory::alloc_array_from_vec(return_data);
@@ -466,7 +462,7 @@ extern "C" fn ffi_query_token_account_infos(
             Ok(token_account_infos) => {
                 let return_data = common::to_bytes(&token_account_infos);
                 (status::FfiStatusCode::Success, return_data)
-            },
+            }
             Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
         }
     });

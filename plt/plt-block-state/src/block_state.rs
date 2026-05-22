@@ -7,11 +7,10 @@ use crate::block_state_interface::{
     TokenNotFoundByIdError, TokenStateKey, TokenStateValue,
 };
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::block_state::Accounts;
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p11::BlockStateP11;
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::external::TokenAccountState;
+use crate::external::{ExternalBlockStateQuery, TokenAccountState};
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::persistent::smart_contract_trie;
@@ -121,14 +120,28 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(&self.context, address)
+        let account_index = self
+            .context
+            .external
+            .account_index_by_account_address(address)?;
+        Ok(Account::from_existing_account(account_index))
     }
 
     fn account_by_index(
         &self,
-        index: AccountIndex,
+        account_index: AccountIndex,
     ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(&self.context, index)
+        let canonical_account_address = self
+            .context
+            .external
+            .account_canonical_address_by_account_index(account_index)?;
+
+        let account = Account::from_existing_account(account_index);
+
+        Ok(AccountWithCanonicalAddress {
+            account,
+            canonical_account_address,
+        })
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
@@ -350,14 +363,28 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(&self.context, address)
+        let account_index = self
+            .context
+            .external
+            .account_index_by_account_address(address)?;
+        Ok(Account::from_existing_account(account_index))
     }
 
     fn account_by_index(
         &self,
-        index: AccountIndex,
+        account_index: AccountIndex,
     ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(&self.context, index)
+        let canonical_account_address = self
+            .context
+            .external
+            .account_canonical_address_by_account_index(account_index)?;
+
+        let account = Account::from_existing_account(account_index);
+
+        Ok(AccountWithCanonicalAddress {
+            account,
+            canonical_account_address,
+        })
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {

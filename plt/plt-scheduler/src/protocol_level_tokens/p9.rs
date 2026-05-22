@@ -71,7 +71,7 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
             let module_state = token_module::query_token_module_account_state(
                 &context,
                 &token,
-                block_state.account_index(&account),
+                account.account_index(),
             )?;
 
             let balance = TokenAmount {
