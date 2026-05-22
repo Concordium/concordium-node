@@ -1,4 +1,3 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
 };
@@ -12,6 +11,7 @@ use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 use std::any;
 use std::io::Read;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 
 pub mod p10;
 pub mod p11;

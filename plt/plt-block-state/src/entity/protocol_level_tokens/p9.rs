@@ -1,4 +1,3 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST, STATE_KEY_GOVERNANCE_ACCOUNT,
@@ -16,6 +15,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::{MetadataUrl, TokenId};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 
 pub(crate) fn plt_list<C: EntityContextTypes>(
     context: &EntityContext<C>,

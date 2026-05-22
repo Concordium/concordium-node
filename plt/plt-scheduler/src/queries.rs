@@ -6,8 +6,10 @@ use concordium_base::common::cbor::cbor_encode;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::RawCbor;
 use plt_block_state::block_state_interface::{
-    AccountNotFoundByIndexError, BlockStateQuery, LockNotFoundByIdError,
+     BlockStateQuery,
 };
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
+use plt_block_state::external::AccountNotFoundByIndexError;
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.

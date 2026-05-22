@@ -1,4 +1,3 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
 };
@@ -13,6 +12,7 @@ use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, Lo
 use concordium_base::protocol_level_tokens::{CborMemo, TokenId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 
 /// Block state for protocol level locks on P11 and later protocols that uses the same representation.
 #[derive(Debug, Clone, Default)]

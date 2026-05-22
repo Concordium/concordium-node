@@ -4,7 +4,7 @@ use concordium_base::{
     protocol_level_locks::LockId,
     protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId},
 };
-use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
+use plt_block_state::block_state_interface::{ BlockStateQuery};
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerConfig, LockControllerSimpleV0,
 };

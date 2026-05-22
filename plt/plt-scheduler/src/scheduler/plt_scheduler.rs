@@ -4,8 +4,6 @@
 use crate::locks::get_lock_config;
 use crate::locks::lock_controller::LockController;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
-use crate::token_context::TokenOperationContext;
-use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::LockId;
@@ -18,7 +16,7 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_block_state::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
+use plt_block_state::block_state_interface::{BlockStateOperations};
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_block_state::utils;

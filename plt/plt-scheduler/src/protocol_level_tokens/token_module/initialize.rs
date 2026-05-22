@@ -1,15 +1,11 @@
-use crate::token_context::TokenOperationContext;
-use crate::token_module::errors::{
-    MintWouldOverflowError, TokenAmountDecimalsMismatchError, TokenMintError,
-    TokenStateInvariantError,
-};
-use crate::token_module::{util};
+
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAdminRole, TokenModuleInitializationParameters,
 };
 use plt_block_state::block_state_interface::{AccountNotFoundByAddressError, BlockStateOperations};
 use plt_block_state::utils;
+use crate::protocol_level_tokens::token_module::errors::{MintWouldOverflowError, TokenAmountDecimalsMismatchError};
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]
@@ -24,8 +20,6 @@ pub enum TokenInitializationError {
     MintAmountDecimalsMismatch(#[from] TokenAmountDecimalsMismatchError),
     #[error("The initial mint amount is not representable: {0}")]
     MintAmountNotRepresentable(#[from] MintWouldOverflowError),
-    #[error("State invariant violation at token initialization: {0}")]
-    StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
 impl From<TokenMintError> for TokenInitializationError {

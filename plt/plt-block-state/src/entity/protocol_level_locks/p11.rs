@@ -1,4 +1,3 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::protocol_level_locks::p11::{
     LockConfiguration, PersistentLockP11, PersistentLocksP11,
@@ -6,6 +5,7 @@ use crate::persistent::protocol_level_locks::p11::{
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 
 pub(crate) fn lock_list<C: EntityContextTypes>(
     _context: &EntityContext<C>,

@@ -1,6 +1,5 @@
-use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState};
+use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery, OverflowError, RawTokenAmountDelta, TokenAccountState};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
@@ -26,6 +25,8 @@ pub struct Account {
     /// Account index for and account that we know exists in the block state.
     pub(crate) account_index: AccountIndex,
 }
+
+
 
 impl Account {
     /// Create account from an account index for an account that must exist.

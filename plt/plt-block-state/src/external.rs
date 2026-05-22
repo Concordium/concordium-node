@@ -1,13 +1,23 @@
 //! Interactions with the part of the block state that is managed externally in Haskell.
 
-use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
-};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::Serialize;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+/// Change in [`RawTokenAmount`].
+///
+/// Represented as either add and subtract instead of a signed value, in order
+/// to be able to represent the full range of possible deltas.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum RawTokenAmountDelta {
+    /// Add the token amount
+    Add(RawTokenAmount),
+    /// Subtract the token amount
+    Subtract(RawTokenAmount),
+}
+
 
 /// Token account state at block state level.
 ///
@@ -17,6 +27,22 @@ pub struct TokenAccountState {
     /// Balance of the account
     pub balance: RawTokenAmount,
 }
+
+/// The computation resulted in overflow (negative or above maximum value).
+#[derive(Debug, thiserror::Error)]
+#[error("Token amount overflow")]
+pub struct OverflowError;
+
+
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Type definition for queries to externally managed parts of the block state.
 /// This state is managed in Haskell.

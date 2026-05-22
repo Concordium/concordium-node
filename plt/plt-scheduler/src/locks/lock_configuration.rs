@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     locks::lock_controller::LockController, queries::QueryLockError,
-    token_context::TokenQueryContext, token_module,
+    token_operation_context::TokenQueryContext, token_module,
 };
 use concordium_base::{
     base::AccountIndex,

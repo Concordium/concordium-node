@@ -1,7 +1,3 @@
-use crate::block_state_interface::{
-    BlockStateResult,
-    LockNotFoundByIdError, TokenNotFoundByIdError,
-};
 
 use crate::entity::protocol_level_locks::p11::LockP11;
 use crate::entity::protocol_level_tokens::p11::TokenP11;
@@ -15,6 +11,8 @@ use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use crate::failure::BlockStateResult;
 
 /// P11 block state.
 #[derive(Debug, Default, Clone)]

@@ -1,14 +1,13 @@
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use plt_block_state::block_state_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::entity::accounts::{Account, AccountWithCanonicalAddress};
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
-use plt_block_state::external::ExternalBlockStateQuery;
+use plt_block_state::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateQuery};
 
 /// Trait that defines block state operations related to accounts.
-pub trait Accounts {
+pub trait AccountsT {
     /// Lookup the account using an account address.
     fn account_by_address<C: EntityContextTypes>(
         &self,
@@ -25,7 +24,7 @@ pub trait Accounts {
     ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
 }
 
-impl Accounts for BlockStateP9 {
+impl AccountsT for BlockStateP9 {
     fn account_by_address<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
@@ -53,7 +52,7 @@ impl Accounts for BlockStateP9 {
     }
 }
 
-impl Accounts for BlockStateP11 {
+impl AccountsT for BlockStateP11 {
     fn account_by_address<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,

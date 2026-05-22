@@ -2,7 +2,8 @@ use concordium_base::{
     base::AccountIndex,
     protocol_level_tokens::{CborHolderAccount, TokenId},
 };
-use plt_block_state::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
+use plt_block_state::block_state_interface::{BlockStateQuery};
+use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
 /// Look up the account index for a [`CborHolderAccount`]. If the account does
@@ -19,6 +20,8 @@ pub fn lookup_account_index<BSQ: BlockStateQuery>(
         )),
     }
 }
+
+// todo ar remove
 
 /// Look up the token ID in the block state. If the token ID does not exist, a
 /// [`TransactionRejectReason::NonExistentTokenId`] is returned.

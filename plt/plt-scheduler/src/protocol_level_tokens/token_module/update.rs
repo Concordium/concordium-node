@@ -1,4 +1,4 @@
-use crate::token_context::TokenOperationContext;
+use crate::token_operation_context::TokenOperationContext;
 use crate::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
     TokenBurnError, TokenMintError, TokenStateInvariantError, TokenTransferError,

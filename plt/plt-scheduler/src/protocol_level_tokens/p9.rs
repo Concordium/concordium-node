@@ -1,14 +1,15 @@
-use crate::token_module;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
-use plt_block_state::block_state_interface::{BlockStateResult, TokenNotFoundByIdError};
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::entity::block_state::TokenNotFoundByIdError;
+use plt_block_state::failure::BlockStateResult;
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
 use plt_scheduler_types::types::tokens::TokenAmount;
+use crate::protocol_level_tokens::token_module;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn query_plt_list<C: EntityContextTypes>(
@@ -24,8 +25,7 @@ pub fn query_token_info<C: EntityContextTypes>(
     block_state: &BlockStateP9,
     token_id: &TokenId,
 ) -> BlockStateResult<Result<TokenInfo, TokenNotFoundByIdError>> {
-    let token_res = block_state.token_by_id(context, token_id)?;
-    let token = match token_res {
+    let token = match block_state.token_by_id(context, token_id)? {
         Ok(token) => token,
         Err(err) => return Ok(Err(err)),
     };
@@ -98,8 +98,7 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
     block_state: &BlockStateP9,
     token_id: &TokenId,
 ) -> BlockStateResult<Result<TokenAuthorizations, TokenNotFoundByIdError>> {
-    let token_res = block_state.token_by_id(context, token_id)?;
-    let token = match token_res {
+    let token = match block_state.token_by_id(context, token_id)? {
         Ok(token) => token,
         Err(err) => return Ok(Err(err)),
     };

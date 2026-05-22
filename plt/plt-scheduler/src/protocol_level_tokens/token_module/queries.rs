@@ -1,4 +1,4 @@
-use crate::block_state_traits::accounts::Accounts;
+use crate::block_state_traits::accounts::AccountsT;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
@@ -16,7 +16,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    accounts: &impl Accounts,
+    accounts: &impl AccountsT,
     token: &TokenP9,
 ) -> BlockStateResult<TokenModuleState> {
     let governance_account_index = token.get_governance_account_index(context)?;
@@ -73,7 +73,7 @@ pub fn query_token_module_account_state<C: EntityContextTypes>(
 /// Get authorization roles and assigned accounts for the token.
 pub fn query_token_authorizations<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    accounts: &impl Accounts,
+    accounts: &impl AccountsT,
     token: &TokenP11,
 ) -> BlockStateResult<TokenAuthorizations> {
     let mut update_admin_roles = TokenRoleAuthorizations::default();

@@ -6,3 +6,4 @@ pub mod external;
 pub mod ffi;
 pub mod persistent;
 pub mod utils;
+pub mod failure;

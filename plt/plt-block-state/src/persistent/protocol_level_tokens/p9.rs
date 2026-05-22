@@ -1,4 +1,3 @@
-use crate::block_state_interface::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
@@ -14,6 +13,7 @@ use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
+use crate::failure::BlockStateResult;
 
 /// Index of the protocol-level token in the block state map of tokens.
 ///

@@ -1,4 +1,3 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
@@ -8,6 +7,7 @@ use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenAdminRole;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 
 /// Representation of protocol-level token on P11 and later protocols with compatible model.
 #[derive(Debug)]

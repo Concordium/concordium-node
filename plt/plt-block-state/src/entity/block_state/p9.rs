@@ -1,13 +1,11 @@
-use crate::block_state_interface::{
-    BlockStateResult,
-    TokenNotFoundByIdError,
-};
 use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::{protocol_level_tokens, EntityContext, EntityContextTypes};
 use crate::external::ExternalBlockStateOperations;
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use concordium_base::protocol_level_tokens::TokenId;
+use crate::entity::block_state::TokenNotFoundByIdError;
+use crate::failure::BlockStateResult;
 
 /// P9 block state.
 #[derive(Debug, Default, Clone)]

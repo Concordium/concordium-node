@@ -1,10 +1,24 @@
+//! Implementation of the protocol-level token module. The token module implements
+//! execution of [token operations](concordium_base::protocol_level_tokens::TokenOperation).
+//!
+//! It is the responsibility of the token module to charge energy for execution via
+//! [`TransactionExecution`](crate::transaction_execution::TransactionExecution),
+//! and release control (return an error) if the energy limit is reached.
+
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
 pub mod errors;
-mod module;
-pub(crate) mod util;
+mod util;
+mod initialize;
+mod queries;
+mod update;
+mod balance_operations;
 
-pub use module::*;
+pub use update::*;
+pub use queries::*;
+pub use initialize::*;
+
+
 
 /// Module ref for the currently implemented token module. It is the SHA-256 of "TokenModuleV0"
 pub const TOKEN_MODULE_REF: TokenModuleRef = TokenModuleRef::new([

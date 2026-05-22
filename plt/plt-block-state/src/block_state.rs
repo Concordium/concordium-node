@@ -1,16 +1,11 @@
 //! This module contains temporary implementations of [`BlockStateOperations`]. The trait
 //! [`BlockStateOperations`] and [`BlockStateQuery`] will be removed.
 
-use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, LockNotFoundByIdError, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError, TokenStateKey, TokenStateValue,
-};
 use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p11::BlockStateP11;
 use crate::entity::{EntityContext, EntityContextTypes};
-use crate::external::{ExternalBlockStateQuery, TokenAccountState};
+use crate::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateQuery, OverflowError, RawTokenAmountDelta, TokenAccountState};
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::persistent::smart_contract_trie;
@@ -20,7 +15,8 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::vec;
-
+use crate::block_state_interface::{BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue};
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 // todo ar delete
 
 /// Runtime/execution state relevant for providing an implementation of

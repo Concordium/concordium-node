@@ -35,23 +35,3 @@ pub struct MintWouldOverflowError {
 }
 
 
-/// Represents the reasons why a token transfer may fail.
-#[derive(Debug, thiserror::Error)]
-pub enum TokenTransferError {
-    #[error("Insufficient balance for transfer: {0}")]
-    InsufficientBalance(#[from] InsufficientBalanceError),
-}
-
-/// Represents the reasons why a token mint may fail.
-#[derive(Debug, thiserror::Error)]
-pub enum TokenMintError {
-    #[error("{0}")]
-    MintWouldOverflow(#[from] MintWouldOverflowError),
-}
-
-/// Represents the reasons why a token burn may fail.
-#[derive(Debug, thiserror::Error)]
-pub enum TokenBurnError {
-    #[error("Insufficient balance for burn: {0}")]
-    InsufficientBalance(#[from] InsufficientBalanceError),
-}
