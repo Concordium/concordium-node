@@ -2,7 +2,6 @@
 
 use std::str::FromStr;
 
-use crate::utils::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -26,6 +25,7 @@ use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{self, TokenHolder};
 
 use crate::utils::BlockStateLatest;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 
 mod utils;
 
@@ -132,7 +132,7 @@ fn test_meta_update_transaction() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account_1,
+            account_1.account_index(),
             account_1_addr,
             1.into(),
             Payload::MetaUpdate { payload },
@@ -271,7 +271,7 @@ fn test_meta_update_transaction_cbor_extra_fields() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account_1,
+            account_1.account_index(),
             account_1_addr,
             1.into(),
             Payload::MetaUpdate { payload },

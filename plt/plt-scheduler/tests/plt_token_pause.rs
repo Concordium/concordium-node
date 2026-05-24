@@ -1,7 +1,7 @@
 //! Tests for token pause/unpause operations via the scheduler.
 
-use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -37,10 +37,7 @@ fn test_token_pause_state() {
     );
 
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -50,7 +47,7 @@ fn test_token_pause_state() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert_eq!(events.len(), 1);
@@ -59,10 +56,7 @@ fn test_token_pause_state() {
         let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
     assert!({
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -79,7 +73,7 @@ fn test_token_pause_state() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -94,10 +88,7 @@ fn test_token_pause_state() {
         let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -133,7 +124,7 @@ fn test_double_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -153,7 +144,7 @@ fn test_double_pause() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert_eq!(events.len(), 1);
@@ -162,10 +153,7 @@ fn test_double_pause() {
     });
 
     assert!({
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -198,7 +186,7 @@ fn test_redundant_unpause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -212,10 +200,7 @@ fn test_redundant_unpause() {
         assert_eq!(event.event_type, TokenModuleEventType::Unpause.to_type_discriminator());
     });
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -248,7 +233,7 @@ fn test_unauthorized_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &non_governance_account,
+            non_governance_account.account_index(),
             non_gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -277,10 +262,7 @@ fn test_unauthorized_pause() {
 
     // Token must remain unpaused
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -307,14 +289,11 @@ fn test_unauthorized_unpause() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert!({
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -331,7 +310,7 @@ fn test_unauthorized_unpause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &non_governance_account,
+            non_governance_account.account_index(),
             non_gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -360,10 +339,7 @@ fn test_unauthorized_unpause() {
 
     // Token must remain paused
     assert!({
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -409,7 +385,7 @@ fn test_pause_multiple_ops() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -435,10 +411,7 @@ fn test_pause_multiple_ops() {
     );
     // Token is NOT paused (local state was discarded on rejection)
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -464,14 +437,11 @@ fn test_unpause_multiple_ops() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert!({
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -493,7 +463,7 @@ fn test_unpause_multiple_ops() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -510,10 +480,7 @@ fn test_unpause_multiple_ops() {
     assert_matches!(&events[1], BlockItemEvent::TokenMint(_));
 
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -558,7 +525,7 @@ fn test_role_authorization_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -580,7 +547,7 @@ fn test_role_authorization_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -603,10 +570,7 @@ fn test_role_authorization_pause() {
     );
     // Token must remain unpaused.
     assert!(!{
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -647,7 +611,7 @@ fn test_new_account_with_role_succeeds_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -669,7 +633,7 @@ fn test_new_account_with_role_succeeds_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -679,10 +643,7 @@ fn test_new_account_with_role_succeeds_pause() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert!({
-        let info = block_state
-            .query_token_info(&context, &token_id)
-            .unwrap()
-            .unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });

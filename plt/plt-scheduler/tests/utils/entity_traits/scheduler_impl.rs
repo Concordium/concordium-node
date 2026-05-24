@@ -1,3 +1,4 @@
+use super::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
@@ -10,81 +11,25 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::BlockStateResult;
 use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler::{protocol_level_tokens, queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
-
-/// Operations and queries that the scheduler must support. Must be implemented by all
-/// protocol version block states.
-pub trait SchedulerOperations {
-    fn execute_transaction<C: EntityContextTypes>(
-        &mut self,
-        context: &mut EntityContext<C>,
-        sender_account: &Account,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
-        payload: Payload,
-        energy_limit: Energy,
-    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>;
-
-    fn execute_chain_update<C: EntityContextTypes>(
-        &mut self,
-        context: &mut EntityContext<C>,
-        payload: UpdatePayload,
-    ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError>;
-
-    fn query_plt_list<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<TokenId>>;
-
-    fn query_token_info<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenInfo, TokenNotFoundByIdError>>;
-
-    fn query_token_account_infos<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        account: &Account,
-    ) -> BlockStateResult<Vec<TokenAccountInfo>>;
-
-    fn query_token_authorizations<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenAuthorizations, TokenNotFoundByIdError>>;
-
-    fn query_lock_list<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<LockId>>
-    where
-        EntityContext<C>: Clone;
-
-    fn query_lock_info<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError>
-    where
-        EntityContext<C>: Clone;
-}
+use std::mem;
 
 impl SchedulerOperations for BlockStateP9 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
-        sender_account: &Account,
+        sender_account: AccountIndex,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
         payload: Payload,
         energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
+        let sender_account = Account::from_existing_account(sender_account);
+
         scheduler::p9::execute_transaction(
             context,
             self,
@@ -104,41 +49,40 @@ impl SchedulerOperations for BlockStateP9 {
         scheduler::p9::execute_chain_update(context, self, payload)
     }
 
-    fn query_plt_list<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<TokenId>> {
-        protocol_level_tokens::p9::query_plt_list(context, self)
+    fn query_plt_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<TokenId> {
+        protocol_level_tokens::p9::query_plt_list(context, self).unwrap()
     }
 
     fn query_token_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenInfo, TokenNotFoundByIdError>> {
-        protocol_level_tokens::p9::query_token_info(context, self, token_id)
+    ) -> Result<TokenInfo, TokenNotFoundByIdError> {
+        protocol_level_tokens::p9::query_token_info(context, self, token_id).unwrap()
     }
 
     fn query_token_account_infos<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        account: &Account,
-    ) -> BlockStateResult<Vec<TokenAccountInfo>> {
-        protocol_level_tokens::p9::query_token_account_infos(context, self, account.clone())
+        account: AccountIndex,
+    ) -> Vec<TokenAccountInfo> {
+        protocol_level_tokens::p9::query_token_account_infos(
+            context,
+            self,
+            Account::from_existing_account(account),
+        )
+        .unwrap()
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenAuthorizations, TokenNotFoundByIdError>> {
-        protocol_level_tokens::p9::query_token_authorizations(context, self, token_id)
+    ) -> Result<TokenAuthorizations, TokenNotFoundByIdError> {
+        protocol_level_tokens::p9::query_token_authorizations(context, self, token_id).unwrap()
     }
 
-    fn query_lock_list<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<LockId>>
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
     where
         EntityContext<C>: Clone,
     {
@@ -147,7 +91,7 @@ impl SchedulerOperations for BlockStateP9 {
             context: context.clone(),
         };
 
-        Ok(queries::query_lock_list(&exec_block_state))
+        queries::query_lock_list(&exec_block_state)
     }
 
     fn query_lock_info<C: EntityContextTypes>(
@@ -171,12 +115,14 @@ impl SchedulerOperations for BlockStateP11 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
-        sender_account: &Account,
+        sender_account: AccountIndex,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
         payload: Payload,
         energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
+        let sender_account = Account::from_existing_account(sender_account);
+
         scheduler::p11::execute_transaction(
             context,
             self,
@@ -196,41 +142,40 @@ impl SchedulerOperations for BlockStateP11 {
         scheduler::p11::execute_chain_update(context, self, payload)
     }
 
-    fn query_plt_list<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<TokenId>> {
-        protocol_level_tokens::p11::query_plt_list(context, self)
+    fn query_plt_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<TokenId> {
+        protocol_level_tokens::p11::query_plt_list(context, self).unwrap()
     }
 
     fn query_token_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenInfo, TokenNotFoundByIdError>> {
-        protocol_level_tokens::p11::query_token_info(context, self, token_id)
+    ) -> Result<TokenInfo, TokenNotFoundByIdError> {
+        protocol_level_tokens::p11::query_token_info(context, self, token_id).unwrap()
     }
 
     fn query_token_account_infos<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        account: &Account,
-    ) -> BlockStateResult<Vec<TokenAccountInfo>> {
-        protocol_level_tokens::p11::query_token_account_infos(context, self, account.clone())
+        account: AccountIndex,
+    ) -> Vec<TokenAccountInfo> {
+        protocol_level_tokens::p11::query_token_account_infos(
+            context,
+            self,
+            Account::from_existing_account(account),
+        )
+        .unwrap()
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         token_id: &TokenId,
-    ) -> BlockStateResult<Result<TokenAuthorizations, TokenNotFoundByIdError>> {
-        protocol_level_tokens::p11::query_token_authorizations(context, self, token_id)
+    ) -> Result<TokenAuthorizations, TokenNotFoundByIdError> {
+        protocol_level_tokens::p11::query_token_authorizations(context, self, token_id).unwrap()
     }
 
-    fn query_lock_list<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<LockId>>
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
     where
         EntityContext<C>: Clone,
     {
@@ -239,7 +184,7 @@ impl SchedulerOperations for BlockStateP11 {
             context: context.clone(),
         };
 
-        Ok(queries::query_lock_list(&exec_block_state))
+        queries::query_lock_list(&exec_block_state)
     }
 
     fn query_lock_info<C: EntityContextTypes>(

@@ -1,7 +1,7 @@
 //! Tests for token allow/deny list update operations via the scheduler.
 
-use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -39,8 +39,7 @@ fn test_allow_list_updates() {
     // Target account not yet touched
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 
@@ -53,7 +52,7 @@ fn test_allow_list_updates() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -64,9 +63,7 @@ fn test_allow_list_updates() {
         let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(add_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state
-        .query_token_account_infos(&context, &target_account)
-        .unwrap();
+    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(true));
@@ -77,7 +74,7 @@ fn test_allow_list_updates() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -88,9 +85,7 @@ fn test_allow_list_updates() {
         let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(remove_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state
-        .query_token_account_infos(&context, &target_account)
-        .unwrap();
+    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(false));
@@ -116,8 +111,7 @@ fn test_deny_list_updates() {
     // Target account not yet touched
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 
@@ -130,7 +124,7 @@ fn test_deny_list_updates() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -141,9 +135,7 @@ fn test_deny_list_updates() {
         let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(add_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state
-        .query_token_account_infos(&context, &target_account)
-        .unwrap();
+    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, None);
@@ -154,7 +146,7 @@ fn test_deny_list_updates() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -165,9 +157,7 @@ fn test_deny_list_updates() {
         let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(remove_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state
-        .query_token_account_infos(&context, &target_account)
-        .unwrap();
+    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, None);
@@ -208,7 +198,7 @@ fn test_add_allow_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &sender,
+            sender.account_index(),
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -233,8 +223,7 @@ fn test_add_allow_list_reject_non_governance() {
     // Target account must remain untouched
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -273,7 +262,7 @@ fn test_remove_allow_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &sender,
+            sender.account_index(),
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -297,8 +286,7 @@ fn test_remove_allow_list_reject_non_governance() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -337,7 +325,7 @@ fn test_add_deny_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &sender,
+            sender.account_index(),
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -361,8 +349,7 @@ fn test_add_deny_list_reject_non_governance() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -401,7 +388,7 @@ fn test_remove_deny_list_reject_non_governance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &sender,
+            sender.account_index(),
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -425,8 +412,7 @@ fn test_remove_deny_list_reject_non_governance() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -449,8 +435,7 @@ fn test_add_allow_list_touches_account() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 
@@ -461,7 +446,7 @@ fn test_add_allow_list_touches_account() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -469,8 +454,7 @@ fn test_add_allow_list_touches_account() {
 
     assert!(
         !block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -493,8 +477,7 @@ fn test_remove_allow_list_touches_account() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 
@@ -505,7 +488,7 @@ fn test_remove_allow_list_touches_account() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -513,8 +496,7 @@ fn test_remove_allow_list_touches_account() {
 
     assert!(
         !block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -537,8 +519,7 @@ fn test_add_deny_list_touches_account() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 
@@ -549,7 +530,7 @@ fn test_add_deny_list_touches_account() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -557,8 +538,7 @@ fn test_add_deny_list_touches_account() {
 
     assert!(
         !block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -581,8 +561,7 @@ fn test_remove_deny_list_touches_account() {
 
     assert!(
         block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 
@@ -593,7 +572,7 @@ fn test_remove_deny_list_touches_account() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(target_addr),
         })],
@@ -601,8 +580,7 @@ fn test_remove_deny_list_touches_account() {
 
     assert!(
         !block_state
-            .query_token_account_infos(&context, &target_account)
-            .unwrap()
+            .query_token_account_infos(&context, target_account.account_index())
             .is_empty()
     );
 }
@@ -640,7 +618,7 @@ fn test_add_to_not_enabled_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -693,7 +671,7 @@ fn test_remove_from_not_enabled_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -746,7 +724,7 @@ fn test_add_to_not_enabled_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -799,7 +777,7 @@ fn test_remove_from_not_enabled_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -850,7 +828,7 @@ fn test_reject_add_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -871,7 +849,7 @@ fn test_reject_add_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -925,7 +903,7 @@ fn test_reject_add_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -946,7 +924,7 @@ fn test_reject_add_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -992,7 +970,7 @@ fn test_reject_remove_denylist_without_role() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_addr),
         })],
@@ -1010,7 +988,7 @@ fn test_reject_remove_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1031,7 +1009,7 @@ fn test_reject_remove_denylist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -1077,7 +1055,7 @@ fn test_reject_remove_allowlist_without_role() {
         &mut context,
         &mut block_state,
         &token_id,
-        &gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_addr),
         })],
@@ -1095,7 +1073,7 @@ fn test_reject_remove_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1116,7 +1094,7 @@ fn test_reject_remove_allowlist_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -1175,7 +1153,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1196,7 +1174,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1205,9 +1183,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let infos = block_state
-        .query_token_account_infos(&context, &gov_account)
-        .unwrap();
+    let infos = block_state.query_token_account_infos(&context, gov_account.account_index());
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.deny_list, Some(true));
@@ -1249,7 +1225,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1270,7 +1246,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1279,9 +1255,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let infos = block_state
-        .query_token_account_infos(&context, &gov_account)
-        .unwrap();
+    let infos = block_state.query_token_account_infos(&context, gov_account.account_index());
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(true));

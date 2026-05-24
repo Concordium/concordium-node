@@ -3,12 +3,11 @@
 // items in the file.
 #![allow(unused)]
 
+pub mod entity_traits;
 mod lock;
-mod scheduler;
 mod token;
 
 pub use lock::*;
-pub use scheduler::*;
 pub use token::*;
 
 use plt_block_state::entity::block_state::p11::BlockStateP11;

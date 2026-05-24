@@ -1,7 +1,7 @@
 //! Tests for token RBAC admin role operations via the scheduler.
 
-use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -36,7 +36,6 @@ fn test_rbac_initial_governance_account_have_every_role() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -99,7 +98,7 @@ fn test_rbac_assign_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -111,7 +110,6 @@ fn test_rbac_assign_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -202,7 +200,7 @@ fn test_rbac_assign_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -230,7 +228,7 @@ fn test_rbac_assign_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -242,7 +240,6 @@ fn test_rbac_assign_same_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -304,7 +301,7 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -345,7 +342,7 @@ fn test_rbac_assign_rejects_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -384,7 +381,7 @@ fn test_rbac_assign_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -412,7 +409,7 @@ fn test_rbac_assign_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -424,7 +421,6 @@ fn test_rbac_assign_role_works_when_paused() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -478,7 +474,7 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -522,7 +518,7 @@ fn test_rbac_revoke_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -534,7 +530,6 @@ fn test_rbac_revoke_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -593,7 +588,7 @@ fn test_rbac_revoke_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -618,7 +613,7 @@ fn test_rbac_revoke_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -630,7 +625,6 @@ fn test_rbac_revoke_same_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -701,7 +695,7 @@ fn test_rbac_revoke_rejects_without_admin_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -741,7 +735,7 @@ fn test_rbac_revoke_rejects_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -779,7 +773,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -804,7 +798,7 @@ fn test_rbac_revoke_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -816,7 +810,6 @@ fn test_rbac_revoke_role_works_when_paused() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )
@@ -875,7 +868,7 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -915,7 +908,7 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -960,7 +953,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -988,7 +981,7 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1000,7 +993,6 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap()
             .unwrap()
             .details,
     )

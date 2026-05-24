@@ -1,7 +1,7 @@
 //! Tests for token metadata update operations via the scheduler.
 
-use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::{self, cbor};
@@ -34,10 +34,7 @@ fn test_token_metadata_updates() {
     );
 
     // Check initial metadata via query.
-    let token_info = block_state
-        .query_token_info(&context, &token_id)
-        .unwrap()
-        .unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
     let initial_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(
@@ -62,7 +59,7 @@ fn test_token_metadata_updates() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -71,10 +68,7 @@ fn test_token_metadata_updates() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let token_info = block_state
-        .query_token_info(&context, &token_id)
-        .unwrap()
-        .unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
     let module_state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(module_state.metadata.unwrap(), new_metadata_url);
 }
@@ -114,7 +108,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -140,7 +134,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -149,10 +143,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let token_info = block_state
-        .query_token_info(&context, &token_id)
-        .unwrap()
-        .unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
     let module_state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(module_state.metadata.unwrap(), new_metadata_url);
 }
@@ -188,7 +179,7 @@ fn test_role_authorization_update_metadata() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -214,7 +205,7 @@ fn test_role_authorization_update_metadata() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -272,7 +263,7 @@ fn test_update_metadata_rejects_with_additional_data() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },

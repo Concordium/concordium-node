@@ -1,4 +1,4 @@
-use crate::utils::SchedulerOperations;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
@@ -62,7 +62,7 @@ pub fn create_lock(
     block_state
         .execute_transaction(
             context,
-            &sender.account,
+            sender.account.account_index(),
             sender.canonical_account_address,
             lock_id.sequence_number(),
             Payload::MetaUpdate {

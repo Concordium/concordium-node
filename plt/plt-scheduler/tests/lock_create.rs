@@ -1,7 +1,7 @@
 //! Tests for creating a PLT lock.
 
 use crate::utils::BlockStateLatest;
-use crate::utils::SchedulerOperations;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
@@ -28,15 +28,14 @@ fn test_create_simple_lock() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
-    let account_1 = context.external.create_account();
-    let account_index_1 = account_1.account_index();
-    let account_address_1 = context.external.account_canonical_address(account_index_1);
+    let account_index_1 = context.external.create_account().account_index();
+    let account_1 = context.external.account_canonical_address(account_index_1);
 
     let plt_x: TokenId = "pltX".parse().unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Test PLT 1".to_owned()),
         metadata: Some(MetadataUrl::from("https://pltX.token".to_string())),
-        governance_account: Some(account_address_1.into()),
+        governance_account: Some(account_1.into()),
         allow_list: None,
         deny_list: None,
         initial_supply: Some(TokenAmount::from_raw(10000, 2)),
@@ -55,11 +54,11 @@ fn test_create_simple_lock() {
         .expect("create pltX");
 
     let config = LockConfig {
-        recipients: vec![account_address_1.into()],
+        recipients: vec![account_1.into()],
         expiry: TransactionTime::from_seconds(1000),
         controller: LockController::SimpleV0(LockControllerSimpleV0 {
             grants: vec![LockControllerSimpleV0Grant {
-                account: account_address_1.into(),
+                account: account_1.into(),
                 roles: vec![
                     LockControllerSimpleV0Capability::Fund,
                     LockControllerSimpleV0Capability::Send,
@@ -78,8 +77,8 @@ fn test_create_simple_lock() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account_1,
-            account_address_1,
+            account_index_1,
+            account_1,
             1.into(),
             Payload::MetaUpdate { payload },
             Energy::from(u64::MAX),

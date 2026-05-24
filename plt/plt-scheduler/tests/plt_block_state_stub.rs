@@ -1,11 +1,10 @@
 //! Tests for the block state stub infrastructure used in the plt-scheduler integration tests.
 
-use crate::utils::TokenInitTestParams;
+use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::entity::accounts::Accounts;
-use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -52,7 +51,7 @@ fn test_account_lookup_index() {
 #[test]
 fn test_account_balance() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let mut block_state = BlockStateP11::default();
+    let mut block_state = BlockStateLatest::default();
 
     let token_id: TokenId = "TokenId1".parse().unwrap();
     utils::create_and_init_token_p11(

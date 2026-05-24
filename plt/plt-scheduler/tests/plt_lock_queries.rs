@@ -1,7 +1,7 @@
 //! Tests for the new `query_lock_list` and `query_lock_info` scheduler query functions.
 
-use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;

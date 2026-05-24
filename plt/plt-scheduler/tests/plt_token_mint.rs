@@ -1,7 +1,7 @@
 //! Tests for token mint operations via the scheduler.
 
-use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -52,7 +52,7 @@ fn test_mint_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_address,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -77,7 +77,7 @@ fn test_mint_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_address,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -122,7 +122,7 @@ fn test_unauthorized_mint_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &non_governance_account,
+            non_governance_account.account_index(),
             non_governance_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -188,7 +188,7 @@ fn test_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -213,7 +213,7 @@ fn test_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -258,7 +258,7 @@ fn test_unauthorized_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &non_governance_account,
+            non_governance_account.account_index(),
             non_governance_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -327,7 +327,7 @@ fn test_unauthorized_mint_using_alias() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &non_gov_account,
+            non_gov_account.account_index(),
             non_gov_account_address_alias,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -381,7 +381,7 @@ fn test_mint_overflow() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -443,7 +443,7 @@ fn test_mint_decimals_mismatch() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -478,7 +478,12 @@ fn test_mint_paused() {
     );
 
     // Pause the token first
-    utils::pause_token(&mut context, &mut block_state, &token_id, &gov_account);
+    utils::pause_token(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
+    );
 
     // Now attempt to mint while paused
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -494,7 +499,7 @@ fn test_mint_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -543,7 +548,7 @@ fn test_not_mintable() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -592,7 +597,7 @@ fn test_mint_event() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -642,7 +647,7 @@ fn test_reject_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -663,7 +668,7 @@ fn test_reject_without_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -723,7 +728,7 @@ fn test_new_account_with_role_succeeds_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &gov_account,
+            gov_account.account_index(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -747,7 +752,7 @@ fn test_new_account_with_role_succeeds_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            &account2,
+            account2.account_index(),
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
