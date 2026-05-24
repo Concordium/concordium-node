@@ -1,4 +1,4 @@
-use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
+use plt_block_state::entity::protocol_level_tokens::p9::{TokenP9, TokenP9Base};
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 
 // todo ar just use enum instead?
@@ -6,10 +6,10 @@ use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 /// Access to token from code that is generic over the protocol version.
 pub trait TokenT {
     /// Access the token as a P9 token.
-    fn token_p9(&self) -> &TokenP9;
+    fn token_base(&self) -> &TokenP9Base;
 
     /// Mutate the token as a P9 token.
-    fn token_p9_mut(&mut self) -> &mut TokenP9;
+    fn token_base_mut(&mut self) -> &mut TokenP9Base;
 
     /// Access the token as a P11 token. Returns `None`
     /// if we are not on P11.
@@ -21,12 +21,12 @@ pub trait TokenT {
 }
 
 impl TokenT for TokenP9 {
-    fn token_p9(&self) -> &TokenP9 {
-        self
+    fn token_base(&self) -> &TokenP9Base {
+        &self.token_base
     }
 
-    fn token_p9_mut(&mut self) -> &mut TokenP9 {
-        self
+    fn token_base_mut(&mut self) -> &mut TokenP9Base {
+        &mut self.token_base
     }
 
     fn token_p11(&self) -> Option<&TokenP11> {
@@ -39,11 +39,11 @@ impl TokenT for TokenP9 {
 }
 
 impl TokenT for TokenP11 {
-    fn token_p9(&self) -> &TokenP9 {
+    fn token_base(&self) -> &TokenP9Base {
         &self.token_base
     }
 
-    fn token_p9_mut(&mut self) -> &mut TokenP9 {
+    fn token_base_mut(&mut self) -> &mut TokenP9Base {
         &mut self.token_base
     }
 

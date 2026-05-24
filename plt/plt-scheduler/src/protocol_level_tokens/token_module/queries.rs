@@ -1,11 +1,11 @@
-use crate::block_state_traits::accounts::AccountsT;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, TokenAdminRole, TokenAuthorizations, TokenModuleAccountState,
     TokenModuleState, TokenRoleAuthorizations,
 };
-use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
+use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByIndexError;
@@ -15,18 +15,17 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    accounts: &impl AccountsT,
-    token: &TokenP9,
+    token: &TokenP9Base,
 ) -> BlockStateResult<TokenModuleState> {
     let governance_account_index = token.get_governance_account_index(context)?;
-    let governance_account = accounts
-        .account_by_index(context, governance_account_index)
-        .map_err(|_: AccountNotFoundByIndexError| {
+    let governance_account = context.account_by_index(governance_account_index).map_err(
+        |_: AccountNotFoundByIndexError| {
             BlockStateFailure::Invariant(format!(
                 "Stored governance account with index {} does not exist",
                 governance_account_index
             ))
-        })?;
+        },
+    )?;
 
     let state = TokenModuleState {
         name: Some(token.get_token_name(context)?),
@@ -47,7 +46,7 @@ pub fn query_token_module_state<C: EntityContextTypes>(
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    token: &TokenP9,
+    token: &TokenP9Base,
     account: AccountIndex,
 ) -> BlockStateResult<TokenModuleAccountState> {
     let has_allow_list = token.has_allow_list(context);
@@ -72,7 +71,6 @@ pub fn query_token_module_account_state<C: EntityContextTypes>(
 /// Get authorization roles and assigned accounts for the token.
 pub fn query_token_authorizations<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    accounts: &impl AccountsT,
     token: &TokenP11,
 ) -> BlockStateResult<TokenAuthorizations> {
     let mut update_admin_roles = TokenRoleAuthorizations::default();
@@ -84,8 +82,8 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
     let mut update_metadata = TokenRoleAuthorizations::default();
 
     for (account_index, roles) in token.all_roles(context)?.into_iter() {
-        let account = accounts
-            .account_by_index(context, account_index)
+        let account = context
+            .account_by_index(account_index)
             .map_err(|err| {
                 BlockStateFailure::Invariant(format!(
                     "Stored account index in authorizations cannot be found: {}",

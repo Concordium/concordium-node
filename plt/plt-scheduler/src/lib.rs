@@ -1,4 +1,4 @@
-mod block_state_traits;
+mod block_state_polymorph;
 #[cfg(feature = "ffi")]
 mod ffi;
 mod locks;

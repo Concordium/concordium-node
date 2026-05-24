@@ -86,7 +86,6 @@ impl LockController for LockControllerSimpleV0 {
     }
 }
 
-
 /// Look up the account index for a [`CborHolderAccount`]. If the account does
 /// not exist, a [`TransactionRejectReason::InvalidAccountReference`] is
 /// returned.
@@ -101,7 +100,6 @@ pub fn lookup_account_index<BSQ: BlockStateQuery>(
         )),
     }
 }
-
 
 /// Look up the token ID in the block state. If the token ID does not exist, a
 /// [`TransactionRejectReason::NonExistentTokenId`] is returned.

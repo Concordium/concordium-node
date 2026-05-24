@@ -1,5 +1,4 @@
-use crate::block_state_traits::accounts::AccountsT;
-use crate::block_state_traits::token::TokenT;
+use crate::block_state_polymorph::token::TokenT;
 use crate::protocol_level_tokens::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
@@ -9,15 +8,16 @@ use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
-    MetadataUrl, MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
-    TokenAdminRole, TokenBalanceInsufficientRejectReason, TokenListUpdateDetails,
-    TokenListUpdateEventDetails, TokenModuleCborTypeDiscriminator, TokenModuleEvent,
-    TokenModuleRejectReason, TokenOperation, TokenPauseEventDetails, TokenSupplyUpdateDetails,
-    TokenTransfer, TokenUpdateAdminRolesDetails, TokenUpdateAdminRolesEventDetails,
-    TokenUpdateMetadataEventDetails, UnsupportedOperationRejectReason,
+    MetadataUrl, MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, TokenAdminRole,
+    TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
+    TokenModuleEvent, TokenModuleRejectReason, TokenOperation, TokenPauseEventDetails,
+    TokenSupplyUpdateDetails, TokenTransfer, TokenUpdateAdminRolesDetails,
+    TokenUpdateAdminRolesEventDetails, TokenUpdateMetadataEventDetails,
+    UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
-use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
+use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
@@ -99,7 +99,6 @@ pub enum TokenUpdateError {
 pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     index: usize,
@@ -108,7 +107,6 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     Ok(execute_token_update_operation_internal(
         transaction_execution,
         context,
-        accounts,
         events,
         token,
         operation,
@@ -128,7 +126,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             ))
         }
         TokenUpdateErrorInternal::InsufficientBalance(err) => {
-            let token_configuration = token.token_p9().token_configuration(context)?;
+            let token_configuration = token.token_base().token_configuration(context)?;
 
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
                 TokenBalanceInsufficientRejectReason {
@@ -139,7 +137,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             ))
         }
         TokenUpdateErrorInternal::MintWouldOverflow(err) => {
-            let token_configuration = token.token_p9().token_configuration(context)?;
+            let token_configuration = token.token_base().token_configuration(context)?;
 
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::MintWouldOverflow(
                 MintWouldOverflowRejectReason {
@@ -233,7 +231,6 @@ enum TokenUpdateErrorInternal {
 fn execute_token_update_operation_internal<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     token_operation: &TokenOperation,
@@ -255,9 +252,8 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
         TokenOperation::Transfer(transfer) => execute_token_transfer(
             transaction_execution,
             context,
-            accounts,
             events,
-            token.token_p9_mut(),
+            token.token_base_mut(),
             transfer,
         ),
         TokenOperation::Mint(mint) => {
@@ -275,7 +271,6 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
         TokenOperation::AddAllowList(list_operation) => execute_add_allow_list(
             transaction_execution,
             context,
-            accounts,
             events,
             token,
             list_operation,
@@ -283,7 +278,6 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
         TokenOperation::RemoveAllowList(list_operation) => execute_remove_allow_list(
             transaction_execution,
             context,
-            accounts,
             events,
             token,
             list_operation,
@@ -291,7 +285,6 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
         TokenOperation::AddDenyList(list_operation) => execute_add_deny_list(
             transaction_execution,
             context,
-            accounts,
             events,
             token,
             list_operation,
@@ -299,35 +292,20 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
         TokenOperation::RemoveDenyList(list_operation) => execute_remove_deny_list(
             transaction_execution,
             context,
-            accounts,
             events,
             token,
             list_operation,
         ),
         TokenOperation::AssignAdminRoles(operation) => {
             if let Some(token) = token.token_p11_mut() {
-                execute_assign_admin_roles(
-                    transaction_execution,
-                    context,
-                    accounts,
-                    events,
-                    token,
-                    operation,
-                )
+                execute_assign_admin_roles(transaction_execution, context, events, token, operation)
             } else {
                 Ok(Err(WRONG_PROTOCOL_ERROR))
             }
         }
         TokenOperation::RevokeAdminRoles(operation) => {
             if let Some(token) = token.token_p11_mut() {
-                execute_revoke_admin_roles(
-                    transaction_execution,
-                    context,
-                    accounts,
-                    events,
-                    token,
-                    operation,
-                )
+                execute_revoke_admin_roles(transaction_execution, context, events, token, operation)
             } else {
                 Ok(Err(WRONG_PROTOCOL_ERROR))
             }
@@ -363,7 +341,7 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
 
 fn check_not_paused<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    token: &TokenP9,
+    token: &TokenP9Base,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if token.is_paused(context) {
         return Err(TokenUpdateErrorInternal::Paused);
@@ -391,7 +369,7 @@ fn check_authorized<C: EntityContextTypes>(
             }));
         }
     } else {
-        let token = token.token_p9();
+        let token = token.token_base();
 
         // Ensure the sender is the governance account.
         if token.get_governance_account_index(context)?
@@ -410,9 +388,8 @@ fn check_authorized<C: EntityContextTypes>(
 fn execute_token_transfer<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenP9,
+    token: &mut TokenP9Base,
     transfer_operation: &TokenTransfer,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
     let token_configuration = token.token_configuration(context)?;
@@ -432,8 +409,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
 
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
-    let receiver = match accounts.account_by_address(context, &transfer_operation.recipient.address)
-    {
+    let receiver = match context.account_by_address(&transfer_operation.recipient.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };
@@ -471,7 +447,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
     match balance_operations::transfer(
         context,
         events,
-        token.token_p9_mut(),
+        token,
         sender,
         sender_address,
         &receiver,
@@ -491,7 +467,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     token: &mut impl TokenT,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
     // preprocessing
     let raw_amount = match util::to_raw_token_amount(&token_configuration, mint_operation.amount) {
@@ -500,7 +476,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     };
 
     // operation execution
-    if !token.token_p9().is_mintable(context) {
+    if !token.token_base().is_mintable(context) {
         return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         }));
@@ -509,7 +485,7 @@ fn execute_token_mint<C: EntityContextTypes>(
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
-    match check_not_paused(context, token.token_p9()) {
+    match check_not_paused(context, token.token_base()) {
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
@@ -517,7 +493,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     match balance_operations::mint(
         context,
         events,
-        token.token_p9_mut(),
+        token.token_base_mut(),
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
@@ -534,7 +510,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     token: &mut impl TokenT,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
     // preprocessing
     let raw_amount = match util::to_raw_token_amount(&token_configuration, burn_operation.amount) {
@@ -543,7 +519,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     };
 
     // operation execution
-    if !token.token_p9().is_burnable(context) {
+    if !token.token_base().is_burnable(context) {
         return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         }));
@@ -552,7 +528,7 @@ fn execute_token_burn<C: EntityContextTypes>(
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
-    match check_not_paused(context, token.token_p9()) {
+    match check_not_paused(context, token.token_base()) {
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
@@ -560,7 +536,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     match balance_operations::burn(
         context,
         events,
-        token.token_p9_mut(),
+        token.token_base_mut(),
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
@@ -576,14 +552,14 @@ fn execute_token_pause<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
     match check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)? {
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
 
-    token.token_p9_mut().set_paused(context, true)?;
+    token.token_base_mut().set_paused(context, true)?;
 
     let (event_type, details) = TokenModuleEvent::Pause(TokenPauseEventDetails {}).encode_event();
     events.extend(Some(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
@@ -601,14 +577,14 @@ fn execute_token_unpause<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
     match check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)? {
         Ok(()) => (),
         Err(err) => return Ok(Err(err)),
     };
 
-    token.token_p9_mut().set_paused(context, false)?;
+    token.token_base_mut().set_paused(context, false)?;
 
     let (event_type, details) = TokenModuleEvent::Unpause(TokenPauseEventDetails {}).encode_event();
     events.extend(Some(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
@@ -623,14 +599,13 @@ fn execute_token_unpause<C: EntityContextTypes>(
 fn execute_add_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
-    if !token.token_p9_mut().has_allow_list(context) {
+    if !token.token_base_mut().has_allow_list(context) {
         return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         }));
@@ -645,13 +620,13 @@ fn execute_add_allow_list<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let account = match accounts.account_by_address(context, &list_operation.target.address) {
+    let account = match context.account_by_address(&list_operation.target.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };
-    account.touch_token_account(context, token.token_p9().token_index());
+    account.touch_token_account(context, token.token_base().token_index());
     token
-        .token_p9_mut()
+        .token_base_mut()
         .set_allow_list_for(context, account.account_index(), true)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -670,14 +645,13 @@ fn execute_add_allow_list<C: EntityContextTypes>(
 fn execute_add_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
-    if !token.token_p9().has_deny_list(context) {
+    if !token.token_base().has_deny_list(context) {
         return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         }));
@@ -692,13 +666,13 @@ fn execute_add_deny_list<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let account = match accounts.account_by_address(context, &list_operation.target.address) {
+    let account = match context.account_by_address(&list_operation.target.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };
-    account.touch_token_account(context, token.token_p9().token_index());
+    account.touch_token_account(context, token.token_base().token_index());
     token
-        .token_p9_mut()
+        .token_base_mut()
         .set_deny_list_for(context, account.account_index(), true)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -717,14 +691,13 @@ fn execute_add_deny_list<C: EntityContextTypes>(
 fn execute_remove_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
-    if !token.token_p9().has_allow_list(context) {
+    if !token.token_base().has_allow_list(context) {
         return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         }));
@@ -739,13 +712,13 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let account = match accounts.account_by_address(context, &list_operation.target.address) {
+    let account = match context.account_by_address(&list_operation.target.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };
-    account.touch_token_account(context, token.token_p9().token_index());
+    account.touch_token_account(context, token.token_base().token_index());
     token
-        .token_p9_mut()
+        .token_base_mut()
         .set_allow_list_for(context, account.account_index(), false)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -764,14 +737,13 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
 fn execute_remove_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
 ) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
-    if !token.token_p9().has_deny_list(context) {
+    if !token.token_base().has_deny_list(context) {
         return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         }));
@@ -786,13 +758,13 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let account = match accounts.account_by_address(context, &list_operation.target.address) {
+    let account = match context.account_by_address(&list_operation.target.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };
-    account.touch_token_account(context, token.token_p9().token_index());
+    account.touch_token_account(context, token.token_base().token_index());
     token
-        .token_p9_mut()
+        .token_base_mut()
         .set_deny_list_for(context, account.account_index(), false)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -835,7 +807,6 @@ fn check_roles_supported<C: EntityContextTypes>(
 fn execute_assign_admin_roles<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP11,
     operation: &TokenUpdateAdminRolesDetails,
@@ -856,7 +827,7 @@ fn execute_assign_admin_roles<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let account = match accounts.account_by_address(context, &operation.account.address) {
+    let account = match context.account_by_address(&operation.account.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };
@@ -879,7 +850,6 @@ fn execute_assign_admin_roles<C: EntityContextTypes>(
 fn execute_revoke_admin_roles<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP11,
     operation: &TokenUpdateAdminRolesDetails,
@@ -900,7 +870,7 @@ fn execute_revoke_admin_roles<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let account = match accounts.account_by_address(context, &operation.account.address) {
+    let account = match context.account_by_address(&operation.account.address) {
         Ok(account) => account,
         Err(err) => return Ok(Err(err.into())),
     };

@@ -5,7 +5,7 @@ use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    RawCbor, TokenId, TokenOperation, TokenOperations, TokenOperationsPayload,
+    RawCbor, TokenId, TokenOperations, TokenOperationsPayload,
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
@@ -45,15 +45,15 @@ pub fn query_token_info<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let token_configuration = token.token_configuration(context)?;
-    let circulating_supply = token.token_circulating_supply();
+    let token_configuration = token.token_base.token_configuration(context)?;
+    let circulating_supply = token.token_base.token_circulating_supply();
 
     let total_supply = TokenAmount {
         amount: circulating_supply,
         decimals: token_configuration.decimals,
     };
 
-    let module_state = token_module::query_token_module_state(context, block_state, &token)?;
+    let module_state = token_module::query_token_module_state(context, &token.token_base)?;
 
     let token_state = TokenState {
         token_module_ref: token_configuration.module_ref,
@@ -81,11 +81,11 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
         .token_account_states(context)
         .map(|(token_index, state)| {
             let token = block_state.token_by_index(context, token_index)?;
-            let token_configuration = token.token_configuration(context)?;
+            let token_configuration = token.token_base.token_configuration(context)?;
 
             let module_state = token_module::query_token_module_account_state(
                 &context,
-                &token,
+                &token.token_base,
                 account.account_index(),
             )?;
 
@@ -118,7 +118,7 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let token_configuration = token.token_configuration(context)?;
+    let token_configuration = token.token_base.token_configuration(context)?;
 
     let details = concordium_base::protocol_level_tokens::TokenAuthorizations::default();
 
@@ -143,7 +143,7 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
 /// - [`ChainUpdateExecutionError`] If executing the update instruction failed.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
-    context: &EntityContext<C>,
+    context: &mut EntityContext<C>,
     block_state: &mut BlockStateP9,
     payload: CreatePlt,
 ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
@@ -151,7 +151,10 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(context, &payload.token_id)? {
         return Ok(ChainUpdateOutcome::Failed(FailureKind::DuplicateTokenId(
-            block_state.token_configuration(&existing_token).token_id,
+            existing_token
+                .token_base
+                .token_configuration(context)?
+                .token_id,
         )));
     }
 
@@ -180,7 +183,6 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
     // Initialize token in token module
     let token_initialize_result = token_module::initialize_token(
         context,
-        block_state,
         &mut events,
         &mut token,
         payload.initialization_parameters,
@@ -223,7 +225,7 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_token_update_transaction<C: EntityContextTypes>(
-    context: &EntityContext<C>,
+    context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP9,
     payload: TokenOperationsPayload,
@@ -247,7 +249,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
             ));
         }
     };
-    let token_configuration = block_state.token_configuration(&token);
+    let token_configuration = token.token_base.token_configuration(context)?;
 
     let mut events = Vec::new();
 
@@ -262,18 +264,17 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
     };
 
     // Execute operations
-    for (index, operation) in operations.into_iter().enumerate() {
+    for (index, operation) in operations.operations.into_iter().enumerate() {
         match token_module::execute_token_update_operation_at_index(
             transaction_execution,
             context,
-            block_state,
             &mut events,
             &mut token,
             index,
             &operation,
         )? {
             Ok(()) => (),
-            Err(TokenUpdateError::OutOfEnergy(err)) => {
+            Err(TokenUpdateError::OutOfEnergy(_)) => {
                 return Ok(TransactionOutcome::Rejected(
                     TransactionRejectReason::OutOfEnergy,
                 ));
@@ -285,7 +286,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
                         EncodedTokenModuleRejectReason {
                             // Use the canonical token id from the token configuration
                             token_id: token_configuration.token_id.clone(),
-                            reason_type,
+                            reason_type: reason_type.to_type_discriminator(),
                             details: Some(cbor),
                         },
                     ),

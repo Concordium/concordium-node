@@ -1,7 +1,7 @@
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::external::{
-    ExternalBlockStateOperations, ExternalBlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenAccountState,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateOperations,
+    ExternalBlockStateQuery, OverflowError, RawTokenAmountDelta, TokenAccountState,
 };
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
@@ -105,5 +105,47 @@ impl Account {
         context
             .external
             .touch_token_account(self.account_index, token_index)
+    }
+}
+
+/// Trait that defines block state operations related to accounts.
+pub trait Accounts {
+    /// Lookup the account using an account address.
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Account, AccountNotFoundByAddressError>;
+
+    /// Lookup the account using an account index. Returns both the opaque account
+    /// representation and the account canonical address.
+    fn account_by_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
+}
+
+impl<C: EntityContextTypes> Accounts for EntityContext<C> {
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Account, AccountNotFoundByAddressError> {
+        let account_index = self.external.account_index_by_account_address(address)?;
+        Ok(Account::from_existing_account(account_index))
+    }
+
+    fn account_by_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
+        let canonical_account_address = self
+            .external
+            .account_canonical_address_by_account_index(account_index)?;
+
+        let account = Account::from_existing_account(account_index);
+
+        Ok(AccountWithCanonicalAddress {
+            account,
+            canonical_account_address,
+        })
     }
 }

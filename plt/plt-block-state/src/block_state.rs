@@ -210,7 +210,9 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        token.token_base.set_token_circulating_supply(circulating_supply);
+        token
+            .token_base
+            .set_token_circulating_supply(circulating_supply);
         self.block_state.update_token(&self.context, token).unwrap();
     }
 
@@ -230,7 +232,11 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        account.update_token_account_balance(&mut self.context, token.token_base.token_index, amount_delta)
+        account.update_token_account_balance(
+            &mut self.context,
+            token.token_base.token_index,
+            amount_delta,
+        )
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {

@@ -781,7 +781,10 @@ fn test_plt_mint_unauthorized() {
         .unwrap();
 
     // Assert circulating supply and account balance unchanged
-    assert_eq!(token.token_base.token_circulating_supply(), RawTokenAmount(0));
+    assert_eq!(
+        token.token_base.token_circulating_supply(),
+        RawTokenAmount(0)
+    );
     assert_eq!(
         non_governance_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)

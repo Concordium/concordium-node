@@ -4,7 +4,7 @@ use crate::protocol_level_tokens::token_module::errors::{
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;
 use plt_block_state::entity::accounts::Account;
-use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
+use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::{OverflowError, RawTokenAmountDelta};
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
@@ -25,7 +25,7 @@ use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolde
 pub fn mint<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenP9,
+    token: &mut TokenP9Base,
     account: &Account,
     account_address: AccountAddress,
     amount: RawTokenAmount,
@@ -91,7 +91,7 @@ pub fn mint<C: EntityContextTypes>(
 pub fn burn<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenP9,
+    token: &mut TokenP9Base,
     account: &Account,
     account_address: AccountAddress,
     amount: RawTokenAmount,
@@ -154,7 +154,7 @@ pub fn burn<C: EntityContextTypes>(
 pub fn transfer<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenP9,
+    token: &mut TokenP9Base,
     from: &Account,
     from_address: AccountAddress,
     to: &Account,

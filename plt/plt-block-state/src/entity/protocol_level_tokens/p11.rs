@@ -1,4 +1,4 @@
-use crate::entity::protocol_level_tokens::p9::TokenBase;
+use crate::entity::protocol_level_tokens::p9::TokenP9Base;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
 use crate::entity::{EntityContext, EntityContextTypes};
@@ -13,7 +13,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 #[derive(Debug)]
 pub struct TokenP11 {
     /// P9 token representation
-    pub token_base: TokenBase,
+    pub token_base: TokenP9Base,
 }
 
 impl TokenP11 {

@@ -1,13 +1,11 @@
-use crate::block_state_traits::accounts::AccountsT;
-use crate::block_state_traits::token::TokenT;
+use crate::block_state_polymorph::token::TokenT;
 use crate::protocol_level_tokens::token_module::errors::{
     MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
 use crate::protocol_level_tokens::token_module::{balance_operations, util};
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
-use plt_block_state::entity::protocol_level_tokens::p9::TokenP9;
-use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
+use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::BlockStateResult;
@@ -39,12 +37,11 @@ const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
-    accounts: &impl AccountsT,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     init_params: &TokenModuleInitializationParameters,
 ) -> BlockStateResult<Result<(), TokenInitializationError>> {
-    let token_configuration = token.token_p9().token_configuration(context)?;
+    let token_configuration = token.token_base().token_configuration(context)?;
 
     let Some(name) = init_params.name.as_ref() else {
         return Ok(Err(
@@ -67,38 +64,39 @@ pub fn initialize_token<C: EntityContextTypes>(
             ),
         ));
     };
-    token.token_p9_mut().set_token_name(context, name)?;
-    token.token_p9_mut().set_metadata_url(context, &metadata)?;
+    token.token_base_mut().set_token_name(context, name)?;
+    token
+        .token_base_mut()
+        .set_metadata_url(context, &metadata)?;
 
     // The governance account should hold every role, except for disabled features, so we build a
     // list of every enabled role and the mandatory roles.
     let mut enabled_roles = Vec::from(UNIVERSAL_ROLES);
 
     if init_params.allow_list == Some(true) {
-        token.token_p9_mut().set_allow_list_enabled(context)?;
+        token.token_base_mut().set_allow_list_enabled(context)?;
         enabled_roles.push(TokenAdminRole::UpdateAllowList);
     }
     if init_params.deny_list == Some(true) {
-        token.token_p9_mut().set_deny_list_enabled(context)?;
+        token.token_base_mut().set_deny_list_enabled(context)?;
         enabled_roles.push(TokenAdminRole::UpdateDenyList);
     }
     if init_params.mintable == Some(true) {
-        token.token_p9_mut().set_mintable_enabled(context)?;
+        token.token_base_mut().set_mintable_enabled(context)?;
         enabled_roles.push(TokenAdminRole::Mint);
     }
     if init_params.burnable == Some(true) {
-        token.token_p9_mut().set_burnable_enabled(context)?;
+        token.token_base_mut().set_burnable_enabled(context)?;
         enabled_roles.push(TokenAdminRole::Burn);
     }
 
-    let governance_account =
-        match accounts.account_by_address(context, &cbor_governance_account.address) {
-            Ok(account) => account,
-            Err(err) => return Ok(Err(err.into())),
-        };
+    let governance_account = match context.account_by_address(&cbor_governance_account.address) {
+        Ok(account) => account,
+        Err(err) => return Ok(Err(err.into())),
+    };
     let governance_account_index = governance_account.account_index();
     token
-        .token_p9_mut()
+        .token_base_mut()
         .set_governance_account(context, governance_account_index)?;
 
     if let Some(initial_supply) = init_params.initial_supply {
@@ -110,7 +108,7 @@ pub fn initialize_token<C: EntityContextTypes>(
         match balance_operations::mint(
             context,
             events,
-            token.token_p9_mut(),
+            token.token_base_mut(),
             &governance_account,
             cbor_governance_account.address,
             mint_amount,

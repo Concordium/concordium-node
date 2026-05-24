@@ -42,7 +42,7 @@ use plt_scheduler_types::types::reject_reasons::{
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
-    transaction_execution: &mut TransactionExecution<>,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BSO,
     payload: MetaUpdatePayload,
 ) -> Result<TransactionOutcome, TransactionExecutionError> {

@@ -93,7 +93,10 @@ fn test_plt_create() {
     );
 
     // Assert circulating supply and governance account balance
-    assert_eq!(token.token_base.token_circulating_supply(), RawTokenAmount(0));
+    assert_eq!(
+        token.token_base.token_circulating_supply(),
+        RawTokenAmount(0)
+    );
     assert_eq!(
         gov_account.account_token_balance(&context, token.token_base.token_index()),
         RawTokenAmount(0)
