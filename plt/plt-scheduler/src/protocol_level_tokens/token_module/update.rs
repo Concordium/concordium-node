@@ -1,4 +1,4 @@
-use crate::block_state_polymorph::token::TokenT;
+use crate::block_state_polymorph::token::{TokenPX};
 use crate::protocol_level_tokens::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
@@ -100,7 +100,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut  TokenPX,
     index: usize,
     operation: &TokenOperation,
 ) -> BlockStateResult<Result<(), TokenUpdateError>> {
@@ -240,7 +240,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -358,7 +358,7 @@ fn check_not_paused<C: EntityContextTypes>(
 fn check_authorized<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    token: &impl TokenT,
+    token: & TokenPX,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
     if let Some(token) = token.token_p11() {
@@ -374,7 +374,6 @@ fn check_authorized<C: EntityContextTypes>(
             });
         }
     } else {
-
         // Ensure the sender is the governance account.
         if token.token_base().get_governance_account_index(context)?
             != transaction_execution.sender_account().account_index()
@@ -456,7 +455,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -488,7 +487,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -520,7 +519,7 @@ fn execute_token_pause<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
@@ -542,7 +541,7 @@ fn execute_token_unpause<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
@@ -564,12 +563,12 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
-    if !token.token_base_mut().has_allow_list(context) {
+    if !token.token_base().has_allow_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -604,7 +603,7 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut  TokenPX,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -644,7 +643,7 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -684,7 +683,7 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut impl TokenT,
+    token: &mut TokenPX,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
