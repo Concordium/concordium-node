@@ -4,9 +4,8 @@
 use plt_block_state::block_state_interface::BlockStateOperations;
 use plt_block_state::failure::BlockStateFailure;
 
-pub mod helpers;
-mod p11;
-mod p9;
+pub mod p11;
+pub mod p9;
 mod plt_scheduler;
 
 /// Unrecoverable error executing transaction. This represents the
