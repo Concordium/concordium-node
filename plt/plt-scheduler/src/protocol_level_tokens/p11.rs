@@ -1,9 +1,8 @@
-use crate::TOKEN_MODULE_REF;
 use crate::block_state_polymorph::token::TokenPXRefMut;
-use crate::protocol_level_tokens::token_module;
-use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
+use crate::token_module::TokenUpdateError;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
+use crate::{TOKEN_MODULE_REF, token_module};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     DeserializationFailureRejectReason, RawCbor, TokenId, TokenModuleInitializationParameters,

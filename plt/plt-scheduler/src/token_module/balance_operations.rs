@@ -1,6 +1,4 @@
-use crate::protocol_level_tokens::token_module::errors::{
-    InsufficientBalanceError, MintWouldOverflowError,
-};
+use crate::token_module::errors::{InsufficientBalanceError, MintWouldOverflowError};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;
 use plt_block_state::entity::accounts::Account;

@@ -5,18 +5,18 @@
 //! [`TransactionExecution`](crate::transaction_execution::TransactionExecution),
 //! and release control (return an error) if the energy limit is reached.
 
+// todo ar move into protocol_level_tokens
+
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
 mod balance_operations;
 pub mod errors;
-mod initialize;
-mod queries;
-mod update;
+mod module;
 mod util;
 
-pub use initialize::*;
-pub use queries::*;
-pub use update::*;
+pub use module::initialize::*;
+pub use module::queries::*;
+pub use module::update::*;
 
 /// Module ref for the currently implemented token module. It is the SHA-256 of "TokenModuleV0"
 pub const TOKEN_MODULE_REF: TokenModuleRef = TokenModuleRef::new([
