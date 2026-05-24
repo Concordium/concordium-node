@@ -1,3 +1,4 @@
+use crate::block_state_polymorph::token::TokenPXRefMut;
 use crate::protocol_level_tokens::token_module::errors::{
     MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
@@ -9,7 +10,6 @@ use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::BlockStateResult;
 use plt_scheduler_types::types::events::BlockItemEvent;
-use crate::block_state_polymorph::token::TokenPX;
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]
@@ -38,7 +38,7 @@ const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
 pub fn initialize_token<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     init_params: &TokenModuleInitializationParameters,
 ) -> BlockStateResult<Result<(), TokenInitializationError>> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -120,7 +120,7 @@ pub fn initialize_token<C: EntityContextTypes>(
         };
     }
 
-    if let Some(token) = token.token_p11_mut() {
+    if let TokenPXRefMut::TokenP11(token) = token {
         token.assign_account_roles(context, governance_account_index, &enabled_roles)?;
     }
 

@@ -1,4 +1,5 @@
 use crate::TOKEN_MODULE_REF;
+use crate::block_state_polymorph::token::TokenPXRefMut;
 use crate::protocol_level_tokens::token_module;
 use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
@@ -184,7 +185,7 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
     let token_initialize_result = token_module::initialize_token(
         context,
         &mut events,
-        &mut token,
+        TokenPXRefMut::TokenP11(&mut token),
         payload.initialization_parameters,
     )?;
 
@@ -268,7 +269,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
             transaction_execution,
             context,
             &mut events,
-            &mut token,
+            TokenPXRefMut::TokenP11(&mut token),
             index,
             &operation,
         )? {

@@ -1,4 +1,4 @@
-use crate::block_state_polymorph::token::{TokenPX};
+use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
 use crate::protocol_level_tokens::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
@@ -100,7 +100,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut  TokenPX,
+    mut token: TokenPXRefMut<'_>,
     index: usize,
     operation: &TokenOperation,
 ) -> BlockStateResult<Result<(), TokenUpdateError>> {
@@ -108,7 +108,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
         transaction_execution,
         context,
         events,
-        token,
+        token.as_mut(),
         operation,
     ) {
         Ok(()) => return Ok(Ok(())),
@@ -240,7 +240,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -302,21 +302,21 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
             list_operation,
         ),
         TokenOperation::AssignAdminRoles(operation) => {
-            if let Some(token) = token.token_p11_mut() {
+            if let TokenPXRefMut::TokenP11(token) = token {
                 execute_assign_admin_roles(transaction_execution, context, events, token, operation)
             } else {
                 Err(WRONG_PROTOCOL_ERROR)
             }
         }
         TokenOperation::RevokeAdminRoles(operation) => {
-            if let Some(token) = token.token_p11_mut() {
+            if let TokenPXRefMut::TokenP11(token) = token {
                 execute_revoke_admin_roles(transaction_execution, context, events, token, operation)
             } else {
                 Err(WRONG_PROTOCOL_ERROR)
             }
         }
         TokenOperation::UpdateMetadata(operation) => {
-            if let Some(token) = token.token_p11_mut() {
+            if let TokenPXRefMut::TokenP11(token) = token {
                 execute_update_metadata(transaction_execution, context, events, token, operation)
             } else {
                 Err(WRONG_PROTOCOL_ERROR)
@@ -358,10 +358,10 @@ fn check_not_paused<C: EntityContextTypes>(
 fn check_authorized<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
-    token: & TokenPX,
+    token: TokenPXRef<'_>,
     required_role: TokenAdminRole,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if let Some(token) = token.token_p11() {
+    if let TokenPXRef::TokenP11(token) = token {
         // Ensure the sender holds the specified role.
         let account_roles = token.get_account_roles(
             context,
@@ -455,7 +455,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -469,7 +469,12 @@ fn execute_token_mint<C: EntityContextTypes>(
             reason: "feature not enabled",
         });
     };
-    check_authorized(transaction_execution, context, token, TokenAdminRole::Mint)?;
+    check_authorized(
+        transaction_execution,
+        context,
+        token.as_ref(),
+        TokenAdminRole::Mint,
+    )?;
     check_not_paused(context, token.token_base())?;
 
     balance_operations::mint(
@@ -487,7 +492,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -501,7 +506,12 @@ fn execute_token_burn<C: EntityContextTypes>(
             reason: "feature not enabled",
         });
     }
-    check_authorized(transaction_execution, context, token, TokenAdminRole::Burn)?;
+    check_authorized(
+        transaction_execution,
+        context,
+        token.as_ref(),
+        TokenAdminRole::Burn,
+    )?;
     check_not_paused(context, token.token_base())?;
 
     balance_operations::burn(
@@ -519,11 +529,16 @@ fn execute_token_pause<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
-    check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)?;
+    check_authorized(
+        transaction_execution,
+        context,
+        token.as_ref(),
+        TokenAdminRole::Pause,
+    )?;
 
     token.token_base_mut().set_paused(context, true)?;
 
@@ -541,11 +556,16 @@ fn execute_token_unpause<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
-    check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)?;
+    check_authorized(
+        transaction_execution,
+        context,
+        token.as_ref(),
+        TokenAdminRole::Pause,
+    )?;
 
     token.token_base_mut().set_paused(context, false)?;
 
@@ -563,7 +583,7 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -576,7 +596,7 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        token.as_ref(),
         TokenAdminRole::UpdateAllowList,
     )?;
 
@@ -603,7 +623,7 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut  TokenPX,
+    mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -616,7 +636,7 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        token.as_ref(),
         TokenAdminRole::UpdateDenyList,
     )?;
 
@@ -643,7 +663,7 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -656,7 +676,7 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        token.as_ref(),
         TokenAdminRole::UpdateAllowList,
     )?;
 
@@ -683,7 +703,7 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenPX,
+    mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -696,7 +716,7 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        token.as_ref(),
         TokenAdminRole::UpdateDenyList,
     )?;
 
@@ -755,7 +775,7 @@ fn execute_assign_admin_roles<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        TokenPXRef::TokenP11(token),
         TokenAdminRole::UpdateAdminRoles,
     )?;
     check_roles_supported(context, token, &operation.roles)?;
@@ -789,7 +809,7 @@ fn execute_revoke_admin_roles<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        TokenPXRef::TokenP11(token),
         TokenAdminRole::UpdateAdminRoles,
     )?;
     check_roles_supported(context, token, &operation.roles)?;
@@ -836,7 +856,7 @@ fn execute_update_metadata<C: EntityContextTypes>(
     check_authorized(
         transaction_execution,
         context,
-        token,
+        TokenPXRef::TokenP11(token),
         TokenAdminRole::UpdateMetadata,
     )?;
     token.token_base.set_metadata_url(context, metadata_url)?;
