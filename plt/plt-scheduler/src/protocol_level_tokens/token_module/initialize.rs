@@ -67,7 +67,7 @@ pub fn initialize_token<C: EntityContextTypes>(
     token.token_base_mut().set_token_name(context, name)?;
     token
         .token_base_mut()
-        .set_metadata_url(context, &metadata)?;
+        .set_metadata_url(context, metadata)?;
 
     // The governance account should hold every role, except for disabled features, so we build a
     // list of every enabled role and the mandatory roles.

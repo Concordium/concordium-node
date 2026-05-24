@@ -1,4 +1,3 @@
-use super::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
@@ -11,8 +10,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::EntityContext;
-use plt_block_state::entity::accounts::Account;
-use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
@@ -24,6 +22,7 @@ use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::utils::SchedulerOperations;
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct TokenInitTestParams {
@@ -105,7 +104,7 @@ pub fn create_and_init_token_p9(
         .token_by_id(context, &token_id)
         .unwrap()
         .unwrap()
-        .token_index();
+        .token_base.token_index();
 
     (gov_account, token_index)
 }
@@ -191,12 +190,11 @@ pub fn increment_account_balance_p11(
 
     let token_info = block_state
         .query_token_info(context, &token_configuration.token_id)
-        .unwrap();
+        .unwrap().unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
-    let gov_account = block_state
+    let gov_account = context
         .account_by_address(
-            context,
             &token_module_state
                 .governance_account
                 .as_ref()
@@ -208,7 +206,7 @@ pub fn increment_account_balance_p11(
     let outcome = block_state
         .execute_transaction(
             context,
-            gov_account.account_index(),
+            &gov_account,
             token_module_state.governance_account.unwrap().address,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -223,14 +221,14 @@ pub fn pause_token(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
     block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
-    gov_account: AccountIndex,
+    gov_account: &Account,
 ) {
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let gov_addr = context.external.account_canonical_address(gov_account);
+    let gov_addr = context.external.account_canonical_address(gov_account.account_index());
     let result = block_state
         .execute_transaction(
             context,
@@ -249,14 +247,14 @@ pub fn unpause_token(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
     block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
-    gov_account: AccountIndex,
+    gov_account: &Account,
 ) {
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let gov_addr = context.external.account_canonical_address(gov_account);
+    let gov_addr = context.external.account_canonical_address(gov_account.account_index());
     let result = block_state
         .execute_transaction(
             context,
@@ -276,14 +274,14 @@ pub fn execute_token_operations(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
     block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
-    sender: AccountIndex,
+    sender: &Account,
     operations: Vec<TokenOperation>,
 ) -> Vec<BlockItemEvent> {
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let sender_addr = context.external.account_canonical_address(sender);
+    let sender_addr = context.external.account_canonical_address(sender.account_index());
     let result = block_state
         .execute_transaction(
             context,

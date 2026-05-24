@@ -151,6 +151,7 @@ pub fn burn<C: EntityContextTypes>(
 /// # Errors
 ///
 /// - [`InsufficientBalanceError`] The sender has insufficient balance.
+#[allow(clippy::too_many_arguments)]
 pub fn transfer<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,

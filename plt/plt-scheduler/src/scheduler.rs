@@ -5,7 +5,8 @@ use plt_block_state::failure::BlockStateFailure;
 
 pub mod p11;
 pub mod p9;
-mod plt_scheduler;
+// todo ar
+// mod plt_scheduler;
 
 /// Unrecoverable error executing transaction. This represents the
 /// return value of [`execute_transaction`] for transactions that cannot

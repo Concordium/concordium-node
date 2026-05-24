@@ -1,10 +1,9 @@
 //! Tests for token module account state queries via the scheduler.
 
 use crate::utils::TokenInitTestParams;
-use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::entity::entity_test_stub;
-
+use crate::utils::SchedulerOperations;
 use crate::utils::BlockStateLatest;
 
 mod utils;
@@ -26,7 +25,7 @@ fn test_query_token_module_account_state_default() {
     let account = context.external.create_account();
 
     let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+        block_state.query_token_account_infos(&context, account);
     // Account has no balance and no list entries, so it does not appear in the infos
     assert!(token_account_infos.is_empty());
 }

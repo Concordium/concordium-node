@@ -1,6 +1,5 @@
 //! Tests for token transfer operations via the scheduler.
 
-use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -16,6 +15,7 @@ use concordium_base::transactions::{Memo, Payload};
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::utils::SchedulerOperations;
 
 mod utils;
 
@@ -61,7 +61,7 @@ fn test_transfer() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -124,7 +124,7 @@ fn test_transfer_with_memo() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -182,7 +182,7 @@ fn test_transfer_self() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -240,7 +240,7 @@ fn test_transfer_insufficient_balance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -300,7 +300,7 @@ fn test_transfer_decimals_mismatch() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+&            sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -355,7 +355,7 @@ fn test_transfer_to_non_existing_receiver() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -405,7 +405,7 @@ fn test_transfer_allow_list_success() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+&        gov_account,
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_account_addr),
         })],
@@ -417,7 +417,7 @@ fn test_transfer_allow_list_success() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(receiver_addr),
         })],
@@ -426,7 +426,7 @@ fn test_transfer_allow_list_success() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -494,7 +494,7 @@ fn test_transfer_deny_list_success() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(denied_addr),
         })],
@@ -509,7 +509,7 @@ fn test_transfer_deny_list_success() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -562,7 +562,7 @@ fn test_transfer_sender_not_in_allow_list() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(receiver_addr),
         })],
@@ -574,7 +574,7 @@ fn test_transfer_sender_not_in_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -630,7 +630,7 @@ fn test_transfer_recipient_not_in_allow_list() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_account_addr),
         })],
@@ -642,7 +642,7 @@ fn test_transfer_recipient_not_in_allow_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -719,7 +719,7 @@ fn test_transfer_sender_in_deny_list() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(sender_addr),
         })],
@@ -731,7 +731,7 @@ fn test_transfer_sender_in_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -808,7 +808,7 @@ fn test_transfer_recipient_in_deny_list() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
         vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: CborHolderAccount::from(receiver_addr),
         })],
@@ -820,7 +820,7 @@ fn test_transfer_recipient_in_deny_list() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -893,7 +893,7 @@ fn test_transfer_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -908,7 +908,7 @@ fn test_transfer_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate {

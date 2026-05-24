@@ -1,7 +1,6 @@
 //! Tests for token burn operations via the scheduler.
 
 use crate::utils::TokenInitTestParams;
-use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -50,7 +49,7 @@ fn test_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            gov_account.clone(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -78,7 +77,7 @@ fn test_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            gov_account.clone(),
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -123,7 +122,7 @@ fn test_unauthorized_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            non_governance_account.account_index(),
+            non_governance_account.clone(),
             non_gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -179,7 +178,7 @@ fn test_burn_insufficient_balance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            gov_account.clone(),
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -228,7 +227,7 @@ fn test_burn_decimals_mismatch() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -265,7 +264,7 @@ fn test_burn_paused() {
         &mut context,
         &mut block_state,
         &token_id,
-        gov_account.account_index(),
+        &gov_account,
     );
 
     // Now attempt to burn while paused

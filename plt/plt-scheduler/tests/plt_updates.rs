@@ -3,7 +3,6 @@
 //! higher level tests are implemented, and they may not in themselves be functionally complete.
 
 use crate::utils::TokenInitTestParams;
-use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -64,7 +63,7 @@ fn test_plt_transfer() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -124,7 +123,7 @@ fn test_plt_transfer() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            account2.account_index(),
+            &account2,
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -208,7 +207,7 @@ fn test_plt_transfer_using_aliases() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_address_alias,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -274,7 +273,7 @@ fn test_plt_transfer_reject() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -346,7 +345,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -376,7 +375,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -427,7 +426,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -457,7 +456,7 @@ fn test_plt_transfer_allow_list_flow() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -523,7 +522,7 @@ fn test_plt_allow_list_disabled() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -575,7 +574,7 @@ fn test_plt_mint() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -643,7 +642,7 @@ fn test_plt_mint_using_alias() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_address_alias,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -708,7 +707,7 @@ fn test_plt_mint_reject() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -766,7 +765,7 @@ fn test_plt_mint_unauthorized() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            non_governance_account.account_index(),
+            &non_governance_account,
             non_gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -837,7 +836,7 @@ fn test_plt_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -905,7 +904,7 @@ fn test_plt_burn_using_alias() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_address_alias,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -970,7 +969,7 @@ fn test_plt_burn_reject() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1043,7 +1042,7 @@ fn test_plt_multiple_operations() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1117,7 +1116,7 @@ fn test_plt_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1135,7 +1134,7 @@ fn test_plt_pause() {
     });
 
     // Assert paused is set in state
-    let token_info = block_state.query_token_info(&context, &token_id).unwrap();
+    let token_info = block_state.query_token_info(&context, &token_id).unwrap().unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(token_module_state.paused, Some(true));
@@ -1158,7 +1157,7 @@ fn test_plt_pause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1204,7 +1203,7 @@ fn test_plt_unpause() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1250,7 +1249,7 @@ fn test_non_existing_token_id() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            account1.account_index(),
+            &account1,
             account1_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1309,7 +1308,7 @@ fn test_energy_charge() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1367,7 +1366,7 @@ fn test_energy_charge_at_reject() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -1425,7 +1424,7 @@ fn test_out_of_energy_error() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },

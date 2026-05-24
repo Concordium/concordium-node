@@ -56,7 +56,9 @@ pub fn execute_transaction<C: EntityContextTypes>(
             )?
         }
         Payload::MetaUpdate { payload } => {
-            plt_scheduler::execute_meta_update_transaction(&mut execution, block_state, payload)?
+            // todo ar
+            todo!()
+            // plt_scheduler::execute_meta_update_transaction(&mut execution, block_state, payload)?
         }
         _ => return Err(TransactionExecutionError::UnexpectedPayload),
     };

@@ -23,7 +23,7 @@ pub struct AccountWithCanonicalAddress {
 /// Representation of block state account.
 ///
 /// The account is guaranteed to exist on chain, when holding an instance of this type.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Account {
     /// Account index for and account that we know exists in the block state.
     pub(crate) account_index: AccountIndex,

@@ -23,7 +23,7 @@ pub trait SchedulerOperations {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
-        sender_account: Account,
+        sender_account: &Account,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
         payload: Payload,
@@ -50,7 +50,7 @@ pub trait SchedulerOperations {
     fn query_token_account_infos<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        account: Account,
+        account: &Account,
     ) -> BlockStateResult<Vec<TokenAccountInfo>>;
 
     fn query_token_authorizations<C: EntityContextTypes>(
@@ -79,16 +79,16 @@ impl SchedulerOperations for BlockStateP9 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
-        sender_account: Account,
+        sender_account: &Account,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
         payload: Payload,
         energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
         scheduler::p9::execute_transaction(
-            self,
             context,
-            sender_account,
+            self,
+            sender_account.clone(),
             sender_account_address,
             transaction_sequence_number,
             payload,
@@ -101,7 +101,7 @@ impl SchedulerOperations for BlockStateP9 {
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
     ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
-        scheduler::p9::execute_chain_update(self, context, payload)
+        scheduler::p9::execute_chain_update(context, self,  payload)
     }
 
     fn query_plt_list<C: EntityContextTypes>(
@@ -122,9 +122,9 @@ impl SchedulerOperations for BlockStateP9 {
     fn query_token_account_infos<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        account: Account,
+        account: &Account,
     ) -> BlockStateResult<Vec<TokenAccountInfo>> {
-        protocol_level_tokens::p9::query_token_account_infos(context, self, account)
+        protocol_level_tokens::p9::query_token_account_infos(context, self, account.clone())
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(
@@ -135,7 +135,7 @@ impl SchedulerOperations for BlockStateP9 {
         protocol_level_tokens::p9::query_token_authorizations(context, self, token_id)
     }
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> BlockStateResult<Vec<LockId>>
     where
         EntityContext<C>: Clone,
     {
@@ -144,7 +144,7 @@ impl SchedulerOperations for BlockStateP9 {
             context: context.clone(),
         };
 
-        queries::query_lock_list(&exec_block_state)
+        Ok(queries::query_lock_list(&exec_block_state))
     }
 
     fn query_lock_info<C: EntityContextTypes>(
@@ -168,16 +168,16 @@ impl SchedulerOperations for BlockStateP11 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
-        sender_account: Account,
+        sender_account: &Account,
         sender_account_address: AccountAddress,
         transaction_sequence_number: Nonce,
         payload: Payload,
         energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
         scheduler::p11::execute_transaction(
-            self,
             context,
-            sender_account,
+            self,
+            sender_account.clone(),
             sender_account_address,
             transaction_sequence_number,
             payload,
@@ -190,7 +190,7 @@ impl SchedulerOperations for BlockStateP11 {
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
     ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
-        scheduler::p11::execute_chain_update(self, context, payload)
+        scheduler::p11::execute_chain_update(context, self , payload)
     }
 
     fn query_plt_list<C: EntityContextTypes>(
@@ -211,9 +211,9 @@ impl SchedulerOperations for BlockStateP11 {
     fn query_token_account_infos<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        account: Account,
+        account: &Account,
     ) -> BlockStateResult<Vec<TokenAccountInfo>> {
-        protocol_level_tokens::p11::query_token_account_infos(context, self, account)
+        protocol_level_tokens::p11::query_token_account_infos(context, self, account.clone())
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(
@@ -224,7 +224,7 @@ impl SchedulerOperations for BlockStateP11 {
         protocol_level_tokens::p11::query_token_authorizations(context, self, token_id)
     }
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> BlockStateResult<Vec<LockId>>
     where
         EntityContext<C>: Clone,
     {
@@ -233,7 +233,7 @@ impl SchedulerOperations for BlockStateP11 {
             context: context.clone(),
         };
 
-        queries::query_lock_list(&exec_block_state)
+        Ok(queries::query_lock_list(&exec_block_state))
     }
 
     fn query_lock_info<C: EntityContextTypes>(

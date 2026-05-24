@@ -1,7 +1,6 @@
 //! General tests for token update transactions via the scheduler.
 
 use crate::utils::TokenInitTestParams;
-use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -16,6 +15,7 @@ use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::utils::SchedulerOperations;
 
 use crate::utils::BlockStateLatest;
 
@@ -48,7 +48,7 @@ fn test_update_token_decode_failure() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -113,7 +113,7 @@ fn test_update_token_additional_fields() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -190,7 +190,7 @@ fn test_multiple_operations() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -260,7 +260,7 @@ fn test_single_failing_operation() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -320,7 +320,7 @@ fn test_energy_charge() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -377,7 +377,7 @@ fn test_out_of_energy_error() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            sender.account_index(),
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate { payload },

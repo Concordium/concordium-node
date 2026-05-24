@@ -7,6 +7,7 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use crate::utils::SchedulerOperations;
 
 mod utils;
 

@@ -5,9 +5,7 @@ use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{
-    RawCbor, TokenId, TokenOperations, TokenOperationsPayload,
-};
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleInitializationParameters, TokenOperations, TokenOperationsPayload};
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::entity::accounts::Account;
@@ -85,7 +83,7 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
             let token_configuration = token.token_base.token_configuration(context)?;
 
             let module_state = token_module::query_token_module_account_state(
-                &context,
+                context,
                 &token.token_base,
                 account.account_index(),
             )?;
@@ -181,12 +179,21 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
         payload: payload.clone(),
     }));
 
+    let initialization_parameters: TokenModuleInitializationParameters = match utils::cbor_decode(payload.initialization_parameters) {
+        Ok(parameters) => parameters,
+        Err(err) => {
+            return Ok(ChainUpdateOutcome::Failed(
+                FailureKind::TokenInitializeFailure(format!("Could not decode token initialization parameters: {}", err)),
+            ));
+        }
+    };
+
     // Initialize token in token module
     let token_initialize_result = token_module::initialize_token(
         context,
         &mut events,
         TokenPXRefMut::TokenP11(&mut token),
-        payload.initialization_parameters,
+        &initialization_parameters,
     )?;
 
     match token_initialize_result {

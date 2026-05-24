@@ -1,8 +1,7 @@
 //! Test of protocol-level token queries. Notice that detailed test of the token module queries are
 //! implemented in the `plt-token-module` crate.
 
-use crate::utils::TokenInitTestParams;
-use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use crate::utils::{SchedulerOperations, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -44,7 +43,7 @@ fn test_query_plt_list() {
         None,
     );
 
-    let plts = block_state.query_plt_list(&context);
+    let plts = block_state.query_plt_list(&context).unwrap();
     assert_eq!(plts, vec![token_id1, token_id2]);
 }
 
@@ -67,7 +66,7 @@ fn test_query_token_info() {
     // Lookup by token id that is not in canonical casing
     let token_info = block_state
         .query_token_info(&context, &non_canonical_token_id)
-        .unwrap();
+        .unwrap().unwrap();
     // Assert that the token id returned is in the canonical casing
     assert_eq!(token_info.token_id, token_id);
     assert_eq!(token_info.state.decimals, 4);
@@ -133,7 +132,7 @@ fn test_query_token_account_info() {
 
     // Lookup account token infos
     let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+        block_state.query_token_account_infos(&context, &account);
     assert_eq!(token_account_infos.len(), 2);
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(
@@ -181,7 +180,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -191,7 +190,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+        block_state.query_token_account_infos(&context, &account);
     assert_eq!(token_account_infos.len(), 1);
     assert_eq!(token_account_infos[0].token_id, token_id);
     assert_eq!(
