@@ -245,10 +245,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
     let energy_cost = energy_cost(token_operation);
-    match transaction_execution.tick_energy(energy_cost) {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err.into())),
-    };
+    transaction_execution.tick_energy(energy_cost)?;
 
     const WRONG_PROTOCOL_ERROR: TokenUpdateErrorInternal =
         TokenUpdateErrorInternal::UnsupportedOperation {
@@ -308,21 +305,21 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
             if let Some(token) = token.token_p11_mut() {
                 execute_assign_admin_roles(transaction_execution, context, events, token, operation)
             } else {
-                Ok(Err(WRONG_PROTOCOL_ERROR))
+                Err(WRONG_PROTOCOL_ERROR)
             }
         }
         TokenOperation::RevokeAdminRoles(operation) => {
             if let Some(token) = token.token_p11_mut() {
                 execute_revoke_admin_roles(transaction_execution, context, events, token, operation)
             } else {
-                Ok(Err(WRONG_PROTOCOL_ERROR))
+                Err(WRONG_PROTOCOL_ERROR)
             }
         }
         TokenOperation::UpdateMetadata(operation) => {
             if let Some(token) = token.token_p11_mut() {
                 execute_update_metadata(transaction_execution, context, events, token, operation)
             } else {
-                Ok(Err(WRONG_PROTOCOL_ERROR))
+                Err(WRONG_PROTOCOL_ERROR)
             }
         }
     }
@@ -363,7 +360,7 @@ fn check_authorized<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     token: &impl TokenT,
     required_role: TokenAdminRole,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     if let Some(token) = token.token_p11() {
         // Ensure the sender holds the specified role.
         let account_roles = token.get_account_roles(
@@ -371,26 +368,25 @@ fn check_authorized<C: EntityContextTypes>(
             transaction_execution.sender_account().account_index(),
         )?;
         if !account_roles.has(required_role) {
-            return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transaction_execution.sender_account_address()),
                 reason: "sender is not authorized to perform the operation for this token",
-            }));
+            });
         }
     } else {
-        let token = token.token_base();
 
         // Ensure the sender is the governance account.
-        if token.get_governance_account_index(context)?
+        if token.token_base().get_governance_account_index(context)?
             != transaction_execution.sender_account().account_index()
         {
-            return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transaction_execution.sender_account_address()),
                 reason: "sender is not the token governance account",
-            }));
+            });
         }
     }
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_token_transfer<C: EntityContextTypes>(
@@ -399,60 +395,50 @@ fn execute_token_transfer<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP9Base,
     transfer_operation: &TokenTransfer,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_configuration(context)?;
 
     // preprocessing
-    let raw_amount =
-        match util::to_raw_token_amount(&token_configuration, transfer_operation.amount) {
-            Ok(amount) => amount,
-            Err(err) => return Ok(Err(err.into())),
-        };
+    let raw_amount = util::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
 
     // operation execution
-    match check_not_paused(context, token) {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    check_not_paused(context, token)?;
 
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
-    let receiver = match context.account_by_address(&transfer_operation.recipient.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let receiver = context.account_by_address(&transfer_operation.recipient.address)?;
 
     if token.has_allow_list(context) {
         if !token.get_allow_list_for(context, sender.account_index()) {
-            return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender not in allow list",
-            }));
+            });
         }
         if !token.get_allow_list_for(context, receiver.account_index()) {
-            return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient not in allow list",
-            }));
+            });
         }
     }
 
     if token.has_deny_list(context) {
         if token.get_deny_list_for(context, sender.account_index()) {
-            return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender in deny list",
-            }));
+            });
         }
         if token.get_deny_list_for(context, receiver.account_index()) {
-            return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient in deny list",
-            }));
+            });
         }
     }
 
-    match balance_operations::transfer(
+    balance_operations::transfer(
         context,
         events,
         token,
@@ -462,10 +448,8 @@ fn execute_token_transfer<C: EntityContextTypes>(
         transfer_operation.recipient.address,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
-    )? {
-        Ok(()) => Ok(Ok(())),
-        Err(err) => Ok(Err(err.into())),
-    }
+    )??;
+    Ok(())
 }
 
 fn execute_token_mint<C: EntityContextTypes>(
@@ -474,41 +458,30 @@ fn execute_token_mint<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     mint_operation: &TokenSupplyUpdateDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = match util::to_raw_token_amount(&token_configuration, mint_operation.amount) {
-        Ok(amount) => amount,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let raw_amount = util::to_raw_token_amount(&token_configuration, mint_operation.amount)?;
 
     // operation execution
     if !token.token_base().is_mintable(context) {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
-        }));
+        });
     };
-    match check_authorized(transaction_execution, context, token, TokenAdminRole::Mint)? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
-    match check_not_paused(context, token.token_base()) {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    check_authorized(transaction_execution, context, token, TokenAdminRole::Mint)?;
+    check_not_paused(context, token.token_base())?;
 
-    match balance_operations::mint(
+    balance_operations::mint(
         context,
         events,
         token.token_base_mut(),
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
-    )? {
-        Ok(()) => Ok(Ok(())),
-        Err(err) => Ok(Err(err.into())),
-    }
+    )??;
+    Ok(())
 }
 
 fn execute_token_burn<C: EntityContextTypes>(
@@ -517,41 +490,30 @@ fn execute_token_burn<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     burn_operation: &TokenSupplyUpdateDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = match util::to_raw_token_amount(&token_configuration, burn_operation.amount) {
-        Ok(amount) => amount,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let raw_amount = util::to_raw_token_amount(&token_configuration, burn_operation.amount)?;
 
     // operation execution
     if !token.token_base().is_burnable(context) {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
-        }));
+        });
     }
-    match check_authorized(transaction_execution, context, token, TokenAdminRole::Burn)? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
-    match check_not_paused(context, token.token_base()) {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    check_authorized(transaction_execution, context, token, TokenAdminRole::Burn)?;
+    check_not_paused(context, token.token_base())?;
 
-    match balance_operations::burn(
+    balance_operations::burn(
         context,
         events,
         token.token_base_mut(),
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
-    )? {
-        Ok(()) => Ok(Ok(())),
-        Err(err) => Ok(Err(err.into())),
-    }
+    )??;
+    Ok(())
 }
 
 fn execute_token_pause<C: EntityContextTypes>(
@@ -559,13 +521,10 @@ fn execute_token_pause<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
-    match check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)?;
 
     token.token_base_mut().set_paused(context, true)?;
 
@@ -576,7 +535,7 @@ fn execute_token_pause<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_token_unpause<C: EntityContextTypes>(
@@ -584,13 +543,10 @@ fn execute_token_unpause<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
-    match check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    check_authorized(transaction_execution, context, token, TokenAdminRole::Pause)?;
 
     token.token_base_mut().set_paused(context, false)?;
 
@@ -601,7 +557,7 @@ fn execute_token_unpause<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_add_allow_list<C: EntityContextTypes>(
@@ -610,28 +566,22 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
     if !token.token_base_mut().has_allow_list(context) {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
-        }));
+        });
     }
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateAllowList,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
 
-    let account = match context.account_by_address(&list_operation.target.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let account = context.account_by_address(&list_operation.target.address)?;
     account.touch_token_account(context, token.token_base().token_index());
     token
         .token_base_mut()
@@ -647,7 +597,7 @@ fn execute_add_allow_list<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_add_deny_list<C: EntityContextTypes>(
@@ -656,28 +606,22 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
     if !token.token_base().has_deny_list(context) {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
-        }));
+        });
     }
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateDenyList,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
 
-    let account = match context.account_by_address(&list_operation.target.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let account = context.account_by_address(&list_operation.target.address)?;
     account.touch_token_account(context, token.token_base().token_index());
     token
         .token_base_mut()
@@ -693,7 +637,7 @@ fn execute_add_deny_list<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_remove_allow_list<C: EntityContextTypes>(
@@ -702,28 +646,22 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
     if !token.token_base().has_allow_list(context) {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
-        }));
+        });
     }
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateAllowList,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
 
-    let account = match context.account_by_address(&list_operation.target.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let account = context.account_by_address(&list_operation.target.address)?;
     account.touch_token_account(context, token.token_base().token_index());
     token
         .token_base_mut()
@@ -739,7 +677,7 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_remove_deny_list<C: EntityContextTypes>(
@@ -748,28 +686,22 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     list_operation: &TokenListUpdateDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
     if !token.token_base().has_deny_list(context) {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
-        }));
+        });
     }
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateDenyList,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
 
-    let account = match context.account_by_address(&list_operation.target.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let account = context.account_by_address(&list_operation.target.address)?;
     account.touch_token_account(context, token.token_base().token_index());
     token
         .token_base_mut()
@@ -785,7 +717,7 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn check_roles_supported<C: EntityContextTypes>(
@@ -818,27 +750,18 @@ fn execute_assign_admin_roles<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP11,
     operation: &TokenUpdateAdminRolesDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base.token_configuration(context)?;
 
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateAdminRoles,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
-    match check_roles_supported(context, token, &operation.roles) {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
+    check_roles_supported(context, token, &operation.roles)?;
 
-    let account = match context.account_by_address(&operation.account.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let account = context.account_by_address(&operation.account.address)?;
     token.assign_account_roles(context, account.account_index(), &operation.roles)?;
 
     let event = TokenModuleEvent::AssignAdminRoles(TokenUpdateAdminRolesEventDetails {
@@ -852,7 +775,7 @@ fn execute_assign_admin_roles<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_revoke_admin_roles<C: EntityContextTypes>(
@@ -861,34 +784,25 @@ fn execute_revoke_admin_roles<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP11,
     operation: &TokenUpdateAdminRolesDetails,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base.token_configuration(context)?;
 
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateAdminRoles,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
-    match check_roles_supported(context, token, &operation.roles) {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
+    check_roles_supported(context, token, &operation.roles)?;
 
-    let account = match context.account_by_address(&operation.account.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let account = context.account_by_address(&operation.account.address)?;
     if account.account_index() == transaction_execution.sender_account().account_index()
         && operation.roles.contains(&TokenAdminRole::UpdateAdminRoles)
     {
-        return Ok(Err(TokenUpdateErrorInternal::OperationNotPermitted {
+        return Err(TokenUpdateErrorInternal::OperationNotPermitted {
             account_address: Some(operation.account.address),
             reason: "Sender not allowed to remove own update-admin-role role",
-        }));
+        });
     }
     token.revoke_account_roles(context, account.account_index(), &operation.roles)?;
 
@@ -903,7 +817,7 @@ fn execute_revoke_admin_roles<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 fn execute_update_metadata<C: EntityContextTypes>(
@@ -912,23 +826,20 @@ fn execute_update_metadata<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP11,
     metadata_url: &MetadataUrl,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base.token_configuration(context)?;
 
     if !metadata_url.additional.is_empty() {
-        return Ok(Err(TokenUpdateErrorInternal::UnsupportedOperation {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "Unknown additional metadata fields",
-        }));
+        });
     }
-    match check_authorized(
+    check_authorized(
         transaction_execution,
         context,
         token,
         TokenAdminRole::UpdateMetadata,
-    )? {
-        Ok(()) => (),
-        Err(err) => return Ok(Err(err)),
-    };
+    )?;
     token.token_base.set_metadata_url(context, metadata_url)?;
     let event = TokenModuleEvent::UpdateMetadata(TokenUpdateMetadataEventDetails {
         metadata_url: metadata_url.clone(),
@@ -940,5 +851,5 @@ fn execute_update_metadata<C: EntityContextTypes>(
         details,
     })));
 
-    Ok(Ok(()))
+    Ok(())
 }
