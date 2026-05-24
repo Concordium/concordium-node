@@ -1,7 +1,6 @@
 //! Entry points to calling the scheduler. The scheduler is responsible for executing
 //! transaction and update instruction payloads.
 
-use plt_block_state::block_state_interface::BlockStateOperations;
 use plt_block_state::failure::BlockStateFailure;
 
 pub mod p11;

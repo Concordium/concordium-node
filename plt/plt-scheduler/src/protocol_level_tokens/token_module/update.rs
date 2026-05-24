@@ -21,7 +21,7 @@ use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
-use plt_block_state::failure::BlockStateResult;
+use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
@@ -104,14 +104,18 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     index: usize,
     operation: &TokenOperation,
 ) -> BlockStateResult<Result<(), TokenUpdateError>> {
-    Ok(execute_token_update_operation_internal(
+    let int_err = match execute_token_update_operation_internal(
         transaction_execution,
         context,
         events,
         token,
         operation,
-    )?
-    .map_err(|err| match err {
+    ) {
+        Ok(()) => return Ok(Ok(())),
+        Err(int_err) => int_err,
+    };
+
+    Ok(Err(match int_err {
         TokenUpdateErrorInternal::AccountDoesNotExist(err) => TokenUpdateError::TokenModuleReject(
             TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
                 index: index as u64,
@@ -183,6 +187,8 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
                 },
             ))
         }
+
+        TokenUpdateErrorInternal::BlockStateFailure(err) => return Err(err),
     }))
 }
 
@@ -226,6 +232,8 @@ enum TokenUpdateErrorInternal {
     },
     #[error("Operation not supported: {reason}")]
     UnsupportedOperation { reason: &'static str },
+    #[error("Block state failure: {0}")]
+    BlockStateFailure(#[from] BlockStateFailure),
 }
 
 fn execute_token_update_operation_internal<C: EntityContextTypes>(
@@ -234,7 +242,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut impl TokenT,
     token_operation: &TokenOperation,
-) -> BlockStateResult<Result<(), TokenUpdateErrorInternal>> {
+) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
     let energy_cost = energy_cost(token_operation);
     match transaction_execution.tick_energy(energy_cost) {
