@@ -1,6 +1,7 @@
 use crate::block_state_polymorph::token::TokenPXRefMut;
+use crate::token_context;
 use crate::token_module::errors::{MintWouldOverflowError, TokenAmountDecimalsMismatchError};
-use crate::token_module::{balance_operations, util};
+use crate::token_module::util;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
 use plt_block_state::entity::accounts::Accounts;
@@ -101,7 +102,7 @@ pub fn initialize_token<C: EntityContextTypes>(
             Err(err) => return Ok(Err(err.into())),
         };
 
-        match balance_operations::mint(
+        match token_context::mint(
             context,
             events,
             token.token_base_mut(),

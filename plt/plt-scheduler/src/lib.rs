@@ -5,6 +5,7 @@ mod locks;
 pub mod protocol_level_tokens;
 pub mod queries;
 pub mod scheduler;
+mod token_context;
 mod token_module;
 mod transaction_execution;
 

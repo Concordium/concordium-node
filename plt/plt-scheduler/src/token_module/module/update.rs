@@ -1,8 +1,9 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
+use crate::token_context;
 use crate::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
-use crate::token_module::{balance_operations, util};
+use crate::token_module::util;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
@@ -437,7 +438,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
         }
     }
 
-    balance_operations::transfer(
+    token_context::transfer(
         context,
         events,
         token,
@@ -477,7 +478,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     )?;
     check_not_paused(context, token.token_base())?;
 
-    balance_operations::mint(
+    token_context::mint(
         context,
         events,
         token.token_base_mut(),
@@ -514,7 +515,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     )?;
     check_not_paused(context, token.token_base())?;
 
-    balance_operations::burn(
+    token_context::burn(
         context,
         events,
         token.token_base_mut(),

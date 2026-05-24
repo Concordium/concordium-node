@@ -9,7 +9,6 @@
 
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
-mod balance_operations;
 pub mod errors;
 mod module;
 mod util;
