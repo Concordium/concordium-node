@@ -127,7 +127,7 @@ pub struct TokenP9 {
     pub token_base: TokenP9Base,
 }
 
-/// Representation of the base of protocol-level token on P9 and later protocols with compatible model.
+/// Base type for protocol-level token on P9 and later protocols with compatible model.
 #[derive(Debug)]
 pub struct TokenP9Base {
     /// Token index

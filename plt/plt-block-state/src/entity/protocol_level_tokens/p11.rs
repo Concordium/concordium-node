@@ -9,7 +9,7 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenAdminRole;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-/// Representation of protocol-level token on P11 and later protocols with compatible model.
+/// Representation of protocol-level token on P11.
 #[derive(Debug)]
 pub struct TokenP11 {
     /// P9 token representation
