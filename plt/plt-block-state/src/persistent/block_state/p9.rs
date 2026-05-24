@@ -75,12 +75,12 @@ mod test {
             .create_token(&context, configuration1.clone())
             .unwrap();
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
-        token1.set_token_circulating_supply(RawTokenAmount(100));
+        token1.token_base.set_token_circulating_supply(RawTokenAmount(100));
         token1
-            .mutable_key_value_state
+            .token_base.mutable_key_value_state
             .insert_value(&context.loader, &[0, 1], vec![0, 0])
             .unwrap();
-        token1
+        token1.token_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 2], vec![1, 1])
             .unwrap();
@@ -102,16 +102,16 @@ mod test {
             .token_by_id(&context, &"token1".parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(token1.token_circulating_supply(), RawTokenAmount(100));
+        assert_eq!(token1.token_base.token_circulating_supply(), RawTokenAmount(100));
         assert_eq!(
-            token1.token_configuration(&context).unwrap(),
+            token1.token_base.token_configuration(&context).unwrap(),
             configuration1
         );
-        let value = token1
+        let value = token1.token_base
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
-        let value = token1
+        let value = token1.token_base
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
@@ -119,9 +119,9 @@ mod test {
             .token_by_id(&context, &"token2".parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(token2.token_circulating_supply(), RawTokenAmount(0));
+        assert_eq!(token2.token_base.token_circulating_supply(), RawTokenAmount(0));
         assert_eq!(
-            token2.token_configuration(&context).unwrap(),
+            token2.token_base.token_configuration(&context).unwrap(),
             configuration2
         );
     }
@@ -158,12 +158,12 @@ mod test {
             .create_token(&context, configuration1.clone())
             .unwrap();
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
-        token1.set_token_circulating_supply(RawTokenAmount(100));
-        token1
+        token1.token_base.set_token_circulating_supply(RawTokenAmount(100));
+        token1.token_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 1], vec![0, 0])
             .unwrap();
-        token1
+        token1.token_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 2], vec![1, 1])
             .unwrap();
@@ -220,36 +220,36 @@ mod test {
             .token_by_id(&context, &"token1".parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(token1.token_circulating_supply(), RawTokenAmount(100));
+        assert_eq!(token1.token_base.token_circulating_supply(), RawTokenAmount(100));
         let configuration1 = TokenConfiguration {
             token_id: "token1".parse().unwrap(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 2,
         };
         assert_eq!(
-            token1.token_configuration(&context).unwrap(),
+            token1.token_base.token_configuration(&context).unwrap(),
             configuration1
         );
         let value = token1
-            .mutable_key_value_state
+            .token_base.mutable_key_value_state
             .lookup_value(&context.loader, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
-            .mutable_key_value_state
+            .token_base.mutable_key_value_state
             .lookup_value(&context.loader, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
         let token2 = block_state
             .token_by_id(&context, &"token2".parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(token2.token_circulating_supply(), RawTokenAmount(0));
+        assert_eq!(token2.token_base.token_circulating_supply(), RawTokenAmount(0));
         let configuration2 = TokenConfiguration {
             token_id: "token2".parse().unwrap(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 4,
         };
         assert_eq!(
-            token2.token_configuration(&context).unwrap(),
+            token2.token_base.token_configuration(&context).unwrap(),
             configuration2
         );
     }
