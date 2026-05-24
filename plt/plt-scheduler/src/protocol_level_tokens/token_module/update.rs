@@ -100,7 +100,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     index: usize,
     operation: &TokenOperation,
 ) -> BlockStateResult<Result<(), TokenUpdateError>> {
@@ -108,7 +108,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
         transaction_execution,
         context,
         events,
-        token.as_mut(),
+        token,
         operation,
     ) {
         Ok(()) => return Ok(Ok(())),
@@ -240,7 +240,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -455,7 +455,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -492,7 +492,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -529,7 +529,7 @@ fn execute_token_pause<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
@@ -556,7 +556,7 @@ fn execute_token_unpause<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
 
@@ -583,7 +583,7 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -623,7 +623,7 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -663,7 +663,7 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;
@@ -703,7 +703,7 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: &mut TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_base().token_configuration(context)?;

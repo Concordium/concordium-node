@@ -1,5 +1,6 @@
 //! Tests for token burn operations via the scheduler.
 
+use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -49,7 +50,7 @@ fn test_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.clone(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -77,7 +78,7 @@ fn test_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.clone(),
+            &gov_account,
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -122,7 +123,7 @@ fn test_unauthorized_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            non_governance_account.clone(),
+            &non_governance_account,
             non_gov_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -178,7 +179,7 @@ fn test_burn_insufficient_balance() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.clone(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -260,12 +261,7 @@ fn test_burn_paused() {
         Some(RawTokenAmount(5000)),
     );
 
-    utils::pause_token(
-        &mut context,
-        &mut block_state,
-        &token_id,
-        &gov_account,
-    );
+    utils::pause_token(&mut context, &mut block_state, &token_id, &gov_account);
 
     // Now attempt to burn while paused
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -281,7 +277,7 @@ fn test_burn_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -329,7 +325,7 @@ fn test_not_burnable() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -377,7 +373,7 @@ fn test_burn_event() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -426,7 +422,7 @@ fn test_role_authorization_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -450,7 +446,7 @@ fn test_role_authorization_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             2.into(),
             Payload::TokenUpdate { payload },
@@ -522,7 +518,7 @@ fn test_new_account_with_role_succeeds_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            gov_account.account_index(),
+            &gov_account,
             gov_account_addr,
             1.into(),
             Payload::TokenUpdate { payload },
@@ -546,7 +542,7 @@ fn test_new_account_with_role_succeeds_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
-            account2.account_index(),
+            &account2,
             account2_addr,
             1.into(),
             Payload::TokenUpdate { payload },

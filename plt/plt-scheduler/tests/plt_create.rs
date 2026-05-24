@@ -3,6 +3,7 @@
 //! higher level tests are implemented.
 
 use crate::utils::BlockStateLatest;
+use crate::utils::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -15,7 +16,6 @@ use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
-use crate::utils::SchedulerOperations;
 
 mod utils;
 

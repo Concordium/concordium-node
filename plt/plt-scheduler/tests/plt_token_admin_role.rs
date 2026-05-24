@@ -1,5 +1,6 @@
 //! Tests for token RBAC admin role operations via the scheduler.
 
+use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -12,7 +13,6 @@ use concordium_base::transactions::Payload;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
-use crate::utils::SchedulerOperations;
 
 use crate::utils::BlockStateLatest;
 
@@ -36,7 +36,8 @@ fn test_rbac_initial_governance_account_have_every_role() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -110,7 +111,8 @@ fn test_rbac_assign_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -240,7 +242,8 @@ fn test_rbac_assign_same_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -421,7 +424,8 @@ fn test_rbac_assign_role_works_when_paused() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -530,7 +534,8 @@ fn test_rbac_revoke_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -625,7 +630,8 @@ fn test_rbac_revoke_same_roles() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -810,7 +816,8 @@ fn test_rbac_revoke_role_works_when_paused() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();
@@ -993,7 +1000,8 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let auth: TokenAuthorizations = cbor::cbor_decode(
         &block_state
             .query_token_authorizations(&context, &token_id)
-            .unwrap().unwrap()
+            .unwrap()
+            .unwrap()
             .details,
     )
     .unwrap();

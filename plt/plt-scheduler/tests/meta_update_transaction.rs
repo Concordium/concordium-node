@@ -2,6 +2,7 @@
 
 use std::str::FromStr;
 
+use crate::utils::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
@@ -23,8 +24,6 @@ use plt_scheduler_types::types::events::{
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{self, TokenHolder};
-use crate::utils::SchedulerOperations;
-
 
 use crate::utils::BlockStateLatest;
 

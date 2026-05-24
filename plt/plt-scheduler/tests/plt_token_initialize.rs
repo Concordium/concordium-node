@@ -1,5 +1,6 @@
 //! Tests for token initialization via the scheduler.
 
+use crate::utils::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -177,7 +178,10 @@ fn test_initialize_token_default_values() {
         .unwrap();
 
     // Assertions using token module state query
-    let token_info = block_state.query_token_info(&context, &token_id).unwrap().unwrap();
+    let token_info = block_state
+        .query_token_info(&context, &token_id)
+        .unwrap()
+        .unwrap();
     let state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));
@@ -236,7 +240,10 @@ fn test_initialize_token_no_minting() {
         .unwrap();
 
     // Assertions using token module state query
-    let token_info = block_state.query_token_info(&context, &token_id).unwrap().unwrap();
+    let token_info = block_state
+        .query_token_info(&context, &token_id)
+        .unwrap()
+        .unwrap();
     let state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));
@@ -295,7 +302,10 @@ fn test_initialize_token_with_minting() {
         .unwrap();
 
     // Assertions using token module state query
-    let token_info = block_state.query_token_info(&context, &token_id).unwrap().unwrap();
+    let token_info = block_state
+        .query_token_info(&context, &token_id)
+        .unwrap()
+        .unwrap();
     let state: TokenModuleState = cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));

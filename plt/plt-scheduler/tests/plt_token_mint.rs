@@ -1,5 +1,6 @@
 //! Tests for token mint operations via the scheduler.
 
+use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -16,7 +17,6 @@ use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
-use crate::utils::SchedulerOperations;
 
 mod utils;
 
@@ -478,12 +478,7 @@ fn test_mint_paused() {
     );
 
     // Pause the token first
-    utils::pause_token(
-        &mut context,
-        &mut block_state,
-        &token_id,
-        &gov_account,
-    );
+    utils::pause_token(&mut context, &mut block_state, &token_id, &gov_account);
 
     // Now attempt to mint while paused
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {

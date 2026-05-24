@@ -1,5 +1,6 @@
 //! General tests for token update transactions via the scheduler.
 
+use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -15,7 +16,6 @@ use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::utils::SchedulerOperations;
 
 use crate::utils::BlockStateLatest;
 

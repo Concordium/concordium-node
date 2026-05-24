@@ -27,7 +27,8 @@ fn test_create_plt() {
     let read_configuration = block_state
         .token_by_index(&context, token_index)
         .unwrap()
-        .token_base.token_configuration(&context)
+        .token_base
+        .token_configuration(&context)
         .unwrap();
     assert_eq!(read_configuration, configuration);
 }
@@ -131,14 +132,19 @@ fn test_circulating_supply() {
     assert_eq!(circulating_supply, RawTokenAmount(0));
 
     // Set supply
-    token.token_base.set_token_circulating_supply(RawTokenAmount(10));
+    token
+        .token_base
+        .set_token_circulating_supply(RawTokenAmount(10));
 
     // Update token
     block_state.update_token(&context, token).unwrap();
 
     // Read supply
     let token = block_state.token_by_index(&context, token_index).unwrap();
-    assert_eq!(token.token_base.token_circulating_supply(), RawTokenAmount(10));
+    assert_eq!(
+        token.token_base.token_circulating_supply(),
+        RawTokenAmount(10)
+    );
 }
 
 /// Test set and get token properties stored in the key-value state.
@@ -165,31 +171,41 @@ fn test_token_properties() {
     assert!(!token.token_base.is_burnable(&context));
     assert!(!token.token_base.is_paused(&context));
     let account_index1 = AccountIndex::from(1);
-    assert!(!token.token_base.get_allow_list_for(&context, account_index1));
+    assert!(
+        !token
+            .token_base
+            .get_allow_list_for(&context, account_index1)
+    );
     assert!(!token.token_base.get_deny_list_for(&context, account_index1));
 
     // Set values
-    token.token_base.set_token_circulating_supply(RawTokenAmount(10));
+    token
+        .token_base
+        .set_token_circulating_supply(RawTokenAmount(10));
     token.token_base.set_deny_list_enabled(&context).unwrap();
     token.token_base.set_allow_list_enabled(&context).unwrap();
     token.token_base.set_mintable_enabled(&context).unwrap();
     token.token_base.set_burnable_enabled(&context).unwrap();
     token.token_base.set_paused(&context, true).unwrap();
-    token.token_base
-        .set_token_name(&context, "token1")
-        .unwrap();
+    token.token_base.set_token_name(&context, "token1").unwrap();
     let gov_account_index = AccountIndex::from(10);
-    token.token_base
+    token
+        .token_base
         .set_governance_account(&context, gov_account_index)
         .unwrap();
     token
-        .token_base.set_allow_list_for(&context, account_index1, true)
+        .token_base
+        .set_allow_list_for(&context, account_index1, true)
         .unwrap();
     token
-        .token_base.set_deny_list_for(&context, account_index1, true)
+        .token_base
+        .set_deny_list_for(&context, account_index1, true)
         .unwrap();
     let metadata_url = MetadataUrl::from("http://test".to_string());
-    token.token_base.set_metadata_url(&context, &metadata_url).unwrap();
+    token
+        .token_base
+        .set_metadata_url(&context, &metadata_url)
+        .unwrap();
 
     // Update token
     block_state.update_token(&context, token).unwrap();
@@ -203,20 +219,32 @@ fn test_token_properties() {
     assert!(token.token_base.is_paused(&context));
     assert_eq!(token.token_base.get_token_name(&context).unwrap(), "token1");
     assert_eq!(
-        token.token_base.get_governance_account_index(&context).unwrap(),
+        token
+            .token_base
+            .get_governance_account_index(&context)
+            .unwrap(),
         gov_account_index
     );
-    assert!(token.token_base.get_allow_list_for(&context, account_index1));
+    assert!(
+        token
+            .token_base
+            .get_allow_list_for(&context, account_index1)
+    );
     assert!(token.token_base.get_deny_list_for(&context, account_index1));
-    assert_eq!(token.token_base.get_metadata(&context).unwrap(), metadata_url);
+    assert_eq!(
+        token.token_base.get_metadata(&context).unwrap(),
+        metadata_url
+    );
 
     // Update values
     token.token_base.set_paused(&context, false).unwrap();
     token
-        .token_base.set_allow_list_for(&context, account_index1, false)
+        .token_base
+        .set_allow_list_for(&context, account_index1, false)
         .unwrap();
     token
-        .token_base.set_deny_list_for(&context, account_index1, false)
+        .token_base
+        .set_deny_list_for(&context, account_index1, false)
         .unwrap();
 
     // Update token
@@ -225,6 +253,10 @@ fn test_token_properties() {
     // Read values
     let token = block_state.token_by_index(&context, token_index).unwrap();
     assert!(!token.token_base.is_paused(&context));
-    assert!(!token.token_base.get_allow_list_for(&context, account_index1));
+    assert!(
+        !token
+            .token_base
+            .get_allow_list_for(&context, account_index1)
+    );
     assert!(!token.token_base.get_deny_list_for(&context, account_index1));
 }

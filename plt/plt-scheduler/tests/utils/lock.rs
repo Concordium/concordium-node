@@ -1,16 +1,16 @@
+use crate::utils::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
-use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::EntityContext;
+use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::utils::SchedulerOperations;
 
 /// Create a lock in the block state. The lock controller is hard-coded to the
 /// `SimpleV0` variant (the only one currently exposed) with `keep_alive = false`

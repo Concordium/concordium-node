@@ -2,6 +2,7 @@
 //! the tests of the token module in the `plt-token-module` crate. In the present file,
 //! higher level tests are implemented, and they may not in themselves be functionally complete.
 
+use crate::utils::SchedulerOperations;
 use crate::utils::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -1134,7 +1135,10 @@ fn test_plt_pause() {
     });
 
     // Assert paused is set in state
-    let token_info = block_state.query_token_info(&context, &token_id).unwrap().unwrap();
+    let token_info = block_state
+        .query_token_info(&context, &token_id)
+        .unwrap()
+        .unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
     assert_eq!(token_module_state.paused, Some(true));

@@ -1,6 +1,7 @@
 //! Tests for creating a PLT lock.
 
 use crate::utils::BlockStateLatest;
+use crate::utils::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
@@ -19,7 +20,6 @@ use concordium_base::{
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
-use crate::utils::SchedulerOperations;
 
 mod utils;
 

@@ -1,5 +1,6 @@
 //! Tests for token transfer operations via the scheduler.
 
+use crate::utils::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
@@ -15,7 +16,6 @@ use concordium_base::transactions::{Memo, Payload};
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::utils::SchedulerOperations;
 
 mod utils;
 
@@ -300,7 +300,7 @@ fn test_transfer_decimals_mismatch() {
     let result = block_state
         .execute_transaction(
             &mut context,
-&            sender,
+            &sender,
             sender_addr,
             1.into(),
             Payload::TokenUpdate {
@@ -405,7 +405,7 @@ fn test_transfer_allow_list_success() {
         &mut context,
         &mut block_state,
         &token_id,
-&        gov_account,
+        &gov_account,
         vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: CborHolderAccount::from(gov_account_addr),
         })],

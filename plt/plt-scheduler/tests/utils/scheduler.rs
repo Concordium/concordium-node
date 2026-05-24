@@ -101,7 +101,7 @@ impl SchedulerOperations for BlockStateP9 {
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
     ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
-        scheduler::p9::execute_chain_update(context, self,  payload)
+        scheduler::p9::execute_chain_update(context, self, payload)
     }
 
     fn query_plt_list<C: EntityContextTypes>(
@@ -135,7 +135,10 @@ impl SchedulerOperations for BlockStateP9 {
         protocol_level_tokens::p9::query_token_authorizations(context, self, token_id)
     }
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> BlockStateResult<Vec<LockId>>
+    fn query_lock_list<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<Vec<LockId>>
     where
         EntityContext<C>: Clone,
     {
@@ -190,7 +193,7 @@ impl SchedulerOperations for BlockStateP11 {
         context: &mut EntityContext<C>,
         payload: UpdatePayload,
     ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
-        scheduler::p11::execute_chain_update(context, self , payload)
+        scheduler::p11::execute_chain_update(context, self, payload)
     }
 
     fn query_plt_list<C: EntityContextTypes>(
@@ -224,7 +227,10 @@ impl SchedulerOperations for BlockStateP11 {
         protocol_level_tokens::p11::query_token_authorizations(context, self, token_id)
     }
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> BlockStateResult<Vec<LockId>>
+    fn query_lock_list<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<Vec<LockId>>
     where
         EntityContext<C>: Clone,
     {

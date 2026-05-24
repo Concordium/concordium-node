@@ -5,7 +5,10 @@ use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleInitializationParameters, TokenOperations, TokenOperationsPayload};
+use concordium_base::protocol_level_tokens::{
+    DeserializationFailureRejectReason, RawCbor, TokenId, TokenModuleInitializationParameters,
+    TokenModuleRejectReason, TokenOperations, TokenOperationsPayload,
+};
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::entity::accounts::Account;
@@ -179,14 +182,18 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
         payload: payload.clone(),
     }));
 
-    let initialization_parameters: TokenModuleInitializationParameters = match utils::cbor_decode(payload.initialization_parameters) {
-        Ok(parameters) => parameters,
-        Err(err) => {
-            return Ok(ChainUpdateOutcome::Failed(
-                FailureKind::TokenInitializeFailure(format!("Could not decode token initialization parameters: {}", err)),
-            ));
-        }
-    };
+    let initialization_parameters: TokenModuleInitializationParameters =
+        match utils::cbor_decode(payload.initialization_parameters) {
+            Ok(parameters) => parameters,
+            Err(err) => {
+                return Ok(ChainUpdateOutcome::Failed(
+                    FailureKind::TokenInitializeFailure(format!(
+                        "Could not decode token initialization parameters: {}",
+                        err
+                    )),
+                ));
+            }
+        };
 
     // Initialize token in token module
     let token_initialize_result = token_module::initialize_token(
@@ -264,9 +271,22 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
     // Decode operations
     let operations: TokenOperations = match utils::cbor_decode(payload.operations) {
         Ok(operations) => operations,
-        Err(_) => {
+        Err(err) => {
+            let reject_reason = TokenModuleRejectReason::DeserializationFailure(
+                DeserializationFailureRejectReason {
+                    cause: Some(err.to_string()),
+                },
+            );
+            let (reason_type, cbor) = reject_reason.encode_reject_reason();
             return Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::SerializationFailure,
+                TransactionRejectReason::TokenUpdateTransactionFailed(
+                    EncodedTokenModuleRejectReason {
+                        // Use the canonical token id from the token configuration
+                        token_id: token_configuration.token_id.clone(),
+                        reason_type: reason_type.to_type_discriminator(),
+                        details: Some(cbor),
+                    },
+                ),
             ));
         }
     };
@@ -277,7 +297,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
             transaction_execution,
             context,
             &mut events,
-            TokenPXRefMut::TokenP9(&mut token),
+            &mut TokenPXRefMut::TokenP9(&mut token),
             index,
             &operation,
         )? {

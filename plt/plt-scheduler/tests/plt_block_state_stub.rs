@@ -1,13 +1,13 @@
 //! Tests for the block state stub infrastructure used in the plt-scheduler integration tests.
 
-use crate::utils::{BlockStateLatest, TokenInitTestParams};
+use crate::utils::TokenInitTestParams;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
+use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::utils::SchedulerOperations;
 
 mod utils;
 
@@ -15,19 +15,18 @@ mod utils;
 #[test]
 fn test_account_lookup_address() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
     let address = context
         .external
         .account_canonical_address(account.account_index());
 
-    block_state
-        .account_by_address(&context, &address)
+    context
+        .account_by_address(&address)
         .expect("Account is expected to exist");
     assert!(
-        block_state
-            .account_by_address(&context, &AccountAddress([2u8; 32]))
+        context
+            .account_by_address(&AccountAddress([2u8; 32]))
             .is_err(),
         "Account is not expected to exist"
     );
@@ -37,17 +36,14 @@ fn test_account_lookup_address() {
 #[test]
 fn test_account_lookup_index() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
 
-    block_state
-        .account_by_index(&context, account.account_index())
+    context
+        .account_by_index(account.account_index())
         .expect("Account is expected to exist");
     assert!(
-        block_state
-            .account_by_index(&context, AccountIndex::from(2u64))
-            .is_err(),
+        context.account_by_index(AccountIndex::from(2u64)).is_err(),
         "Account is not expected to exist"
     );
 }
@@ -97,14 +93,13 @@ fn test_account_balance() {
 #[test]
 fn test_account_by_alias() {
     let mut context = entity_test_stub::new_stubbed_context();
-    let block_state = BlockStateLatest::default();
 
     let account = context.external.create_account();
     let account_address = context
         .external
         .account_canonical_address(account.account_index());
-    let account_by_alias = block_state
-        .account_by_address(&context, &account_address.get_alias(0).unwrap())
+    let account_by_alias = context
+        .account_by_address(&account_address.get_alias(0).unwrap())
         .unwrap();
 
     assert_eq!(account.account_index(), account_by_alias.account_index());
