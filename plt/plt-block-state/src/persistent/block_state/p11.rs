@@ -198,15 +198,15 @@ mod test {
             .unwrap();
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
-            .token_p9
+            .token_base
             .set_token_circulating_supply(RawTokenAmount(100));
         token1
-            .token_p9
+            .token_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 1], vec![0, 0])
             .unwrap();
         token1
-            .token_p9
+            .token_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 2], vec![1, 1])
             .unwrap();

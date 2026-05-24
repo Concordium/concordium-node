@@ -92,13 +92,13 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenP11> {
-        let token_p9 = protocol_level_tokens::p9::token_by_index(
+        let token_base = protocol_level_tokens::p9::token_by_index(
             context,
             &*self.persistent.tokens.value(&context.loader)?,
             token_index,
         )?;
 
-        Ok(TokenP11 { token_p9 })
+        Ok(TokenP11 { token_base })
     }
 
     /// Update the token in the block state. Any modifications
@@ -109,7 +109,7 @@ impl BlockStateP11 {
         token: TokenP11,
     ) -> BlockStateResult<()> {
         let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
-        protocol_level_tokens::p9::update_token(context, &mut new_tokens, token.token_p9)?;
+        protocol_level_tokens::p9::update_token(context, &mut new_tokens, token.token_base)?;
         self.persistent.tokens = HashedCacheableRef::new(new_tokens);
 
         Ok(())

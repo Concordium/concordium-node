@@ -152,7 +152,7 @@ pub fn create_and_init_token_p11(
         .token_by_id(context, &token_id)
         .unwrap()
         .unwrap()
-        .token_p9
+        .token_base
         .token_index();
 
     (gov_account, token_index)
@@ -171,7 +171,7 @@ pub fn increment_account_balance_p11(
         .token_by_id(context, token_id)
         .unwrap()
         .expect("created token");
-    let token_configuration = token.token_p9.token_configuration(context).unwrap();
+    let token_configuration = token.token_base.token_configuration(context).unwrap();
     let operations = vec![
         TokenOperation::Mint(TokenSupplyUpdateDetails {
             amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),

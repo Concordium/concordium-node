@@ -45,8 +45,8 @@ pub fn query_token_info<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let token_configuration = token.token_p9.token_configuration(context)?;
-    let circulating_supply = token.token_p9.token_circulating_supply();
+    let token_configuration = token.token_base.token_configuration(context)?;
+    let circulating_supply = token.token_base.token_circulating_supply();
 
     let total_supply = TokenAmount {
         amount: circulating_supply,
@@ -54,7 +54,7 @@ pub fn query_token_info<C: EntityContextTypes>(
     };
 
     let module_state =
-        token_module::query_token_module_state(context, block_state, &token.token_p9)?;
+        token_module::query_token_module_state(context, block_state, &token.token_base)?;
 
     let token_state = TokenState {
         token_module_ref: token_configuration.module_ref,
@@ -82,11 +82,11 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
         .token_account_states(context)
         .map(|(token_index, state)| {
             let token = block_state.token_by_index(context, token_index)?;
-            let token_configuration = token.token_p9.token_configuration(context)?;
+            let token_configuration = token.token_base.token_configuration(context)?;
 
             let module_state = token_module::query_token_module_account_state(
                 &context,
-                &token.token_p9,
+                &token.token_base,
                 account.account_index(),
             )?;
 
@@ -119,7 +119,7 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
         Err(err) => return Ok(Err(err)),
     };
 
-    let token_configuration = token.token_p9.token_configuration(context)?;
+    let token_configuration = token.token_base.token_configuration(context)?;
 
     let details = token_module::query_token_authorizations(context, block_state, &token)?;
 

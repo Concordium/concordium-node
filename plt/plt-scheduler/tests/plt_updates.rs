@@ -80,7 +80,7 @@ fn test_plt_transfer() {
 
     // Assert circulating supply unchanged
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
 
@@ -140,7 +140,7 @@ fn test_plt_transfer() {
 
     // Assert circulating supply unchanged
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
 
@@ -290,7 +290,7 @@ fn test_plt_transfer_reject() {
 
     // Assert circulating supply and account balances unchanged
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
     assert_eq!(
@@ -391,7 +391,7 @@ fn test_plt_transfer_allow_list_flow() {
         .unwrap();
 
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
     assert_eq!(
@@ -472,7 +472,7 @@ fn test_plt_transfer_allow_list_flow() {
         .unwrap();
 
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
     assert_eq!(
@@ -591,7 +591,7 @@ fn test_plt_mint() {
 
     // Assert circulating supply increased
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(1000)
     );
 
@@ -659,7 +659,7 @@ fn test_plt_mint_using_alias() {
 
     // Assert circulating supply increased
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(1000)
     );
 
@@ -724,7 +724,7 @@ fn test_plt_mint_reject() {
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
     assert_eq!(
@@ -781,7 +781,7 @@ fn test_plt_mint_unauthorized() {
         .unwrap();
 
     // Assert circulating supply and account balance unchanged
-    assert_eq!(token.token_p9.token_circulating_supply(), RawTokenAmount(0));
+    assert_eq!(token.token_base.token_circulating_supply(), RawTokenAmount(0));
     assert_eq!(
         non_governance_account.account_token_balance(&context, token_index),
         RawTokenAmount(0)
@@ -850,7 +850,7 @@ fn test_plt_burn() {
 
     // Assert circulating supply decreased
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(4000)
     );
 
@@ -918,7 +918,7 @@ fn test_plt_burn_using_alias() {
 
     // Assert circulating supply decreased
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(4000)
     );
 
@@ -983,7 +983,7 @@ fn test_plt_burn_reject() {
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
     assert_eq!(
@@ -1056,7 +1056,7 @@ fn test_plt_multiple_operations() {
 
     // Assert circulating supply and account balances
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_base.token_circulating_supply(),
         RawTokenAmount(3000)
     );
     assert_eq!(

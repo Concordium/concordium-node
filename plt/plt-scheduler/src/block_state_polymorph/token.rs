@@ -40,11 +40,11 @@ impl TokenT for TokenP9 {
 
 impl TokenT for TokenP11 {
     fn token_p9(&self) -> &TokenP9 {
-        &self.token_p9
+        &self.token_base
     }
 
     fn token_p9_mut(&mut self) -> &mut TokenP9 {
-        &mut self.token_p9
+        &mut self.token_base
     }
 
     fn token_p11(&self) -> Option<&TokenP11> {

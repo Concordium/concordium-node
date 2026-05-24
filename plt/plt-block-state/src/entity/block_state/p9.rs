@@ -75,7 +75,11 @@ impl BlockStateP9 {
         context: &EntityContext<C>,
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenP9> {
-        protocol_level_tokens::p9::token_by_index(context, &self.persistent.tokens, token_index)
+        let token_base = protocol_level_tokens::p9::token_by_index(context, &self.persistent.tokens, token_index)?;
+
+        Ok(TokenP9 {
+            token_base,
+        })
     }
 
     /// Update the token in the block state. Any modifications
@@ -85,7 +89,7 @@ impl BlockStateP9 {
         context: &EntityContext<C>,
         token: TokenP9,
     ) -> BlockStateResult<()> {
-        protocol_level_tokens::p9::update_token(context, &mut self.persistent.tokens, token)
+        protocol_level_tokens::p9::update_token(context, &mut self.persistent.tokens, token.token_base)
     }
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
