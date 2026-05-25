@@ -296,7 +296,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
             transaction_execution,
             context,
             &mut events,
-            &mut TokenPXRefMut::TokenP9(&mut token),
+            TokenPXRefMut::TokenP9(&mut token),
             index,
             &operation,
         )? {

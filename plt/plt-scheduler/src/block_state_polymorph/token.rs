@@ -58,13 +58,12 @@ impl<'a> TokenPXRefMut<'a> {
         }
     }
 
-    // todo ar
-    // pub fn as_mut<'b>(&'b mut self) -> TokenPXRefMut<'b>  {
-    //     match self {
-    //         Self::TokenP9(token) => Self::TokenP9(*token),
-    //         Self::TokenP11(token) => Self::TokenP11(*token),
-    //     }
-    // }
+    pub fn as_mut(&mut self) -> TokenPXRefMut<'_> {
+        match self {
+            Self::TokenP9(token) => TokenPXRefMut::TokenP9(token),
+            Self::TokenP11(token) => TokenPXRefMut::TokenP11(token),
+        }
+    }
 }
 
 /// Access to token from code that is polymorphic over the protocol version.

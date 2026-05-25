@@ -194,15 +194,15 @@ pub fn increment_account_balance_p11(
         .unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
-    let gov_account = context
-        .account_by_address(
-            &token_module_state
-                .governance_account
-                .as_ref()
-                .unwrap()
-                .address,
-        )
-        .unwrap();
+    let gov_account = EntityContext::account_by_address(
+        context,
+        &token_module_state
+            .governance_account
+            .as_ref()
+            .unwrap()
+            .address,
+    )
+    .unwrap();
 
     let outcome = block_state
         .execute_transaction(
