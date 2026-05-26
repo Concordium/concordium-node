@@ -41,9 +41,9 @@ pub enum TransactionRejectReason {
     /// The account is not authorized to cancel the lock.
     LockCancelNotAuthorized(LockId, AccountAddress),
     /// The lock does not allow funding with the particular token.
-    LockTokenImpermissible(LockId, TokenId),
+    LockTokenNotPermitted(LockId, TokenId),
     /// The recipient is not permitted to receive funds controlled by the lock.
-    LockRecipientImpermissible(LockId, AccountAddress),
+    LockRecipientNotPermitted(LockId, AccountAddress),
 }
 
 impl Serial for TransactionRejectReason {
@@ -95,12 +95,12 @@ impl Serial for TransactionRejectReason {
                 out.put(&lock_id);
                 out.put(&addr);
             }
-            TransactionRejectReason::LockTokenImpermissible(lock_id, token_id) => {
+            TransactionRejectReason::LockTokenNotPermitted(lock_id, token_id) => {
                 out.put(&63u8);
                 out.put(&lock_id);
                 out.put(&token_id);
             }
-            TransactionRejectReason::LockRecipientImpermissible(lock_id, addr) => {
+            TransactionRejectReason::LockRecipientNotPermitted(lock_id, addr) => {
                 out.put(&64u8);
                 out.put(&lock_id);
                 out.put(&addr);
@@ -278,8 +278,8 @@ mod test {
     }
 
     #[test]
-    fn test_lock_token_impermissible_reject_reason_serial() {
-        let reject_reason = TransactionRejectReason::LockTokenImpermissible(
+    fn test_lock_token_not_permitted_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::LockTokenNotPermitted(
             LockId::new(0xfedcba, 0x1234, 5),
             "token1".parse().unwrap(),
         );
@@ -291,8 +291,8 @@ mod test {
     }
 
     #[test]
-    fn test_lock_recipient_impermissible_reject_reason_serial() {
-        let reject_reason = TransactionRejectReason::LockRecipientImpermissible(
+    fn test_lock_recipient_not_permitted_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::LockRecipientNotPermitted(
             LockId::new(0xfedcba, 0x1234, 5),
             ADDRESS,
         );
