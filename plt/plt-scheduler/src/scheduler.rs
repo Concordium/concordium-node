@@ -26,6 +26,9 @@ pub enum TransactionExecutionError {
     StateInvariantBroken(String),
 }
 
+/// Failure mode for executing a transaction. A transaction may either be
+/// reject, which means it is included in the block but does not have any effect,
+/// or it may fail with an unrecoverable error, leading to a panic.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionFailure {
     /// The transaction was rejected, but can be included in a block.
