@@ -185,17 +185,29 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                     }
                 };
 
-                let token_update_result = with_token(block_state, &token, &mut events, |kernel| {
-                    token_module::execute_token_update_operation_at_index(
-                        transaction_execution,
-                        kernel,
-                        index,
-                        &operation,
-                    )
-                });
-
+                let token_configuration = block_state.token_configuration(&token);
+                let mut token_module_state = block_state.mutable_token_key_value_state(&token);
+                let mut token_module_state_dirty = false;
+                let mut kernel = TokenOperationContext {
+                    block_state,
+                    token: &token,
+                    token_configuration: &token_configuration,
+                    token_module_state: &mut token_module_state,
+                    token_module_state_dirty: &mut token_module_state_dirty,
+                    events: &mut events,
+                };
+                let token_update_result = token_module::execute_token_update_operation_at_index(
+                    transaction_execution,
+                    &mut kernel,
+                    index,
+                    &operation,
+                );
                 match token_update_result {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if token_module_state_dirty {
+                            block_state.set_token_key_value_state(&token, token_module_state);
+                        }
+                    }
                     Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
                         return Ok(TransactionOutcome::Rejected(
                             TransactionRejectReason::TokenUpdateTransactionFailed(
