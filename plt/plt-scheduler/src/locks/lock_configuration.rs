@@ -9,9 +9,9 @@ use concordium_base::{
     protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
-use plt_block_state::block_state_interface::{
-    AccountNotFoundByIndexError, BlockStateQuery, HasLockId,
-};
+use plt_block_state::{block_state_interface::{
+    AccountNotFoundByIndexError, BlockStateQuery,
+}, entity::protocol_level_locks::p11::LockP11};
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 
 /// Get the list of recipient accounts for a lock configuration, resolving
@@ -49,7 +49,7 @@ pub fn get_lock_config<BSQ: BlockStateQuery>(
 /// per-`(account, token)` balances held by the lock.
 pub fn get_lock_info<BSQ: BlockStateQuery>(
     bsq: &BSQ,
-    lock: &BSQ::Lock,
+    lock: &LockP11,
     configuration: &LockConfiguration,
 ) -> Result<LockInfo, QueryLockError> {
     // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values

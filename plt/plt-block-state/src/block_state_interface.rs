@@ -1,4 +1,5 @@
 use crate::entity::accounts::AccountWithCanonicalAddress;
+use crate::entity::protocol_level_locks::p11::LockP11;
 use crate::external::TokenAccountState;
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
@@ -76,12 +77,6 @@ pub struct TokenStateKey(pub Vec<u8>);
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct TokenStateValue(pub Vec<u8>);
 
-/// This trait allows getting the lock ID associated with a lock.
-pub trait HasLockId {
-    /// Get the lock ID of the lock.
-    fn lock_id(&self) -> &LockId;
-}
-
 // todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
@@ -95,11 +90,6 @@ pub trait BlockStateQuery {
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
-
-    /// Opaque type that represents a protocol-level lock on chain.
-    /// An instance of this type *does not* guarantee that the lock exists on chain, as it
-    /// may have been deleted.
-    type Lock: HasLockId;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
@@ -221,15 +211,15 @@ pub trait BlockStateQuery {
     ///
     /// # Arguments
     ///
-    /// - `lock_id` The lock id to get the [`Self::Lock`] of.
-    fn lock_by_id(&self, lock_id: &LockId) -> Result<Self::Lock, LockNotFoundByIdError>;
+    /// - `lock_id` The lock id to get the [`LockP11`] of.
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockP11, LockNotFoundByIdError>;
 
     /// Get the configuration of a protocol-level lock.
     ///
     /// # Arguments
     ///
     /// - `lock` The lock to get the configuration for.
-    fn lock_configuration(&self, lock: &Self::Lock) -> LockConfiguration;
+    fn lock_configuration(&self, lock: &LockP11) -> LockConfiguration;
 
     /// Get the set of account/token balances currently tracked under a lock.
     ///
@@ -240,7 +230,7 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock` The lock to get the tracked locked balances for.
-    fn lock_balances(&self, lock: &Self::Lock)
+    fn lock_balances(&self, lock: &LockP11)
     -> impl Iterator<Item = (AccountIndex, Self::Token)>;
 }
 
@@ -344,12 +334,13 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
     fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
 
-    /// Delete a PLT lock with the given Lock ID.
+    /// Delete a PLT lock with the given Lock ID. Returns the lock if it existed, or `None`
+    /// if it did not exist.
     ///
     /// # Arguments
     ///
     /// - `lock_id` The ID of the PLT lock.
-    fn delete_lock(&mut self, lock_id: &LockId) -> Option<Self::Lock>;
+    fn delete_lock(&mut self, lock_id: &LockId) -> Option<LockP11>;
 
     /// Track that a lock holds a balance for the given account and token.
     ///

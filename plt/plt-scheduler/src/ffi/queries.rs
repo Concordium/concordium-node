@@ -566,13 +566,24 @@ extern "C" fn ffi_query_lock_list(
             loader: load_callback,
         };
         let lock_ids = match unsafe { &*block_state } {
-            PersistentBlockState::P9(_persistent) => {
-                // Locks are not supported at P9.
-                Vec::new()
-            }
-            PersistentBlockState::P10(_persistent) => {
-                // Locks are not supported at P10.
-                Vec::new()
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP9 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_list(&exec_block_state)            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    persistent: persistent.clone(),
+                };
+                let exec_block_state = ExecutionTimeBlockStateP10 {
+                    block_state,
+                    context,
+                };
+                queries::query_lock_list(&exec_block_state)
             }
             PersistentBlockState::P11(persistent) => {
                 let block_state = BlockStateP11 {

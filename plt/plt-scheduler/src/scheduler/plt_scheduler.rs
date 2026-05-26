@@ -19,7 +19,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_block_state::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, HasLockId, TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError,
 };
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
@@ -319,7 +319,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             Ok(())
         }
         LockOperation::Cancel(meta_lock_cancel_details) => {
-            // TODO: charge
+            // TODO: (COR-2306) charge. 
             let lock = block_state
                 .lock_by_id(&meta_lock_cancel_details.lock)
                 .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;

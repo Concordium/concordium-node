@@ -26,7 +26,6 @@ pub trait LockController {
     ///
     /// * `bsq`: the block state to query on
     /// * `sender`: the transaction sender reference
-    /// * `lock`: the lock reference. This is used instead of the lock ID from the operation.
     /// * `operation`: the lock operation to approve/reject.
     fn validate_operation<BSQ: BlockStateQuery>(
         &self,

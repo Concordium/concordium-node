@@ -1,4 +1,4 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult, HasLockId};
+use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::persistent::protocol_level_locks::p11::{
     LockConfiguration, PersistentLockP11, PersistentLocksP11,
@@ -84,6 +84,11 @@ pub struct LockP11 {
 }
 
 impl LockP11 {
+    /// Get the Lock ID of the lock.
+    pub fn lock_id(&self) -> &LockId {
+        &self.lock_id
+    }
+
     /// Get the configuration of the protocol-level lock.
     pub fn lock_configuration<C: EntityContextTypes>(
         &self,
@@ -114,11 +119,5 @@ impl LockP11 {
         self.persistent
             .locked_balances
             .insert((account_index, token_index));
-    }
-}
-
-impl HasLockId for LockP11 {
-    fn lock_id(&self) -> &LockId {
-        &self.lock_id
     }
 }

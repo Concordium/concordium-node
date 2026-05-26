@@ -126,7 +126,7 @@ fn test_cancel_unauthorized() {
     let sender_addr = context.external.account_canonical_address(account_index_2);
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
-        sender_account_address: sender_addr.clone(),
+        sender_account_address: sender_addr,
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
     };
