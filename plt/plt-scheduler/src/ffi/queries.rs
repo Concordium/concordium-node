@@ -574,7 +574,8 @@ extern "C" fn ffi_query_lock_list(
                     block_state,
                     context,
                 };
-                queries::query_lock_list(&exec_block_state)            }
+                queries::query_lock_list(&exec_block_state)
+            }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
                     persistent: persistent.clone(),

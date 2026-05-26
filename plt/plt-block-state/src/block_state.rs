@@ -169,10 +169,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
         panic!("protocol version does not support locks")
     }
 
-    fn lock_balances(
-        &self,
-        _lock: &LockP11,
-    ) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+    fn lock_balances(&self, _lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
         panic!("protocol version does not support locks");
         #[allow(unreachable_code)]
         std::iter::empty()
@@ -410,10 +407,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
         lock.lock_configuration(&self.context)
     }
 
-    fn lock_balances(
-        &self,
-        lock: &LockP11,
-    ) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+    fn lock_balances(&self, lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
         lock.lock_balance_refs().into_iter()
     }
 }

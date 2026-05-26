@@ -207,7 +207,9 @@ pub trait BlockStateQuery {
     /// list.
     fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId>;
 
-    /// Get the lock associated with a [`LockId`] (if it exists).
+    /// Get the lock associated with a [`LockId`] (if it exists). If the protocol
+    /// version does not support protocol-level locks, this will always return
+    /// `Err(LockNotFoundByIdError(lock_id.clone()))`.
     ///
     /// # Arguments
     ///
@@ -219,6 +221,10 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock` The lock to get the configuration for.
+    ///
+    /// # Precondition
+    ///
+    /// - The `lock` MUST exist in the block state, i.e. `s.lock_by_id(lock.lock_id()).expect("lock exists")`.
     fn lock_configuration(&self, lock: &LockP11) -> LockConfiguration;
 
     /// Get the set of account/token balances currently tracked under a lock.
@@ -230,8 +236,11 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock` The lock to get the tracked locked balances for.
-    fn lock_balances(&self, lock: &LockP11)
-    -> impl Iterator<Item = (AccountIndex, Self::Token)>;
+    ///
+    /// # Precondition
+    ///
+    /// - The `lock` MUST exist in the block state, i.e. `s.lock_by_id(lock.lock_id()).expect("lock exists")`.
+    fn lock_balances(&self, lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)>;
 }
 
 // todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
@@ -332,6 +341,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
     ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
+    /// - The protocol version of the block state MUST support PLT locks.
     fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
 
     /// Delete a PLT lock with the given Lock ID. Returns the lock if it existed, or `None`
@@ -340,6 +350,10 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// # Arguments
     ///
     /// - `lock_id` The ID of the PLT lock.
+    ///
+    /// # Preconditions
+    ///
+    /// This function may panic if the protocol version does not support locks.
     fn delete_lock(&mut self, lock_id: &LockId) -> Option<LockP11>;
 
     /// Track that a lock holds a balance for the given account and token.

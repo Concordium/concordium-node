@@ -319,7 +319,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             Ok(())
         }
         LockOperation::Cancel(meta_lock_cancel_details) => {
-            // TODO: (COR-2306) charge. 
+            // TODO: (COR-2306) charge.
             let lock = block_state
                 .lock_by_id(&meta_lock_cancel_details.lock)
                 .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
