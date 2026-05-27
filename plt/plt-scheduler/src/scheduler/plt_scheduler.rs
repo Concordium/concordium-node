@@ -287,7 +287,25 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
     events: &mut Vec<BlockItemEvent>,
 ) -> Result<(), TransactionFailure> {
     match lock_operation {
-        LockOperation::Fund(_meta_lock_fund_details) => todo!(),
+        LockOperation::Fund(meta_lock_fund_details) => {
+            // TODO: (COR-2306) charge.
+            let lock = block_state
+                .lock_by_id(&meta_lock_fund_details.lock)
+                .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
+
+            let lock_configuration = block_state.lock_configuration(&lock);
+            if lock_configuration
+                .expiry()
+                .is_expired(transaction_execution.timestamp())
+            {
+                return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
+            }
+            let memo: Option<transactions::Memo> = meta_lock_fund_details
+                .memo
+                .clone()
+                .map(transactions::Memo::from);
+            Ok(())
+        }
         LockOperation::Send(_meta_lock_send_details) => todo!(),
         LockOperation::Return(_meta_lock_return_details) => todo!(),
         LockOperation::Create(meta_lock_create_details) => {

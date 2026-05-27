@@ -20,6 +20,51 @@ use plt_scheduler_types::types::events::{
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
+/// The total, locked and available balance of an account (for a particular token).
+struct AccountBalances {
+    /// The total balance (sum of locked and available).
+    pub total: RawTokenAmount,
+    /// The balance held under the control of locks.
+    pub locked: RawTokenAmount,
+    /// The balance that is unencumbered by locks.
+    pub available: RawTokenAmount,
+}
+
+/// Get the total, locked and available balances for an account.
+/// This can throw a `TokenStateInvariantError` if the computed locked balance
+/// exceeds the total balance.
+fn get_account_balances<BSQ: BlockStateQuery>(
+    block_state: &BSQ,
+    token: &BSQ::Token,
+    token_module_state: &BSQ::MutableTokenKeyValueState,
+    account: &BSQ::Account,
+) -> Result<AccountBalances, TokenStateInvariantError> {
+    let total = block_state.account_token_balance(account, token);
+    let context = TokenQueryContext {
+        block_state,
+        token_module_state,
+    };
+    let account_index = block_state.account_index(account);
+    let locked_balances =
+        key_value_state::get_locked_balances_for_account(&context, account_index)?;
+    let mut locked = RawTokenAmount(0);
+    let on_overflow = || {
+        let token_name = block_state.token_configuration(token).token_id;
+        TokenStateInvariantError(format!(
+            "locked balance exceeds total balance for token {token_name} on account index {account_index}"
+        ))
+    };
+    for (_, amount) in locked_balances {
+        locked = locked.checked_add(amount).ok_or_else(on_overflow)?;
+    }
+    let available = total.checked_sub(locked).ok_or_else(on_overflow)?;
+    Ok(AccountBalances {
+        total,
+        locked,
+        available,
+    })
+}
+
 /// Context for running token queries with a specific token in context.
 pub struct TokenQueryContext<'a, BSQ: BlockStateQuery> {
     /// The block state
@@ -161,7 +206,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     ///
     /// # Errors
     ///
-    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient available balance.
     /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
     pub fn transfer(
         &mut self,
@@ -172,11 +217,21 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError> {
+        // Check that the available balance is sufficient.
+        let balances =
+            get_account_balances(self.block_state, self.token, self.token_module_state, from)?;
+        if amount > balances.available {
+            return Err(InsufficientBalanceError {
+                available: balances.available,
+                required: amount,
+            }
+            .into());
+        }
         // Update sender balance
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
             .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: self.block_state.account_token_balance(from, self.token),
+                available: balances.available,
                 required: amount,
             })?;
 
@@ -243,9 +298,178 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         self.block_state.protocol_version() >= ProtocolVersion::P11
     }
 
+    /// Fund a lock with a specified amount of the token. This generates a
+    /// `TokenTransferEvent` to reflect the change in the locked balance.
+    ///
+    /// Note: this does not update the lock itself, which should also record
+    /// that this account has a balance associated with the lock.
+    ///
+    /// Returns `true` if the account previously had no balance controlled by
+    /// the lock but now has a (positive) balance controlled by it.
+    ///
+    /// # Preconditions
+    ///
+    /// - The protocol version MUST support protocol-level locks.
+    /// - The lock MUST exist in the block state.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenStateInvariantError`] If an internal token state invariant is broken, e.g. locked balance overflow.
+    pub fn transfer_into_lock(
+        &mut self,
+        from: &BSO::Account,
+        from_address: AccountAddress,
+        lock_id: &LockId,
+        amount: RawTokenAmount,
+        memo: Option<Memo>,
+    ) -> Result<bool, TokenTransferError> {
+        let balances =
+            get_account_balances(self.block_state, self.token, self.token_module_state, from)?;
+        if amount > balances.available {
+            return Err(InsufficientBalanceError {
+                available: balances.available,
+                required: amount,
+            }
+            .into());
+        }
+
+        // Update locked balance of the lock
+        let from_index = self.block_state.account_index(from);
+        let locked_balance = key_value_state::get_locked_balance_for(self, from_index, lock_id)?;
+        let new_locked_balance = locked_balance.checked_add(amount).ok_or_else(|| {
+            // We should never overflow locked balance at fund, since the total circulating supply of the token
+            // is always less that what is representable as a token amount.
+            TokenStateInvariantError("Locked balance overflow at fund".to_string())
+        })?;
+        key_value_state::set_locked_balance_for(self, from_index, lock_id, new_locked_balance);
+
+        // Issue event
+        let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
+            token_id: self.token_configuration.token_id.clone(),
+            from: TokenHolder::Account(from_address),
+            to: TokenHolder::Account(from_address), // Locked balance is still associated with the same account
+            amount: TokenAmount {
+                amount,
+                decimals: self.block_state.token_configuration(self.token).decimals,
+            },
+            memo,
+            from_lock: None,
+            to_lock: Some(lock_id.clone()),
+        });
+
+        self.events.push(event);
+
+        Ok(locked_balance.0 == 0 && new_locked_balance.0 > 0)
+    }
+
+    /// Send locked funds from one account to another. The funds arrive on the
+    /// available balance of the receiving account. If the destination is
+    /// `None`, the funds are returned to the sender's available balance. This
+    /// generates a `TokenTransferEvent` to reflect the transfer. The event is
+    /// generated even if the transfer amount is 0.
+    ///
+    /// Note: this does not update the locks themselves, which should also be
+    /// updated if the sending account's locked funds are reduced to 0.
+    ///
+    /// Returns `true` if the sending account had a positive balance controlled by
+    /// the lock before the transfer but has no balance controlled by it after the transfer.
+    ///
+    /// # Preconditions
+    ///
+    /// - The protocol version MUST support protocol-level locks.
+    /// - The lock MUST exist in the block state.
+    ///
+    /// # Errors
+    ///
+    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenStateInvariantError`] If an internal token state invariant is broken.
+    pub fn transfer_from_lock(
+        &mut self,
+        from: &BSO::Account,
+        from_address: AccountAddress,
+        destination: Option<(&BSO::Account, AccountAddress)>,
+        lock_id: &LockId,
+        amount: RawTokenAmount,
+        memo: Option<Memo>,
+    ) -> Result<bool, TokenTransferError> {
+        let old_balance = key_value_state::get_locked_balance_for(
+            self,
+            self.block_state.account_index(from),
+            lock_id,
+        )?;
+        let new_balance =
+            old_balance
+                .checked_sub(amount)
+                .ok_or_else(|| InsufficientBalanceError {
+                    available: old_balance,
+                    required: amount,
+                })?;
+        key_value_state::set_locked_balance_for(
+            self,
+            self.block_state.account_index(from),
+            lock_id,
+            new_balance,
+        );
+
+        let to_address = match destination {
+            None => {
+                // Returning to sender's available balance: no change in
+                // the account balance is required.
+                from_address
+            }
+            Some((to, to_addr)) => {
+                // Update sender balance
+                self.block_state
+                    .update_token_account_balance(
+                        self.token,
+                        from,
+                        RawTokenAmountDelta::Subtract(amount),
+                    )
+                    .map_err(|_err: OverflowError| {
+                        // An overflow can only occur here if the locked balance exceed the
+                        // account balance, which is an invariant violation.
+                        TokenStateInvariantError(
+                            "Transfer source token amount overflow".to_string(),
+                        )
+                    })?;
+
+                // Update receiver balance
+                self.block_state
+                    .update_token_account_balance(self.token, to, RawTokenAmountDelta::Add(amount))
+                    .map_err(|_err: OverflowError| {
+                        // We should never overflow at transfer, since the total circulating supply
+                        // of the token is always less that what is representable as a token amount.
+                        TokenStateInvariantError(
+                            "Transfer destination token amount overflow".to_string(),
+                        )
+                    })?;
+                to_addr
+            }
+        };
+
+        // Issue event
+        let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
+            token_id: self.token_configuration.token_id.clone(),
+            from: TokenHolder::Account(from_address),
+            to: TokenHolder::Account(to_address),
+            amount: TokenAmount {
+                amount,
+                decimals: self.block_state.token_configuration(self.token).decimals,
+            },
+            memo,
+            from_lock: Some(lock_id.clone()),
+            to_lock: None,
+        });
+        self.events.push(event);
+
+        Ok(old_balance == amount && old_balance.0 > 0)
+    }
+
     /// Unlock the balance of an account associated with a particular lock for
     /// this particular token. This generates a `TokenTransferEvent` to reflect
-    /// the change in the locked balance.
+    /// the change in the locked balance. No transfer occurs (and no event is
+    /// generated) if there is no locked balance to unlock.
     pub fn unlock_balance(
         &mut self,
         account_index: AccountIndex,
