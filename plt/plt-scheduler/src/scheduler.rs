@@ -1,14 +1,21 @@
 //! Entry points to calling the scheduler. The scheduler is responsible for executing
 //! transaction and update instruction payloads.
 
-use crate::token_module::errors::TokenStateInvariantError;
+use crate::token_module::errors::{TokenStateInvariantError, TokenTransferError};
+use crate::token_module::util;
 use crate::transaction_execution::{TransactionContext, TransactionExecution};
 use concordium_base::base::ProtocolVersion;
+use concordium_base::protocol_level_tokens::{
+    TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
+};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
-use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
+use plt_scheduler_types::types::reject_reasons::{
+    EncodedTokenModuleRejectReason, TransactionRejectReason,
+};
 
 pub mod helpers;
 mod plt_scheduler;
@@ -50,6 +57,43 @@ impl From<TokenStateInvariantError> for TransactionFailure {
         Self::Error(TransactionExecutionError::StateInvariantBroken(
             value.to_string(),
         ))
+    }
+}
+
+impl TransactionFailure {
+    fn from_token_transfer_error(
+        index: u64,
+        token_configuration: &TokenConfiguration,
+        error: TokenTransferError,
+    ) -> Self {
+        match error {
+            TokenTransferError::StateInvariantViolation(token_state_invariant_error) => {
+                token_state_invariant_error.into()
+            }
+            TokenTransferError::InsufficientBalance(insufficient_balance_error) => {
+                let (reason, details) = TokenModuleRejectReason::TokenBalanceInsufficient(
+                    TokenBalanceInsufficientRejectReason {
+                        index,
+                        available_balance: util::to_token_amount(
+                            token_configuration,
+                            insufficient_balance_error.available,
+                        ),
+                        required_balance: util::to_token_amount(
+                            token_configuration,
+                            insufficient_balance_error.required,
+                        ),
+                    },
+                )
+                .encode_reject_reason();
+                Self::Reject(TransactionRejectReason::TokenUpdateTransactionFailed(
+                    EncodedTokenModuleRejectReason {
+                        token_id: token_configuration.token_id.clone(),
+                        reason_type: reason.to_type_discriminator(),
+                        details: Some(details),
+                    },
+                ))
+            }
+        }
     }
 }
 

@@ -20,25 +20,15 @@ use plt_scheduler_types::types::events::{
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
-/// The total, locked and available balance of an account (for a particular token).
-struct AccountBalances {
-    /// The total balance (sum of locked and available).
-    pub total: RawTokenAmount,
-    /// The balance held under the control of locks.
-    pub locked: RawTokenAmount,
-    /// The balance that is unencumbered by locks.
-    pub available: RawTokenAmount,
-}
-
-/// Get the total, locked and available balances for an account.
+/// Get the available balance for an account.
 /// This can throw a `TokenStateInvariantError` if the computed locked balance
 /// exceeds the total balance.
-fn get_account_balances<BSQ: BlockStateQuery>(
+fn get_available_balance<BSQ: BlockStateQuery>(
     block_state: &BSQ,
     token: &BSQ::Token,
     token_module_state: &BSQ::MutableTokenKeyValueState,
     account: &BSQ::Account,
-) -> Result<AccountBalances, TokenStateInvariantError> {
+) -> Result<RawTokenAmount, TokenStateInvariantError> {
     let total = block_state.account_token_balance(account, token);
     let context = TokenQueryContext {
         block_state,
@@ -47,7 +37,7 @@ fn get_account_balances<BSQ: BlockStateQuery>(
     let account_index = block_state.account_index(account);
     let locked_balances =
         key_value_state::get_locked_balances_for_account(&context, account_index)?;
-    let mut locked = RawTokenAmount(0);
+    let mut available = total;
     let on_overflow = || {
         let token_name = block_state.token_configuration(token).token_id;
         TokenStateInvariantError(format!(
@@ -55,14 +45,9 @@ fn get_account_balances<BSQ: BlockStateQuery>(
         ))
     };
     for (_, amount) in locked_balances {
-        locked = locked.checked_add(amount).ok_or_else(on_overflow)?;
+        available = available.checked_sub(amount).ok_or_else(on_overflow)?;
     }
-    let available = total.checked_sub(locked).ok_or_else(on_overflow)?;
-    Ok(AccountBalances {
-        total,
-        locked,
-        available,
-    })
+    Ok(available)
 }
 
 /// Context for running token queries with a specific token in context.
@@ -218,11 +203,11 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError> {
         // Check that the available balance is sufficient.
-        let balances =
-            get_account_balances(self.block_state, self.token, self.token_module_state, from)?;
-        if amount > balances.available {
+        let available =
+            get_available_balance(self.block_state, self.token, self.token_module_state, from)?;
+        if amount > available {
             return Err(InsufficientBalanceError {
-                available: balances.available,
+                available,
                 required: amount,
             }
             .into());
@@ -231,7 +216,7 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
             .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: balances.available,
+                available,
                 required: amount,
             })?;
 
@@ -324,11 +309,11 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<bool, TokenTransferError> {
-        let balances =
-            get_account_balances(self.block_state, self.token, self.token_module_state, from)?;
-        if amount > balances.available {
+        let available =
+            get_available_balance(self.block_state, self.token, self.token_module_state, from)?;
+        if amount > available {
             return Err(InsufficientBalanceError {
-                available: balances.available,
+                available,
                 required: amount,
             }
             .into());
@@ -398,13 +383,12 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
             self.block_state.account_index(from),
             lock_id,
         )?;
-        let new_balance =
-            old_balance
-                .checked_sub(amount)
-                .ok_or_else(|| InsufficientBalanceError {
-                    available: old_balance,
-                    required: amount,
-                })?;
+        let new_balance = old_balance
+            .checked_sub(amount)
+            .ok_or(InsufficientBalanceError {
+                available: old_balance,
+                required: amount,
+            })?;
         key_value_state::set_locked_balance_for(
             self,
             self.block_state.account_index(from),

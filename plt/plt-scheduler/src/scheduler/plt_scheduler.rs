@@ -5,11 +5,16 @@ use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError, TransactionFailure};
 use crate::token_context::TokenOperationContext;
-use crate::token_module::{self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError};
+use crate::token_module::{
+    self, TOKEN_MODULE_REF, TokenInitializationError, TokenUpdateError, util,
+};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenOperation};
+use concordium_base::protocol_level_tokens::{
+    DeserializationFailureRejectReason, RawCbor, TokenAmount, TokenId, TokenModuleRejectReason,
+    TokenOperation,
+};
 use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload,
     meta_operations::{
@@ -29,6 +34,7 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, Tra
 use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
+use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
@@ -279,10 +285,29 @@ where
     Ok(result)
 }
 
+fn parse_raw_amount(
+    token_configuration: &TokenConfiguration,
+    amount: TokenAmount,
+) -> Result<RawTokenAmount, TransactionFailure> {
+    util::to_raw_token_amount(token_configuration, amount).map_err(|err| {
+        let (reason, details) =
+            TokenModuleRejectReason::DeserializationFailure(DeserializationFailureRejectReason {
+                cause: Some(err.to_string()),
+            })
+            .encode_reject_reason();
+        TransactionRejectReason::TokenUpdateTransactionFailed(EncodedTokenModuleRejectReason {
+            token_id: token_configuration.token_id.clone(),
+            reason_type: reason.to_type_discriminator(),
+            details: Some(details),
+        })
+        .into()
+    })
+}
+
 fn execute_lock_operation<BSO: BlockStateOperations>(
     transaction_execution: &mut TransactionExecution<BSO::Account>,
     block_state: &mut BSO,
-    _index: usize,
+    index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
 ) -> Result<(), TransactionFailure> {
@@ -294,20 +319,228 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
             let lock_configuration = block_state.lock_configuration(&lock);
+            // Check if the lock has expired.
             if lock_configuration
                 .expiry()
                 .is_expired(transaction_execution.timestamp())
             {
                 return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
             }
+            // Check if the sender is authorized to fund the lock.
+            if !lock_configuration.controller().validate_operation(
+                block_state,
+                transaction_execution.sender_account(),
+                &lock_controller::LockOperation::Fund(meta_lock_fund_details.clone()),
+            ) {
+                return Err(TransactionRejectReason::LockFundNotAuthorized(
+                    lock.lock_id().clone(),
+                    transaction_execution.sender_account_address(),
+                )
+                .into());
+            }
+
+            let token = block_state
+                .token_by_id(&meta_lock_fund_details.token)
+                .map_err(|TokenNotFoundByIdError(token_id)| {
+                    TransactionRejectReason::NonExistentTokenId(token_id)
+                })?;
+
             let memo: Option<transactions::Memo> = meta_lock_fund_details
                 .memo
                 .clone()
                 .map(transactions::Memo::from);
+
+            // Fund the lock.
+            let is_new_lock_holder = with_token(block_state, &token, events, |kernel| {
+                let raw_amount =
+                    parse_raw_amount(kernel.token_configuration, meta_lock_fund_details.amount)?;
+                kernel
+                    .transfer_into_lock(
+                        transaction_execution.sender_account(),
+                        transaction_execution.sender_account_address(),
+                        &meta_lock_fund_details.lock,
+                        raw_amount,
+                        memo,
+                    )
+                    .map_err(|error| {
+                        TransactionFailure::from_token_transfer_error(
+                            index as u64,
+                            kernel.token_configuration,
+                            error,
+                        )
+                    })
+            })?;
+
+            if is_new_lock_holder {
+                // The lock controller state needs to be updated to reflect
+                // that the lock controls tokens for the account.
+                block_state.add_lock_balance_ref(
+                    lock.lock_id(),
+                    transaction_execution.sender_account(),
+                    &token,
+                );
+            }
+
             Ok(())
         }
-        LockOperation::Send(_meta_lock_send_details) => todo!(),
-        LockOperation::Return(_meta_lock_return_details) => todo!(),
+        LockOperation::Send(meta_lock_send_details) => {
+            // TODO: (COR-2306) charge.
+            let lock = block_state
+                .lock_by_id(&meta_lock_send_details.lock)
+                .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
+
+            let lock_configuration = block_state.lock_configuration(&lock);
+            // Check if the lock has expired.
+            if lock_configuration
+                .expiry()
+                .is_expired(transaction_execution.timestamp())
+            {
+                return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
+            }
+            // Check if the sender is authorized to send from the lock.
+            if !lock_configuration.controller().validate_operation(
+                block_state,
+                transaction_execution.sender_account(),
+                &lock_controller::LockOperation::Send(meta_lock_send_details.clone()),
+            ) {
+                return Err(TransactionRejectReason::LockSendNotAuthorized(
+                    lock.lock_id().clone(),
+                    transaction_execution.sender_account_address(),
+                )
+                .into());
+            }
+
+            let token = block_state
+                .token_by_id(&meta_lock_send_details.token)
+                .map_err(|TokenNotFoundByIdError(token_id)| {
+                    TransactionRejectReason::NonExistentTokenId(token_id)
+                })?;
+
+            let memo: Option<transactions::Memo> = meta_lock_send_details
+                .memo
+                .clone()
+                .map(transactions::Memo::from);
+
+            let source_address = meta_lock_send_details.source.address;
+            let source = block_state
+                .account_by_address(&source_address)
+                .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
+
+            let recipient_address = meta_lock_send_details.recipient.address;
+            let recipient = block_state
+                .account_by_address(&recipient_address)
+                .map_err(|_| TransactionRejectReason::InvalidAccountReference(recipient_address))?;
+            let destination = Some((&recipient, recipient_address));
+
+            // Send from the lock.
+            let is_removed_lock_holder = with_token(block_state, &token, events, |kernel| {
+                let raw_amount =
+                    parse_raw_amount(kernel.token_configuration, meta_lock_send_details.amount)?;
+                kernel
+                    .transfer_from_lock(
+                        &source,
+                        source_address,
+                        destination,
+                        &meta_lock_send_details.lock,
+                        raw_amount,
+                        memo,
+                    )
+                    .map_err(|error| {
+                        TransactionFailure::from_token_transfer_error(
+                            index as u64,
+                            kernel.token_configuration,
+                            error,
+                        )
+                    })
+            })?;
+            if is_removed_lock_holder {
+                // The lock controller state needs to be updated to reflect
+                // that the lock no longer controls any of this token for the account.
+                block_state.remove_lock_balance_ref(
+                    lock.lock_id(),
+                    transaction_execution.sender_account(),
+                    &token,
+                );
+            }
+
+            Ok(())
+        }
+        LockOperation::Return(meta_lock_return_details) => {
+            // TODO: (COR-2306) charge.
+            let lock = block_state
+                .lock_by_id(&meta_lock_return_details.lock)
+                .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
+
+            let lock_configuration = block_state.lock_configuration(&lock);
+            // Check if the lock has expired.
+            if lock_configuration
+                .expiry()
+                .is_expired(transaction_execution.timestamp())
+            {
+                return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
+            }
+            // Check if the sender is authorized to send from the lock.
+            if !lock_configuration.controller().validate_operation(
+                block_state,
+                transaction_execution.sender_account(),
+                &lock_controller::LockOperation::Return(meta_lock_return_details.clone()),
+            ) {
+                return Err(TransactionRejectReason::LockReturnNotAuthorized(
+                    lock.lock_id().clone(),
+                    transaction_execution.sender_account_address(),
+                )
+                .into());
+            }
+
+            let token = block_state
+                .token_by_id(&meta_lock_return_details.token)
+                .map_err(|TokenNotFoundByIdError(token_id)| {
+                    TransactionRejectReason::NonExistentTokenId(token_id)
+                })?;
+
+            let memo: Option<transactions::Memo> = meta_lock_return_details
+                .memo
+                .clone()
+                .map(transactions::Memo::from);
+
+            let source_address = meta_lock_return_details.source.address;
+            let source = block_state
+                .account_by_address(&source_address)
+                .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
+
+            // Return from the lock.
+            let is_removed_lock_holder = with_token(block_state, &token, events, |kernel| {
+                let raw_amount =
+                    parse_raw_amount(kernel.token_configuration, meta_lock_return_details.amount)?;
+                kernel
+                    .transfer_from_lock(
+                        &source,
+                        source_address,
+                        None,
+                        &meta_lock_return_details.lock,
+                        raw_amount,
+                        memo,
+                    )
+                    .map_err(|error| {
+                        TransactionFailure::from_token_transfer_error(
+                            index as u64,
+                            kernel.token_configuration,
+                            error,
+                        )
+                    })
+            })?;
+            if is_removed_lock_holder {
+                // The lock controller state needs to be updated to reflect
+                // that the lock no longer controls any of this token for the account.
+                block_state.remove_lock_balance_ref(
+                    lock.lock_id(),
+                    transaction_execution.sender_account(),
+                    &token,
+                );
+            }
+
+            Ok(())
+        }
         LockOperation::Create(meta_lock_create_details) => {
             let config = meta_lock_create_details.config;
             let account_index = block_state.account_index(transaction_execution.sender_account());

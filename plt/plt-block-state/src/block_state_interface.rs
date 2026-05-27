@@ -373,6 +373,28 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - The `lock` MUST already exist in the block state, i.e.
     ///   `s.lock_by_id(lock_id).expect("lock exists")`.
     fn add_lock_balance_ref(&mut self, lock: &LockId, account: &Self::Account, token: &Self::Token);
+
+    /// Stop tracking that a lock holds a balance for the given account and token.
+    ///
+    /// This removes the account/token pair from the lock state, so it will no longer be
+    /// returned by [`BlockStateQuery::lock_balances`].
+    ///
+    /// # Arguments
+    /// - `lock` The lock to update.
+    /// - `account` The account whose locked balance is no longer tracked.
+    /// - `token` The token whose locked balance is no longer tracked.
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` MUST already exist in the block state, i.e.
+    ///   `s.lock_by_id(lock_id).expect("lock exists")`.
+    fn remove_lock_balance_ref(
+        &mut self,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    );
 }
 
 /// The computation resulted in overflow (negative or above maximum value).
