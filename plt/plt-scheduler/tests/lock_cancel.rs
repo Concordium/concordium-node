@@ -346,7 +346,7 @@ fn test_cancel_nonexistent() {
     let mut block_state = BlockStateLatest::default();
 
     let account_index_1 = context.external.create_account().account_index();
-    
+
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
         sender_account_address: context.external.account_canonical_address(account_index_1),
@@ -373,5 +373,4 @@ fn test_cancel_nonexistent() {
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(TransactionRejectReason::NonExistentLockId(rejected_lock_id)) => {
         assert_eq!(rejected_lock_id, lock_id);
     });
-
 }
