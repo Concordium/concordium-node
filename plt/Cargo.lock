@@ -1393,6 +1393,7 @@ dependencies = [
  "concordium_base",
  "hex",
  "proptest",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

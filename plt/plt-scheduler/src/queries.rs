@@ -5,7 +5,7 @@ use crate::token_context::TokenQueryContext;
 use crate::token_module;
 use concordium_base::common::cbor::cbor_encode;
 use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::TokenId;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use plt_block_state::block_state_interface::{
     AccountNotFoundByIndexError, BlockStateQuery, LockNotFoundByIdError, TokenNotFoundByIdError,
 };
@@ -186,9 +186,9 @@ impl From<AccountNotFoundByIndexError> for QueryLockError {
 pub fn query_lock_info<BSQ: BlockStateQuery>(
     block_state: &BSQ,
     lock_id: &LockId,
-) -> Result<Vec<u8>, QueryLockError> {
+) -> Result<RawCbor, QueryLockError> {
     let lock = block_state.lock_by_id(lock_id)?;
     let configuration = block_state.lock_configuration(&lock);
     let lock_info = locks::get_lock_info(block_state, lock_id, &configuration)?;
-    Ok(cbor_encode(&lock_info))
+    Ok(RawCbor::from(cbor_encode(&lock_info)))
 }

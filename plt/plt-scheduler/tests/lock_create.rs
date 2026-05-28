@@ -1,5 +1,7 @@
 //! Tests for creating a PLT lock.
 
+use crate::utils::BlockStateLatest;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
@@ -15,19 +17,19 @@ use concordium_base::{
     transactions::Payload,
     updates::{CreatePlt, UpdatePayload},
 };
-use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
+use plt_block_state::entity::entity_test_stub;
+use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
-
-use crate::utils::block_state_external_stubbed::BlockStateWithExternalStateStubbed;
 
 mod utils;
 
 #[test]
 fn test_create_simple_lock() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
 
-    let account_index_1 = stub.create_account();
-    let account_1 = stub.account_canonical_address(&account_index_1);
+    let account_index_1 = context.external.create_account().account_index();
+    let account_1 = context.external.account_canonical_address(account_index_1);
 
     let plt_x: TokenId = "pltX".parse().unwrap();
     let parameters = TokenModuleInitializationParameters {
@@ -47,7 +49,9 @@ fn test_create_simple_lock() {
         decimals: 2,
         initialization_parameters,
     });
-    scheduler::execute_chain_update(stub.state_mut(), payload).expect("create pltX");
+    block_state
+        .execute_chain_update(&mut context, payload)
+        .expect("create pltX");
 
     let config = LockConfig {
         recipients: vec![account_1.into()],
@@ -70,15 +74,16 @@ fn test_create_simple_lock() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let result = plt_scheduler::scheduler::execute_transaction(
-        account_index_1,
-        account_1,
-        1.into(),
-        stub.state_mut(),
-        Payload::MetaUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            account_index_1,
+            account_1,
+            1.into(),
+            Payload::MetaUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
     assert_eq!(events.len(), 1);
     assert_eq!(

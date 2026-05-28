@@ -1,5 +1,7 @@
 //! Tests for the new `query_lock_list` and `query_lock_info` scheduler query functions.
 
+use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
@@ -8,12 +10,12 @@ use concordium_base::protocol_level_locks::{
     LockController, LockControllerSimpleV0Capability, LockId,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, TokenId};
-use plt_scheduler::queries::{self, QueryLockError};
-use plt_scheduler_types::types::locks::LockControllerSimpleV0Grant;
+use plt_block_state::entity::entity_test_stub;
+use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
+use plt_scheduler::queries::QueryLockError;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
+
+use crate::utils::BlockStateLatest;
 
 mod utils;
 
@@ -21,38 +23,63 @@ mod utils;
 /// `LockInfo` value, and the round-trip via `cbor_decode` recovers an equal value.
 #[test]
 fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
 
-    let recipient = stub.create_account();
-    let funding_account = stub.create_account();
-    let recipient_addr = stub.account_canonical_address(&recipient);
-    let funding_addr = stub.account_canonical_address(&funding_account);
+    let recipient = context.external.create_account();
+    let funding_account = context.external.create_account();
+    let recipient_addr = context
+        .external
+        .account_canonical_address(recipient.account_index());
+    let funding_addr = context
+        .external
+        .account_canonical_address(funding_account.account_index());
 
     let token_id: TokenId = "TokenLockA".parse().unwrap();
-    let (token, _gov_account) = stub.create_and_init_token(
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         Some(RawTokenAmount(0)),
     );
-    stub.increment_account_balance(funding_account, token, RawTokenAmount(123_400));
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        funding_account.account_index(),
+        &token_id,
+        RawTokenAmount(123_400),
+    );
 
-    let lock_id = stub.create_lock(
-        funding_account,
-        1,
-        vec![recipient],
+    let lock_id = LockId {
+        account_index: funding_account.account_index().into(),
+        sequence_number: 1,
+        creation_order: 0,
+    };
+    utils::create_lock(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        vec![recipient.account_index()],
         vec![LockControllerSimpleV0Grant {
-            account: funding_account,
+            account: funding_account.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
         vec![token_id.clone()],
         1_804_806_000,
     );
-    // Track the (account, token) pair under the lock and record the locked amount in
-    // the token-module key-value state so it shows up in `lock_balances` / `funds`.
-    stub.lock_balance(&lock_id, &funding_account, &token, RawTokenAmount(100));
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        funding_account.account_index(),
+        &token_id,
+        RawTokenAmount(100),
+    );
 
-    let bytes = queries::query_lock_info(stub.state(), &lock_id)
+    let bytes = block_state
+        .query_lock_info(&context, &lock_id)
         .expect("query_lock_info must succeed for an existing lock");
     let decoded: LockInfo =
         cbor::cbor_decode(&bytes).expect("CBOR encoding produced by query_lock_info must decode");
@@ -86,12 +113,13 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
 /// lock id is not present in the block state.
 #[test]
 fn test_query_lock_info_unknown_lock() {
-    let stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let context = entity_test_stub::new_stubbed_context();
+    let block_state = BlockStateLatest::default();
     let unknown = LockId {
         account_index: 999,
         sequence_number: 999,
         creation_order: 0,
     };
-    let result = queries::query_lock_info(stub.state(), &unknown);
+    let result = block_state.query_lock_info(&context, &unknown);
     assert_matches!(result, Err(QueryLockError::LockDoesNotExist));
 }

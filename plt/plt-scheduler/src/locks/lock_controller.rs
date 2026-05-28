@@ -5,10 +5,10 @@ use concordium_base::{
     protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId},
 };
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
-use plt_scheduler_types::types::{
-    locks::{LockControllerConfig, LockControllerSimpleV0},
-    reject_reasons::TransactionRejectReason,
+use plt_block_state::persistent::protocol_level_locks::p11::{
+    LockControllerConfig, LockControllerSimpleV0,
 };
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
 /// Runtime lock operation model. This corresponds to the "fund", "send", "return", and "cancel"
 /// CBOR operations for interacting with locks from concordium-base.

@@ -2,8 +2,14 @@
 
 ## Unreleased changes
 
-- Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.
 - Populate the protocol-level token account `module_state` returned by `GetAccountInfo` with available balance and lock details.
+
+## 11.2.0 (Devnet)
+
+- Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.
+- Added support for the new "meta update" transaction, which supports the same operations as any "token update" transaction
+  and additionally supports the following operations:
+  - `lockCreate`: create a PLT Lock from a given lock configuration
 
 # 11.1.0 (Devnet)
 

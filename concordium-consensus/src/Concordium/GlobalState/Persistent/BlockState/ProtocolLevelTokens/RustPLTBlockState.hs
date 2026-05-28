@@ -1,6 +1,6 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -37,7 +37,7 @@ data RustPLTBlockState
 -- | Opaque pointer to a immutable PLT block state save-point managed by the rust library.
 --
 -- Memory is deallocated using a finalizer.
-newtype ForeignPLTBlockStatePtr pv = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
+newtype ForeignPLTBlockStatePtr (pv :: Types.ProtocolVersion) = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
 
 -- | Helper function to convert a raw pointer passed by the Rust library into a `PLTBlockState` object.
 wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO (ForeignPLTBlockStatePtr pv)
@@ -197,16 +197,16 @@ foreign import ccall "ffi_hash_plt_block_state"
 
 -- | Run migration during a protocol update.
 migrate ::
-    forall m t pv tpv.
-    (BlobStore.SupportMigration m t, Types.IsProtocolVersion tpv) =>
+    forall m t oldpv pv.
+    (BlobStore.SupportMigration m t, Types.IsProtocolVersion pv) =>
     -- | Current block state
-    (ForeignPLTBlockStatePtr pv) ->
+    (ForeignPLTBlockStatePtr oldpv) ->
     -- | New migrated block state
-    t m (ForeignPLTBlockStatePtr tpv)
+    t m (ForeignPLTBlockStatePtr pv)
 migrate currentState = do
     oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
     newStoreCallback <- snd <$> BlobStore.getCallbacks
-    let newSProtocolVersion = Types.protocolVersion @tpv
+    let newSProtocolVersion = Types.protocolVersion @pv
     liftIO $ FFI.alloca $ \newStateDestPtr -> do
         status <-
             withPLTBlockState currentState $
@@ -232,7 +232,7 @@ foreign import ccall "ffi_migrate_plt_block_state"
         FFI.Word64 ->
         -- | Pointer to the new block state.
         FFI.Ptr (FFI.Ptr RustPLTBlockState) ->
-        -- | Block state to migrate
+        -- | Block state to migrate from
         FFI.Ptr RustPLTBlockState ->
         -- | Status code
         IO FFI.Word8
