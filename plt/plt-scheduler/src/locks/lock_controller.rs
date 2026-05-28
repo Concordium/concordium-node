@@ -1,5 +1,6 @@
 //! Runtime interface for protocol-level lock controllers.
 
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
 };
@@ -22,7 +23,8 @@ pub enum LockOperation {
 
 /// Runtime interface implemented by protocol-level locks.
 pub trait LockController {
-    /// Approve or reject a lock operation. Returns `true` if the operation is authorized.
+    /// Approve or reject a lock operation. Returns `Ok(())` if the operation is authorized, or
+    /// a `TransactionRejectReason` if it is not.
     ///
     /// * `bsq`: the block state to query on
     /// * `sender`: the transaction sender reference
@@ -30,9 +32,10 @@ pub trait LockController {
     fn validate_operation<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
+        sender_address: AccountAddress,
         sender: &BSQ::Account,
         operation: &LockOperation,
-    ) -> bool;
+    ) -> Result<(), TransactionRejectReason>;
 
     /// Convert this controller configuration to its canonical CBOR
     /// [`concordium_base::protocol_level_locks::LockController`] representation, used by the
@@ -66,12 +69,13 @@ impl LockController for LockControllerConfig {
     fn validate_operation<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
+        sender_address: AccountAddress,
         sender: &BSQ::Account,
         operation: &LockOperation,
-    ) -> bool {
+    ) -> Result<(), TransactionRejectReason> {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
-                lock_controller_simple_v0.validate_operation(bsq, sender, operation)
+                lock_controller_simple_v0.validate_operation(bsq, sender_address, sender, operation)
             }
         }
     }

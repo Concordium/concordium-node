@@ -475,7 +475,12 @@ pub fn get_locked_balances_for_account(
     context
         .iter_token_state_prefix(&prefix)
         .map(|(key, value)| {
-            let lock = common::from_bytes_complete(&key.0[prefix.0.len()..]).map_err(|err| {
+            let lock_bytes = key.0.strip_prefix::<[u8]>(prefix.0.as_ref()).ok_or_else(|| {
+                TokenStateInvariantError(
+                    "Iterator over account quanta state produced invalid key".to_string(),
+                )
+            })?;
+            let lock = common::from_bytes_complete(&lock_bytes).map_err(|err| {
                 TokenStateInvariantError(format!("Stored lock id cannot be decoded: {}", err))
             })?;
             let amount = decode_locked_balance(value)?;

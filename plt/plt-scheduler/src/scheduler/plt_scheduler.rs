@@ -326,24 +326,20 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             {
                 return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
             }
-            // Check if the sender is authorized to fund the lock.
-            if !lock_configuration.controller().validate_operation(
-                block_state,
-                transaction_execution.sender_account(),
-                &lock_controller::LockOperation::Fund(meta_lock_fund_details.clone()),
-            ) {
-                return Err(TransactionRejectReason::LockFundNotAuthorized(
-                    lock.lock_id().clone(),
-                    transaction_execution.sender_account_address(),
-                )
-                .into());
-            }
 
             let token = block_state
                 .token_by_id(&meta_lock_fund_details.token)
                 .map_err(|TokenNotFoundByIdError(token_id)| {
                     TransactionRejectReason::NonExistentTokenId(token_id)
                 })?;
+
+            // Check that the operation is permitted by the lock controller.
+            lock_configuration.controller().validate_operation(
+                block_state,
+                transaction_execution.sender_account_address(),
+                transaction_execution.sender_account(),
+                &lock_controller::LockOperation::Fund(meta_lock_fund_details.clone()),
+            )?;
 
             let memo: Option<transactions::Memo> = meta_lock_fund_details
                 .memo
@@ -397,18 +393,6 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             {
                 return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
             }
-            // Check if the sender is authorized to send from the lock.
-            if !lock_configuration.controller().validate_operation(
-                block_state,
-                transaction_execution.sender_account(),
-                &lock_controller::LockOperation::Send(meta_lock_send_details.clone()),
-            ) {
-                return Err(TransactionRejectReason::LockSendNotAuthorized(
-                    lock.lock_id().clone(),
-                    transaction_execution.sender_account_address(),
-                )
-                .into());
-            }
 
             let token = block_state
                 .token_by_id(&meta_lock_send_details.token)
@@ -431,6 +415,23 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                 .account_by_address(&recipient_address)
                 .map_err(|_| TransactionRejectReason::InvalidAccountReference(recipient_address))?;
             let destination = Some((&recipient, recipient_address));
+
+            // Check if the recipient is authorized.
+            if !lock_configuration.is_recipient(&block_state.account_index(&recipient)) {
+                return Err(TransactionRejectReason::LockRecipientNotPermitted(
+                    lock.lock_id().clone(),
+                    recipient_address,
+                )
+                .into());
+            }
+
+            // Check if the send is authorized by the lock controller.
+            lock_configuration.controller().validate_operation(
+                block_state,
+                transaction_execution.sender_account_address(),
+                transaction_execution.sender_account(),
+                &lock_controller::LockOperation::Send(meta_lock_send_details.clone()),
+            )?;
 
             // Send from the lock.
             let is_removed_lock_holder = with_token(block_state, &token, events, |kernel| {
@@ -456,11 +457,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             if is_removed_lock_holder {
                 // The lock controller state needs to be updated to reflect
                 // that the lock no longer controls any of this token for the account.
-                block_state.remove_lock_balance_ref(
-                    lock.lock_id(),
-                    transaction_execution.sender_account(),
-                    &token,
-                );
+                block_state.remove_lock_balance_ref(lock.lock_id(), &source, &token);
             }
 
             Ok(())
@@ -479,18 +476,6 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             {
                 return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
             }
-            // Check if the sender is authorized to send from the lock.
-            if !lock_configuration.controller().validate_operation(
-                block_state,
-                transaction_execution.sender_account(),
-                &lock_controller::LockOperation::Return(meta_lock_return_details.clone()),
-            ) {
-                return Err(TransactionRejectReason::LockReturnNotAuthorized(
-                    lock.lock_id().clone(),
-                    transaction_execution.sender_account_address(),
-                )
-                .into());
-            }
 
             let token = block_state
                 .token_by_id(&meta_lock_return_details.token)
@@ -507,6 +492,14 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             let source = block_state
                 .account_by_address(&source_address)
                 .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
+
+            // Check if the sender is authorized to send from the lock.
+            lock_configuration.controller().validate_operation(
+                block_state,
+                transaction_execution.sender_account_address(),
+                transaction_execution.sender_account(),
+                &lock_controller::LockOperation::Return(meta_lock_return_details.clone()),
+            )?;
 
             // Return from the lock.
             let is_removed_lock_holder = with_token(block_state, &token, events, |kernel| {
@@ -532,11 +525,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             if is_removed_lock_holder {
                 // The lock controller state needs to be updated to reflect
                 // that the lock no longer controls any of this token for the account.
-                block_state.remove_lock_balance_ref(
-                    lock.lock_id(),
-                    transaction_execution.sender_account(),
-                    &token,
-                );
+                block_state.remove_lock_balance_ref(lock.lock_id(), &source, &token);
             }
 
             Ok(())
@@ -596,19 +585,14 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             if !lock_configuration
                 .expiry()
                 .is_expired(transaction_execution.timestamp())
-                && !lock_configuration.controller().validate_operation(
+            {
+                // The lock is not expired, so check that the sender is authorized to cancel the lock.
+                lock_configuration.controller().validate_operation(
                     block_state,
+                    transaction_execution.sender_account_address(),
                     transaction_execution.sender_account(),
                     &lock_controller::LockOperation::Cancel(meta_lock_cancel_details),
-                )
-            {
-                // The lock is neither expired, nor is the sender authorized to
-                // cancel the lock, so we reject the transaction.
-                return Err(TransactionRejectReason::LockCancelNotAuthorized(
-                    lock.lock_id().clone(),
-                    transaction_execution.sender_account_address(),
-                )
-                .into());
+                )?;
             }
             for (account_index, token) in block_state.lock_balances(&lock).collect::<Vec<_>>() {
                 with_token(block_state, &token, events, |kernel| {
