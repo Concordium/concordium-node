@@ -67,7 +67,17 @@ pub fn query_token_info(
     Ok(token_info)
 }
 
-/// Get the list of tokens on an account
+/// Get the list of tokens on an account.
+///
+/// # Arguments
+///
+/// - `block_state`: Block state to query.
+/// - `account`: Account whose protocol-level token balances and module state should be returned.
+///
+/// # Errors
+///
+/// Returns an error if token-module state for any token held by the account is
+/// inconsistent or cannot be decoded.
 pub fn query_token_account_infos<BSQ>(
     block_state: &BSQ,
     account: BSQ::Account,

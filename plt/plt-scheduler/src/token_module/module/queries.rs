@@ -66,6 +66,19 @@ fn query_token_module_state_impl<BSQ: BlockStateQuery>(
 }
 
 /// Get the CBOR-encoded representation of the token module account state.
+///
+/// # Arguments
+///
+/// - `context`: Query access to the token module state and surrounding block state.
+/// - `account`: Account whose token-module account state should be queried.
+/// - `balance`: Total balance of the token held by the account before subtracting locked funds.
+/// - `decimals`: Number of decimals used when encoding token amounts in the result.
+///
+/// # Errors
+///
+/// Returns an error if stored token-module state is inconsistent, such as an
+/// undecodable lock entry, overflow while summing locked balances, or locked
+/// balance exceeding the account balance.
 pub fn query_token_module_account_state<BSQ: BlockStateQuery>(
     context: &TokenQueryContext<'_, BSQ>,
     account: AccountIndex,

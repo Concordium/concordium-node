@@ -7,7 +7,7 @@
 #![allow(unused)]
 
 use assert_matches::assert_matches;
-use concordium_base::base::{AccountIndex, Energy, Nonce, ProtocolVersion};
+use concordium_base::base::{AccountIndex, Energy, ProtocolVersion};
 use concordium_base::common;
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
@@ -83,8 +83,6 @@ pub struct Account<Token> {
     index: AccountIndex,
     /// The canonical account address of the account.
     address: AccountAddress,
-    /// The next transaction sequence number to use for test transactions sent by this account.
-    next_transaction_sequence_number: Nonce,
     /// Tokens the account is holding
     tokens: BTreeMap<Token, AccountToken>,
 }
@@ -134,7 +132,6 @@ impl BlockStateWithExternalStateStubbed {
         let account = Account {
             index: account_index,
             address,
-            next_transaction_sequence_number: 1.into(),
             tokens: Default::default(),
         };
         let stub_index = AccountIndex::from(index as u64);
@@ -145,14 +142,6 @@ impl BlockStateWithExternalStateStubbed {
 
     pub fn account_canonical_address(&self, account: &AccountIndex) -> AccountAddress {
         self.block_state.external_block_state.accounts[account.index as usize].address
-    }
-
-    /// Get and increment the next transaction sequence number for the given account.
-    pub fn next_transaction_sequence_number(&mut self, account: AccountIndex) -> Nonce {
-        let account = &mut self.block_state.external_block_state.accounts[account.index as usize];
-        let next = account.next_transaction_sequence_number;
-        account.next_transaction_sequence_number.next_mut();
-        next
     }
 
     /// Create and initialize token in the stub and return stub representation of the token, together with
@@ -233,11 +222,10 @@ impl BlockStateWithExternalStateStubbed {
             )
             .unwrap();
 
-        let sequence_number = self.next_transaction_sequence_number(gov_account);
         let outcome = scheduler::execute_transaction(
             gov_account,
             token_module_state.governance_account.unwrap().address,
-            sequence_number,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -254,11 +242,10 @@ impl BlockStateWithExternalStateStubbed {
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
         let gov_addr = self.account_canonical_address(&gov_account);
-        let sequence_number = self.next_transaction_sequence_number(gov_account);
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
-            sequence_number,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -275,11 +262,10 @@ impl BlockStateWithExternalStateStubbed {
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
         let gov_addr = self.account_canonical_address(&gov_account);
-        let sequence_number = self.next_transaction_sequence_number(gov_account);
         let result = scheduler::execute_transaction(
             gov_account,
             gov_addr,
-            sequence_number,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -301,11 +287,10 @@ impl BlockStateWithExternalStateStubbed {
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
         let sender_addr = self.account_canonical_address(&sender);
-        let sequence_number = self.next_transaction_sequence_number(sender);
         let result = scheduler::execute_transaction(
             sender,
             sender_addr,
-            sequence_number,
+            1.into(),
             self.state_mut(),
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -328,6 +313,7 @@ impl BlockStateWithExternalStateStubbed {
     pub fn create_lock(
         &mut self,
         sender: AccountIndex,
+        sequence_number: u64,
         recipients: Vec<AccountIndex>,
         grants: Vec<LockControllerSimpleV0Grant>,
         tokens: Vec<TokenId>,
@@ -339,7 +325,6 @@ impl BlockStateWithExternalStateStubbed {
             .state()
             .account_by_index(sender)
             .expect("sender account must exist");
-        let sequence_number = self.next_transaction_sequence_number(sender.account);
         let resolve_account = |index: &AccountIndex| {
             CborHolderAccount::from(
                 self.state()
@@ -374,7 +359,7 @@ impl BlockStateWithExternalStateStubbed {
         let result = scheduler::execute_transaction(
             sender.account,
             sender.canonical_account_address,
-            sequence_number,
+            sequence_number.into(),
             self.state_mut(),
             Payload::MetaUpdate {
                 payload: MetaUpdatePayload {

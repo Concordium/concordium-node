@@ -39,6 +39,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
 
     let lock_id = stub.create_lock(
         funding_account,
+        1,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account: funding_account,

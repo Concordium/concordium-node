@@ -466,6 +466,16 @@ pub fn get_locked_balance_for(
 
 /// Get the locked balances recorded in token-module account state for the given
 /// account.
+///
+/// # Arguments
+///
+/// - `context`: Read access to token key-value state.
+/// - `account`: Account whose lock-controlled balances should be returned.
+///
+/// # Errors
+///
+/// Returns an error if a stored lock identifier or locked amount cannot be
+/// decoded from token-module state.
 pub fn get_locked_balances_for_account(
     context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
@@ -474,7 +484,12 @@ pub fn get_locked_balances_for_account(
     context
         .iter_token_state_prefix(&prefix)
         .map(|(key, value)| {
-            let lock = common::from_bytes_complete(&key.0[prefix.0.len()..]).map_err(|err| {
+            let Some(lock_bytes) = key.0.strip_prefix::<[u8]>(prefix.0.as_ref()) else {
+                return Err(TokenStateInvariantError(
+                    "Iterator over account quanta state produced invalid key".to_string(),
+                ));
+            };
+            let lock = common::from_bytes_complete(lock_bytes).map_err(|err| {
                 TokenStateInvariantError(format!("Stored lock id cannot be decoded: {}", err))
             })?;
             let amount = decode_locked_balance(value)?;

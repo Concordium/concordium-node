@@ -146,6 +146,7 @@ fn test_query_token_account_info_available_with_locked_balance() {
 
     let lock_id = stub.create_lock(
         account,
+        1,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account,
@@ -194,6 +195,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
 
     let lock_id1 = stub.create_lock(
         account,
+        1,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account,
@@ -204,6 +206,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
     );
     let lock_id2 = stub.create_lock(
         account,
+        2,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account,
@@ -254,6 +257,7 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
 
     let lock_id = stub.create_lock(
         account,
+        1,
         vec![recipient],
         vec![LockControllerSimpleV0Grant {
             account,
