@@ -6,6 +6,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Account.MigrationState where
@@ -45,13 +46,13 @@ type IntroducesFlexibleCooldown (oldpv :: ProtocolVersion) (pv :: ProtocolVersio
 
 -- | State that is accumulated accross the migration of accounts from one protocol version to
 -- another.
-data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
+data AccountMigrationState store (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
     { -- | In the P6 -> P7 protocol update, this records the accounts that previously were in
       --  cooldown, and now will be in pre-pre-cooldown.
       _migrationPrePreCooldown ::
         !( Conditionally
             (IntroducesFlexibleCooldown oldpv pv)
-            AccountList
+            (AccountList store)
          ),
       -- | When migrating P6->P7, we build up the 'PersistentActiveBakers' while
       --  traversing the account table. This should be initialised with the active bakers (that
@@ -59,7 +60,7 @@ data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = 
       _persistentActiveBakers ::
         !( Conditionally
             (IntroducesFlexibleCooldown oldpv pv)
-            (PersistentActiveBakers (AccountVersionFor pv))
+            (PersistentActiveBakers store (AccountVersionFor pv))
          ),
       -- | A counter to track the index of the current account as we traverse the account table.
       _currentAccountIndex :: !AccountIndex
@@ -77,18 +78,19 @@ makeLenses ''AccountMigrationState
 -- actually be removed as bakers. During the processing of the account table, the delegators
 -- will be added back to the 'PersistentActiveBakers' as they are encountered.
 initialPersistentActiveBakersForMigration ::
-    forall oldpv av t m.
+    forall oldstore store oldpv av t m.
     ( IsAccountVersion av,
       SupportMigration m t,
-      SupportsPersistentAccount oldpv m
+      store ~ MBSStore (t m),
+      SupportsPersistentAccount oldstore oldpv m
     ) =>
-    Accounts oldpv ->
-    PersistentActiveBakers (AccountVersionFor oldpv) ->
+    Accounts oldstore oldpv ->
+    PersistentActiveBakers oldstore (AccountVersionFor oldpv) ->
     t
         m
         ( Conditionally
             (Not (SupportsFlexibleCooldown (AccountVersionFor oldpv)) && SupportsFlexibleCooldown av)
-            (PersistentActiveBakers av)
+            (PersistentActiveBakers store av)
         )
 initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case (oldSFC, newSFC) of
     (SFalse, SFalse) -> return CFalse
@@ -97,7 +99,7 @@ initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case (ol
         bakers <- lift $ Trie.keysAsc (oldActiveBakers ^. activeBakers)
         CTrue <$> foldM accumBakers emptyPersistentActiveBakers bakers
       where
-        accumBakers :: PersistentActiveBakers av -> BakerId -> t m (PersistentActiveBakers av)
+        accumBakers :: PersistentActiveBakers store av -> BakerId -> t m (PersistentActiveBakers store av)
         accumBakers pab bakerId =
             lift (indexedAccount (bakerAccountIndex bakerId) oldAccounts) >>= \case
                 Nothing -> error "Baker account does not exist"
@@ -134,13 +136,13 @@ initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case (ol
 
 -- | An 'AccountMigrationState' in an initial state.
 initialAccountMigrationState ::
-    forall oldpv pv.
+    forall store oldpv pv.
     (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
     -- | The active bakers without the delegators.
     Conditionally
         (IntroducesFlexibleCooldown oldpv pv)
-        (PersistentActiveBakers (AccountVersionFor pv)) ->
-    AccountMigrationState oldpv pv
+        (PersistentActiveBakers store (AccountVersionFor pv)) ->
+    AccountMigrationState store oldpv pv
 initialAccountMigrationState _persistentActiveBakers = AccountMigrationState{..}
   where
     _migrationPrePreCooldown = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor oldpv)) of
@@ -155,13 +157,14 @@ initialAccountMigrationState _persistentActiveBakers = AccountMigrationState{..}
 makeInitialAccountMigrationState ::
     ( IsProtocolVersion pv,
       SupportMigration m t,
-      SupportsPersistentAccount oldpv m
+      store ~ MBSStore (t m),
+      SupportsPersistentAccount oldstore oldpv m
     ) =>
-    Accounts oldpv ->
-    PersistentActiveBakers (AccountVersionFor oldpv) ->
-    t m (AccountMigrationState oldpv pv)
+    Accounts oldstore oldpv ->
+    PersistentActiveBakers oldstore (AccountVersionFor oldpv) ->
+    t m (AccountMigrationState store oldpv pv)
 makeInitialAccountMigrationState accounts pab =
-    initialAccountMigrationState <$> initialPersistentActiveBakersForMigration accounts pab
+    initialAccountMigrationState <$> (initialPersistentActiveBakersForMigration accounts pab)
 
 -- | A monad transformer transformer that left-composes @StateT (AccountMigrationState old pv)@
 --  with a given monad transformer @t@.
@@ -174,25 +177,38 @@ newtype
         (a :: Type)
     = AccountMigrationStateTT
     { runAccountMigrationStateTT' ::
-        StateT (AccountMigrationState oldpv pv) (t m) a
+        StateT (AccountMigrationState (MBSStore (t m)) oldpv pv) (t m) a
     }
     deriving newtype
         ( Functor,
           Applicative,
           Monad,
-          MonadState (AccountMigrationState oldpv pv),
+          --   MonadState (AccountMigrationState store oldpv pv),
           MonadIO,
           LMDBAccountMap.MonadAccountMapStore,
           MonadModuleMapStore,
           MonadLogger
         )
 
+type instance MBSStore (AccountMigrationStateTT oldpv pv t m) = MBSStore (t m)
+
+deriving via
+    forall
+        (oldpv :: ProtocolVersion)
+        (pv :: ProtocolVersion)
+        (t :: (Type -> Type) -> (Type -> Type))
+        (m :: (Type -> Type)).
+    (StateT (AccountMigrationState (MBSStore (t m)) oldpv pv) (t m))
+    instance
+        (Monad (t m), store ~ (MBSStore (t m))) =>
+        (MonadState (AccountMigrationState store oldpv pv) (AccountMigrationStateTT oldpv pv t m))
+
 -- | Run an 'AccountMigrationStateTT' computation with the given initial state.
 --  This is used to add 'AccountMigration' and 'AccountsMigration' interfaces to the monad stack.
 runAccountMigrationStateTT ::
     AccountMigrationStateTT oldpv pv t m a ->
-    AccountMigrationState oldpv pv ->
-    t m (a, AccountMigrationState oldpv pv)
+    AccountMigrationState (MBSStore (t m)) oldpv pv ->
+    t m (a, AccountMigrationState (MBSStore (t m)) oldpv pv)
 runAccountMigrationStateTT = runStateT . runAccountMigrationStateTT'
 
 deriving via
@@ -201,7 +217,7 @@ deriving via
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type)).
-    (StateT (AccountMigrationState oldpv pv) (t m))
+    (StateT (AccountMigrationState (MBSStore (t m)) oldpv pv) (t m))
     instance
         (MonadBlobStore (t m)) =>
         (MonadBlobStore (AccountMigrationStateTT oldpv pv t m))
@@ -212,7 +228,7 @@ deriving via
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type)).
-    (StateT (AccountMigrationState oldpv pv) (t m))
+    (StateT (AccountMigrationState (MBSStore (t m)) oldpv pv) (t m))
     instance
         (MonadCache c (t m)) =>
         (MonadCache c (AccountMigrationStateTT oldpv pv t m))

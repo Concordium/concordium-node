@@ -23,12 +23,12 @@ import Concordium.Types.Conditionally
 import Concordium.Types.Option
 
 -- | An 'AccountIndex' and the (possibly empty) tail of the list.
-data AccountListItem = AccountListItem
+data AccountListItem store = AccountListItem
     { accountListEntry :: !AccountIndex,
-      accountListTail :: !AccountList
+      accountListTail :: !(AccountList store)
     }
 
-instance (MonadBlobStore m) => BlobStorable m AccountListItem where
+instance (MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (AccountListItem store) where
     load = do
         mAccountListEntry <- load
         mAccountListTail <- load
@@ -41,23 +41,29 @@ instance (MonadBlobStore m) => BlobStorable m AccountListItem where
             )
 
 -- | A possibly empty list of 'AccountIndex'es, stored under 'UnbufferedRef's.
-type AccountList = Nullable (UnbufferedRef AccountListItem)
+type AccountList store = Nullable (UnbufferedRef store (AccountListItem store))
 
 -- | Prepend an 'AccountIndex' to an 'AccountList'.
-consAccountList :: (MonadBlobStore m) => AccountIndex -> AccountList -> m AccountList
+consAccountList ::
+    (MonadBlobStore m) =>
+    AccountIndex -> AccountList (MBSStore m) -> m (AccountList (MBSStore m))
 consAccountList accountIndex accountList = do
     ref <- refMake (AccountListItem accountIndex accountList)
     return (Some ref)
 
 -- | Load an entire account list. This is intended for testing purposes.
-loadAccountList :: (MonadBlobStore m) => AccountList -> m [AccountIndex]
+loadAccountList ::
+    (MonadBlobStore m) =>
+    AccountList (MBSStore m) -> m [AccountIndex]
 loadAccountList Null = return []
 loadAccountList (Some ref) = do
     AccountListItem{..} <- refLoad ref
     (accountListEntry :) <$> loadAccountList accountListTail
 
 -- | Migrate an 'AccountList' from one context to another.
-migrateAccountList :: (SupportMigration m t) => AccountList -> t m AccountList
+migrateAccountList ::
+    (SupportMigration m t) =>
+    AccountList (MBSStore m) -> t m (AccountList (MBSStore (t m)))
 migrateAccountList Null = return Null
 migrateAccountList (Some ubRef) = do
     Some <$> migrateReference migrateAccountListItem ubRef
@@ -69,7 +75,9 @@ migrateAccountList (Some ubRef) = do
 -- | Remove the first instance of an 'AccountIndex' from an 'AccountList'.
 --  (This should only be used when the 'AccountIndex' is expected to be in the list. Otherwise,
 --  the entire list will be effectively duplicated in the blob store for no reason.)
-removeAccountFromAccountList :: (MonadBlobStore m) => AccountIndex -> AccountList -> m AccountList
+removeAccountFromAccountList ::
+    (MonadBlobStore m) =>
+    AccountIndex -> AccountList (MBSStore m) -> m (AccountList (MBSStore m))
 removeAccountFromAccountList ai alist = case alist of
     Null -> return Null
     Some ref -> do
@@ -89,13 +97,13 @@ removeAccountFromAccountList ai alist = case alist of
 
 -- | An index of the accounts that are currently in cooldown/pre-cooldown/pre-pre-cooldown.
 --  As this is an indexing structure, it is not hashed as part of the block state hash.
-data AccountsInCooldown = AccountsInCooldown
+data AccountsInCooldown store = AccountsInCooldown
     { -- | The accounts that are in cooldown with their earliest release times.
-      _cooldown :: !NewReleaseSchedule,
+      _cooldown :: !(NewReleaseSchedule store),
       -- | The accounts that are in pre-cooldown.
-      _preCooldown :: !AccountList,
+      _preCooldown :: !(AccountList store),
       -- | The accounts that are in pre-pre-cooldown.
-      _prePreCooldown :: !AccountList
+      _prePreCooldown :: !(AccountList store)
     }
 
 makeLenses ''AccountsInCooldown
@@ -103,10 +111,10 @@ makeLenses ''AccountsInCooldown
 -- | The cacheable instance only caches the 'cooldown' field, since the
 --  'preCooldown' and 'prePreCooldown' are implemented using 'UnbufferedRef's (and so
 --  would have no benefit from caching).
-instance (MonadBlobStore m) => Cacheable m AccountsInCooldown where
+instance (MonadBlobStore m, store ~ MBSStore m) => Cacheable m (AccountsInCooldown store) where
     cache = cooldown cache
 
-instance (MonadBlobStore m) => BlobStorable m AccountsInCooldown where
+instance (MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (AccountsInCooldown store) where
     load = do
         mCooldown <- load
         mPreCooldown <- load
@@ -127,7 +135,7 @@ instance (MonadBlobStore m) => BlobStorable m AccountsInCooldown where
             )
 
 -- | An 'AccountsInCooldown' with no accounts in (pre)*cooldown.
-emptyAccountsInCooldown :: AccountsInCooldown
+emptyAccountsInCooldown :: AccountsInCooldown store
 emptyAccountsInCooldown =
     AccountsInCooldown
         { _cooldown = emptyNewReleaseSchedule,
@@ -138,8 +146,8 @@ emptyAccountsInCooldown =
 -- | Migrate 'AccountsInCooldown' from one 'BlobStore' to another.
 migrateAccountsInCooldown ::
     (SupportMigration m t) =>
-    AccountsInCooldown ->
-    t m AccountsInCooldown
+    AccountsInCooldown (MBSStore m) ->
+    t m (AccountsInCooldown (MBSStore (t m)))
 migrateAccountsInCooldown aic = do
     newCooldown <- migrateNewReleaseSchedule (_cooldown aic)
     newPreCooldown <- migrateAccountList (_preCooldown aic)
@@ -153,12 +161,15 @@ migrateAccountsInCooldown aic = do
 
 -- | A type that holds an 'AccountsInCooldown' for protocol versions that support flexible
 --  cooldowns (and nothing for versions that do not).
-newtype AccountsInCooldownForPV (pv :: ProtocolVersion) = AccountsInCooldownForPV
+newtype AccountsInCooldownForPV store (pv :: ProtocolVersion) = AccountsInCooldownForPV
     { theAccountsInCooldownForPV ::
-        Conditionally (SupportsFlexibleCooldown (AccountVersionFor pv)) AccountsInCooldown
+        Conditionally (SupportsFlexibleCooldown (AccountVersionFor pv)) (AccountsInCooldown store)
     }
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (AccountsInCooldownForPV pv) where
+instance
+    (MonadBlobStore m, IsProtocolVersion pv, store ~ MBSStore m) =>
+    BlobStorable m (AccountsInCooldownForPV store pv)
+    where
     load = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
         SFalse -> return (return (AccountsInCooldownForPV CFalse))
         STrue -> fmap (AccountsInCooldownForPV . CTrue) <$> load
@@ -172,7 +183,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (AccountsInC
 --  protocol version supports flexible cooldown.
 accountsInCooldown ::
     (PVSupportsFlexibleCooldown pv) =>
-    Lens' (AccountsInCooldownForPV pv) AccountsInCooldown
+    Lens' (AccountsInCooldownForPV store pv) (AccountsInCooldown store)
 accountsInCooldown =
     lens
         (uncond . theAccountsInCooldownForPV)
@@ -180,15 +191,18 @@ accountsInCooldown =
 
 -- | An 'AccountsInCooldownForPV' with no accounts in (pre)*cooldown.
 emptyAccountsInCooldownForPV ::
-    forall pv.
+    forall store pv.
     (IsProtocolVersion pv) =>
-    AccountsInCooldownForPV pv
+    AccountsInCooldownForPV store pv
 emptyAccountsInCooldownForPV =
     AccountsInCooldownForPV (conditionally cond emptyAccountsInCooldown)
   where
     cond = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
 
-instance (MonadBlobStore m) => Cacheable m (AccountsInCooldownForPV pv) where
+instance
+    (MonadBlobStore m, store ~ MBSStore m) =>
+    Cacheable m (AccountsInCooldownForPV store pv)
+    where
     cache = fmap AccountsInCooldownForPV . mapM cache . theAccountsInCooldownForPV
 
 -- | Generate the initial 'AccountsInCooldownForPV' structure from the initial accounts.
@@ -196,8 +210,8 @@ instance (MonadBlobStore m) => Cacheable m (AccountsInCooldownForPV pv) where
 initialAccountsInCooldown ::
     forall pv m.
     (MonadBlobStore m, IsProtocolVersion pv) =>
-    [PersistentAccount (AccountVersionFor pv)] ->
-    m (AccountsInCooldownForPV pv)
+    [PersistentAccount (MBSStore m) (AccountVersionFor pv)] ->
+    m (AccountsInCooldownForPV (MBSStore m) pv)
 initialAccountsInCooldown accounts = case sSupportsFlexibleCooldown sAV of
     SFalse -> return emptyAccountsInCooldownForPV
     STrue -> do
@@ -244,9 +258,9 @@ migrateAccountsInCooldownForPV ::
         ( Not (SupportsFlexibleCooldown (AccountVersionFor oldpv))
             && SupportsFlexibleCooldown (AccountVersionFor pv)
         )
-        AccountList ->
-    AccountsInCooldownForPV oldpv ->
-    t m (AccountsInCooldownForPV pv)
+        (AccountList (MBSStore (t m))) ->
+    AccountsInCooldownForPV (MBSStore m) oldpv ->
+    t m (AccountsInCooldownForPV (MBSStore (t m)) pv)
 migrateAccountsInCooldownForPV =
     case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
         SFalse -> \_ _ -> return emptyAccountsInCooldownForPV

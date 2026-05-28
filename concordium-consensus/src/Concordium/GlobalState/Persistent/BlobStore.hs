@@ -177,6 +177,7 @@ import Concordium.Wasm
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
+import Concordium.GlobalState.Classes (MGSTrans)
 import Concordium.Types.HashableTo
 
 -- | A @BlobRef store a@ represents an offset on a file, at
@@ -523,6 +524,8 @@ readBlobPtrBS bs@BlobStoreAccess{..} bptr@BlobPtr{..} = do
 -- | The associated store type for a monad.
 type family MBSStore (m :: Type -> Type)
 
+type instance MBSStore (MGSTrans t m) = MBSStore m
+
 -- | Typeclass for a monad to be equipped with a blob store.
 --  This allows a 'BS.ByteString' to be written to the store,
 --  obtaining a 'BlobRef', and a 'BlobRef' to be read back as
@@ -614,10 +617,10 @@ deriving via
         LMDBAccountMap.MonadAccountMapStore (BlobStoreT store r m)
 
 deriving via
-    (LMDBAccountMap.AccountMapStoreMonad (BlobStoreT r m))
+    (LMDBAccountMap.AccountMapStoreMonad (BlobStoreT store r m))
     instance
         (MonadIO m, MonadLogger m, LMDBAccountMap.HasDatabaseHandlers r) =>
-        MonadModuleMapStore (BlobStoreT r m)
+        MonadModuleMapStore (BlobStoreT store r m)
 
 -- | Apply a given function to modify the context of a 'BlobStoreT' operation.
 alterBlobStoreT :: (r1 -> r2) -> BlobStoreT store r2 m a -> BlobStoreT store r1 m a
@@ -675,6 +678,7 @@ deriving via
     instance
         (MonadBlobStore m) => MonadBlobStore (ExceptT e m)
 
+type instance MBSStore (MaybeT m) = MBSStore m
 deriving via
     (LiftMonadBlobStore MaybeT m)
     instance
@@ -909,7 +913,7 @@ class (MonadBlobStore m) => DirectBlobHashable m h a where
     -- | Load the hash of a value of type @a@ from the underlying storage.
     --
     -- prop> loadHash = getHashM <=< loadDirect
-    loadHash :: BlobRef a -> m h
+    loadHash :: BlobRef (MBSStore m) a -> m h
 
 instance
     {-# OVERLAPPABLE #-}

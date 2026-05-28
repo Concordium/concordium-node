@@ -31,6 +31,7 @@ import Concordium.Types.Updates (uiHeader, uiPayload, updateType)
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Transactions
@@ -49,6 +50,8 @@ newtype AccountNonceQueryT (m :: Type -> Type) (a :: Type) = AccountNonceQueryT 
     deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader r, MonadCatch, MonadThrow)
     deriving (MonadTrans) via IdentityT
 
+type instance MBSStore (AccountNonceQueryT m) = MBSStore m
+
 -- Instance for deducing the protocol version from the parameterized @m@ of the 'AccountNonceQueryT'.
 deriving via (MGSTrans AccountNonceQueryT m) instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountNonceQueryT m)
 
@@ -64,8 +67,8 @@ deriving via (MGSTrans AccountNonceQueryT m) instance (ModuleQuery m) => ModuleQ
 -- | The instance used for acquiring the next available account nonce with respect to  consensus protocol v1.
 instance
     ( BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadState (Impl.SkovData (MPV m)) m
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
+      MonadState (Impl.SkovData (MBSStore m) (MPV m)) m
     ) =>
     AccountNonceQuery (AccountNonceQueryT m)
     where
@@ -75,8 +78,8 @@ instance
 -- | Verify a block item. This wraps 'TVer.verify'.
 verifyBlockItem ::
     ( BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadState (Impl.SkovData (MPV m)) m
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
+      MonadState (Impl.SkovData (MBSStore m) (MPV m)) m
     ) =>
     -- | Block time (if transaction is in a block) or current time.
     Timestamp ->
@@ -110,10 +113,10 @@ verifyBlockItem ts bi ctx = runAccountNonceQueryT (runTransactionVerifierT (TVer
 --
 --  This is an internal function only and should not be called directly.
 addPendingTransaction ::
-    ( MonadState (Impl.SkovData (MPV m)) m,
+    ( MonadState (Impl.SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
     -- | The transaction.
     BlockItem ->
@@ -147,10 +150,10 @@ addPendingTransaction bi = do
 --  Return the resulting 'AddBlockItemResult'.
 processBlockItem ::
     ( IsConsensusV1 (MPV m),
-      MonadState (Impl.SkovData (MPV m)) m,
+      MonadState (Impl.SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
     -- | The transaction we want to put into the state.
     BlockItem ->
@@ -200,8 +203,8 @@ processBlockItem bi = do
 --  This does not add the transaction to the transaction table, or otherwise modify the state.
 preverifyTransaction ::
     ( BlockStateQuery m,
-      MonadState (Impl.SkovData (MPV m)) m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadState (Impl.SkovData (MBSStore m) (MPV m)) m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       TimeMonad m
     ) =>
@@ -228,8 +231,8 @@ preverifyTransaction bi =
 -- | Add a transaction to the transaction table that has already been successfully verified.
 addPreverifiedTransaction ::
     ( BlockStateQuery m,
-      MonadState (Impl.SkovData (MPV m)) m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadState (Impl.SkovData (MBSStore m) (MPV m)) m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       TimeMonad m
     ) =>
     BlockItem ->
@@ -269,16 +272,16 @@ addPreverifiedTransaction bi okRes = do
 processBlockItems ::
     forall m pv.
     ( IsConsensusV1 pv,
-      MonadState (Impl.SkovData pv) m,
+      MonadState (Impl.SkovData (MBSStore m) pv) m,
       BlockStateQuery m,
       TimeMonad m,
       MPV m ~ pv,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
     -- | The baked block
     BakedBlock pv ->
     -- | Pointer to the parent block.
-    BlockPointer pv ->
+    BlockPointer (MBSStore m) pv ->
     -- | Return 'True' only if all transactions were
     --  successfully processed otherwise 'False'.
     m (Maybe [(BlockItem, TVer.VerificationResult)])
@@ -302,7 +305,7 @@ processBlockItems bb parentPointer = do
     theTime = bbTimestamp bb
     -- Process a transaction
     process ::
-        Context (PBS.HashedPersistentBlockState pv) ->
+        Context (PBS.HashedPersistentBlockState (MBSStore m) pv) ->
         BlockItem ->
         ContT (Maybe r) m (BlockItem, TVer.VerificationResult)
     process verificationContext bi = ContT $ \continue -> do

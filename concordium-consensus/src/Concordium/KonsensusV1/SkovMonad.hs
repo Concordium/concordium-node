@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -63,19 +64,19 @@ import Concordium.TimerMonad
 -- * 'SkovV1T'
 
 -- | A 'HandlerEvent' is used to execute a handler after the current update has been processed.
-data HandlerEvent pv
+data HandlerEvent store pv
     = -- | Trigger the event handler for a block arriving.
-      OnBlock !(BlockPointer pv)
+      OnBlock !(BlockPointer store pv)
     | -- | Trigger the event handler for a finalization.
-      OnFinalize !(FinalizationEntry pv) ![BlockPointer pv]
+      OnFinalize !(FinalizationEntry pv) ![BlockPointer store pv]
 
 -- | The inner type of the 'SkovV1T' monad.
-type InnerSkovV1T pv m = RWST (SkovV1Context pv m) (Seq.Seq (HandlerEvent pv)) (SkovV1State pv) m
+type InnerSkovV1T store pv m = RWST (SkovV1Context store pv m) (Seq.Seq (HandlerEvent store pv)) (SkovV1State store pv) m
 
 -- | A type-alias that is used for deriving block state monad implementations for 'SkovV1T'.
---  @PersistentBlockStateMonadHelper pv m a@ is representationally equivalent to @SkovV1T pv m a@.
-type PersistentBlockStateMonadHelper pv m =
-    PersistentBlockStateMonad pv (SkovV1Context pv m) (InnerSkovV1T pv m)
+--  @PersistentBlockStateMonadHelper store pv m a@ is representationally equivalent to @SkovV1T store pv m a@.
+type PersistentBlockStateMonadHelper store pv m =
+    PersistentBlockStateMonad store pv (SkovV1Context store pv m) (InnerSkovV1T store pv m)
 
 -- | A monad transformer that provides functionality used by the consensus version 1 implementation.
 --  This provides the following instances (with suitable conditions on @pv@ and @m@):
@@ -83,7 +84,7 @@ type PersistentBlockStateMonadHelper pv m =
 --    * Monadic behaviour lifted from the underlying monad @m@: 'Functor', 'Applicative', 'Monad',
 --      'MonadIO', 'MonadLogger', 'TimeMonad', 'MonadThrow'.
 --
---    * @MonadReader (SkovV1Context pv m)@, where the 'SkovV1Context' implements 'HasBlobStore',
+--    * @MonadReader (SkovV1Context store pv m)@, where the 'SkovV1Context' implements 'HasBlobStore',
 --      @'Cache.HasCache' ('AccountCache' (AccountVersionFor pv))@,
 --      @'Cache.HasCache' 'Modules.ModuleCache'@, 'HasHandlerContext', 'HasBakerContext',
 --      'HasDatabaseHandlers' and 'LMDBAccountMap.HasDatabaseHandlers.
@@ -110,8 +111,8 @@ type PersistentBlockStateMonadHelper pv m =
 --      unsupported protocol update.
 --      The handle makes sure we do not keep informing the user of the unsupported protocol
 --      by returning 'False' the first time it's called and 'True' for subsequent invocations.
-newtype SkovV1T pv m a = SkovV1T
-    { runSkovT' :: InnerSkovV1T pv m a
+newtype SkovV1T store (pv :: ProtocolVersion) m a = SkovV1T
+    { runSkovT' :: InnerSkovV1T store pv m a
     }
     deriving
         ( Functor,
@@ -120,22 +121,24 @@ newtype SkovV1T pv m a = SkovV1T
           MonadIO,
           MonadLogger,
           TimeMonad,
-          MonadReader (SkovV1Context pv m),
+          MonadReader (SkovV1Context store pv m),
           MonadThrow,
           MonadCatch
         )
     deriving
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
-        via (PersistentBlockStateMonadHelper pv m)
+        via (PersistentBlockStateMonadHelper store pv m)
+
+type instance MBSStore (SkovV1T store pv m) = store
 
 -- | Run a 'SkovV1T' operation, given the context and state, returning the updated state and any
 --  handler events that were generated.
 runSkovT ::
     (Monad m) =>
-    SkovV1T pv m a ->
-    SkovV1Context pv m ->
-    SkovV1State pv ->
-    m (a, SkovV1State pv, Seq.Seq (HandlerEvent pv))
+    SkovV1T store pv m a ->
+    SkovV1Context store pv m ->
+    SkovV1State store pv ->
+    m (a, SkovV1State store pv, Seq.Seq (HandlerEvent store pv))
 runSkovT comp ctx st = do
     (ret, st', evs) <- runRWST (runSkovT' comp) ctx st
     return (ret, st', evs)
@@ -145,15 +148,15 @@ runSkovT comp ctx st = do
 --  used when the state is updated as changes to the 'SkovData' will be discarded, but changes to
 --  the disk-backed databases will persist. It is also expected that no handler events should be
 --  generated.
-evalSkovT :: (Monad m) => SkovV1T pv m a -> SkovV1Context pv m -> SkovV1State pv -> m a
+evalSkovT :: (Monad m) => SkovV1T store pv m a -> SkovV1Context store pv m -> SkovV1State store pv -> m a
 evalSkovT comp ctx st = do
     (ret, _) <- evalRWST (runSkovT' comp) ctx st
     return ret
 
 -- | The state used by the 'SkovV1T' monad.
-data SkovV1State pv = SkovV1State
+data SkovV1State store pv = SkovV1State
     { -- | The 'SkovData', which encapsulates the (in-memory) mutable state of the skov.
-      _v1sSkovData :: SkovData pv,
+      _v1sSkovData :: SkovData store pv,
       -- | The timer used for triggering timeout events.
       _v1sTimer :: Maybe ThreadTimer,
       -- | If we have already notified about an upcoming protocol update, this indicates the latest
@@ -172,32 +175,32 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
     }
 
 -- | Context used by the 'SkovV1T' monad.
-data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
+data SkovV1Context store (pv :: ProtocolVersion) m = SkovV1Context
     { -- | The baker context (i.e. baker keys if any).
       _vcBakerContext :: !BakerContext,
       -- | Blob store and caches used by the block state storage.
-      _vcPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
+      _vcPersistentBlockStateContext :: !(PersistentBlockStateContext store pv),
       -- | low-level tree state database.
-      _vcDisk :: !(DatabaseHandlers pv),
+      _vcDisk :: !(DatabaseHandlers store pv),
       -- | Handler functions.
       _vcHandlers :: !(HandlerContext pv m),
       -- | A function for unlifting @'SkovV1T' pv m@ into the 'IO' monad.
       --  This is used for implementing asynchronous behaviour, specifically timer events.
-      _skovV1TUnliftIO :: forall a. SkovV1T pv m a -> IO a
+      _skovV1TUnliftIO :: forall a. SkovV1T store pv m a -> IO a
     }
 
-instance HasBlobStore (SkovV1Context pv m) where
+instance HasBlobStore store (SkovV1Context store pv m) where
     blobStore = blobStore . _vcPersistentBlockStateContext
     blobLoadCallback = blobLoadCallback . _vcPersistentBlockStateContext
     blobStoreCallback = blobStoreCallback . _vcPersistentBlockStateContext
 
-instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (SkovV1Context pv m) where
+instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache store av) (SkovV1Context store pv m) where
     projectCache = Cache.projectCache . _vcPersistentBlockStateContext
 
-instance Cache.HasCache Modules.ModuleCache (SkovV1Context pv m) where
+instance Cache.HasCache (Modules.ModuleCache store) (SkovV1Context store pv m) where
     projectCache = Cache.projectCache . _vcPersistentBlockStateContext
 
-instance LMDBAccountMap.HasDatabaseHandlers (SkovV1Context pv m) where
+instance LMDBAccountMap.HasDatabaseHandlers (SkovV1Context store pv m) where
     databaseHandlers = lens _vcPersistentBlockStateContext (\s v -> s{_vcPersistentBlockStateContext = v}) . LMDBAccountMap.databaseHandlers
 
 -- Note, these template haskell splices go here because of staging restrictions.
@@ -207,16 +210,16 @@ makeLenses ''SkovV1Context
 makeLenses ''SkovV1State
 makeClassy ''HandlerContext
 
-instance HasHandlerContext (SkovV1Context pv m) pv m where
+instance HasHandlerContext (SkovV1Context store pv m) pv m where
     handlerContext = vcHandlers
 
-instance HasBakerContext (SkovV1Context pv m) where
+instance HasBakerContext (SkovV1Context store pv m) where
     bakerContext = vcBakerContext
 
-instance HasDatabaseHandlers (SkovV1Context pv m) pv where
+instance HasDatabaseHandlers (SkovV1Context store pv m) store pv where
     databaseHandlers = vcDisk
 
-instance (MonadTrans (SkovV1T pv)) where
+instance (MonadTrans (SkovV1T store pv)) where
     lift = SkovV1T . lift
 
 -- | A class used for implementing whether a protocol update has already been logged.
@@ -232,80 +235,80 @@ class (Monad m) => AlreadyNotified m where
     -- is scheduled for the end of the present epoch.
     alreadyNotified :: ProtocolUpdate -> Bool -> m Bool
 
-instance (IsProtocolVersion pv, Monad m) => AlreadyNotified (SkovV1T pv m) where
+instance (IsProtocolVersion pv, Monad m) => AlreadyNotified (SkovV1T store pv m) where
     alreadyNotified pu b = SkovV1T $ do
         mOldPU <- notifiedProtocolUpdate <<.= Just (pu, b)
         return $ mOldPU == Just (pu, b)
 
-instance (Monad m) => MonadState (SkovData pv) (SkovV1T pv m) where
+instance (Monad m) => MonadState (SkovData store pv) (SkovV1T store pv m) where
     state = SkovV1T . state . v1sSkovData
     get = SkovV1T (use v1sSkovData)
     put = SkovV1T . (v1sSkovData .=)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
-        (IsProtocolVersion pv, MonadLogger m) => MonadProtocolVersion (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadLogger m) => MonadProtocolVersion (SkovV1T store pv m)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => AccountOperations (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => AccountOperations (SkovV1T store pv m)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
-    instance
-        (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
-        TokenStateOperations StateV1.MutableState (SkovV1T pv m)
-
-deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
         (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
-        PLTQuery (PersistentBlockState pv) StateV1.MutableState (SkovV1T pv m)
+        TokenStateOperations (StateV1.MutableState store) (SkovV1T store pv m)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
         (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
-        PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (SkovV1T pv m)
+        PLTQuery (PersistentBlockState store pv) (StateV1.MutableState store) (SkovV1T store pv m)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateQuery (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
+        PLTQuery (HashedPersistentBlockState store pv) (StateV1.MutableState store) (SkovV1T store pv m)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateOperations (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateQuery (SkovV1T store pv m)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv m)
+    (PersistentBlockStateMonadHelper store pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateStorage (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateOperations (SkovV1T store pv m)
 
 deriving via
-    (DiskLLDBM pv (InnerSkovV1T pv m))
+    (PersistentBlockStateMonadHelper store pv m)
+    instance
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateStorage (SkovV1T store pv m)
+
+deriving via
+    (DiskLLDBM store pv (InnerSkovV1T store pv m))
     instance
         ( IsProtocolVersion pv,
           MonadIO m,
           MonadCatch m,
           MonadLogger m
         ) =>
-        LowLevel.MonadTreeStateStore (SkovV1T pv m)
+        LowLevel.MonadTreeStateStore (SkovV1T store pv m)
 
 deriving via
-    (LMDBAccountMap.AccountMapStoreMonad (InnerSkovV1T pv m))
+    (LMDBAccountMap.AccountMapStoreMonad (InnerSkovV1T store pv m))
     instance
         ( IsProtocolVersion pv,
           MonadIO m,
           MonadCatch m,
           MonadLogger m
         ) =>
-        LMDBAccountMap.MonadAccountMapStore (SkovV1T pv m)
+        LMDBAccountMap.MonadAccountMapStore (SkovV1T store pv m)
 
-instance (Monad m) => MonadBroadcast (SkovV1T pv m) where
+instance (Monad m) => MonadBroadcast (SkovV1T store pv m) where
     sendTimeoutMessage tm = do
         handler <- view sendTimeoutHandler
         lift $ handler tm
@@ -316,12 +319,12 @@ instance (Monad m) => MonadBroadcast (SkovV1T pv m) where
         handler <- view sendBlockHandler
         lift $ handler sb
 
-instance (Monad m) => MonadConsensusEvent (SkovV1T pv m) where
+instance (Monad m) => MonadConsensusEvent (SkovV1T store pv m) where
     onBlock bp = SkovV1T $ tell $ Seq.singleton $ OnBlock bp
     onFinalize fe bp = SkovV1T $ tell $ Seq.singleton $ OnFinalize fe bp
 
-instance (MonadIO m, MonadLogger m, MonadCatch m) => TimerMonad (SkovV1T pv m) where
-    type Timer (SkovV1T pv m) = ThreadTimer
+instance (MonadIO m, MonadLogger m, MonadCatch m) => TimerMonad (SkovV1T store pv m) where
+    type Timer (SkovV1T store pv m) = ThreadTimer
     onTimeout timeout a = do
         ctx <- ask
         liftIO $
@@ -341,7 +344,7 @@ instance
       IsConsensusV1 pv,
       TimeMonad m
     ) =>
-    MonadTimeout (SkovV1T pv m)
+    MonadTimeout (SkovV1T store pv m)
     where
     resetTimer dur = do
         mTimer <- SkovV1T $ use v1sTimer
@@ -350,10 +353,10 @@ instance
         SkovV1T $ v1sTimer ?=! newTimer
         logEvent Runner LLTrace $ "Timeout reset for " ++ show (durationToNominalDiffTime dur)
 
-instance GlobalStateTypes (SkovV1T pv m) where
-    type BlockPointerType (SkovV1T pv m) = BlockPointer pv
+instance GlobalStateTypes (SkovV1T store pv m) where
+    type BlockPointerType (SkovV1T store pv m) = BlockPointer store pv
 
-instance (IsProtocolVersion pv, MonadIO m, MonadCatch m, MonadLogger m) => BlockPointerMonad (SkovV1T pv m) where
+instance (IsProtocolVersion pv, MonadIO m, MonadCatch m, MonadLogger m) => BlockPointerMonad (SkovV1T store pv m) where
     blockState = return . bpState
     bpParent = parentOf
     bpLastFinalized = lastFinalizedOf
@@ -373,34 +376,34 @@ data GlobalStateConfig = GlobalStateConfig
     }
 
 -- | Context used by the 'InitMonad'.
-data InitContext pv = InitContext
+data InitContext store pv = InitContext
     { -- | Blob store and caches used by the block state storage.
-      _icPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
+      _icPersistentBlockStateContext :: !(PersistentBlockStateContext store pv),
       -- | low-level tree state database.
-      _icDatabaseHandlers :: !(DatabaseHandlers pv)
+      _icDatabaseHandlers :: !(DatabaseHandlers store pv)
     }
 
 makeLenses ''InitContext
 
-instance HasBlobStore (InitContext pv) where
+instance HasBlobStore store (InitContext store pv) where
     blobStore = blobStore . _icPersistentBlockStateContext
     blobLoadCallback = blobLoadCallback . _icPersistentBlockStateContext
     blobStoreCallback = blobStoreCallback . _icPersistentBlockStateContext
 
-instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (InitContext pv) where
+instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache store av) (InitContext store pv) where
     projectCache = Cache.projectCache . _icPersistentBlockStateContext
 
-instance Cache.HasCache Modules.ModuleCache (InitContext pv) where
+instance Cache.HasCache (Modules.ModuleCache store) (InitContext store pv) where
     projectCache = Cache.projectCache . _icPersistentBlockStateContext
 
-instance HasDatabaseHandlers (InitContext pv) pv where
+instance HasDatabaseHandlers (InitContext store pv) store pv where
     databaseHandlers = icDatabaseHandlers
 
-instance LMDBAccountMap.HasDatabaseHandlers (InitContext pv) where
+instance LMDBAccountMap.HasDatabaseHandlers (InitContext store pv) where
     databaseHandlers = icPersistentBlockStateContext . LMDBAccountMap.databaseHandlers
 
 -- | Inner type of 'InitMonad'.
-type InnerInitMonad pv = ReaderT (InitContext pv) LogIO
+type InnerInitMonad store pv = ReaderT (InitContext store pv) LogIO
 
 -- | A monad for initialising the consensus state. Unlike 'SkovV1T', it is not a monad transformer
 --  and it does not have a state component. This is necessary to avoid the bootstrapping problem
@@ -409,7 +412,7 @@ type InnerInitMonad pv = ReaderT (InitContext pv) LogIO
 --    * Monadic behaviour: 'Functor', 'Applicative', 'Monad', 'MonadIO', 'MonadLogger', 'TimeMonad',
 --      'MonadThrow', 'MonadCatch'.
 --
---    * @MonadReader (InitContext pv)@, where the 'InitContext' implements 'HasBlobStore',
+--    * @MonadReader (InitContext store pv)@, where the 'InitContext' implements 'HasBlobStore',
 --      @'Cache.HasCache' ('AccountCache' (AccountVersionFor pv))@,
 --      @'Cache.HasCache' 'Modules.ModuleCache'@, and 'HasDatabaseHandlers'.
 --
@@ -420,7 +423,7 @@ type InnerInitMonad pv = ReaderT (InitContext pv) LogIO
 --      'BlockStateStorage'.
 --
 --    * LMDB-backed persistent tree state storage: 'LowLevel.MonadTreeStateStore'.
-newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
+newtype InitMonad store pv a = InitMonad {runInitMonad' :: InnerInitMonad store pv a}
     deriving
         ( Functor,
           Applicative,
@@ -428,7 +431,7 @@ newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
           MonadIO,
           MonadLogger,
           TimeMonad,
-          MonadReader (InitContext pv),
+          MonadReader (InitContext store pv),
           MonadThrow,
           MonadCatch
         )
@@ -437,64 +440,66 @@ newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
           ContractStateOperations,
           ModuleQuery,
           MonadBlobStore,
-          Cache.MonadCache Modules.ModuleCache,
+          Cache.MonadCache (Modules.ModuleCache store),
           LMDBAccountMap.MonadAccountMapStore,
           MonadModuleMapStore
         )
-        via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+        via (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
+
+type instance MBSStore (InitMonad store pv) = store
 
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (av ~ AccountVersionFor pv) => Cache.MonadCache (AccountCache av) (InitMonad pv)
+        (av ~ AccountVersionFor pv) => Cache.MonadCache (AccountCache store av) (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => MonadProtocolVersion (InitMonad pv)
+        (IsProtocolVersion pv) => MonadProtocolVersion (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => AccountOperations (InitMonad pv)
+        (IsProtocolVersion pv) => AccountOperations (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => TokenStateOperations StateV1.MutableState (InitMonad pv)
+        (IsProtocolVersion pv) => TokenStateOperations (StateV1.MutableState store) (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (InitMonad pv)
+        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState store pv) (StateV1.MutableState store) (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (InitMonad pv)
+        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState store pv) (StateV1.MutableState store) (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => BlockStateQuery (InitMonad pv)
+        (IsProtocolVersion pv) => BlockStateQuery (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => BlockStateOperations (InitMonad pv)
+        (IsProtocolVersion pv) => BlockStateOperations (InitMonad store pv)
 deriving via
-    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    (PersistentBlockStateMonad store pv (InitContext store pv) (InnerInitMonad store pv))
     instance
-        (IsProtocolVersion pv) => BlockStateStorage (InitMonad pv)
+        (IsProtocolVersion pv) => BlockStateStorage (InitMonad store pv)
 deriving via
-    (DiskLLDBM pv (InitMonad pv))
+    (DiskLLDBM store pv (InitMonad store pv))
     instance
         (IsProtocolVersion pv) =>
-        LowLevel.MonadTreeStateStore (InitMonad pv)
+        LowLevel.MonadTreeStateStore (InitMonad store pv)
 
 -- | Run an 'InitMonad' in a 'LogIO' context, given the 'InitContext'.
-runInitMonad :: InitMonad pv a -> InitContext pv -> LogIO a
+runInitMonad :: InitMonad store pv a -> InitContext store pv -> LogIO a
 runInitMonad = runReaderT . runInitMonad'
 
 -- | The result of successfully loading an existing SkovV1 state.
-data ExistingSkov pv m = ExistingSkov
+data ExistingSkov store pv m = ExistingSkov
     { -- | The context.
-      esContext :: !(SkovV1Context pv m),
+      esContext :: !(SkovV1Context store pv m),
       -- | The state.
-      esState :: !(SkovV1State pv),
+      esState :: !(SkovV1State store pv),
       -- | The hash of the current genesis block.
       esGenesisHash :: !BlockHash,
       -- | The effective protocol update if one has occurred, together with the relative
@@ -504,19 +509,19 @@ data ExistingSkov pv m = ExistingSkov
 
 -- | Internal type used for deriving 'HasDatabaseHandlers' and 'LMDBAccountMap.HasDatabaseHandlers'
 --  used for computations where both lmdb databases are required.
-data LMDBDatabases pv = LMDBDatabases
+data LMDBDatabases store pv = LMDBDatabases
     { -- | the skov lmdb database
-      _lmdbSkov :: !(DatabaseHandlers pv),
+      _lmdbSkov :: !(DatabaseHandlers store pv),
       -- | the account map lmdb database
       _lmdbAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
 
 makeLenses ''LMDBDatabases
 
-instance HasDatabaseHandlers (LMDBDatabases pv) pv where
+instance HasDatabaseHandlers (LMDBDatabases store pv) store pv where
     databaseHandlers = lmdbSkov
 
-instance LMDBAccountMap.HasDatabaseHandlers (LMDBDatabases pv) where
+instance LMDBAccountMap.HasDatabaseHandlers (LMDBDatabases store pv) where
     databaseHandlers = lmdbAccountMap
 
 -- | Load an existing SkovV1 state.
@@ -524,21 +529,22 @@ instance LMDBAccountMap.HasDatabaseHandlers (LMDBDatabases pv) where
 --  May throw a 'TreeStateInvariantViolation' if a database invariant violation occurs when
 --  attempting to load the state.
 initialiseExistingSkovV1 ::
-    forall pv m.
+    forall store pv m.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     GenesisBlockHeightInfo ->
     BakerContext ->
     HandlerContext pv m ->
-    (forall a. SkovV1T pv m a -> IO a) ->
+    (forall a. SkovV1T store pv m a -> IO a) ->
     GlobalStateConfig ->
-    LogIO (Maybe (ExistingSkov pv m))
+    LogIO (Maybe (ExistingSkov store pv m))
 initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
     if existingDB
         then do
-            pbsc <- newPersistentBlockStateContext False gsc
-            let initWithLLDB skovLldb = do
+            pbsc :: PersistentBlockStateContext store pv <- newPersistentBlockStateContext False gsc
+            let initWithLLDB :: DatabaseHandlers store pv -> LoggerT IO (Maybe (ExistingSkov store pv m))
+                initWithLLDB skovLldb = do
                     checkDatabaseVersion skovLldb
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
                     RollbackResult{..} <-
@@ -576,29 +582,36 @@ initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov g
                                 }
                     return $ Just es
             let initWithBlockState = do
-                    (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+                    (lldb :: DatabaseHandlers store pv) <- liftIO $ openDatabase gscTreeStateDirectory
                     initWithLLDB lldb `onException` liftIO (closeDatabase lldb)
             initWithBlockState `onException` liftIO (closeBlobStore $ pbscBlobStore pbsc)
         else do
             logEvent Skov LLDebug "No existing global state."
             return Nothing
 
+-- | A new SkovV1 instance, consisting of the 'SkovV1Context' and 'SkovV1State'. The @store@
+--  type is existentially quantified.
+data NewSkov store pv m = NewSkov
+    { nsContext :: SkovV1Context store pv m,
+      nsState :: SkovV1State store pv
+    }
+
 -- | Construct a new SkovV1 state based on the genesis data, initialising the disk storage.
 initialiseNewSkovV1 ::
-    forall pv m.
+    forall store pv m.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     GenesisData pv ->
     GenesisBlockHeightInfo ->
     BakerContext ->
     HandlerContext pv m ->
-    (forall a. SkovV1T pv m a -> IO a) ->
+    (forall a. SkovV1T store pv m a -> IO a) ->
     GlobalStateConfig ->
-    LogIO (SkovV1Context pv m, SkovV1State pv)
+    LogIO (NewSkov store pv m)
 initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Creating new global state."
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
     let
-        initGS :: InitMonad pv (SkovData pv)
+        initGS :: InitMonad store pv (SkovData store pv)
         initGS = do
             logEvent GlobalState LLTrace "Creating persistent global state"
             result <- genesisState genData
@@ -633,24 +646,27 @@ initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSko
             return initSkovData
     let initWithBlockState = do
             logEvent Skov LLTrace $ "Opening tree state: " ++ gscTreeStateDirectory
-            (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+            (lldb :: DatabaseHandlers store pv) <- liftIO $ openDatabase gscTreeStateDirectory
             logEvent Skov LLTrace "Opened tree state."
             let context = InitContext pbsc lldb
             !initSkovData <- runInitMonad initGS context `onException` liftIO (closeDatabase lldb)
             return
-                ( SkovV1Context
-                    { _vcBakerContext = bakerCtx,
-                      _vcPersistentBlockStateContext = pbsc,
-                      _vcDisk = lldb,
-                      _vcHandlers = handlerCtx,
-                      _skovV1TUnliftIO = unliftSkov
-                    },
-                  SkovV1State
-                    { _v1sSkovData = initSkovData,
-                      _v1sTimer = Nothing,
-                      _notifiedProtocolUpdate = Nothing
+                NewSkov
+                    { nsContext =
+                        SkovV1Context
+                            { _vcBakerContext = bakerCtx,
+                              _vcPersistentBlockStateContext = pbsc,
+                              _vcDisk = lldb,
+                              _vcHandlers = handlerCtx,
+                              _skovV1TUnliftIO = unliftSkov
+                            },
+                      nsState =
+                        SkovV1State
+                            { _v1sSkovData = initSkovData,
+                              _v1sTimer = Nothing,
+                              _notifiedProtocolUpdate = Nothing
+                            }
                     }
-                )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
 
 -- | Activate the 'SkovV1State' so that it is prepared for active consensus operation.
@@ -661,9 +677,9 @@ initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSko
 --  correctly reflects the state of accounts. It also loads the certified blocks from disk.
 activateSkovV1State ::
     ( MonadLogger m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadThrow m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
       TimeMonad m,
@@ -683,7 +699,7 @@ activateSkovV1State = do
     logEvent GlobalState LLTrace "Done activating global state"
 
 -- | Gracefully close the disk storage used by the skov.
-shutdownSkovV1 :: SkovV1Context pv m -> LogIO ()
+shutdownSkovV1 :: SkovV1Context store pv m -> LogIO ()
 shutdownSkovV1 SkovV1Context{..} = liftIO $ do
     closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
     closeDatabase _vcDisk
@@ -695,7 +711,7 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
 --  creates a new @HashedPersistentBlockState pv@.
 --
 --  After the migration is carried out then the new block state is flushed to disk
---  and the new @SkovData pv@ is created.
+--  and the new @SkovData store pv@ is created.
 --
 --  The function returns a pair of ('SkovV1Context', 'SkovV1State') suitable for starting the
 --  protocol.
@@ -703,7 +719,7 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
 --  Note that this function does not free any resources with respect to the
 --  skov for the @lastpv@. This is the responsibility of the caller.
 migrateSkovV1 ::
-    forall lastpv pv m.
+    forall laststore lastpv store pv m.
     ( IsConsensusV1 pv,
       IsProtocolVersion pv,
       IsProtocolVersion lastpv
@@ -717,31 +733,32 @@ migrateSkovV1 ::
     -- | The configuration for the new consensus instance.
     GlobalStateConfig ->
     -- | The old block state context.
-    PersistentBlockStateContext lastpv ->
+    PersistentBlockStateContext laststore lastpv ->
     -- | The old block state
-    HashedPersistentBlockState lastpv ->
+    HashedPersistentBlockState laststore lastpv ->
     -- | The baker context
     BakerContext ->
     -- | The handler context
     HandlerContext pv m ->
     -- | The function for unlifting a 'SkovV1T' into 'IO'.
     --  See documentation for 'SkovV1Context'.
-    (forall a. SkovV1T pv m a -> IO a) ->
+    (forall a. SkovV1T store pv m a -> IO a) ->
     -- | Transaction table to migrate
     TransactionTable ->
     -- | Pending transaction table to migrate
     PendingTransactionTable ->
     -- | Return back the 'SkovV1Context' and the migrated 'SkovV1State'
-    LogIO (SkovV1Context pv m, SkovV1State pv)
+    LogIO (NewSkov store pv m)
 migrateSkovV1 genesisBlockHeightInfo regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
-    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
+    pbsc@PersistentBlockStateContext{..} :: PersistentBlockStateContext store pv <-
+        newPersistentBlockStateContext True gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
-    let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)
+    let newInitialBlockState :: InitMonad store pv (HashedPersistentBlockState store pv)
         newInitialBlockState = flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-            newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
+            newState <- migratePersistentBlockState migration (hpbsPointers oldBlockState)
             hashBlockState newState
     let
-        initGS :: InitMonad pv (SkovData pv)
+        initGS :: InitMonad store pv (SkovData store pv)
         initGS = do
             newState <- newInitialBlockState
             stateRef <- saveBlockState newState
@@ -761,24 +778,27 @@ migrateSkovV1 genesisBlockHeightInfo regenesis migration gsConfig@GlobalStateCon
             runDiskLLDBM $ initialiseLowLevelDB storedGenesis (initSkovData ^. persistentRoundStatus)
             return initSkovData
     let initWithBlockState = do
-            (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+            (lldb :: DatabaseHandlers store pv) <- liftIO $ openDatabase gscTreeStateDirectory
             let context = InitContext pbsc lldb
             logEvent GlobalState LLDebug "Initializing new tree state."
             !initSkovData <- runInitMonad initGS context `onException` liftIO (closeDatabase lldb)
             return
-                ( SkovV1Context
-                    { _vcBakerContext = bakerCtx,
-                      _vcPersistentBlockStateContext = pbsc,
-                      _vcDisk = lldb,
-                      _vcHandlers = handlerCtx,
-                      _skovV1TUnliftIO = unliftSkov
-                    },
-                  SkovV1State
-                    { _v1sSkovData = initSkovData,
-                      _v1sTimer = Nothing,
-                      _notifiedProtocolUpdate = Nothing
+                NewSkov
+                    { nsContext =
+                        SkovV1Context
+                            { _vcBakerContext = bakerCtx,
+                              _vcPersistentBlockStateContext = pbsc,
+                              _vcDisk = lldb,
+                              _vcHandlers = handlerCtx,
+                              _skovV1TUnliftIO = unliftSkov
+                            },
+                      nsState =
+                        SkovV1State
+                            { _v1sSkovData = initSkovData,
+                              _v1sTimer = Nothing,
+                              _notifiedProtocolUpdate = Nothing
+                            }
                     }
-                )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
 
 -- | Make a new 'PersistentBlockStateContext' based on the
@@ -794,7 +814,7 @@ newPersistentBlockStateContext ::
     --  for constructing the persistent block state context.
     GlobalStateConfig ->
     -- | The the persistent block state context.
-    m (PersistentBlockStateContext pv)
+    m (PersistentBlockStateContext store pv)
 newPersistentBlockStateContext initialize GlobalStateConfig{..} = liftIO $ do
     pbscBlobStore <- if initialize then createBlobStore gscBlockStateFile else loadBlobStore gscBlockStateFile
     pbscAccountCache <- newAccountCache $ rpAccountsCacheSize gscRuntimeParameters

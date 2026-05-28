@@ -17,24 +17,24 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo
 
 -- | A reference to the block state for a particular block.
-type BlockStateRef (pv :: ProtocolVersion) = BlobRef (BlockStatePointers pv)
+type BlockStateRef store (pv :: ProtocolVersion) = BlobRef store (BlockStatePointers store pv)
 
 -- | A stored block as retained by the low-level tree state store.
 --  Note: we serialize blocks with a version byte to allow future flexibility in how blocks are
 --  stored.
-data StoredBlock (pv :: ProtocolVersion) = StoredBlock
+data StoredBlock store (pv :: ProtocolVersion) = StoredBlock
     { -- | Metadata about the block.
       stbInfo :: !(BlockMetadata pv),
       -- | The block itself.
       stbBlock :: !(Block pv),
       -- | Pointer to the state in the block state storage.
-      stbStatePointer :: !(BlockStateRef pv)
+      stbStatePointer :: !(BlockStateRef store pv)
     }
 
-type instance BlockProtocolVersion (StoredBlock pv) = pv
+type instance BlockProtocolVersion (StoredBlock store pv) = pv
 
 -- | Get the block state hash for a stored block.
-stbBlockStateHash :: StoredBlock pv -> StateHash
+stbBlockStateHash :: StoredBlock store pv -> StateHash
 stbBlockStateHash storedBlock =
     -- Prior to P7, the block state hash is stored in the baked block, for P7 and onwards the block
     -- state hash is stored in the block metadata.
@@ -46,7 +46,7 @@ stbBlockStateHash storedBlock =
                 case blockDerivableHashes signedBlock of
                     DerivableBlockHashesV0{..} -> dbhv0BlockStateHash
 
-instance (IsProtocolVersion pv) => Serialize (StoredBlock pv) where
+instance (IsProtocolVersion pv) => Serialize (StoredBlock store pv) where
     put StoredBlock{..} = do
         putWord8 0 -- Version byte
         put stbInfo
@@ -66,8 +66,8 @@ instance (IsProtocolVersion pv) => Serialize (StoredBlock pv) where
                 return StoredBlock{..}
             v -> fail $ "Unsupported StoredBlock version: " ++ show v
 
-instance BlockData (StoredBlock pv) where
-    type BakedBlockDataType (StoredBlock pv) = SignedBlock pv
+instance BlockData (StoredBlock store pv) where
+    type BakedBlockDataType (StoredBlock store pv) = SignedBlock pv
     blockRound = blockRound . stbBlock
     blockEpoch = blockEpoch . stbBlock
     blockTimestamp = blockTimestamp . stbBlock
@@ -76,10 +76,10 @@ instance BlockData (StoredBlock pv) where
     blockTransaction i = blockTransaction i . stbBlock
     blockTransactionCount = blockTransactionCount . stbBlock
 
-instance HashableTo BlockHash (StoredBlock pv) where
+instance HashableTo BlockHash (StoredBlock store pv) where
     getHash = getHash . stbBlock
 
-instance HasBlockMetadata (StoredBlock pv) where
+instance HasBlockMetadata (StoredBlock store pv) where
     blockMetadata = stbInfo
 
 -- | 'MonadTreeStateStore' defines the interface to the low-level tree state database.
@@ -97,21 +97,21 @@ instance HasBlockMetadata (StoredBlock pv) where
 --      * The transactions indexed in the store are exactly the transactions of finalized blocks.
 class (Monad m) => MonadTreeStateStore m where
     -- | Get a block by block hash.
-    lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
+    lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MBSStore m) (MPV m)))
 
     -- | Determine if a block is present in the block table.
     memberBlock :: BlockHash -> m Bool
 
     -- | Get the first (i.e. genesis) block.
     --  (The implementation can assume that this block has height 0.)
-    lookupFirstBlock :: m (Maybe (StoredBlock (MPV m)))
+    lookupFirstBlock :: m (Maybe (StoredBlock (MBSStore m) (MPV m)))
     lookupFirstBlock = lookupBlockByHeight 0
 
     -- | Get the last finalized block.
-    lookupLastFinalizedBlock :: m (Maybe (StoredBlock (MPV m)))
+    lookupLastFinalizedBlock :: m (Maybe (StoredBlock (MBSStore m) (MPV m)))
 
     -- | Look up a finalized block by height.
-    lookupBlockByHeight :: BlockHeight -> m (Maybe (StoredBlock (MPV m)))
+    lookupBlockByHeight :: BlockHeight -> m (Maybe (StoredBlock (MBSStore m) (MPV m)))
 
     -- | Look up a transaction by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe FinalizedTransactionStatus)
@@ -137,7 +137,7 @@ class (Monad m) => MonadTreeStateStore m where
     --    * The list of blocks is non-empty, consists of consecutive non-finalized blocks
     --      that form a chain.
     --    * The finalization entry is for the last of these blocks.
-    writeFinalizedBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry (MPV m) -> m ()
+    writeFinalizedBlocks :: [StoredBlock (MBSStore m) (MPV m)] -> FinalizationEntry (MPV m) -> m ()
 
     -- | Write a certified block that does not finalize other blocks.
     --  This has the following effects:
@@ -150,7 +150,7 @@ class (Monad m) => MonadTreeStateStore m where
     --    * The quorum certificate is for the supplied block.
     writeCertifiedBlock ::
         -- | The newly-certified block.
-        StoredBlock (MPV m) ->
+        StoredBlock (MBSStore m) (MPV m) ->
         -- | The quorum certificate for the block.
         QuorumCertificate ->
         m ()
@@ -167,9 +167,9 @@ class (Monad m) => MonadTreeStateStore m where
     --      newly-certified block.
     writeCertifiedBlockWithFinalization ::
         -- | List of blocks that are newly finalized, in increasing order of height.
-        [StoredBlock (MPV m)] ->
+        [StoredBlock (MBSStore m) (MPV m)] ->
         -- | The newly-certified block.
-        StoredBlock (MPV m) ->
+        StoredBlock (MBSStore m) (MPV m) ->
         -- | A finalization entry that finalizes the last of the finalized blocks, with the successor
         --  quorum certificate being for the newly-certified block.
         FinalizationEntry (MPV m) ->
@@ -180,7 +180,7 @@ class (Monad m) => MonadTreeStateStore m where
 
     -- | Look up all of the certified (non-finalized) blocks, with their quorum certificates.
     --  The list is in order of increasing round number.
-    lookupCertifiedBlocks :: m [(StoredBlock (MPV m), QuorumCertificate)]
+    lookupCertifiedBlocks :: m [(StoredBlock (MBSStore m) (MPV m), QuorumCertificate)]
 
     -- | Look up the status of the current round.
     lookupCurrentRoundStatus :: m PersistentRoundStatus

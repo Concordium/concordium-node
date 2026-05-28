@@ -37,6 +37,7 @@ import Concordium.Types.InvokeContract (ContractContext (..), InvokeContractResu
 import qualified Concordium.Wasm as Wasm
 import qualified Data.FixedByteString as FBS
 
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.Scheduler
 import Concordium.Scheduler.Environment
 import Concordium.Scheduler.EnvironmentImplementation (ContextState (..), accountCreationLimit, chainMetadata, maxBlockEnergy)
@@ -61,6 +62,8 @@ newtype InvokeContractMonad m a = InvokeContractMonad {_runInvokeContract :: Rea
           Monad,
           MonadLogger
         )
+
+type instance MBSStore (InvokeContractMonad m) = MBSStore m
 
 deriving instance (Monad m, r ~ BlockState m) => MonadReader (ContextState, r) (InvokeContractMonad m)
 

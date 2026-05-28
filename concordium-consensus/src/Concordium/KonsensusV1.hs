@@ -12,6 +12,7 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TransactionTable as TT
@@ -45,12 +46,12 @@ receiveFinalizationMessage ::
       BlockStateStorage m,
       TimeMonad m,
       MonadTimeout m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadReader r m,
       HasBakerContext r,
       MonadConsensusEvent m,
       MonadLogger m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadTreeStateStore m,
       MonadBroadcast m,
       TimerMonad m
@@ -89,16 +90,16 @@ addTransactionResult (Transactions.NotAdded verRes) =
     transactionVerificationResultToUpdateResult verRes
 
 -- | Force a purge of the transaction table.
-purgeTransactions :: (TimeMonad m, MonadState (SkovData pv) m) => m ()
+purgeTransactions :: (TimeMonad m, MonadState (SkovData (MBSStore m) pv) m) => m ()
 purgeTransactions = purgeTransactionTable True =<< currentTime
 
 -- | Start the timeout timer and trigger baking (if possible).
 startEvents ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,
@@ -122,7 +123,9 @@ startEvents = do
 
 -- | Get the block state of the terminal block.
 --  This MUST only be called once the consensus is in shutdown.
-getTerminalBlockState :: (MonadState (SkovData (MPV m)) m) => m (PBS.HashedPersistentBlockState (MPV m))
+getTerminalBlockState ::
+    (MonadState (SkovData (MBSStore m) (MPV m)) m) =>
+    m (PBS.HashedPersistentBlockState (MBSStore m) (MPV m))
 getTerminalBlockState =
     use terminalBlock <&> \case
         Absent -> error "Consensus was expected to be shut down, but terminal block is not present."
@@ -133,7 +136,7 @@ getTerminalBlockState =
 --  This returns the transaction table and the pending transaction table (which is with respect to
 --  the last finalized block).
 clearSkov ::
-    (MonadState (SkovData (MPV m)) m) =>
+    (MonadState (SkovData (MBSStore m) (MPV m)) m) =>
     m (TT.TransactionTable, TT.PendingTransactionTable)
 clearSkov = do
     lfb <- use lastFinalized
@@ -150,8 +153,8 @@ clearSkov = do
 --  This clears the transaction table and pending transactions, ensures that the block states are
 --  archived, and collapses the block state caches.
 terminateSkov ::
-    ( MonadState (SkovData (MPV m)) m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       BlockStateStorage m
     ) =>
     m ()

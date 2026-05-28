@@ -520,14 +520,14 @@ exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIn
 
 -- | Export blocks from a 'ConsensusV1' database.
 exportConsensusV1Blocks ::
-    forall pv m r.
+    forall pv m r store.
     ( IsProtocolVersion pv,
       MonadIO m,
       KonsensusV1.MonadTreeStateStore m,
       MonadLogger m,
       MPV m ~ pv,
       MonadReader r m,
-      KonsensusV1.HasDatabaseHandlers r pv,
+      KonsensusV1.HasDatabaseHandlers r store pv,
       MonadCatch m
     ) =>
     -- | Export path.
@@ -664,7 +664,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                             Nothing -> do
                                 logEvent External LLError $ "Tree state database could not be opened: " <> show treeStateDir
                                 return (True, Empty)
-                            Just (KonsensusV1.VersionDatabaseHandlers (dbh :: KonsensusV1.DatabaseHandlers pv)) ->
+                            Just (KonsensusV1.VersionDatabaseHandlers (dbh :: KonsensusV1.DatabaseHandlers store pv)) ->
                                 runReaderT
                                     ( KonsensusV1.runDiskLLDBM $ do
                                         exportResult <- exportConsensusV1Blocks @pv outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM

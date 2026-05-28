@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -52,10 +53,12 @@ instance Show GlobalStateInitException where
 instance Exception GlobalStateInitException
 
 -- | The read-only context type associated with a global state configuration.
-type GSContext pv = PersistentBlockStateContext pv
+type GSContext store pv = PersistentBlockStateContext store pv
 
 -- | The (mutable) state type associated with a global state configuration.
-type GSState pv = SkovPersistentData pv
+type GSState store pv = SkovPersistentData store pv
+
+data InitialisedState pv = forall store. InitialisedState (GSContext store pv) (GSState store pv)
 
 -- | Generate context and state from the initial configuration if the state
 --  exists already. This may have 'IO' side effects to set up any necessary
@@ -68,7 +71,10 @@ type GSState pv = SkovPersistentData pv
 --  Note that even if the state is successfully loaded it is not in a usable
 --  state for an active consensus and must be activated before. Use
 --  'activateGlobalState' for that.
-initialiseExistingGlobalState :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> GlobalStateConfig -> LogIO (Maybe (GSContext pv, GSState pv))
+initialiseExistingGlobalState ::
+    forall pv.
+    (IsProtocolVersion pv) =>
+    SProtocolVersion pv -> GlobalStateConfig -> LogIO (Maybe (InitialisedState pv))
 initialiseExistingGlobalState _ GlobalStateConfig{..} = do
     -- check if all the necessary database files exist
     existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
@@ -84,13 +90,14 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
                 skovData <-
                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
                         `onException` closeBlobStore pbscBlobStore
-                return (Just (pbsc, skovData))
+                return (Just $ InitialisedState pbsc skovData)
         else return Nothing
 
 -- | Initialize a 'PersistentBlockStateContext' via the provided
 --  'GlobalStateConfig'.
 --  This function attempts to create a new blob store.
-initializePersistentBlockStateContext :: GlobalStateConfig -> IO (PersistentBlockStateContext pv)
+initializePersistentBlockStateContext ::
+    GlobalStateConfig -> IO (PersistentBlockStateContext store pv)
 initializePersistentBlockStateContext GlobalStateConfig{..} = do
     pbscBlobStore <- createBlobStore dtdbBlockStateFile
     pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
@@ -118,15 +125,15 @@ migrateExistingState ::
     -- | The configuration.
     GlobalStateConfig ->
     -- | Global state context for the state we are migrating from.
-    GSContext oldpv ->
+    GSContext oldstore oldpv ->
     -- | The state of the chain we are migrating from. See documentation above for assumptions.
-    GSState oldpv ->
+    GSState oldstore oldpv ->
     -- | Auxiliary migration data.
     StateMigrationParameters oldpv pv ->
     -- | Regenesis data for the new chain. This is in effect the genesis block of the new chain.
     Regenesis pv ->
     -- | The return value is the context and state for the new chain.
-    LogIO (GSContext pv, GSState pv)
+    LogIO (InitialisedState pv)
 migrateExistingState gsc@GlobalStateConfig{..} oldPbsc oldState migration genData = do
     pbsc <- liftIO $ initializePersistentBlockStateContext gsc
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -148,12 +155,14 @@ migrateExistingState gsc@GlobalStateConfig{..} oldPbsc oldState migration genDat
     isd <-
         runReaderT (runPersistentBlockStateMonad initGS) pbsc
             `onException` liftIO (destroyBlobStore (pbscBlobStore pbsc))
-    return (pbsc, isd)
+    return (InitialisedState pbsc isd)
 
 -- | Initialise new global state with the given genesis. If the state already
 --  exists this will raise an exception. It is not necessary to call 'activateGlobalState'
 --  on the generated state, as this will establish the necessary invariants.
-initialiseNewGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
+initialiseNewGlobalState ::
+    (IsProtocolVersion pv, IsConsensusV0 pv) =>
+    GenesisData pv -> GlobalStateConfig -> LogIO (InitialisedState pv)
 initialiseNewGlobalState genData gsc@GlobalStateConfig{..} = do
     pbsc@PersistentBlockStateContext{..} <- liftIO $ initializePersistentBlockStateContext gsc
     let initGS = do
@@ -169,10 +178,13 @@ initialiseNewGlobalState genData gsc@GlobalStateConfig{..} = do
     isd <-
         runReaderT (runPersistentBlockStateMonad initGS) pbsc
             `onException` liftIO (destroyBlobStore pbscBlobStore)
-    return (pbsc, isd)
+    return (InitialisedState pbsc isd)
 
 -- | Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
-initialiseGlobalState :: forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
+initialiseGlobalState ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV0 pv) =>
+    GenesisData pv -> GlobalStateConfig -> LogIO (InitialisedState pv)
 initialiseGlobalState gd cfg =
     initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
         Nothing -> initialiseNewGlobalState gd cfg
@@ -180,11 +192,13 @@ initialiseGlobalState gd cfg =
 
 -- | Establish all the necessary invariants so that the state can be used by
 --  consensus. This should only be called once per initialised state.
-activateGlobalState :: (IsProtocolVersion pv) => Proxy pv -> GSContext pv -> GSState pv -> LogIO (GSState pv)
+activateGlobalState ::
+    (IsProtocolVersion pv) =>
+    Proxy pv -> GSContext store pv -> GSState store pv -> LogIO (GSState store pv)
 activateGlobalState _ = activateSkovPersistentData
 
 -- | Shutdown the global state.
-shutdownGlobalState :: SProtocolVersion pv -> GSContext pv -> GSState pv -> IO ()
+shutdownGlobalState :: SProtocolVersion pv -> GSContext store pv -> GSState store pv -> IO ()
 shutdownGlobalState _ PersistentBlockStateContext{..} st = do
     closeBlobStore pbscBlobStore
     closeSkovPersistentData st

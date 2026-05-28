@@ -26,6 +26,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TreeState as GSTypes
 import Concordium.KonsensusV1.LeaderElection
@@ -55,7 +56,7 @@ class MonadBroadcast m where
 --  handle these events.
 class MonadConsensusEvent m where
     -- | Called when a block becomes live.
-    onBlock :: BlockPointer (MPV m) -> m ()
+    onBlock :: BlockPointer (MBSStore m) (MPV m) -> m ()
 
     -- | Called when a block becomes finalized. This is called once per finalization with a list
     --  of all the blocks that are newly finalized.
@@ -63,7 +64,7 @@ class MonadConsensusEvent m where
         -- | Finalization entry that establishes finalization.
         FinalizationEntry (MPV m) ->
         -- | List of the newly-finalized blocks by increasing height.
-        [BlockPointer (MPV m)] ->
+        [BlockPointer (MBSStore m) (MPV m)] ->
         m ()
 
 -- | A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
@@ -79,7 +80,7 @@ class MonadTimeout m where
     resetTimer :: Duration -> m ()
 
 -- | Call 'resetTimer' with the current timeout.
-resetTimerWithCurrentTimeout :: (MonadTimeout m, MonadState (SkovData (MPV m)) m) => m ()
+resetTimerWithCurrentTimeout :: (MonadTimeout m, MonadState (SkovData store (MPV m)) m) => m ()
 resetTimerWithCurrentTimeout = resetTimer =<< use (roundStatus . rsCurrentTimeout)
 
 -- | Reset the timeout timer, and clear the collected quorum and timeout messages for the current
@@ -87,7 +88,7 @@ resetTimerWithCurrentTimeout = resetTimer =<< use (roundStatus . rsCurrentTimeou
 --  'advanceRoundWithQuorum'.
 onNewRound ::
     ( MonadTimeout m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData store (MPV m)) m
     ) =>
     m ()
 onNewRound = do
@@ -114,10 +115,10 @@ onNewRound = do
 advanceRoundWithTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData store (MPV m)) m,
       MonadLogger m
     ) =>
-    RoundTimeout (MPV m) ->
+    RoundTimeout store (MPV m) ->
     m ()
 advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
     logEvent Konsensus LLDebug $
@@ -141,11 +142,11 @@ advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
 --  * The certified block MUST be for a round that is at least the current round.
 advanceRoundWithQuorum ::
     ( MonadTimeout m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData store (MPV m)) m,
       MonadLogger m
     ) =>
     -- | Certified block
-    CertifiedBlock (MPV m) ->
+    CertifiedBlock store (MPV m) ->
     m ()
 advanceRoundWithQuorum certBlock = do
     logEvent Konsensus LLDebug $
@@ -167,9 +168,9 @@ advanceRoundWithQuorum certBlock = do
 -- | Update the highest certified block if the supplied block is for a later round than the previous
 --  highest certified block.
 checkedUpdateHighestCertifiedBlock ::
-    (MonadState (SkovData (MPV m)) m) =>
+    (MonadState (SkovData store (MPV m)) m) =>
     -- | Certified block
-    CertifiedBlock (MPV m) ->
+    CertifiedBlock store (MPV m) ->
     m ()
 checkedUpdateHighestCertifiedBlock newCB = do
     rs <- use roundStatus
@@ -243,7 +244,7 @@ computeBakersAndFinalizers bakers fcp =
 withFinalizerForEpoch ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData store (MPV m)) m,
       MonadLogger m
     ) =>
     Epoch ->
@@ -268,7 +269,7 @@ withFinalizerForEpoch epoch cont = do
 isCurrentFinalizer ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData store (MPV m)) m
     ) =>
     m Bool
 isCurrentFinalizer =
@@ -279,11 +280,11 @@ isCurrentFinalizer =
             return $ isJust $ finalizerByBakerId _bfFinalizers bakerId
 
 -- | Determine if consensus is shut down.
-isShutDown :: (MonadState (SkovData (MPV m)) m) => m Bool
+isShutDown :: (MonadState (SkovData store (MPV m)) m) => m Bool
 isShutDown = use isConsensusShutdown
 
 -- | The current state of the consensus with respect to the next protocol update.
-data ProtocolUpdateState pv
+data ProtocolUpdateState store pv
     = -- | No protocol update is currently anticipated.
       ProtocolUpdateStateNone
     | -- | A protocol update is currently scheduled.
@@ -299,17 +300,17 @@ data ProtocolUpdateState pv
     | -- | A protocol update has taken place and the consensus is shut down.
       ProtocolUpdateStateDone
         { puProtocolUpdate :: !ProtocolUpdate,
-          puTerminalBlock :: !(BlockPointer pv)
+          puTerminalBlock :: !(BlockPointer store pv)
         }
 
 -- | Get the current protocol update state.
 getProtocolUpdateState ::
-    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState store (MPV m),
       BS.BlockStateQuery m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData store (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
-    m (ProtocolUpdateState (MPV m))
+    m (ProtocolUpdateState store (MPV m))
 getProtocolUpdateState = do
     st <- bpState <$> use lastFinalized
     BS.getProtocolUpdateStatus st >>= \case
@@ -342,12 +343,12 @@ getProtocolUpdateState = do
 --  If the baker is not a baker in the current reward period, this will give a time at the start
 --  of the next reward period.
 bakerEarliestWinTimestamp ::
-    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState store (MPV m),
       BS.BlockStateQuery m,
       IsConsensusV1 (MPV m)
     ) =>
     BakerId ->
-    SkovData (MPV m) ->
+    SkovData store (MPV m) ->
     m Timestamp
 bakerEarliestWinTimestamp baker sd = do
     let lfBlock = sd ^. lastFinalized
@@ -402,13 +403,13 @@ bakerEarliestWinTimestamp baker sd = do
 --  block in a higher round).
 getWinningBakersForEpoch ::
     forall m.
-    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       BS.BlockStateQuery m,
       LowLevel.MonadTreeStateStore m,
       MonadIO m
     ) =>
     Epoch ->
-    SkovData (MPV m) ->
+    SkovData (MBSStore m) (MPV m) ->
     m (Maybe [WinningBaker])
 getWinningBakersForEpoch targetEpoch sd = do
     -- We start with the first finalized block of the next epoch.
@@ -433,7 +434,7 @@ getWinningBakersForEpoch targetEpoch sd = do
         -- backwards to the round after the first ancestor of @startBlock@ that is in an earlier
         -- epoch than @targetEpoch@.
         let go ::
-                BlockPointer (MPV m) -> -- Block in at most round @rnd@
+                BlockPointer (MBSStore m) (MPV m) -> -- Block in at most round @rnd@
                 Round -> -- Next round to include in list
                 [WinningBaker] -> -- Currently accumulated list
                 m [WinningBaker]

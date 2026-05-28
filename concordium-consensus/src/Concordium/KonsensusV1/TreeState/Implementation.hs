@@ -82,7 +82,7 @@ instance Exception TreeStateInvariantViolation where
 --  either alive or pending.
 --  Furthermore it holds a fixed size cache of hashes
 --  of blocks marked as dead.
-data BlockTable pv = BlockTable
+data BlockTable store pv = BlockTable
     { -- | Cache for dead blocks.
       --  See documentation of 'DeadCache' for an
       --  elaborate description of it.
@@ -103,20 +103,20 @@ data BlockTable pv = BlockTable
       --  * When a block is being marked as dead.
       --
       --  Note that non-finalized certified blocks exist both in the live map and on the disk.
-      _liveMap :: !(HM.HashMap BlockHash (BlockPointer pv))
+      _liveMap :: !(HM.HashMap BlockHash (BlockPointer store pv))
     }
     deriving (Show)
 
 makeLenses ''BlockTable
 
-instance ToProto (BlockTable pv) where
-    type Output (BlockTable pv) = Proto.BlockTableSummary
+instance ToProto (BlockTable store pv) where
+    type Output (BlockTable store pv) = Proto.BlockTableSummary
     toProto BlockTable{..} = Proto.make $ do
         ProtoFields.deadBlockCacheSize .= fromIntegral (deadCacheCurrentSize _deadBlocks)
         ProtoFields.liveBlocks .= fmap toProto (HM.keys _liveMap)
 
 -- | Create the empty block table.
-emptyBlockTable :: BlockTable pv
+emptyBlockTable :: BlockTable store pv
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
 -- | The 'PendingTransactions' consists of a "focus block", which is a live block, and a pending
@@ -133,14 +133,14 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 --
 --  Hence, it must always be the case that a nonce from the perspective of the focus block
 --  is the same as recorded in the 'PendingTransactionTable'.
-data PendingTransactions pv = PendingTransactions
+data PendingTransactions store pv = PendingTransactions
     { -- | The block with respect to which the pending transactions are considered pending.
-      _focusBlock :: !(BlockPointer pv),
+      _focusBlock :: !(BlockPointer store pv),
       -- | The table of pending transactions with respect to the focus block.
       _pendingTransactionTable :: !TT.PendingTransactionTable
     }
 
--- We make it classy such that we can provide an instance @HasPendingTransactions (SkovData pv) pv@
+-- We make it classy such that we can provide an instance @HasPendingTransactions (SkovData store pv) pv@
 -- making it easier to work with from a 'SkovData' context.
 makeClassy ''PendingTransactions
 
@@ -158,7 +158,7 @@ makeClassy ''PendingTransactions
 --  * The current epoch is at least the epoch of every live or finalized block.
 --
 --  * The current round is at least the round of every live or finalized block.
-data SkovData (pv :: ProtocolVersion) = SkovData
+data SkovData store (pv :: ProtocolVersion) = SkovData
     { -- | Status for the current round that is persisted to the low-level database.
       --  This is used to record when we have signed messages to ensure that we avoid double
       --  signing across node restarts.
@@ -166,7 +166,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- | The round status which holds data
       --  associated with the current round of the
       --  consensus protocol.
-      _roundStatus :: !(RoundStatus pv),
+      _roundStatus :: !(RoundStatus store pv),
       -- | Transactions.
       --  The transaction table tracks the following:
       --  * Live transactions: mapping from a 'TransactionHash' to the status of the transaction,
@@ -179,13 +179,13 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- | The purge counter for the 'TransactionTable'
       _transactionTablePurgeCounter :: !Int,
       -- | Pending transactions
-      _skovPendingTransactions :: !(PendingTransactions pv),
+      _skovPendingTransactions :: !(PendingTransactions store pv),
       -- | Runtime parameters.
       _runtimeParameters :: !RuntimeParameters,
       -- | Blocks which have been included in the tree or marked as dead.
-      _blockTable :: !(BlockTable pv),
+      _blockTable :: !(BlockTable store pv),
       -- | Branches of the tree ordered by height above the last finalized block
-      _branches :: !(Seq.Seq [BlockPointer pv]),
+      _branches :: !(Seq.Seq [BlockPointer store pv]),
       -- | For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
       --  live parent blocks from. This is used for duplicate detection.
       _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
@@ -197,7 +197,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- | Block height information of the (current) genesis block.
       _genesisBlockHeight :: !GenesisBlockHeightInfo,
       -- | Pointer to the last finalized block.
-      _lastFinalized :: !(BlockPointer pv),
+      _lastFinalized :: !(BlockPointer store pv),
       -- | A finalization entry that finalizes the last finalized block, unless that is the
       --  genesis block.
       _latestFinalizationEntry :: !(Option (FinalizationEntry pv)),
@@ -218,21 +218,21 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       --  may or may not be finalized explicitly, but such a block is uniquely determined
       --  across all nodes. (Note that the ultimate last finalized block may not be uniquely
       --  determined, because some rounds could have both QCs and TCs.)
-      _terminalBlock :: !(Option (BlockPointer pv))
+      _terminalBlock :: !(Option (BlockPointer store pv))
     }
 
 makeLenses ''SkovData
 
-instance HasPendingTransactions (SkovData pv) pv where
+instance HasPendingTransactions (SkovData store pv) store pv where
     pendingTransactions = skovPendingTransactions
     {-# INLINE pendingTransactions #-}
 
-instance HasEpochBakers (SkovData pv) where
+instance HasEpochBakers (SkovData store pv) where
     epochBakers = skovEpochBakers
     {-# INLINE epochBakers #-}
 
-instance ToProto (SkovData pv) where
-    type Output (SkovData pv) = Proto.ConsensusDetailedStatus
+instance ToProto (SkovData store pv) where
+    type Output (SkovData store pv) = Proto.ConsensusDetailedStatus
     toProto sd = Proto.make $ do
         ProtoFields.genesisBlock .= toProto (sd ^. currentGenesisHash)
         ProtoFields.persistentRoundStatus .= toProto (sd ^. persistentRoundStatus)
@@ -269,38 +269,38 @@ instance ToProto (SkovData pv) where
             (sd ^. terminalBlock)
 
 -- | Getter for accessing the genesis hash for the current genesis.
-currentGenesisHash :: SimpleGetter (SkovData pv) BlockHash
+currentGenesisHash :: SimpleGetter (SkovData store pv) BlockHash
 currentGenesisHash = genesisMetadata . to gmCurrentGenesisHash
 
 -- | Whether consensus is shutdown.
 --  This is @True@ when:
 --  * A protocol update was effective in the trigger block in this epoch.
 --  * The trigger block is finalized.
-isConsensusShutdown :: SimpleGetter (SkovData pv) Bool
+isConsensusShutdown :: SimpleGetter (SkovData store pv) Bool
 isConsensusShutdown = terminalBlock . to isPresent
 
 -- | Run the given action unless the consensus is already shut down.
-unlessShutdown :: (MonadState (SkovData pv) m) => m () -> m ()
+unlessShutdown :: (MonadState (SkovData store pv) m) => m () -> m ()
 unlessShutdown a = do
     isShutdown <- use isConsensusShutdown
     unless isShutdown a
 
 -- | Lens for accessing the witness that a baker signed a block in a particular round.
-roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
+roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData store pv) (Maybe BlockSignatureWitness)
 roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty . at' bakerId
 
 -- | Remove all entries from 'roundExistingBlocks' with round less than or equal to the supplied
 --  round.
-purgeRoundExistingBlocks :: (MonadState (SkovData pv) m) => Round -> m ()
+purgeRoundExistingBlocks :: (MonadState (SkovData store pv) m) => Round -> m ()
 purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
 
 -- | Lens for accessing the witness that we have checked a 'QuorumCertificate' for a particular 'Round'.
-roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateCheckedWitness)
+roundExistingQuorumCertificate :: Round -> Lens' (SkovData store pv) (Maybe QuorumCertificateCheckedWitness)
 roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
 
 -- | Record that we have checked a 'QuorumCertificate' in the 'roundExistingQCs'.
 --  The certificate should be for a round that is later than the last finalized round.
-recordCheckedQuorumCertificate :: (MonadState (SkovData pv) m) => QuorumCertificate -> m ()
+recordCheckedQuorumCertificate :: (MonadState (SkovData store pv) m) => QuorumCertificate -> m ()
 recordCheckedQuorumCertificate qc =
     roundExistingQuorumCertificate (qcRound qc) ?=! witness
   where
@@ -308,11 +308,11 @@ recordCheckedQuorumCertificate qc =
 
 -- | Remove all entries from 'roundExistingQCs' with a 'Round' less than to the
 --  supplied 'Round'.
-purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
+purgeRoundExistingQCs :: (MonadState (SkovData store pv) m) => Round -> m ()
 purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 
--- | Create an initial 'SkovData pv'
---  This constructs a 'SkovData pv' from a genesis block
+-- | Create an initial 'SkovData store pv'
+--  This constructs a 'SkovData store pv' from a genesis block
 --  which is suitable to grow the tree from.
 --
 --  In the case that this is from a genesis, then an empty transaction table
@@ -327,7 +327,7 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 --   * The caller must make sure, that the supplied 'TransactionTable' does NOT contain any @Committed@ transactions
 --     and all transactions have their commit point set to 0.
 mkInitialSkovData ::
-    forall pv.
+    forall store pv.
     (IsProtocolVersion pv) =>
     -- | The 'RuntimeParameters'
     RuntimeParameters ->
@@ -336,7 +336,7 @@ mkInitialSkovData ::
     -- | Block height information for the genesis block.
     GenesisBlockHeightInfo ->
     -- | Genesis state
-    PBS.HashedPersistentBlockState pv ->
+    PBS.HashedPersistentBlockState store pv ->
     -- | The base timeout
     Duration ->
     -- | Bakers at the genesis block
@@ -346,7 +346,7 @@ mkInitialSkovData ::
     -- | 'PendingTransactionTable' to initialize the 'SkovData' with.
     TT.PendingTransactionTable ->
     -- | The initial 'SkovData'
-    SkovData pv
+    SkovData store pv
 mkInitialSkovData rp genMeta genesisBlockHeightInfo genState _currentTimeout _skovEpochBakers transactionTable' pendingTransactionTable' =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
@@ -398,12 +398,12 @@ mkInitialSkovData rp genMeta genesisBlockHeightInfo genState _currentTimeout _sk
 
 -- | Get the 'BlockPointer' for a block hash that is live (not finalized).
 --  Returns 'Nothing' if the block is not in the live (non-finalized) blocks.
-getLiveBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveBlock :: BlockHash -> SkovData store pv -> Maybe (BlockPointer store pv)
 getLiveBlock blockHash sd = sd ^? blockTable . liveMap . ix blockHash
 
 -- | Get the 'BlockPointer' for a block hash that is live or the last finalized block.
 --  Returns 'Nothing' if the block is neither live nor the last finalized block.
-getLiveOrLastFinalizedBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveOrLastFinalizedBlock :: BlockHash -> SkovData store pv -> Maybe (BlockPointer store pv)
 getLiveOrLastFinalizedBlock blockHash sd
     | blockHash == getHash (sd ^. lastFinalized) = Just $! sd ^. lastFinalized
     | otherwise = getLiveBlock blockHash sd
@@ -415,7 +415,7 @@ getLiveOrLastFinalizedBlock blockHash sd
 --  'Just BlockStatus'.
 --  This function should not be called directly, instead use either
 --  'getBlockStatus' or 'getRecentBlockStatus'.
-getMemoryBlockStatus :: BlockHash -> SkovData pv -> Maybe (BlockStatus pv)
+getMemoryBlockStatus :: BlockHash -> SkovData store pv -> Maybe (BlockStatus store pv)
 getMemoryBlockStatus blockHash sd
     -- Check if it's last finalized
     | getHash (sd ^. lastFinalized) == blockHash = Just $! BlockFinalized (sd ^. lastFinalized)
@@ -429,7 +429,7 @@ getMemoryBlockStatus blockHash sd
     | otherwise = Nothing
 
 -- | Create a block pointer from a stored block.
-mkBlockPointer :: (MonadIO m) => LowLevel.StoredBlock pv -> m (BlockPointer pv)
+mkBlockPointer :: (MonadIO m) => LowLevel.StoredBlock store pv -> m (BlockPointer store pv)
 mkBlockPointer sb@LowLevel.StoredBlock{..} = do
     bpState <- liftIO mkHashedPersistentBlockState
     return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
@@ -442,7 +442,9 @@ mkBlockPointer sb@LowLevel.StoredBlock{..} = do
 -- | Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
 --  Note. if one does not care about old finalized blocks then
 --  use 'getRecentBlockStatus' instead as it circumvents a full lookup from disk.
-getBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHash -> SkovData (MPV m) -> m (BlockStatus (MPV m))
+getBlockStatus ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    BlockHash -> SkovData (BlobStore.MBSStore m) (MPV m) -> m (BlockStatus (BlobStore.MBSStore m) (MPV m))
 getBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
     Just bs -> return bs
     Nothing ->
@@ -455,7 +457,9 @@ getBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
 -- | Get the 'RecentBlockStatus' of a block based on the provided 'BlockHash'.
 --  Use this instead of 'getBlockStatus' if the contents and resulting state are not needed
 --  for blocks beyond the last finalized block.
-getRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => BlockHash -> SkovData (MPV m) -> m (RecentBlockStatus (MPV m))
+getRecentBlockStatus ::
+    (LowLevel.MonadTreeStateStore m) =>
+    BlockHash -> SkovData store (MPV m) -> m (RecentBlockStatus store (MPV m))
 getRecentBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
     Just bs -> return $! RecentBlock bs
     Nothing -> do
@@ -465,7 +469,9 @@ getRecentBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
 
 -- | Get a finalized block by height.
 --  This will return 'Nothing' for a block that is either not finalized or unknown.
-getFinalizedBlockAtHeight :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHeight -> m (Maybe (BlockPointer (MPV m)))
+getFinalizedBlockAtHeight ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    BlockHeight -> m (Maybe (BlockPointer (BlobStore.MBSStore m) (MPV m)))
 getFinalizedBlockAtHeight height = do
     LowLevel.lookupBlockByHeight height >>= \case
         Nothing -> return Nothing
@@ -477,8 +483,8 @@ getFinalizedBlockAtHeight height = do
 getBlocksAtHeight ::
     (LowLevel.MonadTreeStateStore m, MonadIO m) =>
     BlockHeight ->
-    SkovData (MPV m) ->
-    m [BlockPointer (MPV m)]
+    SkovData (BlobStore.MBSStore m) (MPV m) ->
+    m [BlockPointer (BlobStore.MBSStore m) (MPV m)]
 getBlocksAtHeight height sd = case compare height lastFinHeight of
     LT -> toList <$> getFinalizedBlockAtHeight height
     EQ -> return [sd ^. lastFinalized]
@@ -492,9 +498,9 @@ getBlocksAtHeight height sd = case compare height lastFinHeight of
 getFirstFinalizedBlockOfEpoch ::
     (LowLevel.MonadTreeStateStore m, MonadIO m) =>
     -- | Target epoch or a block in the target epoch.
-    Either Epoch (BlockPointer (MPV m)) ->
-    SkovData (MPV m) ->
-    m (Maybe (BlockPointer (MPV m)))
+    Either Epoch (BlockPointer (BlobStore.MBSStore m) (MPV m)) ->
+    SkovData (BlobStore.MBSStore m) (MPV m) ->
+    m (Maybe (BlockPointer (BlobStore.MBSStore m) (MPV m)))
 getFirstFinalizedBlockOfEpoch epochOrBlock sd
     | targetEpoch > blockEpoch lastFin = return Nothing
     | otherwise = do
@@ -522,17 +528,17 @@ getFirstFinalizedBlockOfEpoch epochOrBlock sd
 --  The hash of the block state MUST match the block state hash of the block; this is not checked.
 --  [Note: this does not affect the '_branches' of the 'SkovData'.]
 makeLiveBlock ::
-    forall m pv.
-    (MonadState (SkovData pv) m, IsProtocolVersion pv) =>
+    forall m store pv.
+    (MonadState (SkovData store pv) m, IsProtocolVersion pv) =>
     -- | Pending block to make live
     PendingBlock pv ->
     -- | Block state associated with the block
-    PBS.HashedPersistentBlockState pv ->
+    PBS.HashedPersistentBlockState store pv ->
     BlockHeight ->
     UTCTime ->
     -- | Energy used in executing the block
     Energy ->
-    m (BlockPointer pv)
+    m (BlockPointer store pv)
 makeLiveBlock pb st height arriveTime energyCost = do
     let bp =
             BlockPointer
@@ -558,7 +564,7 @@ makeLiveBlock pb st height arriveTime energyCost = do
 --  This expunges the block from memory
 --  and registers the block in the dead cache.
 --  [Note: this does not affect the '_branches' of the 'SkovData'.]
-markBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
+markBlockDead :: (MonadState (SkovData store pv) m) => BlockHash -> m ()
 markBlockDead blockHash = do
     blockTable . liveMap . at' blockHash .=! Nothing
     blockTable . deadBlocks %=! insertDeadCache blockHash
@@ -567,11 +573,11 @@ markBlockDead blockHash = do
 --  transaction table by purging all transaction outcomes that refer to this block.
 --  [Note: this does not affect the '_branches' of the 'SkovData'.]
 markLiveBlockDead ::
-    ( MonadState (SkovData pv) m,
+    ( MonadState (SkovData store pv) m,
       BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState store pv
     ) =>
-    BlockPointer pv ->
+    BlockPointer store pv ->
     m ()
 markLiveBlockDead bp = do
     let bh = getHash bp
@@ -583,10 +589,10 @@ markLiveBlockDead bp = do
 --  This removes them the in-memory transaction table.
 --  The caller is expected to ensure that they are written to the low-level storage.
 markLiveBlocksFinal ::
-    (MonadState (SkovData pv) m) =>
+    (MonadState (SkovData store pv) m) =>
     -- | Blocks to mark final i.e. removing them from the live block map.
     --  Note that the order of the blocks does not matter for this operation.
-    [BlockPointer pv] ->
+    [BlockPointer store pv] ->
     m ()
 markLiveBlocksFinal blockPointers =
     blockTable
@@ -598,9 +604,9 @@ markLiveBlocksFinal blockPointers =
 --  Note that it is assumed that the parent is either live or finalized as otherwise this
 --  function will raise an error.
 parentOf ::
-    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
-    BlockPointer (MPV m) ->
-    m (BlockPointer (MPV m))
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (BlobStore.MBSStore m) (MPV m)) m) =>
+    BlockPointer (BlobStore.MBSStore m) (MPV m) ->
+    m (BlockPointer (BlobStore.MBSStore m) (MPV m))
 parentOf block
     | Present blockData <- blockBakedData block = do
         get >>= getBlockStatus (blockParent blockData) <&> \case
@@ -618,7 +624,7 @@ parentOf block
 --  By definition, the parent block must either also be live or be the last finalized block.
 --
 --  If the block is not live, this function may fail with an error.
-parentOfLive :: (HasCallStack) => SkovData pv -> BlockPointer pv -> BlockPointer pv
+parentOfLive :: (HasCallStack) => SkovData store pv -> BlockPointer store pv -> BlockPointer store pv
 parentOfLive sd block
     | let lastFin = sd ^. lastFinalized,
       parentHash == getHash lastFin =
@@ -639,7 +645,9 @@ parentOfLive sd block
 -- | Get the parent of a block where the parent is a finalized block.
 --  This will produce an error if the supplied block is the genesis block, or the parent block is
 --  not finalized.
-parentOfFinalized :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockPointer (MPV m) -> m (BlockPointer (MPV m))
+parentOfFinalized ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    BlockPointer (BlobStore.MBSStore m) (MPV m) -> m (BlockPointer (BlobStore.MBSStore m) (MPV m))
 parentOfFinalized block = do
     let parentHash
             | Present blockData <- blockBakedData block = blockParent blockData
@@ -661,9 +669,9 @@ parentOfFinalized block = do
 --  to pass 1 day if we need to go back 50 blocks, and 1 billion years if we need to go back 200
 --  blocks.
 lastFinalizedOf ::
-    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
-    BlockPointer (MPV m) ->
-    m (BlockPointer (MPV m))
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (BlobStore.MBSStore m) (MPV m)) m) =>
+    BlockPointer (BlobStore.MBSStore m) (MPV m) ->
+    m (BlockPointer (BlobStore.MBSStore m) (MPV m))
 lastFinalizedOf = go <=< parentOf
   where
     go block
@@ -677,11 +685,11 @@ lastFinalizedOf = go <=< parentOf
 -- | Determine if one block is an ancestor of another.
 --  A block is considered to be an ancestor of itself.
 isAncestorOf ::
-    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (BlobStore.MBSStore m) (MPV m)) m) =>
     -- | The block to check whether it's an ancestor of the other or not.
-    BlockPointer (MPV m) ->
+    BlockPointer (BlobStore.MBSStore m) (MPV m) ->
     -- | The block to carry out the ancestor check with respect to.
-    BlockPointer (MPV m) ->
+    BlockPointer (BlobStore.MBSStore m) (MPV m) ->
     m Bool
 isAncestorOf b1 maybeAncestor = case compare (blockHeight b1) (blockHeight maybeAncestor) of
     GT -> return False
@@ -701,9 +709,9 @@ isAncestorOf b1 maybeAncestor = case compare (blockHeight b1) (blockHeight maybe
 --  The latter note is enforced by the way we add pending blocks, i.e. pending blocks are awaiting
 --  their parent before becoming live.
 addToBranches ::
-    (MonadState (SkovData pv) m) =>
+    (MonadState (SkovData store pv) m) =>
     -- | The block to add to the current branches.
-    BlockPointer pv ->
+    BlockPointer store pv ->
     m ()
 addToBranches block = do
     lfbHeight <- use $ lastFinalized . to blockHeight
@@ -719,7 +727,7 @@ addToBranches block = do
 -- | Get the blocks in the branches of the tree grouped by descending height.
 --  That is the first element of the list is all of the blocks at 'getCurrentHeight',
 --  the next is those at @getCurrentHeight - 1@, etc.
-branchesFromTop :: SkovData pv -> [[BlockPointer pv]]
+branchesFromTop :: SkovData store pv -> [[BlockPointer store pv]]
 branchesFromTop = revSeqToList . _branches
   where
     revSeqToList Seq.Empty = []
@@ -729,12 +737,12 @@ branchesFromTop = revSeqToList . _branches
 
 -- | Lookup a transaction in the transaction table if it is live.
 --  This will give a 'Nothing' result for finalized transactions.
-lookupLiveTransaction :: TransactionHash -> SkovData pv -> Maybe TT.LiveTransactionStatus
+lookupLiveTransaction :: TransactionHash -> SkovData store pv -> Maybe TT.LiveTransactionStatus
 lookupLiveTransaction tHash sd =
     sd ^? transactionTable . TT.ttHashMap . at tHash . traversed . _2
 
 -- | Lookup a transaction in the transaction table, including finalized transactions.
-lookupTransaction :: (LowLevel.MonadTreeStateStore m) => TransactionHash -> SkovData pv -> m (Maybe TransactionStatus)
+lookupTransaction :: (LowLevel.MonadTreeStateStore m) => TransactionHash -> SkovData store pv -> m (Maybe TransactionStatus)
 lookupTransaction tHash sd = case lookupLiveTransaction tHash sd of
     Just liveRes -> return $ Just $ Live liveRes
     Nothing -> fmap Finalized <$> LowLevel.lookupTransaction tHash
@@ -750,7 +758,7 @@ getNonFinalizedAccountTransactions ::
     AccountAddressEq ->
     -- | Starting nonce.
     Nonce ->
-    SkovData pv ->
+    SkovData store pv ->
     [(Nonce, Map.Map Transaction TVer.VerificationResult)]
 getNonFinalizedAccountTransactions addr nnce sd =
     case sd ^. transactionTable . TT.ttNonFinalizedTransactions . at' addr of
@@ -773,7 +781,7 @@ getNonFinalizedChainUpdates ::
     UpdateType ->
     -- | The starting sequence number.
     UpdateSequenceNumber ->
-    SkovData pv ->
+    SkovData store pv ->
     -- | The resulting list of chain updates.
     [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 getNonFinalizedChainUpdates uType updateSequenceNumber sd = do
@@ -790,8 +798,8 @@ getNonFinalizedChainUpdates uType updateSequenceNumber sd = do
 getNonFinalizedCredential ::
     -- | 'TransactionHash' for the transaction that contained the 'CredentialDeployment'.
     TransactionHash ->
-    -- | The 'SkovData pv' to query the non finalized credential from.
-    SkovData pv ->
+    -- | The 'SkovData store pv' to query the non finalized credential from.
+    SkovData store pv ->
     Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult)
 getNonFinalizedCredential txhash sd = do
     case sd ^? transactionTable . TT.ttHashMap . ix txhash of
@@ -808,14 +816,14 @@ getNonFinalizedCredential txhash sd = do
 --  tied to this account.
 getNextAccountNonce ::
     ( BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState store (MPV m)
     ) =>
     -- | The 'AccountAddressEq' to get the next available nonce for.
     --  This will work for account aliases as this is an 'AccountAddressEq'
     --  and not just a 'AccountAddress'.
     AccountAddressEq ->
-    -- | The 'SkovData pv' to query the next account nonce from.
-    SkovData (MPV m) ->
+    -- | The 'SkovData store pv' to query the next account nonce from.
+    SkovData store (MPV m) ->
     -- | The resulting account nonce and whether it is finalized or not.
     m (Nonce, Bool)
 getNextAccountNonce addr sd =
@@ -836,7 +844,7 @@ getNextAccountNonce addr sd =
 --  nonce. This does not write the transactions to the low-level tree state database, but just
 --  updates the in-memory transaction table accordingly.
 finalizeTransactions ::
-    ( MonadState (SkovData pv) m,
+    ( MonadState (SkovData store pv) m,
       MonadThrow m
     ) =>
     -- | The transactions to remove from the state.
@@ -903,7 +911,7 @@ finalizeTransactions = mapM_ removeTrans
 -- | Mark the (live) transactions for a particular block as committed.
 --  This does nothing for transactions that are not live.
 commitTransactions ::
-    (MonadState (SkovData pv) m) =>
+    (MonadState (SkovData store pv) m) =>
     -- | Round of the block
     Round ->
     -- | The 'BlockHash' that the transaction should
@@ -929,7 +937,7 @@ commitTransactions rnd bh transactions = transactionTable . TT.ttHashMap %=! doC
 --  When adding a transaction from a block, use the 'Round' of the block. Otherwise use round @0@.
 --  The transaction must not already be present.
 addTransaction ::
-    (MonadState (SkovData pv) m) =>
+    (MonadState (SkovData store pv) m) =>
     Round ->
     BlockItem ->
     TVer.VerificationResult ->
@@ -941,7 +949,7 @@ addTransaction rnd transaction verRes = do
 
 -- | Mark the provided transaction as dead for the provided 'BlockHash'.
 markTransactionDead ::
-    (MonadState (SkovData pv) m) =>
+    (MonadState (SkovData store pv) m) =>
     -- | The 'BlockHash' where the transaction was committed.
     BlockHash ->
     -- | The 'BlockItem' to mark as dead.
@@ -984,7 +992,7 @@ markTransactionDead blockHash transaction =
 --      then 'commitTransaction' or 'addCommitTransaction' has been called with a
 --      slot number at least as high as the slot number of the block.
 purgeTransactionTable ::
-    (MonadState (SkovData pv) m) =>
+    (MonadState (SkovData store pv) m) =>
     -- | Whether to force the purging.
     Bool ->
     -- | The current time.
@@ -1016,10 +1024,10 @@ purgeTransactionTable force currentTime = do
 --
 --  PRECONDITION: The new focus block must be a live block, or the last finalized block.
 updateFocusBlockTo ::
-    forall m.
-    (MonadState (SkovData (MPV m)) m) =>
+    forall store m.
+    (MonadState (SkovData store (MPV m)) m) =>
     -- | New focus block
-    BlockPointer (MPV m) ->
+    BlockPointer store (MPV m) ->
     m ()
 updateFocusBlockTo newFocusBlock = do
     -- 'parent' will be a function that gets the parent of live blocks in the present state.
@@ -1075,7 +1083,7 @@ updateFocusBlockTo newFocusBlock = do
 --  Additionally, they may be available for future epochs in the same payday as the last finalized
 --  block.
 --  Returns 'Nothing' if the bakers and finalizers are not available.
-getBakersForEpoch :: Epoch -> SkovData pv -> Maybe BakersAndFinalizers
+getBakersForEpoch :: Epoch -> SkovData store pv -> Maybe BakersAndFinalizers
 getBakersForEpoch e s
     | e == curEpoch = Just (s ^. currentEpochBakers)
     | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
@@ -1088,7 +1096,7 @@ getBakersForEpoch e s
 -- | Get the bakers at the current epoch.
 --  This relies on the fact that the current epoch is either the same as the epoch of the last
 --  finalized block, or the next epoch.
-bakersForCurrentEpoch :: SkovData pv -> BakersAndFinalizers
+bakersForCurrentEpoch :: SkovData store pv -> BakersAndFinalizers
 bakersForCurrentEpoch sd
     | sd ^. roundStatus . rsCurrentEpoch == sd ^. lastFinalized . to blockEpoch =
         sd ^. currentEpochBakers
@@ -1102,7 +1110,7 @@ bakersForCurrentEpoch sd
 --  'Received' transactions have their 'CommitPoint' reset.
 --  Transactions that were 'Committed' (to any non-finalized block) have
 --  their status changed to 'Received' and their 'CommitPoint' is reset.
-clearOnProtocolUpdate :: (MonadState (SkovData pv) m) => m ()
+clearOnProtocolUpdate :: (MonadState (SkovData store pv) m) => m ()
 clearOnProtocolUpdate = do
     -- clear the block table
     blockTable .=! emptyBlockTable
@@ -1120,7 +1128,7 @@ clearOnProtocolUpdate = do
 
 -- | Clear the transaction table and pending transactions, ensure that the block states are archived,
 --  and collapse the block state caches.
-clearAfterProtocolUpdate :: (MonadState (SkovData pv) m, BlockStateStorage m, GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv) => m ()
+clearAfterProtocolUpdate :: (MonadState (SkovData store pv) m, BlockStateStorage m, GSTypes.BlockState m ~ PBS.HashedPersistentBlockState store pv) => m ()
 clearAfterProtocolUpdate = do
     -- Clear the transaction table and pending transactions.
     transactionTable .=! TT.emptyTransactionTable
@@ -1136,12 +1144,14 @@ clearAfterProtocolUpdate = do
     collapseCaches
 
 -- | Sets and persists the 'PersistentRoundStatus' of the 'SkovData'.
-setPersistentRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => PersistentRoundStatus -> m ()
+setPersistentRoundStatus ::
+    (LowLevel.MonadTreeStateStore m, MonadState (SkovData store (MPV m)) m) =>
+    PersistentRoundStatus -> m ()
 setPersistentRoundStatus = updatePersistentRoundStatus . const
 
 -- | Updates and persists the 'PersistentRoundStatus' of the 'SkovData'.
 updatePersistentRoundStatus ::
-    (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) =>
+    (LowLevel.MonadTreeStateStore m, MonadState (SkovData store (MPV m)) m) =>
     (PersistentRoundStatus -> PersistentRoundStatus) ->
     m ()
 updatePersistentRoundStatus change = do

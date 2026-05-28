@@ -44,6 +44,7 @@ import qualified Concordium.TransactionVerification as TVer
 import Control.Exception (assert)
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelChargeEnergy, PLTKernelFail, PLTKernelPrivilegedUpdate)
@@ -130,7 +131,7 @@ class
     -- | Create new instance in the global state.
     --  The instance is parametrised by the address, and the return value is the
     --  address assigned to the new instance.
-    putNewInstance :: (IsWasmVersion v) => NewInstanceData (InstrumentedModuleRef m v) v -> m ContractAddress
+    putNewInstance :: (IsWasmVersion v) => NewInstanceData (MBSStore m) (InstrumentedModuleRef m v) v -> m ContractAddress
 
     -- | Bump the next available transaction nonce of the account.
     --  Precondition: the account exists in the block state.
@@ -435,31 +436,38 @@ class
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
 --  state since this might not be needed.
-data TemporaryContractState contractState (v :: Wasm.WasmVersion)
+data TemporaryContractState contractState store (v :: Wasm.WasmVersion)
     = Frozen (contractState v)
-    | Thawed (UpdatableContractState v)
+    | Thawed (UpdatableContractState store v)
 
 {-# INLINE getRuntimeReprV0 #-}
-getRuntimeReprV0 :: (ContractStateOperations m) => TemporaryContractState (ContractState m) GSWasm.V0 -> m Wasm.ContractState
+getRuntimeReprV0 ::
+    (ContractStateOperations m) =>
+    TemporaryContractState (ContractState m) (MBSStore m) GSWasm.V0 -> m Wasm.ContractState
 getRuntimeReprV0 (Frozen cs) = thawContractState cs
 getRuntimeReprV0 (Thawed cs) = return cs
 
 {-# INLINE getRuntimeReprV1 #-}
-getRuntimeReprV1 :: (ContractStateOperations m) => TemporaryContractState (ContractState m) GSWasm.V1 -> m StateV1.MutableState
+getRuntimeReprV1 ::
+    (ContractStateOperations m) =>
+    TemporaryContractState (ContractState m) (MBSStore m) GSWasm.V1 ->
+    m (StateV1.MutableState (MBSStore m))
 getRuntimeReprV1 (Frozen cs) = thawContractState cs
 getRuntimeReprV1 (Thawed cs) = return cs
 
-getStateSizeV0 :: (ContractStateOperations m) => TemporaryContractState (ContractState m) GSWasm.V0 -> m Wasm.ByteSize
+getStateSizeV0 ::
+    (ContractStateOperations m) =>
+    TemporaryContractState (ContractState m) (MBSStore m) GSWasm.V0 -> m Wasm.ByteSize
 getStateSizeV0 (Frozen cs) = stateSizeV0 cs
 getStateSizeV0 (Thawed cs) = return $ Wasm.contractStateSize cs
 
 -- | Updatable instance information. This is used in the scheduler to efficiently
 --  update contract states.
-type UInstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (TemporaryContractState (ContractState m))
+type UInstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (TemporaryContractState (ContractState m) (MBSStore m))
 
 -- | Updatable instance information, versioned variant. This is used in the scheduler to efficiently
 --  update contract states.
-type UInstanceInfoV m = InstanceInfoTypeV (InstrumentedModuleRef m) (TemporaryContractState (ContractState m))
+type UInstanceInfoV m = InstanceInfoTypeV (InstrumentedModuleRef m) (TemporaryContractState (ContractState m) (MBSStore m))
 
 -- | This is a derived notion that is used inside a transaction to keep track of
 --  the state of the world during execution. Local state of contracts and amounts
@@ -471,7 +479,7 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
     --  keep track of changes locally first, and only commit them at the end.
     --  Instance keeps track of its own address hence we need not provide it
     --  separately.
-    withInstanceStateV0 :: UInstanceInfoV m GSWasm.V0 -> UpdatableContractState GSWasm.V0 -> m a -> m a
+    withInstanceStateV0 :: UInstanceInfoV m GSWasm.V0 -> UpdatableContractState (MBSStore m) GSWasm.V0 -> m a -> m a
 
     -- | Execute the code in a temporarily modified environment. This is needed
     --  in nested calls to transactions which might end up failing at the end.
@@ -486,7 +494,7 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
     --  modification index is increased to keep track of changes so that when
     --  resuming execution a contract is told whether its state has changed or
     --  not.
-    withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState GSWasm.V1 -> Bool -> (ModificationIndex -> m a) -> m a
+    withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState (MBSStore m) GSWasm.V1 -> Bool -> (ModificationIndex -> m a) -> m a
 
     -- | Transfer amount from the first address to the second and run the
     --  computation in the modified environment.
@@ -596,7 +604,7 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 
     -- | Get the current contract instance state, together with the modification
     --  index of the last modification.
-    getCurrentContractInstanceState :: UInstanceInfoV m GSWasm.V1 -> m (ModificationIndex, TemporaryContractState (ContractState m) GSWasm.V1)
+    getCurrentContractInstanceState :: UInstanceInfoV m GSWasm.V1 -> m (ModificationIndex, TemporaryContractState (ContractState m) (MBSStore m) GSWasm.V1)
 
     -- | Get the current modification index for the instance. If the instance has
     --  not yet been modified during execution of the transaction 0 is returned.
@@ -687,35 +695,35 @@ type ModificationIndex = Word
 --  That is why we have the auxiliary type definition @InstanceV1Update'@
 --  parametrized by the type function @mr@ and then a simplified type alias
 --  @InstanceV1Update@ on top.
-data InstanceV1Update' mr = InstanceV1Update
+data InstanceV1Update' store mr = InstanceV1Update
     { -- | The modification index.
       index :: !ModificationIndex,
       -- | Amount changed
       amountChange :: !AmountDelta,
       -- | Present if a state change has ocurred.
-      newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
+      newState :: !(Maybe (UpdatableContractState store GSWasm.V1)),
       -- | Present if the contract has been upgraded.
       --  Contract upgrades are only supported from PV 5 and onwards.
       newInterface :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
     }
 
-type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
+type InstanceV1Update m = InstanceV1Update' (MBSStore m) (InstrumentedModuleRef m)
 
-type ChangeSet m = ChangeSet' (InstrumentedModuleRef m)
+type ChangeSet m = ChangeSet' (MBSStore m) (InstrumentedModuleRef m)
 
 -- | The set of changes to be committed on a successful transaction.
 --
 --  The reason for parametrizing by a type function @mr@ is the same as for
 --  @InstanceV1Update@.
-data ChangeSet' mr = ChangeSet
+data ChangeSet' store mr = ChangeSet
     { -- | Accounts whose states changed.
       --  |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
       --  We thus know where to look.
       _accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate),
-      _instanceV0Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState GSWasm.V0))),
+      _instanceV0Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState store GSWasm.V0))),
       -- | V1 contracts whose state changed (and/or) has been upgraded. Any time we are updating a contract we know which version it is.
       --  We thus know where to look.
-      _instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' mr)),
+      _instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' store mr)),
       -- | Contracts that were initialized.
       _instanceInits :: !(HSet.HashSet ContractAddress),
       -- | Change in the encrypted balance of the system as a result of this contract's execution.
@@ -791,7 +799,14 @@ modifyAmountCS Proxy ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount) %~ 
     upd Nothing = error "modifyAmountCS precondition violated."
 
 -- | Add or update the contract state in the changeset with the new state.
-addContractStatesToCSV0 :: (HasInstanceAddress a) => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V0 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV0 ::
+    (HasInstanceAddress a) =>
+    Proxy m ->
+    a ->
+    ModificationIndex ->
+    UpdatableContractState (MBSStore m) GSWasm.V0 ->
+    ChangeSet m ->
+    ChangeSet m
 addContractStatesToCSV0 Proxy istance curIdx newState =
     instanceV0Updates . at addr %~ \case
         Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
@@ -800,7 +815,14 @@ addContractStatesToCSV0 Proxy istance curIdx newState =
     addr = instanceAddress istance
 
 -- | Add or update the contract state in the changeset with the new state.
-addContractStatesToCSV1 :: (HasInstanceAddress a) => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV1 ::
+    (HasInstanceAddress a) =>
+    Proxy m ->
+    a ->
+    ModificationIndex ->
+    UpdatableContractState (MBSStore m) GSWasm.V1 ->
+    ChangeSet m ->
+    ChangeSet m
 addContractStatesToCSV1 Proxy istance curIdx stateUpdate =
     instanceV1Updates
         . at addr
@@ -1171,6 +1193,8 @@ instance (StaticInformation m) => StaticInformation (LocalT r m) where
 
     {-# INLINE getExchangeRates #-}
     getExchangeRates = liftLocal getExchangeRates
+
+type instance MBSStore (LocalT r m) = MBSStore m
 
 deriving via (MGSTrans (LocalT r) m) instance (AccountOperations m) => AccountOperations (LocalT r m)
 deriving via (MGSTrans (LocalT r) m) instance (ContractStateOperations m) => ContractStateOperations (LocalT r m)

@@ -37,6 +37,7 @@ import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.PurgeTransactions
 import Concordium.GlobalState.Statistics
@@ -116,9 +117,9 @@ data BlockResult pv
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadLogger m
     ) =>
     PendingBlock (MPV m) ->
@@ -185,12 +186,12 @@ uponReceivingBlock pendingBlock = do
 receiveBlockKnownParent ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadLogger m
     ) =>
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     PendingBlock (MPV m) ->
     m (BlockResult (MPV m))
 receiveBlockKnownParent parent pendingBlock = do
@@ -330,7 +331,7 @@ receiveBlockKnownParent parent pendingBlock = do
 --  function returns 'BlockResultEarly'. Otherwise, it returns 'BlockResultPending'.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadLogger m
     ) =>
     PendingBlock (MPV m) ->
@@ -353,9 +354,9 @@ receiveBlockUnknownParent pendingBlock = do
 getMinBlockTime ::
     ( IsConsensusV1 (MPV m),
       BlockStateQuery m,
-      BlockState m ~ HashedPersistentBlockState (MPV m)
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     m Duration
 getMinBlockTime b = do
     cp <- getChainParameters (bpState b)
@@ -378,16 +379,16 @@ getMinBlockTime b = do
 --   * The block must not already be a live block.
 addBlock ::
     forall m.
-    (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadConsensusEvent m, MonadLogger m, IsProtocolVersion (MPV m)) =>
+    (TimeMonad m, MonadState (SkovData (MBSStore m) (MPV m)) m, MonadConsensusEvent m, MonadLogger m, IsProtocolVersion (MPV m)) =>
     -- | Block to add
     PendingBlock (MPV m) ->
     -- | Block state
-    HashedPersistentBlockState (MPV m) ->
+    HashedPersistentBlockState (MBSStore m) (MPV m) ->
     -- | Parent pointer
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     -- | Energy used in executing the block
     Energy ->
-    m (BlockPointer (MPV m))
+    m (BlockPointer (MBSStore m) (MPV m))
 addBlock pendingBlock blockState parent energyUsed = do
     let height = blockHeight parent + 1
     now <- currentTime
@@ -433,9 +434,9 @@ processBlock ::
     forall m.
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -444,10 +445,10 @@ processBlock ::
       MonadLogger m
     ) =>
     -- | Parent block (@parent@)
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     -- | Block being processed (@pendingBlock@)
     VerifiedBlock (MPV m) ->
-    m (Maybe (BlockPointer (MPV m)))
+    m (Maybe (BlockPointer (MBSStore m) (MPV m)))
 processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- Check that the QC is consistent with the parent block round.
     | qcRound (blockQuorumCertificate pendingBlock) /= blockRound parent = do
@@ -867,9 +868,9 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
 --  a higher 'Epoch' then neither of those will be signed.
 --  In the lower 'Round' case then the 'Round' would've timed out (hence the higher 'Epoch')
 --  and in the lower 'Epoch' case the consensus runner will already be an 'Epoch' ahead.
-newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
+newtype OrderedBlock store pv = OrderedBlock {theOrderedBlock :: BlockPointer store pv}
 
-instance Ord (OrderedBlock pv) where
+instance Ord (OrderedBlock store pv) where
     compare =
         compare `on` toTuple
       where
@@ -880,7 +881,7 @@ instance Ord (OrderedBlock pv) where
               getHash @BlockHash blk
             )
 
-instance Eq (OrderedBlock pv) where
+instance Eq (OrderedBlock store pv) where
     a == b = compare a b == EQ
 
 -- | Produce a quorum signature on a block.
@@ -891,14 +892,14 @@ instance Eq (OrderedBlock pv) where
 --  epoch of the block, and that the baker identity matches the finalizer info (i.e. the keys
 --  are correct).
 validateBlock ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadBroadcast m,
       LowLevel.MonadTreeStateStore m,
       IsConsensusV1 (MPV m),
       MonadThrow m,
       MonadIO m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadReader r m,
       HasBakerContext r,
       TimeMonad m,
@@ -975,13 +976,13 @@ checkedValidateBlock ::
       BlockData b,
       HashableTo BlockHash b,
       TimerMonad m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadBroadcast m,
       LowLevel.MonadTreeStateStore m,
       MonadThrow m,
       MonadIO m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       TimeMonad m,
       MonadTimeout m,
       MonadConsensusEvent m,
@@ -1010,9 +1011,9 @@ checkedValidateBlock validBlock = do
 executeBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -1038,7 +1039,7 @@ executeBlock verifiedBlock = do
 -- * Block production
 
 -- | Inputs used for baking a new block.
-data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
+data BakeBlockInputs store (pv :: ProtocolVersion) = BakeBlockInputs
     { -- | Secret keys for the baker.
       bbiBakerIdentity :: BakerIdentity,
       -- | Round in which the block is to be produced.
@@ -1047,7 +1048,7 @@ data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
       --  Should always be either @blockEpoch bbiParent@ or @1 + blockEpoch bbiParent@.
       bbiEpoch :: Epoch,
       -- | Parent block.
-      bbiParent :: BlockPointer pv,
+      bbiParent :: BlockPointer store pv,
       -- | A valid quorum certificate for the parent block.
       bbiQuorumCertificate :: QuorumCertificate,
       -- | If the parent block belongs to a round earlier than @bbiRound - 1@, this is a valid
@@ -1084,13 +1085,13 @@ data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
 prepareBakeBlockInputs ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       MonadLogger m
     ) =>
-    m (Maybe (BakeBlockInputs (MPV m)))
+    m (Maybe (BakeBlockInputs (MBSStore m) (MPV m)))
 prepareBakeBlockInputs = runMaybeT $ do
     -- We directly set the @rsRoundEligibleToBake@ to 'False' here as
     -- even if the function returns early without producing the inputs required
@@ -1187,16 +1188,16 @@ prepareBakeBlockInputs = runMaybeT $ do
 -- | Construct a block given 'BakeBlockInputs'.
 bakeBlock ::
     forall m.
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       TimeMonad m,
       IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadConsensusEvent m,
       MonadLogger m
     ) =>
-    BakeBlockInputs (MPV m) ->
+    BakeBlockInputs (MBSStore m) (MPV m) ->
     m (SignedBlock (MPV m))
 bakeBlock BakeBlockInputs{..} = do
     curTimestamp <- utcTimeToTimestamp <$> currentTime
@@ -1288,13 +1289,13 @@ bakeBlock BakeBlockInputs{..} = do
 -- | Extract information from SkovData and the block state to compute the result block hash.
 computeBlockResultHash ::
     forall m.
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m)
     ) =>
     -- | The block state right after executing the block.
-    HashedPersistentBlockState (MPV m) ->
+    HashedPersistentBlockState (MBSStore m) (MPV m) ->
     -- | The relative block height for the block.
     BlockHeight ->
     -- | The epoch of the block.
@@ -1358,9 +1359,9 @@ computeBlockResultHash newState relativeBlockHeight currentEpoch = do
 makeBlock ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,

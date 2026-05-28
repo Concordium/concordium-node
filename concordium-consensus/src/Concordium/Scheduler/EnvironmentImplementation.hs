@@ -25,6 +25,7 @@ import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
@@ -121,6 +122,8 @@ deriving via
     (MGSTrans (InternalSchedulerT m) m)
     instance
         BlockStateTypes (SchedulerT m)
+
+type instance MBSStore (SchedulerT m) = MBSStore m
 
 instance (BS.BlockStateOperations m) => StaticInformation (SchedulerT m) where
     {-# INLINE getMaxBlockEnergy #-}

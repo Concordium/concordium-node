@@ -140,26 +140,26 @@ instance HasBlockMetadata (BlockMetadata pv) where
 
 -- | A pointer to a block that has been executed
 --  and the resulting 'PBS.HashedPersistentBlockState'.
-data BlockPointer (pv :: ProtocolVersion) = BlockPointer
+data BlockPointer store (pv :: ProtocolVersion) = BlockPointer
     { -- | Metadata for the block.
       bpInfo :: !(BlockMetadata pv),
       -- | The signed block.
       bpBlock :: !(Block pv),
       -- | The resulting state of executing the block.
-      bpState :: !(PBS.HashedPersistentBlockState pv)
+      bpState :: !(PBS.HashedPersistentBlockState store pv)
     }
 
-type instance BlockProtocolVersion (BlockPointer pv) = pv
+type instance BlockProtocolVersion (BlockPointer store pv) = pv
 
-instance HashableTo BlockHash (BlockPointer pv) where
+instance HashableTo BlockHash (BlockPointer store pv) where
     getHash BlockPointer{..} = getHash bpBlock
 
 -- | Block pointer equality is defined on the block hash.
-instance Eq (BlockPointer pv) where
+instance Eq (BlockPointer store pv) where
     (==) = on (==) (getHash @BlockHash)
 
-instance BlockData (BlockPointer pv) where
-    type BakedBlockDataType (BlockPointer pv) = SignedBlock pv
+instance BlockData (BlockPointer store pv) where
+    type BakedBlockDataType (BlockPointer store pv) = SignedBlock pv
     blockRound = blockRound . bpBlock
     blockEpoch = blockEpoch . bpBlock
     blockTimestamp = blockTimestamp . bpBlock
@@ -168,7 +168,7 @@ instance BlockData (BlockPointer pv) where
     blockTransaction i = blockTransaction i . bpBlock
     blockTransactionCount = blockTransactionCount . bpBlock
 
-instance Show (BlockPointer pv) where
+instance Show (BlockPointer store pv) where
     show BlockPointer{..} =
         "BlockPointer {bpInfo = "
             ++ show bpInfo
@@ -178,7 +178,7 @@ instance Show (BlockPointer pv) where
             ++ show (PBS.hpbsHash bpState)
             ++ "] }"
 
-instance HasBlockMetadata (BlockPointer pv) where
+instance HasBlockMetadata (BlockPointer store pv) where
     blockMetadata = bpInfo
 
 -- | A block that is pending its parent.
@@ -238,11 +238,11 @@ data TransactionStatus
 --  Note as we use a COMPLETE pragma below for aggregating the 'BlockAlive' and 'BlockFinalized'
 --  in a pattern match, then if 'BlockStatus pv' is to be modified the complete pragma MUST also be
 --  checked whether it is still sufficient.
-data BlockStatus pv
+data BlockStatus store pv
     = -- | The block is alive.
-      BlockAlive !(BlockPointer pv)
+      BlockAlive !(BlockPointer store pv)
     | -- | The block is finalized.
-      BlockFinalized !(BlockPointer pv)
+      BlockFinalized !(BlockPointer store pv)
     | -- | The block has been marked dead.
       BlockDead
     | -- | The block is unknown
@@ -254,23 +254,23 @@ data BlockStatus pv
 --  Note as we use a COMPLETE pragma for the 'BlockStatus pv' variants (see below)
 --  then it MUST be considered if this function has to change if the type ('BlockStatus pv')
 --  is to be modified.
-blockStatusBlock :: BlockStatus pv -> Maybe (BlockPointer pv)
+blockStatusBlock :: BlockStatus store pv -> Maybe (BlockPointer store pv)
 blockStatusBlock (BlockAlive b) = Just b
 blockStatusBlock (BlockFinalized b) = Just b
 blockStatusBlock _ = Nothing
 
 -- | A (unidirectional) pattern for matching a block status that is either alive or finalized.
-pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
+pattern BlockAliveOrFinalized :: BlockPointer store pv -> BlockStatus store pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
 -- This tells GHC that these patterns are complete for 'BlockStatus'.
 {-# COMPLETE BlockUnknown, BlockAliveOrFinalized, BlockDead #-}
 
 -- | The status of a block as obtained without loading the block from disk.
-data RecentBlockStatus pv
+data RecentBlockStatus store pv
     = -- | The block is recent i.e. it is either 'Alive',
       --  'Pending' or the last finalized block.
-      RecentBlock !(BlockStatus pv)
+      RecentBlock !(BlockStatus store pv)
     | -- | The block is a predecessor of the last finalized block.
       OldFinalized
     deriving (Show)
@@ -343,20 +343,20 @@ prsNextSignableRound = (1 +) . prsLastSignedRound
 --  * @qcBlock cbQuorumCertificate == getHash cbQuorumBlock@
 --  * @qcRound cbQuorumCertificate == blockRound cbQuorumBlock@
 --  * @qcEpoch cbQuorumCertificate == blockEpoch cbQuorumBlock@
-data CertifiedBlock (pv :: ProtocolVersion) = CertifiedBlock
+data CertifiedBlock store (pv :: ProtocolVersion) = CertifiedBlock
     { -- | A valid quorum certificate.
       cbQuorumCertificate :: !QuorumCertificate,
       -- | The certified block.
-      cbQuorumBlock :: !(BlockPointer pv)
+      cbQuorumBlock :: !(BlockPointer store pv)
     }
     deriving (Eq, Show)
 
 -- | The 'Round' number of a certified block.
-cbRound :: CertifiedBlock pv -> Round
+cbRound :: CertifiedBlock store pv -> Round
 cbRound = qcRound . cbQuorumCertificate
 
 -- | The 'Epoch' number of a certified block
-cbEpoch :: CertifiedBlock pv -> Epoch
+cbEpoch :: CertifiedBlock store pv -> Epoch
 cbEpoch = qcEpoch . cbQuorumCertificate
 
 -- | Details of a round timeout that can be used to produce a new block in round
@@ -367,16 +367,16 @@ cbEpoch = qcEpoch . cbQuorumCertificate
 --    * @cbRound rtCertifiedBlock >= tcMaxRound rtTimeoutCertificate@
 --    * @cbEpoch rtCertifiedBlock >= tcMaxEpoch rtTimeoutCertificate@
 --    * @cbEpoch rtCertifiedBlock <= 2 + tcMinEpoch rtTimeoutCertificate@
-data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
+data RoundTimeout store (pv :: ProtocolVersion) = RoundTimeout
     { -- | A timeout certificate.
       rtTimeoutCertificate :: !TimeoutCertificate,
       -- | Certified block for the highest known round that did not time out.
-      rtCertifiedBlock :: !(CertifiedBlock pv)
+      rtCertifiedBlock :: !(CertifiedBlock store pv)
     }
     deriving (Eq, Show)
 
-instance ToProto (RoundTimeout pv) where
-    type Output (RoundTimeout pv) = Proto.RoundTimeout
+instance ToProto (RoundTimeout store pv) where
+    type Output (RoundTimeout store pv) = Proto.RoundTimeout
     toProto RoundTimeout{..} = Proto.make $ do
         ProtoFields.timeoutCertificate .= toProto rtTimeoutCertificate
         ProtoFields.quorumCertificate .= toProto (cbQuorumCertificate rtCertifiedBlock)
@@ -396,18 +396,18 @@ instance ToProto (RoundTimeout pv) where
 --
 --   * If @_rsPreviousRoundTimeout = Present timeout@ then
 --     @_rsCurrentRound = 1 + qcRound (rtQuorumCertificate timeout)@.
-data RoundStatus (pv :: ProtocolVersion) = RoundStatus
+data RoundStatus store (pv :: ProtocolVersion) = RoundStatus
     { -- | The current 'Round'. If the previous round did not time out, this should be
       --  @1 + cbRound _rsHighestCertifiedBlock@. Otherwise, it should be
       --  @1 + tcRound timeoutCertificate@.
       _rsCurrentRound :: !Round,
       -- | The highest round for which we have sent a finalization message.
-      _rsHighestCertifiedBlock :: !(CertifiedBlock pv),
+      _rsHighestCertifiedBlock :: !(CertifiedBlock store pv),
       -- | The previous round timeout certificate if the previous round timed out.
       --  This is @Present (timeoutCertificate, quorumCertificate)@ if the previous round timed out
       --  and otherwise 'Absent'. In the case of @Present@ then @quorumCertificate@ is the highest
       --  'QuorumCertificate' at the time that the 'TimeoutCertificate' was built.
-      _rsPreviousRoundTimeout :: !(Option (RoundTimeout pv)),
+      _rsPreviousRoundTimeout :: !(Option (RoundTimeout store pv)),
       -- | Flag that is 'True' if we should attempt to bake for the current round.
       --  This is set to 'True' when the round is advanced, and set to 'False' when we have attempted
       --  to bake for the round.
@@ -430,8 +430,8 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
 
 makeLenses ''RoundStatus
 
-instance ToProto (RoundStatus pv) where
-    type Output (RoundStatus pv) = Proto.RoundStatus
+instance ToProto (RoundStatus store pv) where
+    type Output (RoundStatus store pv) = Proto.RoundStatus
     toProto RoundStatus{..} = Proto.make $ do
         ProtoFields.currentRound .= toProto _rsCurrentRound
         ProtoFields.highestCertifiedBlock .= toProto (cbQuorumCertificate _rsHighestCertifiedBlock)
@@ -448,9 +448,9 @@ initialRoundStatus ::
     -- | The base timeout.
     Duration ->
     -- | The 'BlockPointer' of the genesis block.
-    BlockPointer pv ->
+    BlockPointer store pv ->
     -- | The initial 'RoundStatus'.
-    RoundStatus pv
+    RoundStatus store pv
 initialRoundStatus currentTimeout genesisBlock =
     RoundStatus
         { _rsCurrentRound = 1,

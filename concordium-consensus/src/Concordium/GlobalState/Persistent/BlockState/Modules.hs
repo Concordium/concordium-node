@@ -68,7 +68,7 @@ import Lens.Micro.Platform
 
 -- | An @InstrumentedModuleV v@ in the @PersistentBlockState@, where
 --  @v@ is the @WasmVersion@.
-data PersistentInstrumentedModuleV (v :: WasmVersion)
+data PersistentInstrumentedModuleV store (v :: WasmVersion)
     = -- | The instrumented module is retained in memory only.
       --  This is the case before finalization.
       PIMVMem !(GSWasm.InstrumentedModuleV v)
@@ -76,18 +76,21 @@ data PersistentInstrumentedModuleV (v :: WasmVersion)
       --  bytes can be read from the blob store via the @BlobPtr@.
       --  The @BlobPtr@ is used to reconstruct artifact on the Rust side, copying it as needed
       --  from the blob store.
-      PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
+      PIMVPtr !(BlobPtr store (GSWasm.InstrumentedModuleV v))
     deriving (Show)
 
 -- | Make a 'PersistentInstrumentedModuleV' from a 'GSWasm.InstrumentedModuleV', retaining it in
 -- memory only.
-makePersistentInstrumentedModuleV :: GSWasm.InstrumentedModuleV v -> PersistentInstrumentedModuleV v
+makePersistentInstrumentedModuleV :: GSWasm.InstrumentedModuleV v -> PersistentInstrumentedModuleV store v
 makePersistentInstrumentedModuleV = PIMVMem
 
 -- | Load a 'PersistentInstrumentedModuleV', retrieving the artifact.
 --  If the artifact has been persisted to the blob store, the artifact will wrap a pointer into
 --  the memory-mapped blob store.
-loadInstrumentedModuleV :: forall m v. (MonadBlobStore m, IsWasmVersion v) => PersistentInstrumentedModuleV v -> m (GSWasm.InstrumentedModuleV v)
+loadInstrumentedModuleV ::
+    forall m v.
+    (MonadBlobStore m, IsWasmVersion v) =>
+    PersistentInstrumentedModuleV (MBSStore m) v -> m (GSWasm.InstrumentedModuleV v)
 loadInstrumentedModuleV (PIMVMem im) = return im
 loadInstrumentedModuleV (PIMVPtr ptr) = do
     bs <- loadBlobPtr ptr
@@ -96,67 +99,74 @@ loadInstrumentedModuleV (PIMVPtr ptr) = do
 -- | A module contains both the module interface and the raw source code of the
 --  module. The module is parameterized by the wasm version, which determines the shape
 --  of the module interface.
-data ModuleV v = ModuleV
+data ModuleV store (v :: WasmVersion) = ModuleV
     { -- | The instrumented module, ready to be instantiated.
-      moduleVInterface :: !(GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)),
+      moduleVInterface :: !(GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV store v)),
       -- | A plain reference to the raw module binary source. This is generally not needed by consensus, so
       -- it is almost always simply kept on disk.
-      moduleVSource :: !(BlobRef (WasmModuleV v))
+      moduleVSource :: !(BlobRef store (WasmModuleV v))
     }
     deriving (Show)
 
 -- | Helper to convert from an interface to a module.
-toModule :: forall v. (IsWasmVersion v) => GSWasm.ModuleInterfaceV v -> BlobRef (WasmModuleV v) -> Module
+toModule ::
+    forall store v.
+    (IsWasmVersion v) =>
+    GSWasm.ModuleInterfaceV v -> BlobRef store (WasmModuleV v) -> Module store
 toModule mvi moduleVSource =
     case getWasmVersion @v of
         SV0 -> ModuleV0 ModuleV{..}
         SV1 -> ModuleV1 ModuleV{..}
   where
+    moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV store v)
     moduleVInterface = PIMVMem <$> mvi
 
 -- | A module, either of version 0 or 1. This is only used when storing a module
 --  independently, e.g., in the module table. When a module is referenced from a
 --  contract instance we use the ModuleV type directly so we may tie the version
 --  of the module to the version of the instance.
-data Module where
-    ModuleV0 :: !(ModuleV GSWasm.V0) -> Module
-    ModuleV1 :: !(ModuleV GSWasm.V1) -> Module
+data Module store where
+    ModuleV0 :: !(ModuleV store GSWasm.V0) -> Module store
+    ModuleV1 :: !(ModuleV store GSWasm.V1) -> Module store
     deriving (Show)
 
-getModuleInterface :: Module -> GSWasm.ModuleInterface PersistentInstrumentedModuleV
+getModuleInterface :: Module store -> GSWasm.ModuleInterface (PersistentInstrumentedModuleV store)
 getModuleInterface (ModuleV0 m) = GSWasm.ModuleInterfaceV0 (moduleVInterface m)
 getModuleInterface (ModuleV1 m) = GSWasm.ModuleInterfaceV1 (moduleVInterface m)
 
 -- | Coerce a module to V0. Will fail if the version is not 'V0'.
-unsafeToModuleV0 :: Module -> ModuleV V0
+unsafeToModuleV0 :: Module store -> ModuleV store V0
 unsafeToModuleV0 (ModuleV0 m) = m
 unsafeToModuleV0 (ModuleV1 _) = error "Could not coerce module to V0."
 
 -- | Coerce a module to V1. Will fail if the version is not 'V1'.
-unsafeToModuleV1 :: Module -> ModuleV V1
+unsafeToModuleV1 :: Module store -> ModuleV store V1
 unsafeToModuleV1 (ModuleV0 _) = error "Could not coerce module to V1."
 unsafeToModuleV1 (ModuleV1 m) = m
 
 -- | Coerce a 'Module' to a 'ModuleV' depending on the 'WasmVersion'.
 --  This results in an error if the module is not of the desired version.
-unsafeToModuleV :: forall v. (IsWasmVersion v) => Module -> ModuleV v
+unsafeToModuleV :: forall store v. (IsWasmVersion v) => Module store -> ModuleV store v
 unsafeToModuleV = case getWasmVersion @v of
     SV0 -> unsafeToModuleV0
     SV1 -> unsafeToModuleV1
 
-instance GSWasm.HasModuleRef Module where
+instance GSWasm.HasModuleRef (Module store) where
     moduleReference (ModuleV0 m) = GSWasm.moduleReference (moduleVInterface m)
     moduleReference (ModuleV1 m) = GSWasm.moduleReference (moduleVInterface m)
 
 -- The module reference already takes versioning into account, so this instance is reasonable.
-instance HashableTo Hash Module where
+instance HashableTo Hash (Module store) where
     getHash = coerce . GSWasm.moduleReference
 
-instance (Monad m) => MHashableTo m Hash Module
-instance (MonadBlobStore m) => Cacheable m Module
+instance (Monad m) => MHashableTo m Hash (Module store)
+instance (MonadBlobStore m) => Cacheable m (Module store)
 
 -- | Load a module from the underlying storage, without recompiling the artifact.
-loadModuleDirect :: (MonadLogger m, MonadBlobStore m) => BlobRef Module -> m Module
+loadModuleDirect ::
+    forall m.
+    (MonadLogger m, MonadBlobStore m) =>
+    BlobRef (MBSStore m) (Module (MBSStore m)) -> m (Module (MBSStore m))
 loadModuleDirect br = do
     bs <- loadRaw br
     let getModule = do
@@ -175,7 +185,7 @@ loadModuleDirect br = do
             skip (fromIntegral artLen)
             -- Footer
             miModuleSize <- getWord64be
-            let miModule :: PersistentInstrumentedModuleV v
+            let miModule :: PersistentInstrumentedModuleV (MBSStore m) v
                 miModule =
                     PIMVPtr
                         BlobPtr
@@ -190,7 +200,8 @@ loadModuleDirect br = do
                                     - startOffset,
                               blobPtrLen = fromIntegral artLen
                             }
-                moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
+                moduleVInterface ::
+                    GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV (MBSStore m) v)
                 moduleVInterface = GSWasm.ModuleInterface{..}
             case artVersion of
                 V0 -> do
@@ -205,7 +216,10 @@ loadModuleDirect br = do
 
 -- | This instance is based on and should be compatible with the 'Serialize' instance
 --  for 'BasicModuleInterface'.
-instance (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m) => DirectBlobStorable m Module where
+instance
+    (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m, store ~ MBSStore m) =>
+    DirectBlobStorable m (Module store)
+    where
     loadDirect br
         | potentialLegacyArtifacts = do
             mv <- loadModuleDirect br
@@ -244,7 +258,10 @@ instance (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m) => DirectBlob
             ModuleV0 mv0 -> sudV SV0 mv0
             ModuleV1 mv1 -> sudV SV1 mv1
       where
-        sudV :: SWasmVersion v -> ModuleV v -> m (BlobRef Module, Module)
+        sudV ::
+            SWasmVersion v ->
+            ModuleV (MBSStore m) v ->
+            m (BlobRef (MBSStore m) (Module (MBSStore m)), Module (MBSStore m))
         sudV ver ModuleV{moduleVInterface = GSWasm.ModuleInterface{..}, ..} = do
             !instrumentedModuleBytes <- case miModule of
                 PIMVMem instrModule -> return $ case ver of
@@ -279,11 +296,11 @@ instance (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m) => DirectBlob
                             }
             let mv' = ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = miModule', ..}, ..}
             return $!! (br, mkModule ver mv')
-        mkModule :: SWasmVersion v -> ModuleV v -> Module
+        mkModule :: SWasmVersion v -> ModuleV (MBSStore m) v -> Module (MBSStore m)
         mkModule SV0 = ModuleV0
         mkModule SV1 = ModuleV1
 
-instance (MonadBlobStore m) => DirectBlobHashable m Hash Module where
+instance (MonadBlobStore m) => DirectBlobHashable m Hash (Module store) where
     loadHash br = do
         bs <- loadRaw br
         -- Decode the module reference only.
@@ -300,13 +317,13 @@ instance (MonadBlobStore m) => DirectBlobHashable m Hash Module where
 --
 --  The module is cached in the 'ModuleCache' while the actual artifact is
 --  loaded on demand.
-type CachedModule = HashedCachedRef ModuleCache Module
+type CachedModule store = HashedCachedRef store (ModuleCache store) (Module store)
 
 -- | The cache retaining 'Module's
-type ModuleCache = FIFOCache Module
+type ModuleCache store = FIFOCache store (Module store)
 
 -- | Construct a new `ModuleCache` with the given size.
-newModuleCache :: Int -> IO ModuleCache
+newModuleCache :: Int -> IO (ModuleCache store)
 newModuleCache = newCache
 
 -- | Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
@@ -314,19 +331,19 @@ newModuleCache = newCache
 type SupportsPersistentModule m =
     ( MonadLogger m,
       MonadBlobStore m,
-      MonadCache ModuleCache m,
+      MonadCache (ModuleCache (MBSStore m)) m,
       MonadModuleMapStore m
     )
 
 -- | The collection of modules stored in a block state.
-data Modules = Modules
+data Modules store = Modules
     { -- | A tree of 'Module's indexed by 'ModuleIndex'
       --  The modules themselves are cached `HashedCachedRef` hence only a limited
       --  amount of modules may be retained in memory at the same time.
       --  Modules themselves are wrapped in a @DirectBufferedRef@ which
       --  serves the purpose of not loading the artifact before it is required
       --  by the rust wasm execution engine.
-      _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef CachedModule),
+      _modulesTable :: !(LFMBTree' ModuleIndex (HashedBufferedRef store) (CachedModule store)),
       -- | Reference to the difference map that maps module references to module indices for
       --  modules added since the last finalized block.
       _modulesDifferenceMap :: !ModuleDifferenceMapReference
@@ -335,13 +352,23 @@ data Modules = Modules
 makeLenses ''Modules
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance (MonadProtocolVersion m, SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
+instance
+    ( MonadProtocolVersion m,
+      SupportsPersistentModule m,
+      IsBlockHashVersion (BlockHashVersionFor pv),
+      store ~ MBSStore m
+    ) =>
+    MHashableTo m (ModulesHash pv) (Modules store)
+    where
     getHashM =
         fmap (ModulesHash . LFMB.theLFMBTreeHash @(BlockHashVersionFor pv))
             . getHashM
             . _modulesTable
 
-instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m Modules where
+instance
+    (MonadProtocolVersion m, SupportsPersistentModule m, store ~ MBSStore m) =>
+    BlobStorable m (Modules store)
+    where
     load = do
         table <- load
         return $ do
@@ -352,7 +379,10 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m 
         (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
         return (pModulesTable, m{_modulesTable = _modulesTable'})
 
-instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable m Modules where
+instance
+    (MonadProtocolVersion m, SupportsPersistentModule m, store ~ MBSStore m) =>
+    Cacheable m (Modules store)
+    where
     cache Modules{..} = do
         modulesTable' <- cache _modulesTable
         return Modules{_modulesTable = modulesTable', ..}
@@ -360,12 +390,12 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable m Mod
 --------------------------------------------------------------------------------
 
 -- | The empty collection of modules
-emptyModules :: (MonadIO m) => m Modules
+emptyModules :: (MonadIO m) => m (Modules store)
 emptyModules = Modules LFMB.empty <$> DiffMap.newEmptyReference
 
 -- | Get the 'ModuleIndex' for a module reference. This first consults the difference map,
 --  and then the LMDB map if the module is not in the difference map.
-getModuleIndex :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe ModuleIndex)
+getModuleIndex :: (SupportsPersistentModule m) => ModuleRef -> Modules (MBSStore m) -> m (Maybe ModuleIndex)
 getModuleIndex ref mods = do
     -- First, look up in the difference map
     DiffMap.refLookup ref (mods ^. modulesDifferenceMap) >>= \case
@@ -384,8 +414,8 @@ getModuleIndex ref mods = do
 putInterface ::
     (MonadProtocolVersion m, IsWasmVersion v, SupportsPersistentModule m) =>
     (GSWasm.ModuleInterfaceV v, WasmModuleV v) ->
-    Modules ->
-    m (Maybe Modules)
+    Modules (MBSStore m) ->
+    m (Maybe (Modules (MBSStore m)))
 putInterface (modul, src) m =
     getModuleIndex mref m >>= \case
         Just _ -> return Nothing
@@ -397,7 +427,9 @@ putInterface (modul, src) m =
   where
     mref = GSWasm.moduleReference modul
 
-getModule :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe Module)
+getModule ::
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
+    ModuleRef -> Modules (MBSStore m) -> m (Maybe (Module (MBSStore m)))
 getModule ref mods =
     getModuleIndex ref mods >>= \case
         Nothing -> return Nothing
@@ -406,7 +438,9 @@ getModule ref mods =
 -- | Gets the 'HashedCachedRef' to a module as stored in the module table
 --  to be given to instances when associating them with the interface.
 --  The reason we return the reference here is to allow for sharing of the reference.
-getModuleReference :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe CachedModule)
+getModuleReference ::
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
+    ModuleRef -> Modules (MBSStore m) -> m (Maybe (CachedModule (MBSStore m)))
 getModuleReference ref mods =
     getModuleIndex ref mods >>= \case
         Nothing -> return Nothing
@@ -416,13 +450,15 @@ getModuleReference ref mods =
 getInterface ::
     (MonadProtocolVersion m, SupportsPersistentModule m) =>
     ModuleRef ->
-    Modules ->
-    m (Maybe (GSWasm.ModuleInterface PersistentInstrumentedModuleV))
+    Modules (MBSStore m) ->
+    m (Maybe (GSWasm.ModuleInterface (PersistentInstrumentedModuleV (MBSStore m))))
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- | Get the source of a module by module reference.
 --  This does not cache the module.
-getSource :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe WasmModule)
+getSource ::
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
+    ModuleRef -> Modules (MBSStore m) -> m (Maybe WasmModule)
 getSource ref mods = do
     mRef <- getModuleReference ref mods
     case mRef of
@@ -442,18 +478,20 @@ getSource ref mods = do
 
 -- | Get the list of all currently deployed modules.
 --  The order of the list is not specified.
-moduleRefList :: (MonadProtocolVersion m, SupportsPersistentModule m) => Modules -> m [ModuleRef]
+moduleRefList ::
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
+    Modules (MBSStore m) -> m [ModuleRef]
 moduleRefList mods =
     LFMB.mfoldRef (\l m -> (: l) . ModuleRef <$> getHashM m) [] (mods ^. modulesTable)
 
 -- | Get the size of the module table.
-moduleCount :: Modules -> Word64
+moduleCount :: Modules store -> Word64
 moduleCount = LFMB.size . _modulesTable
 
 -- | Initialize the LMDB-backed module map if it is not already initialized.
 --  If the module map contains fewer modules than the module table, it is wiped and repopulated
 --  with the modules in the table. Otherwise, the module map is left unchanged.
-tryPopulateModuleLMDB :: (MonadProtocolVersion m, SupportsPersistentModule m) => Modules -> m ()
+tryPopulateModuleLMDB :: (MonadProtocolVersion m, SupportsPersistentModule m) => Modules (MBSStore m) -> m ()
 tryPopulateModuleLMDB mods = do
     lmdbModuleCount <- getNumberOfModules
     let tableSize = LFMB.size (mods ^. modulesTable)
@@ -475,7 +513,7 @@ tryPopulateModuleLMDB mods = do
 --  This is done by traversing the difference map and inserting the new modules into the module map.
 --  The difference map is then cleared.
 --  This function MUST be called whenever a block is finalized.
-writeModulesAdded :: (SupportsPersistentModule m) => Modules -> m ()
+writeModulesAdded :: (SupportsPersistentModule m) => Modules (MBSStore m) -> m ()
 writeModulesAdded mods = do
     mModulesAdded <- liftIO $ readIORef $ mods ^. modulesDifferenceMap
     forM_ mModulesAdded $ \diffMap -> do
@@ -488,7 +526,7 @@ writeModulesAdded mods = do
 -- | Create a new 'Modules' object that is a child of the given 'Modules'.
 --  The new 'Modules' object will have the same modules as the parent, but with a new
 --  difference map that is the child of the parent's difference map.
-mkNewChild :: (SupportsPersistentModule m) => Modules -> m Modules
+mkNewChild :: (SupportsPersistentModule m) => Modules (MBSStore m) -> m (Modules (MBSStore m))
 mkNewChild = modulesDifferenceMap DiffMap.newChildReference
 
 -- | Reconstruct the difference map from the modules table.
@@ -500,7 +538,7 @@ reconstructDifferenceMap ::
     (MonadProtocolVersion m, SupportsPersistentModule m) =>
     -- | The difference map reference and module table size from the parent block.
     (ModuleDifferenceMapReference, Word64) ->
-    Modules ->
+    Modules (MBSStore m) ->
     -- | The (updated) difference map reference and the module table size of this block.
     m (ModuleDifferenceMapReference, Word64)
 reconstructDifferenceMap (parentDiffMap, parentModulesCount) Modules{..} = do
@@ -510,7 +548,7 @@ reconstructDifferenceMap (parentDiffMap, parentModulesCount) Modules{..} = do
     LFMB.traverseWhileDescRef trav _modulesTable
     return (_modulesDifferenceMap, LFMB.size _modulesTable)
   where
-    trav :: ModuleIndex -> CachedModule -> m Bool
+    trav :: ModuleIndex -> CachedModule (MBSStore m) -> m Bool
     trav midx theMod
         | midx < parentModulesCount = return False
         | otherwise = do
@@ -530,8 +568,8 @@ migrateModules ::
       SupportMigration m t
     ) =>
     StateMigrationParameters (MPV m) (MPV (t m)) ->
-    Modules ->
-    t m Modules
+    Modules (MBSStore m) ->
+    t m (Modules (MBSStore (t m)))
 migrateModules migration mods = do
     newModulesTable <- LFMB.migrateLFMBTree migrateCachedModule (_modulesTable mods)
     return
@@ -540,14 +578,17 @@ migrateModules migration mods = do
               _modulesTable = newModulesTable
             }
   where
-    migrateCachedModule :: CachedModule -> t m CachedModule
+    migrateCachedModule :: CachedModule (MBSStore m) -> t m (CachedModule (MBSStore (t m)))
     migrateCachedModule cm = do
         existingModule <- lift (refLoad cm)
         case existingModule of
             ModuleV0 v0 -> migrateModuleV v0
             ModuleV1 v1 -> migrateModuleV v1
 
-    migrateModuleV :: forall v. (IsWasmVersion v) => ModuleV v -> t m CachedModule
+    migrateModuleV ::
+        forall v.
+        (IsWasmVersion v) =>
+        ModuleV (MBSStore m) v -> t m (CachedModule (MBSStore (t m)))
     migrateModuleV ModuleV{..} = do
         (newModuleVSource, wasmMod) <- do
             -- Load the module source from the old context.
@@ -587,13 +628,18 @@ migrateModules migration mods = do
                       moduleVSource = newModuleVSource
                     }
 
-    mkModule :: SWasmVersion v -> ModuleV v -> Module
+    mkModule :: SWasmVersion v -> ModuleV store v -> Module store
     mkModule SV0 = ModuleV0
     mkModule SV1 = ModuleV1
 
     -- Recompile a wasm module from the given source for protocols 1-6.
     -- This does not change the semantics, but does convert the artifact into the new format.
-    recompileArtifact :: forall v iface. (IsWasmVersion v) => WasmModuleV v -> GSWasm.ModuleInterfaceA iface -> t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v))
+    recompileArtifact ::
+        forall v iface.
+        (IsWasmVersion v) =>
+        WasmModuleV v ->
+        GSWasm.ModuleInterfaceA iface ->
+        t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV (MBSStore (t m)) v))
     recompileArtifact wasmMod oldIface = do
         case getWasmVersion @v of
             SV0 ->
@@ -609,7 +655,11 @@ migrateModules migration mods = do
 
     -- Recompile a wasm module from the given source for protocol 7
     -- cost semantics (i.e., the protocol version of @t m@).
-    migrateToP7 :: forall v. (MPV (t m) ~ P7, IsWasmVersion v) => WasmModuleV v -> t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v))
+    migrateToP7 ::
+        forall v.
+        (MPV (t m) ~ P7, IsWasmVersion v) =>
+        WasmModuleV v ->
+        t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV (MBSStore (t m)) v))
     migrateToP7 wasmMod = do
         case getWasmVersion @v of
             SV0 ->

@@ -214,7 +214,7 @@ invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
 foreign import ccall "call_init_v1"
     call_init ::
         -- | Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
-        LoadCallback ->
+        LoadCallback store ->
         -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
         -- | Length of the artifact.
@@ -242,14 +242,14 @@ foreign import ccall "call_init_v1"
         -- | Length of the output byte array, if non-null.
         Ptr CSize ->
         -- | Location where the pointer to the mutable state will be written.
-        Ptr (Ptr StateV1.MutableStateInner) ->
+        Ptr (Ptr (StateV1.ForeignMutableState store)) ->
         -- | New state and logs, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
 foreign import ccall "call_receive_v1"
     call_receive ::
         -- | Callback in case any state needs to be loaded from block state storage.
-        LoadCallback ->
+        LoadCallback store ->
         -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
         -- | Length of the artifact.
@@ -269,7 +269,7 @@ foreign import ccall "call_receive_v1"
         -- | Pointer to the current state of the smart contracts. If
         --  successful, pointer to the new state will be written here if the state has been modified.
         --  If the state has not been modified then a null pointer is written here.
-        Ptr (Ptr StateV1.MutableStateInner) ->
+        Ptr (Ptr (StateV1.ForeignMutableState store)) ->
         -- | Pointer to the parameter.
         Ptr Word8 ->
         -- | Length of the parameter bytes.
@@ -300,7 +300,7 @@ foreign import ccall "call_receive_v1"
 
 foreign import ccall "resume_receive_v1"
     resume_receive ::
-        LoadCallback ->
+        LoadCallback store ->
         -- | Location where the pointer to interrupted config will be stored.
         Ptr (Ptr ReceiveInterruptedState) ->
         -- | Tag of whether the state has been updated or not. If this is 0 then the state has not been updated, otherwise, it has.
@@ -308,7 +308,7 @@ foreign import ccall "resume_receive_v1"
         -- | Pointer to the current state of the smart contracts. If
         --  successful, pointer to the new state will be written here if the state has been modified.
         --  If the state has not been modified then a null pointer is written here.
-        Ptr (Ptr StateV1.MutableStateInner) ->
+        Ptr (Ptr (StateV1.ForeignMutableState store)) ->
         -- | New balance of the contract.
         Word64 ->
         -- | Return status from the interrupt.
@@ -327,7 +327,7 @@ foreign import ccall "resume_receive_v1"
 -- | Apply an init function which is assumed to be a part of the module.
 {-# NOINLINE applyInitFun #-}
 applyInitFun ::
-    LoadCallback ->
+    LoadCallback store ->
     InstrumentedModuleV V1 ->
     -- | Chain information available to the contracts.
     ChainMetadata ->
@@ -346,7 +346,7 @@ applyInitFun ::
     InterpreterEnergy ->
     -- | Nothing if execution ran out of energy.
     --  Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
-    Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy)
+    Maybe (Either ContractExecutionReject (InitResultData store), InterpreterEnergy)
 applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifactBytes $ \(wasmArtifactPtr, wasmArtifactLen) ->
         BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -457,24 +457,24 @@ getInvokeMethod =
         n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- | Data return from the contract in case of successful initialization.
-data InitResultData = InitSuccess
+data InitResultData store = InitSuccess
     { irdReturnValue :: !ReturnValue,
-      irdNewState :: !StateV1.MutableState,
+      irdNewState :: !(StateV1.MutableState store),
       irdLogs :: ![ContractEvent]
     }
 
 -- | Data returned from the receive call. In contrast to an init call, a receive call may interrupt.
-data ReceiveResultData
+data ReceiveResultData store
     = -- | Execution terminated with success.
       ReceiveSuccess
         { rrdReturnValue :: !ReturnValue,
-          rrdNewState :: !StateV1.MutableState,
+          rrdNewState :: !(StateV1.MutableState store),
           rrdStateChanged :: !Bool,
           rrdLogs :: ![ContractEvent]
         }
     | -- | Execution invoked a method. The current state is returned.
       ReceiveInterrupt
-        { rrdCurrentState :: !StateV1.MutableState,
+        { rrdCurrentState :: !(StateV1.MutableState store),
           rrdStateChanged :: !Bool,
           rrdMethod :: !InvokeMethod,
           rrdLogs :: ![ContractEvent],
@@ -509,16 +509,16 @@ cerToRejectReasonInit Trap = Exec.RuntimeFailure
 --  function for the specification of the return value.
 processInitResult ::
     -- | State context.
-    LoadCallback ->
+    LoadCallback store ->
     -- | Serialized output.
     BS.ByteString ->
     -- | Location where the pointer to the return value is (potentially) stored.
     Ptr ReturnValue ->
     -- | Location where the pointer to the initial state is written.
-    --  |Result, and remaining energy. Returns 'Nothing' if and only if
+    Ptr (StateV1.ForeignMutableState store) ->
+    -- | Result, and remaining energy. Returns 'Nothing' if and only if
     --  execution ran out of energy.
-    Ptr StateV1.MutableStateInner ->
-    IO (Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy))
+    IO (Maybe (Either ContractExecutionReject (InitResultData store), InterpreterEnergy))
 processInitResult callbacks result returnValuePtr newStatePtr = case BS.uncons result of
     Nothing -> error "Internal error: Could not parse the result from the interpreter."
     Just (tag, payload) ->
@@ -590,9 +590,9 @@ processReceiveResult ::
     --  is incorrect in some cases. The latter applies to protocols 4 and 5.
     Bool ->
     -- | State context.
-    LoadCallback ->
+    LoadCallback store ->
     -- | State execution started in.
-    StateV1.MutableState ->
+    StateV1.MutableState store ->
     -- | Whether the state was written to.
     Bool ->
     -- | Serialized output.
@@ -600,12 +600,12 @@ processReceiveResult ::
     -- | Location where the pointer to the return value is (potentially) stored.
     Ptr ReturnValue ->
     -- | Pointer to the state of the contract at the time of termination.
-    Ptr StateV1.MutableStateInner ->
+    Ptr (StateV1.ForeignMutableState store) ->
     -- | Location where the pointer to interrupted config is (potentially) stored.
-    --  |Result, and remaining energy. Returns 'Nothing' if and only if
-    --  execution ran out of energy.
     Either ReceiveInterruptedState (Ptr (Ptr ReceiveInterruptedState)) ->
-    IO (Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy))
+    -- | Result, and remaining energy. Returns 'Nothing' if and only if
+    --  execution ran out of energy.
+    IO (Maybe (Either ContractExecutionReject (ReceiveResultData store), InterpreterEnergy))
 processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result returnValuePtr statePtr eitherInterruptedStatePtr = case BS.uncons result of
     Nothing -> error "Internal error: Could not parse the result from the interpreter."
     Just (tag, payload) -> do
@@ -708,13 +708,13 @@ applyReceiveFun ::
     -- | Amount the contract is initialized with.
     Amount ->
     -- | State of the contract to start in, and a way to use it.
-    StateV1.MutableState ->
+    StateV1.MutableState store ->
     RuntimeConfig ->
     -- | Amount of energy available for execution.
     InterpreterEnergy ->
     -- | Nothing if execution used up all the energy, and otherwise the result
     --  of execution with the amount of energy remaining.
-    Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
+    Maybe (Either ContractExecutionReject (ReceiveResultData store), InterpreterEnergy)
 applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState RuntimeConfig{..} initialEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
         BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -771,7 +771,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
 resumeReceiveFun ::
     ReceiveInterruptedState ->
     -- | State of the contract to resume in.
-    StateV1.MutableState ->
+    StateV1.MutableState store ->
     -- | Whether the state has changed in the call.
     Bool ->
     -- | Current balance of the contract, if it changed.
@@ -782,7 +782,7 @@ resumeReceiveFun ::
     InterpreterEnergy ->
     -- | Nothing if execution used up all the energy, and otherwise the result
     --  of execution with the amount of energy remaining.
-    Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
+    Maybe (Either ContractExecutionReject (ReceiveResultData store), InterpreterEnergy)
 resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEnergy = unsafePerformIO $ do
     withReceiveInterruptedState is $ \isPtr ->
         StateV1.withMutableState currentState $ \curStatePtr -> alloca $ \statePtrPtr -> do

@@ -176,7 +176,7 @@ makeTestAccount ::
     Sig.VerifyKey ->
     AccountAddress ->
     Amount ->
-    m (BS.PersistentAccount av)
+    m (BS.PersistentAccount (Blob.MBSStore m) av)
 makeTestAccount key accountAddress amount = do
     let credential = makeTestCredential key accountAddress
     account <- BS.newAccount dummyCryptographicParameters accountAddress credential
@@ -205,7 +205,7 @@ makeTestAccountFromSeed ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
     Amount ->
     Int ->
-    m (BS.PersistentAccount av)
+    m (BS.PersistentAccount (Blob.MBSStore m) av)
 makeTestAccountFromSeed amount seed =
     let keyPair = keyPairFromSeed seed
         address = accountAddressFromSeed seed

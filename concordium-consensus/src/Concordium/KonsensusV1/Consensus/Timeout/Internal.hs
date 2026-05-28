@@ -16,6 +16,7 @@ import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -39,13 +40,13 @@ updateCurrentTimeout timeoutFactor oldCurrentTimeout =
 -- | Grow the current timeout duration in response to an elapsed timeout.
 --  This updates the timeout to @timeoutIncrease * oldTimeout@.
 growTimeout ::
-    ( BlockState m ~ HashedPersistentBlockState (MPV m),
+    ( BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       BlockStateQuery m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MBSStore m) (MPV m)) m
     ) =>
     -- | Block to take the timeout parameters from
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     m ()
 growTimeout blockPtr = do
     chainParams <- getChainParameters $ bpState blockPtr
@@ -58,13 +59,13 @@ growTimeout blockPtr = do
 --  This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
 --  @timeoutBase@ and @timeoutDecrease@ are taken from the chain parameters of the supplied block.
 shrinkTimeout ::
-    ( BlockState m ~ HashedPersistentBlockState (MPV m),
+    ( BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       BlockStateQuery m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MBSStore m) (MPV m)) m
     ) =>
     -- | Block to take the timeout parameters from
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     m ()
 shrinkTimeout blockPtr = do
     chainParams <- getChainParameters (bpState blockPtr)

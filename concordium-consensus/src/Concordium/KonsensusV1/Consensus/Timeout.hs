@@ -23,6 +23,7 @@ import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
@@ -68,10 +69,10 @@ data ReceiveTimeoutMessageRejectReason
 
 -- | Possibly return codes for when receiving
 --  a 'TimeoutMessage'.
-data ReceiveTimeoutMessageResult pv
+data ReceiveTimeoutMessageResult store pv
     = -- | The 'TimeoutMessage' was well received and should
       --  be relayed onto the network.
-      Received !(PartiallyVerifiedTimeoutMessage pv)
+      Received !(PartiallyVerifiedTimeoutMessage store pv)
     | -- | The 'TimeoutMessage' could not be verified and should not be
       --  relayed.
       Rejected !ReceiveTimeoutMessageRejectReason
@@ -85,7 +86,7 @@ data ReceiveTimeoutMessageResult pv
 -- | A partially verified 'TimeoutMessage' with its associated finalization committees.
 --  The timeout message is partially verified itself but the aggregate signature and
 --  associated quorum certificate are not.
-data PartiallyVerifiedTimeoutMessage pv = PartiallyVerifiedTimeoutMessage
+data PartiallyVerifiedTimeoutMessage store pv = PartiallyVerifiedTimeoutMessage
     { -- | The 'TimeoutMessage' that has been partially verified
       pvtmTimeoutMessage :: !TimeoutMessage,
       -- | The finalization committee with respect to the 'QuorumCertificate' contained
@@ -96,7 +97,7 @@ data PartiallyVerifiedTimeoutMessage pv = PartiallyVerifiedTimeoutMessage
       pvtmAggregateSignatureValid :: Bool,
       -- | Block pointer for the block referenced by the 'QuorumCertificate' of the 'TimeoutMessage'.
       --  This is @Absent@ when the block that the 'QuorumCertificate' refers to is either 'BlockPending' or 'BlockUnknown'.
-      pvtmBlock :: !(Option (BlockPointer pv))
+      pvtmBlock :: !(Option (BlockPointer store pv))
     }
     deriving (Eq, Show)
 
@@ -111,9 +112,9 @@ receiveTimeoutMessage ::
     -- | The 'TimeoutMessage' to receive.
     TimeoutMessage ->
     -- | The tree state to verify the 'TimeoutMessage' within.
-    SkovData (MPV m) ->
+    SkovData (MBSStore m) (MPV m) ->
     -- | Result of receiving the 'TimeoutMessage'.
-    m (ReceiveTimeoutMessageResult (MPV m))
+    m (ReceiveTimeoutMessageResult (MBSStore m) (MPV m))
 receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovData
     -- Consensus has been shutdown.
     | skovData ^. isConsensusShutdown = return ConsensusShutdown
@@ -265,10 +266,10 @@ executeTimeoutMessage ::
       BlockStateStorage m,
       TimeMonad m,
       MonadTimeout m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadConsensusEvent m,
       MonadLogger m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       LowLevel.MonadTreeStateStore m,
       TimerMonad m,
       MonadBroadcast m,
@@ -276,7 +277,7 @@ executeTimeoutMessage ::
       HasBakerContext r
     ) =>
     -- | The partially verified 'TimeoutMessage' to execute.
-    PartiallyVerifiedTimeoutMessage (MPV m) ->
+    PartiallyVerifiedTimeoutMessage (MBSStore m) (MPV m) ->
     -- | Returns @Left TimeoutMessage@ if the 'QuorumCertificate' could not be verified,
     --  and otherwise @Right ()@.
     m ExecuteTimeoutMessageResult
@@ -352,9 +353,9 @@ uponTimeoutEvent ::
       MonadBroadcast m,
       MonadReader r m,
       HasBakerContext r,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       LowLevel.MonadTreeStateStore m,
       MonadLogger m,
       BlockStateStorage m,
@@ -477,11 +478,11 @@ updateTimeoutMessages tms tm =
 processTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadReader r m,
       HasBakerContext r,
       BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MBSStore m) (MPV m),
       IsConsensusV1 (MPV m),
       TimeMonad m,
       TimerMonad m,

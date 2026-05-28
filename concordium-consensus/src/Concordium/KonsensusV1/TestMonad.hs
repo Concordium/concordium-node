@@ -57,44 +57,47 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 
 -- | Context used for running the 'TestMonad'.
-data TestContext (pv :: ProtocolVersion) = TestContext
+data TestContext store (pv :: ProtocolVersion) = TestContext
     { -- | The baker context (i.e. baker keys if any).
       _tcBakerContext :: !BakerContext,
       -- | Blob store and caches used by the block state storage.
-      _tcPersistentBlockStateContext :: PersistentBlockStateContext pv,
+      _tcPersistentBlockStateContext :: PersistentBlockStateContext store pv,
       -- | In-memory low-level tree state database.
-      _tcMemoryLLDB :: !(IORef (LowLevelDB pv)),
+      _tcMemoryLLDB :: !(IORef (LowLevelDB store pv)),
       -- | The current time (reported by 'currentTime').
       _tcCurrentTime :: !UTCTime
     }
 
-instance HasBlobStore (TestContext pv) where
+instance HasBlobStore store (TestContext store pv) where
     blobStore = blobStore . _tcPersistentBlockStateContext
     blobLoadCallback = blobLoadCallback . _tcPersistentBlockStateContext
     blobStoreCallback = blobStoreCallback . _tcPersistentBlockStateContext
 
-instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (TestContext pv) where
+instance
+    (AccountVersionFor pv ~ av) =>
+    Cache.HasCache (AccountCache store av) (TestContext store pv)
+    where
     projectCache = Cache.projectCache . _tcPersistentBlockStateContext
 
-instance Cache.HasCache Module.ModuleCache (TestContext pv) where
+instance Cache.HasCache (Module.ModuleCache store) (TestContext store pv) where
     projectCache = Cache.projectCache . _tcPersistentBlockStateContext
 
-instance HasMemoryLLDB pv (TestContext pv) where
+instance HasMemoryLLDB store pv (TestContext store pv) where
     theMemoryLLDB = _tcMemoryLLDB
 
-instance LMDBAccountMap.HasDatabaseHandlers (TestContext pv) where
+instance LMDBAccountMap.HasDatabaseHandlers (TestContext store pv) where
     databaseHandlers =
         lens _tcPersistentBlockStateContext (\s v -> s{_tcPersistentBlockStateContext = v})
             . LMDBAccountMap.databaseHandlers
 
 -- | State used for running the 'TestMonad'.
-data TestState pv = TestState
+data TestState store pv = TestState
     { -- | The 'SkovData'.
-      _tsSkovData :: !(SkovData pv),
+      _tsSkovData :: !(SkovData store pv),
       -- | The pending timers.
       --  The 'Integer' key is a handle for the 'Timer' associated
       --  with the 'TimerMonad'.
-      _tsPendingTimers :: !(Map.Map Integer (Timeout, TestMonad pv ()))
+      _tsPendingTimers :: !(Map.Map Integer (Timeout, TestMonad store pv ()))
     }
 
 -- | Events raised in running the 'TestMonad'.
@@ -120,14 +123,16 @@ type TestWrite pv = [TestEvent pv]
 --  Hence the 'PersistentBlockStateMonadHelper' transformer is using this monad
 --  as is the 'TestMonad'
 --  This makes it possible to easily derive the required instances via the 'PersistentBlockStateMonad'.
-type InnerTestMonad (pv :: ProtocolVersion) = RWST (TestContext pv) (TestWrite pv) (TestState pv) LogIO
+type InnerTestMonad store (pv :: ProtocolVersion) =
+    RWST (TestContext store pv) (TestWrite pv) (TestState store pv) LogIO
 
 -- | This type is used to derive instances of various block state classes for 'TestMonad'.
-type PersistentBlockStateMonadHelper pv =
+type PersistentBlockStateMonadHelper store pv =
     PersistentBlockStateMonad
+        store
         pv
-        (TestContext pv)
-        (InnerTestMonad pv)
+        (TestContext store pv)
+        (InnerTestMonad store pv)
 
 -- | The 'TestMonad' type itself wraps 'RWST' over 'IO'.
 --  The reader context is 'TestContext'.
@@ -135,16 +140,18 @@ type PersistentBlockStateMonadHelper pv =
 --  callback from the consensus to an operation of 'MonadTimeout', 'MonadBroadcast', or
 --  'MonadConsensusEvent'.
 --  The state is 'TestState', which includes the 'SkovData' and a map of the pending timer events.
-newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: (InnerTestMonad pv) a}
-    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter (TestWrite pv), MonadLogger)
+newtype TestMonad store (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: (InnerTestMonad store pv) a}
+    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext store pv), MonadIO, MonadThrow, MonadWriter (TestWrite pv), MonadLogger)
     deriving
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
-        via (PersistentBlockStateMonadHelper pv)
+        via (PersistentBlockStateMonadHelper store pv)
+
+type instance MBSStore (TestMonad store pv) = store
 
 makeLenses ''TestContext
 makeLenses ''TestState
 
-instance HasBakerContext (TestContext pv) where
+instance HasBakerContext (TestContext store pv) where
     bakerContext = tcBakerContext
 
 -- | Project the core genesis data from genesis data for consensus version 1.
@@ -158,7 +165,7 @@ genesisCore = case protocolVersion @pv of
 
 -- | Run an operation in the 'TestMonad' with the given baker, time and genesis data.
 --  This sets up a temporary blob store for the block state that is deleted after use.
-runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad pv a -> IO a
+runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad store pv a -> IO a
 runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
     runLog $ runBlobStoreTemp "." $ withNewAccountCacheAndLMDBAccountMap 1000 "accountmap" $ do
         (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers) <- runPersistentBlockStateMonad $ do
@@ -227,68 +234,71 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
 
 -- Instances that are required for the 'TestMonad'.
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad pv)
+        (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => AccountOperations (TestMonad pv)
+        (IsProtocolVersion pv) => AccountOperations (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => TokenStateOperations StateV1.MutableState (TestMonad pv)
+        (IsProtocolVersion pv) =>
+        TokenStateOperations (StateV1.MutableState store) (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (TestMonad pv)
+        (IsProtocolVersion pv) =>
+        PLTQuery (HashedPersistentBlockState store pv) (StateV1.MutableState store) (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (TestMonad pv)
+        (IsProtocolVersion pv) =>
+        PLTQuery (PersistentBlockState store pv) (StateV1.MutableState store) (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => BlockStateQuery (TestMonad pv)
+        (IsProtocolVersion pv) => BlockStateQuery (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => BlockStateOperations (TestMonad pv)
+        (IsProtocolVersion pv) => BlockStateOperations (TestMonad store pv)
 
 deriving via
-    (PersistentBlockStateMonadHelper pv)
+    (PersistentBlockStateMonadHelper store pv)
     instance
-        (IsProtocolVersion pv) => BlockStateStorage (TestMonad pv)
+        (IsProtocolVersion pv) => BlockStateStorage (TestMonad store pv)
 
 deriving via
-    (MemoryLLDBM pv (InnerTestMonad pv))
+    (MemoryLLDBM store pv (InnerTestMonad store pv))
     instance
-        (IsProtocolVersion pv) => LowLevel.MonadTreeStateStore (TestMonad pv)
+        (IsProtocolVersion pv) => LowLevel.MonadTreeStateStore (TestMonad store pv)
 
-instance MonadState (SkovData pv) (TestMonad pv) where
+instance MonadState (SkovData store pv) (TestMonad store pv) where
     state = TestMonad . state . tsSkovData
     get = TestMonad (use tsSkovData)
     put = TestMonad . (tsSkovData .=)
 
-instance TimeMonad (TestMonad pv) where
+instance TimeMonad (TestMonad store pv) where
     currentTime = asks _tcCurrentTime
 
-instance MonadTimeout (TestMonad pv) where
+instance MonadTimeout (TestMonad store pv) where
     resetTimer = tell . (: []) . ResetTimer
 
-instance MonadBroadcast (TestMonad pv) where
+instance MonadBroadcast (TestMonad store pv) where
     sendTimeoutMessage = tell . (: []) . SendTimeoutMessage
     sendQuorumMessage = tell . (: []) . SendQuorumMessage
     sendBlock = tell . (: []) . SendBlock
 
-instance TimerMonad (TestMonad pv) where
-    type Timer (TestMonad pv) = Integer
+instance TimerMonad (TestMonad store pv) where
+    type Timer (TestMonad store pv) = Integer
     onTimeout delay action = TestMonad $ do
         pts <- use tsPendingTimers
         let newIndex = case Map.lookupMax pts of
@@ -298,14 +308,14 @@ instance TimerMonad (TestMonad pv) where
         return newIndex
     cancelTimer timer = TestMonad $ tsPendingTimers %= Map.delete timer
 
-instance MonadConsensusEvent (TestMonad pv) where
+instance MonadConsensusEvent (TestMonad store pv) where
     onBlock = tell . (: []) . OnBlock . bpBlock
     onFinalize fe _ = tell [OnFinalize fe]
 
 -- | Get the currently-pending timers.
-getPendingTimers :: TestMonad pv (Map.Map Integer (Timeout, TestMonad pv ()))
+getPendingTimers :: TestMonad store pv (Map.Map Integer (Timeout, TestMonad store pv ()))
 getPendingTimers = TestMonad (gets _tsPendingTimers)
 
 -- | Clear all currently-pending timers.
-clearPendingTimers :: TestMonad pv ()
+clearPendingTimers :: TestMonad store pv ()
 clearPendingTimers = TestMonad (modify (\s -> s{_tsPendingTimers = Map.empty}))

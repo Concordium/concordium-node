@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -162,11 +163,11 @@ instance Ord PEvent where
     compare (PEvent i1 _) (PEvent i2 _) = compare i1 i2
 
 -- | The state of a particular baker.
-data BakerState = BakerState
+data BakerState = forall store. BakerState
     { _bsIdentity :: !BakerIdentity,
       _bsInfo :: !FullBakerInfo,
-      _bsContext :: !(SkovContext BakerConfig),
-      _bsState :: !(SkovState BakerConfig)
+      _bsContext :: !(SkovContext store BakerConfig),
+      _bsState :: !(SkovState store BakerConfig)
     }
 
 -- | Typeclass of a datastructure that collects events.

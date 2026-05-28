@@ -65,6 +65,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P10 as P10
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
@@ -84,10 +85,10 @@ updateHash = read "6d84de01ccda394638459daa6b9e374094236d3e2e8fd19a51e7136abe77b
 updateRegenesis ::
     ( MPV m ~ 'P9,
       BlockStateStorage m,
-      MonadState (TreeState.SkovData (MPV m)) m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      MonadState (TreeState.SkovData (MBSStore m) (MPV m)) m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
-    BlockPointer 'P9 ->
+    BlockPointer (MBSStore m) 'P9 ->
     m (PVInit m)
 updateRegenesis terminalBlock = do
     let regenesisTime = blockTimestamp terminalBlock

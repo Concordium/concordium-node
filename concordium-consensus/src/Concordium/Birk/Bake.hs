@@ -200,8 +200,13 @@ class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     tryBake :: BakerIdentity -> Slot -> m BakeResult
 
 instance
-    (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad (SkovT pv h c m), TreeStateMonad (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
-    BakerMonad (SkovT pv h c m)
+    ( FinalizationMonad (SkovT store pv h c m),
+      MonadIO m,
+      SkovMonad (SkovT store pv h c m),
+      TreeStateMonad (SkovT store pv h c m),
+      OnSkov (SkovT store pv h c m)
+    ) =>
+    BakerMonad (SkovT store pv h c m)
     where
     bakeForSlot = doBakeForSlot
     tryBake = doTryBake

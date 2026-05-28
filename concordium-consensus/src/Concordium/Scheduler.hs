@@ -103,6 +103,7 @@ import qualified Concordium.Types.ProtocolLevelTokens.CBOR as PLTTypes
 import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..))
 import qualified Concordium.Scheduler.ProtocolLevelTokens.Module as TokenModule
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
@@ -1225,7 +1226,7 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
             -- to appropriate handlers.
             let go ::
                     [Event' supplemented] ->
-                    Either WasmV1.ContractExecutionReject WasmV1.ReceiveResultData ->
+                    Either WasmV1.ContractExecutionReject (WasmV1.ReceiveResultData (MBSStore m)) ->
                     -- \^Result of invoking an operation
                     LocalT r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event' supplemented]))
                 go _ (Left cer) = return (Left (WasmV1.ExecutionReject cer)) -- contract execution failed.

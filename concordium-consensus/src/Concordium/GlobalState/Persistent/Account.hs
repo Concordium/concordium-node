@@ -52,8 +52,8 @@ data PersistentAccount store (av :: AccountVersion) where
     PAV1 :: !(V0.PersistentAccount store 'AccountV1) -> PersistentAccount store 'AccountV1
     PAV2 :: !(V1.PersistentAccount store 'AccountV2) -> PersistentAccount store 'AccountV2
     PAV3 :: !(V1.PersistentAccount store 'AccountV3) -> PersistentAccount store 'AccountV3
-    PAV4 :: !(V1.PersistentAccount 'AccountV4) -> PersistentAccount 'AccountV4
-    PAV5 :: !(V1.PersistentAccount 'AccountV5) -> PersistentAccount 'AccountV5
+    PAV4 :: !(V1.PersistentAccount store 'AccountV4) -> PersistentAccount store 'AccountV4
+    PAV5 :: !(V1.PersistentAccount store 'AccountV5) -> PersistentAccount store 'AccountV5
 
 instance (MonadBlobStore m, store ~ MBSStore m) => MHashableTo m (AccountHash av) (PersistentAccount store av) where
     getHashM (PAV0 acc) = getHashM acc
@@ -96,8 +96,8 @@ data PersistentBakerInfoRef store (av :: AccountVersion) where
     PBIRV1 :: !(V0.PersistentBakerInfoEx store 'AccountV1) -> PersistentBakerInfoRef store 'AccountV1
     PBIRV2 :: !(V1.PersistentBakerInfoEx store 'AccountV2) -> PersistentBakerInfoRef store 'AccountV2
     PBIRV3 :: !(V1.PersistentBakerInfoEx store 'AccountV3) -> PersistentBakerInfoRef store 'AccountV3
-    PBIRV4 :: !(V1.PersistentBakerInfoEx 'AccountV4) -> PersistentBakerInfoRef 'AccountV4
-    PBIRV5 :: !(V1.PersistentBakerInfoEx 'AccountV5) -> PersistentBakerInfoRef 'AccountV5
+    PBIRV4 :: !(V1.PersistentBakerInfoEx store 'AccountV4) -> PersistentBakerInfoRef store 'AccountV4
+    PBIRV5 :: !(V1.PersistentBakerInfoEx store 'AccountV5) -> PersistentBakerInfoRef store 'AccountV5
 
 instance Show (PersistentBakerInfoRef store av) where
     show (PBIRV0 pibr) = show pibr
@@ -375,7 +375,7 @@ accountHash (PAV5 acc) = getHashM acc
 -- versions that support protocol level tokens.
 accountTokens ::
     (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
+    PersistentAccount (MBSStore m) av ->
     m (Map.Map BlockState.TokenIndex BlockState.TokenAccountState)
 accountTokens (PAV5 acc) = uncond <$> V1.getTokenStateTable acc
 
@@ -383,7 +383,7 @@ accountTokens (PAV5 acc) = uncond <$> V1.getTokenStateTable acc
 --  This is only available at account versions that support protocol-level tokens.
 accountTokenBalance ::
     (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
+    PersistentAccount (MBSStore m) av ->
     BlockState.TokenIndex ->
     m TokenRawAmount
 accountTokenBalance (PAV5 acc) = V1.getTokenBalance acc
@@ -436,8 +436,8 @@ updateTokenAccountState ::
     -- | How to update the token account state if present (Just) and if not present (Nothing) in the token account state table.
     (Maybe BlockState.TokenAccountState -> m BlockState.TokenAccountState) ->
     -- | The account to update
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 updateTokenAccountState tokenIx upd (PAV5 acc) =
     PAV5 <$> case V1.accountTokenStateTable acc of
         CTrue (Some ref) -> doUpdate ref
@@ -604,8 +604,8 @@ setAccountStake newStake (PAV5 acc) = PAV5 <$> V1.setStake newStake acc
 setAccountValidatorSuspended ::
     (MonadBlobStore m, AVSupportsValidatorSuspension av) =>
     Bool ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountValidatorSuspended isSuspended (PAV4 acc) = PAV4 <$> V1.setValidatorSuspended isSuspended acc
 setAccountValidatorSuspended isSuspended (PAV5 acc) = PAV5 <$> V1.setValidatorSuspended isSuspended acc
 

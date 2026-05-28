@@ -8,6 +8,7 @@ module Concordium.GlobalState.ContractStateV1 (
     PersistentState,
     InMemoryPersistentState (..),
     MutableState (..),
+    ForeignMutableState,
     MutableStateInner,
     emptyPersistentState,
     newMutableState,
@@ -81,20 +82,20 @@ withMutableState MutableState{msInner = MutableStateInner fp} = withForeignPtr f
 foreign import ccall "lookup_entry_value_mutable_state"
     lookupEntryValueMutableStateFFI ::
         -- | Callback for loading persistent nodes into memory.
-        LoadCallback ->
+        LoadCallback store ->
         -- | Location of the key.
         Ptr Word8 ->
         -- | Length of the key.
         CSize ->
         -- | Reference to the mutable state.
-        Ptr MutableStateInner ->
+        Ptr (ForeignMutableState store) ->
         -- | Location for returning the length of the output.
         Ptr CSize ->
         -- | Returns pointer to the value, null pointer if no entry was found.
         IO (Ptr Word8)
 
 -- | Look up entry using key and read the value in a mutable state.
-lookupMutableState :: BS.ByteString -> MutableState -> IO (Maybe BS.ByteString)
+lookupMutableState :: BS.ByteString -> MutableState store -> IO (Maybe BS.ByteString)
 lookupMutableState key state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
     alloca $ \outPtr -> do
         response <- withMutableState state $ \inner ->
@@ -123,7 +124,7 @@ lookupMutableState key state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen)
 foreign import ccall "insert_entry_value_mutable_state"
     insertEntryValueMutableStateFFI ::
         -- | Callback for loading persistent nodes into memory.
-        LoadCallback ->
+        LoadCallback store ->
         -- | Location of the key.
         Ptr Word8 ->
         -- | Length of the key.
@@ -133,7 +134,7 @@ foreign import ccall "insert_entry_value_mutable_state"
         -- | Length of the value.
         CSize ->
         -- | Reference to the mutable state.
-        Ptr MutableStateInner ->
+        Ptr (ForeignMutableState store) ->
         IO Word8
 
 -- | Insert a value into the mutable state at a specified key.
@@ -148,7 +149,7 @@ insertMutableState ::
     -- | Value to insert into the mutable state.
     BS.ByteString ->
     -- | The mutable state to modify.
-    MutableState ->
+    MutableState store ->
     IO (Maybe Bool)
 insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
     BSU.unsafeUseAsCStringLen value $ \(valuePtr, valueLen) ->
@@ -176,13 +177,13 @@ insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, k
 foreign import ccall "delete_entry_mutable_state"
     deleteEntryMutableStateFFI ::
         -- | Callback for loading persistent nodes into memory.
-        LoadCallback ->
+        LoadCallback store ->
         -- | Location of the key.
         Ptr Word8 ->
         -- | Length of the key.
         CSize ->
         -- | Reference to the mutable state.
-        Ptr MutableStateInner ->
+        Ptr (ForeignMutableState store) ->
         IO Word8
 
 -- | Delete entry at key.
@@ -195,7 +196,7 @@ deleteEntryMutableState ::
     -- | Key of the entry in the mutable state to delete.
     BS.ByteString ->
     -- | The mutable state to delete from.
-    MutableState ->
+    MutableState store ->
     IO (Maybe Bool)
 deleteEntryMutableState key mutableState =
     BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
@@ -229,10 +230,10 @@ newtype PersistentState store = PersistentState (ForeignPtr (ForeignPersistentSt
 newtype InMemoryPersistentState store = InMemoryPersistentState (PersistentState store)
 
 -- | Allocate empty persistent state.
-foreign import ccall "empty_persistent_state" empty_persistent_state :: IO (Ptr PersistentState)
+foreign import ccall "empty_persistent_state" empty_persistent_state :: IO (Ptr (ForeignPersistentState store))
 
 -- | Allocate empty persistent state.
-emptyPersistentState :: IO PersistentState
+emptyPersistentState :: IO (PersistentState store)
 emptyPersistentState = do
     state <- empty_persistent_state
     PersistentState <$> newForeignPtr freePersistentState state
@@ -242,9 +243,14 @@ emptyPersistentState = do
 --  (that is written to using the provided 'StoreCallback'). The input persistent
 --  state remains valid. The new persistent state is not cached, it is entirely
 --  stored on disk.
-foreign import ccall "migrate_persistent_tree_v1" migratePersistentTree :: LoadCallback store -> StoreCallback store -> Ptr (ForeignPersistentState store) -> IO (Ptr (ForeignPersistentState store))
+foreign import ccall "migrate_persistent_tree_v1"
+    migratePersistentTree ::
+        LoadCallback store ->
+        StoreCallback store' ->
+        Ptr (ForeignPersistentState store) ->
+        IO (Ptr (ForeignPersistentState store'))
 
-migratePersistentState :: LoadCallback store -> StoreCallback store -> PersistentState store -> IO (PersistentState store)
+migratePersistentState :: LoadCallback store -> StoreCallback store' -> PersistentState store -> IO (PersistentState store')
 migratePersistentState lcbk scbk ps = do
     newPSPtr <- withPersistentState ps $ migratePersistentTree lcbk scbk
     newPS <- newForeignPtr freePersistentState newPSPtr

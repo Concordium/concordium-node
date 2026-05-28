@@ -25,6 +25,7 @@ import Concordium.Utils
 
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.Types as GSTypes
@@ -48,12 +49,12 @@ import Concordium.Types.Option
 --  This function incorporates the functionality of @checkFinality@ from the bluepaper.
 processCertifiedBlock ::
     forall m.
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       MonadIO m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
@@ -61,7 +62,7 @@ processCertifiedBlock ::
       HasCallStack
     ) =>
     -- | The newly-certified block.
-    CertifiedBlock (MPV m) ->
+    CertifiedBlock (MBSStore m) (MPV m) ->
     m ()
 processCertifiedBlock cb@CertifiedBlock{..}
     | NormalBlock block <- bpBlock cbQuorumBlock,
@@ -118,12 +119,12 @@ data CatchupFinalizationEntryResult
 --  finalization entry and that block is alive and non finalized.
 --  If the finalization entry can be verified then it is processed.
 catchupFinalizationEntry ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       MonadIO m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
@@ -172,19 +173,19 @@ catchupFinalizationEntry finEntry = do
 --    * The block is at most one epoch later than the last finalized block. (This is implied by
 --      the block being live.)
 processFinalizationEntry ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       MonadIO m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
     -- | Pointer to the block that is finalized.
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     -- | Finalization entry for the block.
     FinalizationEntry (MPV m) ->
     m ()
@@ -197,13 +198,13 @@ processFinalizationEntry newFinalizedPtr newFinalizationEntry =
 --  If the provided block is finalized then also any accounts created for the block
 --  will be persisted.
 makeStoredBlock ::
-    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       BlockStateStorage m
     ) =>
     -- | @True@ if the block is finalized, @False@ if it is certified.
     Bool ->
-    BlockPointer (MPV m) ->
-    m (LowLevel.StoredBlock (MPV m))
+    BlockPointer (MBSStore m) (MPV m) ->
+    m (LowLevel.StoredBlock (MBSStore m) (MPV m))
 makeStoredBlock finalized blockPtr = do
     statePointer <- saveBlockState (bpState blockPtr)
     when finalized $ saveGlobalMaps (bpState blockPtr)
@@ -223,12 +224,12 @@ makeStoredBlock finalized blockPtr = do
 --  If this is provided, the certified block and its QC are written to the tree state database
 --  together with updating the finalized block and transaction indexes.
 processFinalizationHelper ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       MonadIO m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
@@ -236,11 +237,11 @@ processFinalizationHelper ::
       HasCallStack
     ) =>
     -- | The newly finalized block.
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     -- | Finalization entry for the block.
     FinalizationEntry (MPV m) ->
     -- | Optional newly-certified block to write to the low-level store.
-    Maybe (CertifiedBlock (MPV m)) ->
+    Maybe (CertifiedBlock (MBSStore m) (MPV m)) ->
     m ()
 {-# INLINE processFinalizationHelper #-}
 processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock = do
@@ -361,15 +362,15 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
 --  if we have seen a QC on a block that justifies finalization of a trigger block, causing us to
 --  advance the epoch, but others did not see it and moved on.)
 checkedAdvanceEpoch ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData (MBSStore m) (MPV m)) m,
       IsConsensusV1 (MPV m),
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       BlockStateQuery m
     ) =>
     -- | Finalization entry.
     FinalizationEntry (MPV m) ->
     -- | The block that becomes finalized.
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     m ()
 checkedAdvanceEpoch finEntry newFinalizedBlock = do
     oldEpoch <- use (roundStatus . rsCurrentEpoch)
@@ -400,15 +401,15 @@ getNextEpochBakersAndFinalizers finState = do
 --  previous one.
 checkedAdvanceEpochBakers ::
     ( IsConsensusV1 (MPV m),
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       MonadState s m,
       BlockStateQuery m,
       HasEpochBakers s
     ) =>
     -- | The previous last finalized block.
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     -- | The new last finalized block.
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     m ()
 checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
     | newEpoch == oldEpoch + 1 = do

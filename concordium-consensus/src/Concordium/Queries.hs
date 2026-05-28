@@ -100,17 +100,17 @@ import Data.Time
 
 -- | Type of a query that can be run against consensus version 0.
 type QueryV0M finconf a =
-    forall (pv :: ProtocolVersion).
-    ( SkovMonad (VersionedSkovV0M finconf pv),
-      FinalizationMonad (VersionedSkovV0M finconf pv)
+    forall store (pv :: ProtocolVersion).
+    ( SkovMonad (VersionedSkovV0M finconf store pv),
+      FinalizationMonad (VersionedSkovV0M finconf store pv)
     ) =>
-    VersionedSkovV0M finconf pv a
+    VersionedSkovV0M finconf store pv a
 
 -- | Type of a query that can be run against consensus version 1.
 type QueryV1M finconf a =
-    forall (pv :: ProtocolVersion).
+    forall store (pv :: ProtocolVersion).
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
-    VersionedSkovV1M finconf pv a
+    VersionedSkovV1M finconf store pv a
 
 -- | Run a query against a specific skov version.
 liftSkovQuery ::
@@ -129,18 +129,18 @@ liftSkovQueryWithVersion ::
     MultiVersionRunner finconf ->
     EVersionedConfiguration finconf ->
     -- | Query to run at version 0 consensus.
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovV0M finconf pv),
-        FinalizationMonad (VersionedSkovV0M finconf pv)
+    ( forall store (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovV0M finconf store pv),
+        FinalizationMonad (VersionedSkovV0M finconf store pv)
       ) =>
-      VersionedConfigurationV0 finconf pv ->
-      VersionedSkovV0M finconf pv a
+      VersionedConfigurationV0 finconf store pv ->
+      VersionedSkovV0M finconf store pv a
     ) ->
     -- | Query to run at version 1 consensus.
-    ( forall (pv :: ProtocolVersion).
+    ( forall store (pv :: ProtocolVersion).
       (IsConsensusV1 pv, IsProtocolVersion pv) =>
-      VersionedConfigurationV1 finconf pv ->
-      VersionedSkovV1M finconf pv a
+      VersionedConfigurationV1 finconf store pv ->
+      VersionedSkovV1M finconf store pv a
     ) ->
     IO a
 liftSkovQueryWithVersion mvr (EVersionedConfigurationV0 vc) av0 _ = do
@@ -208,18 +208,18 @@ liftSkovQueryLatestResult av0 av1 = MVR $ \mvr ->
 liftSkovQueryBlock ::
     forall finconf a.
     -- | Query to run at consensus version 0.
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovV0M finconf pv),
-        FinalizationMonad (VersionedSkovV0M finconf pv)
+    ( forall store (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovV0M finconf store pv),
+        FinalizationMonad (VersionedSkovV0M finconf store pv)
       ) =>
-      BlockPointerType (VersionedSkovV0M finconf pv) ->
-      VersionedSkovV0M finconf pv a
+      BlockPointerType (VersionedSkovV0M finconf store pv) ->
+      VersionedSkovV0M finconf store pv a
     ) ->
     -- | Query to run at consensus version 1.
-    ( forall (pv :: ProtocolVersion).
+    ( forall store (pv :: ProtocolVersion).
       (IsConsensusV1 pv, IsProtocolVersion pv) =>
-      SkovV1.BlockPointer pv ->
-      VersionedSkovV1M finconf pv a
+      SkovV1.BlockPointer store pv ->
+      VersionedSkovV1M finconf store pv a
     ) ->
     BlockHash ->
     MVR finconf (Maybe a)
@@ -269,19 +269,19 @@ responseToMaybe response = case response of
 liftSkovQueryBHI ::
     forall finconf a.
     -- | Query to run at consensus version 0.
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovV0M finconf pv),
-        FinalizationMonad (VersionedSkovV0M finconf pv),
+    ( forall store (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovV0M finconf store pv),
+        FinalizationMonad (VersionedSkovV0M finconf store pv),
         IsProtocolVersion pv
       ) =>
-      BlockPointerType (VersionedSkovV0M finconf pv) ->
-      VersionedSkovV0M finconf pv a
+      BlockPointerType (VersionedSkovV0M finconf store pv) ->
+      VersionedSkovV0M finconf store pv a
     ) ->
     -- | Query to run at consensus version 1.
-    ( forall (pv :: ProtocolVersion).
+    ( forall store (pv :: ProtocolVersion).
       (IsConsensusV1 pv, IsProtocolVersion pv) =>
-      SkovV1.BlockPointer pv ->
-      VersionedSkovV1M finconf pv a
+      SkovV1.BlockPointer store pv ->
+      VersionedSkovV1M finconf store pv a
     ) ->
     BlockHashInput ->
     MVR finconf (BHIQueryResponse a)
@@ -306,7 +306,7 @@ liftSkovQueryStateBHI stateQuery =
         (stateQuery <=< blockState)
 
 -- A helper function for getting the best block in consensus version 1. It is the block with the highest QC.
-bestBlockConsensusV1 :: (MonadState (SkovV1.SkovData pv) m) => m (SkovV1.BlockPointer pv)
+bestBlockConsensusV1 :: (MonadState (SkovV1.SkovData store pv) m) => m (SkovV1.BlockPointer store pv)
 bestBlockConsensusV1 = SkovV1.cbQuorumBlock <$> use (SkovV1.roundStatus . SkovV1.rsHighestCertifiedBlock)
 
 -- | Try a 'BlockHashInput' based query on the latest skov version, provided with the configuration.
@@ -316,24 +316,24 @@ bestBlockConsensusV1 = SkovV1.cbQuorumBlock <$> use (SkovV1.roundStatus . SkovV1
 liftSkovQueryBHIAndVersion ::
     forall finconf a.
     -- | Query to run at consensus version 0.
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovV0M finconf pv),
-        FinalizationMonad (VersionedSkovV0M finconf pv),
+    ( forall store (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovV0M finconf store pv),
+        FinalizationMonad (VersionedSkovV0M finconf store pv),
         IsProtocolVersion pv
       ) =>
-      VersionedConfigurationV0 finconf pv ->
-      BlockPointerType (VersionedSkovV0M finconf pv) ->
-      VersionedSkovV0M finconf pv a
+      VersionedConfigurationV0 finconf store pv ->
+      BlockPointerType (VersionedSkovV0M finconf store pv) ->
+      VersionedSkovV0M finconf store pv a
     ) ->
     -- | Query to run at consensus version 1.
     --  As well as the versioned configuration and block pointer, this takes a 'Bool' indicating
     --  if the block is finalized.
-    ( forall (pv :: ProtocolVersion).
+    ( forall store (pv :: ProtocolVersion).
       (IsConsensusV1 pv, IsProtocolVersion pv) =>
-      VersionedConfigurationV1 finconf pv ->
-      SkovV1.BlockPointer pv ->
+      VersionedConfigurationV1 finconf store pv ->
+      SkovV1.BlockPointer store pv ->
       Bool ->
-      VersionedSkovV1M finconf pv a
+      VersionedSkovV1M finconf store pv a
     ) ->
     BlockHashInput ->
     MVR finconf (BHIQueryResponse a)
@@ -441,11 +441,11 @@ getConsensusStatus = MVR $ \mvr -> do
         (statusV1 genInfo evc)
   where
     statusV0 ::
-        forall (pv :: ProtocolVersion).
-        (SkovMonad (VersionedSkovV0M finconf pv)) =>
+        forall store (pv :: ProtocolVersion).
+        (SkovMonad (VersionedSkovV0M finconf store pv)) =>
         (BlockHash, UTCTime) ->
         EVersionedConfiguration finconf ->
-        VersionedSkovV0M finconf pv ConsensusStatus
+        VersionedSkovV0M finconf store pv ConsensusStatus
     statusV0 (csGenesisBlock, csGenesisTime) evc = do
         let absoluteHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) . bpHeight
         bb <- bestBlock
@@ -484,11 +484,11 @@ getConsensusStatus = MVR $ \mvr -> do
             csConcordiumBFTStatus = Nothing
         return ConsensusStatus{..}
     statusV1 ::
-        forall (pv :: ProtocolVersion).
+        forall store (pv :: ProtocolVersion).
         (IsProtocolVersion pv, IsConsensusV1 pv) =>
         (BlockHash, UTCTime) ->
         EVersionedConfiguration finconf ->
-        VersionedSkovV1M finconf pv ConsensusStatus
+        VersionedSkovV1M finconf store pv ConsensusStatus
     statusV1 (csGenesisBlock, csGenesisTime) evc = do
         let absoluteHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) . SkovV1.blockHeight
         bb <- bestBlockConsensusV1
@@ -717,7 +717,7 @@ getNextAccountNonce accountAddress =
 getBlockInfo :: BlockHashInput -> MVR finconf (BHIQueryResponse BlockInfo)
 getBlockInfo =
     liftSkovQueryBHIAndVersion
-        ( \(vc :: VersionedConfigurationV0 finconf pv) bp -> do
+        ( \(vc :: VersionedConfigurationV0 finconf store pv) bp -> do
             let biBlockHash = getHash bp
             let biGenesisIndex = vc0Index vc
             biBlockParent <-
@@ -752,7 +752,7 @@ getBlockInfo =
             let biEpoch = Nothing
             return BlockInfo{..}
         )
-        ( \(vc :: VersionedConfigurationV1 finconf pv) bp biFinalized -> do
+        ( \(vc :: VersionedConfigurationV1 finconf store pv) bp biFinalized -> do
             let biBlockHash = getHash bp
             let biGenesisIndex = vc1Index vc
             biBlockParent <-
@@ -814,19 +814,19 @@ getBlockTransactionSummaries =
         getBTSv1
   where
     getBTSv0 ::
-        forall (pv :: ProtocolVersion).
-        (SkovMonad (VersionedSkovV0M finconf pv)) =>
-        BlockPointerType (VersionedSkovV0M finconf pv) ->
-        VersionedSkovV0M finconf pv (Either String (Vec.Vector SupplementedTransactionSummary))
+        forall store (pv :: ProtocolVersion).
+        (SkovMonad (VersionedSkovV0M finconf store pv)) =>
+        BlockPointerType (VersionedSkovV0M finconf store pv) ->
+        VersionedSkovV0M finconf store pv (Either String (Vec.Vector SupplementedTransactionSummary))
     getBTSv0 bp = do
         outcomes <- BS.getOutcomes =<< blockState bp
         let transactions = blockTransactions bp
         return $! supplementOutcomes (protocolVersion @pv) outcomes transactions
     getBTSv1 ::
-        forall (pv :: ProtocolVersion).
+        forall store (pv :: ProtocolVersion).
         (IsProtocolVersion pv) =>
-        SkovV1.BlockPointer pv ->
-        VersionedSkovV1M finconf pv (Either String (Vec.Vector SupplementedTransactionSummary))
+        SkovV1.BlockPointer store pv ->
+        VersionedSkovV1M finconf store pv (Either String (Vec.Vector SupplementedTransactionSummary))
     getBTSv1 bp = do
         outcomes <- BS.getOutcomes =<< blockState bp
         let transactions = SkovV1.blockTransactions bp
@@ -983,10 +983,10 @@ getBlockFinalizationSummary :: forall finconf. BlockHashInput -> MVR finconf (BH
 getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return NoSummary)
   where
     getFinSummarySkovM ::
-        forall pv.
-        (SkovMonad (VersionedSkovV0M finconf pv)) =>
-        BlockPointerType (VersionedSkovV0M finconf pv) ->
-        VersionedSkovV0M finconf pv BlockFinalizationSummary
+        forall store pv.
+        (SkovMonad (VersionedSkovV0M finconf store pv)) =>
+        BlockPointerType (VersionedSkovV0M finconf store pv) ->
+        VersionedSkovV0M finconf store pv BlockFinalizationSummary
     getFinSummarySkovM bp = do
         case blockFinalizationData <$> blockFields bp of
             Just (BlockFinalizationData FinalizationRecord{..}) -> do
@@ -1226,9 +1226,9 @@ getAccountInfoV0 = getAccountInfoHelper getASIv0 getCooldownsV0
 
 -- | Get the details of an account, for the V1 consensus.
 getAccountInfoV1 ::
-    forall m.
+    forall m store.
     ( BS.BlockStateQuery m,
-      MonadState (SkovV1.SkovData (MPV m)) m,
+      MonadState (SkovV1.SkovData store (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
     AccountIdentifier ->
@@ -1329,12 +1329,17 @@ getInstanceInfoHelper caddr bs = do
                       Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
                     }
 
+data LoadablePersistentStateV1 = forall store. LoadablePersistentStateV1
+    { lpsState :: StateV1.PersistentState store,
+      lpsLoadCallback :: StateV1.LoadCallback store
+    }
+
 -- | Get the exact state of a smart contract instance in the block state. The
 --  return value is 'Nothing' if the instance cannot be found (either the
 --  requested block does not exist, or the instance does not exist in that
 --  block), @Just . Left@ if the instance is a V0 instance, and @Just . Right@ if
 --  the instance is a V1 instance.
-getInstanceState :: BlockHashInput -> ContractAddress -> MVR finconf (BHIQueryResponse (Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback))))
+getInstanceState :: BlockHashInput -> ContractAddress -> MVR finconf (BHIQueryResponse (Maybe (Either Wasm.ContractState LoadablePersistentStateV1)))
 getInstanceState bhi caddr = do
     liftSkovQueryStateBHI
         (\bs -> mkII =<< BS.getContractInstance bs caddr)
@@ -1346,7 +1351,7 @@ getInstanceState bhi caddr = do
     mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
         cstate <- BS.externalContractState iiState
         callback <- BS.getV1StateContext
-        return . Just . Right $ (cstate, callback)
+        return . Just . Right $ LoadablePersistentStateV1 cstate callback
 
 -- | Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHashInput -> ModuleRef -> MVR finconf (BHIQueryResponse (Maybe Wasm.WasmModule))
@@ -1773,13 +1778,13 @@ getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryR
 getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesInvalidProtocolVersion) (fmap Right . getCertificates)
   where
     getCertificates ::
-        forall m.
+        forall store m.
         ( BS.BlockStateQuery m,
           BlockPointerMonad m,
-          BlockPointerType m ~ SkovV1.BlockPointer (MPV m),
+          BlockPointerType m ~ SkovV1.BlockPointer store (MPV m),
           IsConsensusV1 (MPV m)
         ) =>
-        SkovV1.BlockPointer (MPV m) ->
+        SkovV1.BlockPointer store (MPV m) ->
         m QueriesKonsensusV1.BlockCertificates
     getCertificates bp =
         case SkovV1.bpBlock bp of
@@ -1856,11 +1861,11 @@ getBakersRewardPeriod :: forall finconf. BlockHashInput -> MVR finconf (BHIQuery
 getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPeriodInfosV1
   where
     bakerRewardPeriodInfosV0 ::
-        forall m.
+        forall store m.
         ( SkovQueryMonad m,
-          BlockPointerType m ~ PersistentBlockPointer (MPV m) (HashedPersistentBlockState (MPV m))
+          BlockPointerType m ~ PersistentBlockPointer (MPV m) (HashedPersistentBlockState store (MPV m))
         ) =>
-        BlockPointerType (VersionedSkovV0M finconf (MPV m)) ->
+        BlockPointerType (VersionedSkovV0M finconf store (MPV m)) ->
         m (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo])
     bakerRewardPeriodInfosV0 bp = case delegationSupport @(AccountVersionFor (MPV m)) of
         -- The protocol version does not support the delegation feature.
@@ -1869,9 +1874,9 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
             result <- getBakersConsensusV0 =<< blockState bp
             return $ Right result
     bakerRewardPeriodInfosV1 ::
-        forall m.
-        (BS.BlockStateQuery m, IsConsensusV1 (MPV m), BlockPointerMonad m, BlockPointerType m ~ SkovV1.BlockPointer (MPV m)) =>
-        SkovV1.BlockPointer (MPV m) ->
+        forall store m.
+        (BS.BlockStateQuery m, IsConsensusV1 (MPV m), BlockPointerMonad m, BlockPointerType m ~ SkovV1.BlockPointer store (MPV m)) =>
+        SkovV1.BlockPointer store (MPV m) ->
         m (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo])
     bakerRewardPeriodInfosV1 bp = do
         result <- getBakersConsensusV1 =<< blockState bp

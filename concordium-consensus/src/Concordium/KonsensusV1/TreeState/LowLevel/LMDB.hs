@@ -39,6 +39,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Option
 
 import Concordium.GlobalState.LMDB.Helpers
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
@@ -66,11 +67,11 @@ instance Exception DatabaseRecoveryFailure where
 -- ** Block store
 
 -- | Block store for certified blocks by hash.
-newtype BlockStore (pv :: ProtocolVersion) = BlockStore MDB_dbi'
+newtype BlockStore store (pv :: ProtocolVersion) = BlockStore MDB_dbi'
 
-instance (IsProtocolVersion pv) => MDBDatabase (BlockStore pv) where
-    type DBKey (BlockStore pv) = BlockHash
-    type DBValue (BlockStore pv) = StoredBlock pv
+instance (IsProtocolVersion pv) => MDBDatabase (BlockStore store pv) where
+    type DBKey (BlockStore store pv) = BlockHash
+    type DBValue (BlockStore store pv) = StoredBlock store pv
     encodeKey _ = Hash.hashToByteString . blockHash
 
 -- ** Finalized blocks by height index
@@ -198,11 +199,11 @@ instance S.Serialize VersionMetadata where
 -- * Database
 
 -- | The LMDB environment and tables.
-data DatabaseHandlers (pv :: ProtocolVersion) = DatabaseHandlers
+data DatabaseHandlers store (pv :: ProtocolVersion) = DatabaseHandlers
     { -- | The LMDB environment.
       _storeEnv :: !StoreEnv,
       -- | Blocks by hash.
-      _blockStore :: !(BlockStore pv),
+      _blockStore :: !(BlockStore store pv),
       -- | Index of finalized blocks by block height.
       _finalizedBlockIndex :: !FinalizedBlockIndex,
       -- | Index of finalized transactions by hash.
@@ -259,7 +260,7 @@ makeDatabaseHandlers ::
     Bool ->
     -- | Initial database size
     Int ->
-    IO (DatabaseHandlers pv)
+    IO (DatabaseHandlers store pv)
 makeDatabaseHandlers treeStateDir readOnly initSize = do
     _storeEnv <- makeStoreEnv
     -- here nobody else has access to the environment, so we need not lock
@@ -310,18 +311,18 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
 
 -- | Initialize database handlers in ReadWrite mode.
 --  This simply loads the references and does not initialize the databases.
-openDatabase :: FilePath -> IO (DatabaseHandlers pv)
+openDatabase :: FilePath -> IO (DatabaseHandlers store pv)
 openDatabase treeStateDir = do
     createDirectoryIfMissing False treeStateDir
     makeDatabaseHandlers treeStateDir False defaultEnvSize
 
 -- | Close the database. The database should not be used after it is closed.
-closeDatabase :: DatabaseHandlers pv -> IO ()
+closeDatabase :: DatabaseHandlers store pv -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
 -- | Check that the database version matches the expected version.
 --  If it does not, this throws a 'DatabaseInvariantViolation' exception.
-checkDatabaseVersion :: forall pv. (IsProtocolVersion pv) => DatabaseHandlers pv -> LogIO ()
+checkDatabaseVersion :: forall store pv. (IsProtocolVersion pv) => DatabaseHandlers store pv -> LogIO ()
 checkDatabaseVersion db = do
     metadata <- liftIO . transaction (db ^. storeEnv) True $ \txn ->
         loadRecord txn (db ^. metadataStore) versionMetadata
@@ -349,10 +350,10 @@ checkDatabaseVersion db = do
 -- | 'DatabaseHandlers' existentially quantified over the protocol version and without block state.
 --  Note that we can treat the state type as '()' soundly when reading, since the state is the last
 --  part of the serialization: we just ignore the remaining bytes.
-data VersionDatabaseHandlers
+data VersionDatabaseHandlers store
     = forall pv.
         (IsProtocolVersion pv) =>
-      VersionDatabaseHandlers (DatabaseHandlers pv)
+      VersionDatabaseHandlers (DatabaseHandlers store pv)
 
 -- | Open an existing database for reading. This checks that the version is supported and returns
 --  a handler that is existentially quantified over the protocol version.
@@ -362,7 +363,7 @@ data VersionDatabaseHandlers
 openReadOnlyDatabase ::
     -- | Path of database
     FilePath ->
-    IO (Maybe VersionDatabaseHandlers)
+    IO (Maybe (VersionDatabaseHandlers store))
 openReadOnlyDatabase treeStateDir = do
     _storeEnv <- makeStoreEnv
     let env = _storeEnv ^. seEnv
@@ -418,25 +419,27 @@ openReadOnlyDatabase treeStateDir = do
                                     RoundStatusStore consensusStatusStore
                             let _latestFinalizationEntryStore =
                                     LatestFinalizationEntryStore consensusStatusStore
-                            return (Just (VersionDatabaseHandlers @pv DatabaseHandlers{..}))
+                            return (Just (VersionDatabaseHandlers @_ @pv DatabaseHandlers{..}))
             _ -> Nothing <$ mdb_env_close env
 
 -- ** Monad implementation
 
 -- | A newtype wrapper that provides a 'MonadTreeStateStore' implementation using LMDB.
-newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
+newtype DiskLLDBM store (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger) via m
     deriving (MonadTrans) via IdentityT
 
-deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM pv m)
+deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM store pv m)
 
-instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
-    type MPV (DiskLLDBM pv m) = pv
+instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM store pv m) where
+    type MPV (DiskLLDBM store pv m) = pv
+
+type instance MBSStore (DiskLLDBM store pv m) = store
 
 -- | Helper function for implementing 'writeFinalizedBlocks'.
 writeFinalizedBlocksHelper ::
-    (HasDatabaseHandlers dbh pv, IsProtocolVersion pv) =>
-    [StoredBlock pv] ->
+    (HasDatabaseHandlers dbh store pv, IsProtocolVersion pv) =>
+    [StoredBlock store pv] ->
     FinalizationEntry pv ->
     dbh ->
     MDB_txn ->
@@ -492,10 +495,10 @@ writeFinalizedBlocksHelper finBlocks finEntry dbh txn = do
     return delBlocks
 
 writeCertifiedBlockHelper ::
-    ( HasDatabaseHandlers s pv,
+    ( HasDatabaseHandlers s store pv,
       IsProtocolVersion pv
     ) =>
-    StoredBlock pv ->
+    StoredBlock store pv ->
     QuorumCertificate ->
     s ->
     MDB_txn ->
@@ -509,12 +512,12 @@ writeCertifiedBlockHelper certBlock qc dbh txn = do
 instance
     ( IsProtocolVersion pv,
       MonadReader r m,
-      HasDatabaseHandlers r pv,
+      HasDatabaseHandlers r store pv,
       MonadIO m,
       MonadCatch m,
       MonadLogger m
     ) =>
-    MonadTreeStateStore (DiskLLDBM pv m)
+    MonadTreeStateStore (DiskLLDBM store pv m)
     where
     lookupBlock bh = do
         dbh <- ask
@@ -623,13 +626,13 @@ instance
 -- | Initialise the low-level database by writing out the genesis block, initial round status and
 --  version metadata.
 initialiseLowLevelDB ::
-    forall pv r m.
-    (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
+    forall store pv r m.
+    (MonadIO m, MonadReader r m, HasDatabaseHandlers r store pv, MonadLogger m, IsProtocolVersion pv) =>
     -- | Genesis block.
-    StoredBlock pv ->
+    StoredBlock store pv ->
     -- | Initial persistent round status.
     PersistentRoundStatus ->
-    DiskLLDBM pv m ()
+    DiskLLDBM store pv m ()
 initialiseLowLevelDB genesisBlock roundStatus = do
     dbh <- ask
     asWriteTransaction (dbh ^. storeEnv) $ \txn -> do
@@ -644,13 +647,12 @@ initialiseLowLevelDB genesisBlock roundStatus = do
         storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
 
 -- | A result of a roll back.
-data RollbackResult
-    = forall (pv :: ProtocolVersion).
-      RollbackResult
+data RollbackResult store (pv :: ProtocolVersion)
+    = RollbackResult
     { -- | Number of blocks rolled back.
       rbrCount :: !Int,
       -- | Reference to the best block after the rollback.
-      rbrBestState :: !(BlockStateRef pv)
+      rbrBestState :: !(BlockStateRef store pv)
     }
 
 -- | Remove certified and finalized blocks from the database whose states cannot be loaded.
@@ -669,18 +671,18 @@ data RollbackResult
 --      latest finalization entry to the prior explicitly finalized block (or removing it if
 --      it would be for the genesis block).
 rollBackBlocksUntil ::
-    forall pv r m.
+    forall store pv r m.
     ( IsProtocolVersion pv,
       MonadReader r m,
-      HasDatabaseHandlers r pv,
+      HasDatabaseHandlers r store pv,
       MonadIO m,
       MonadCatch m,
       MonadLogger m
     ) =>
     -- | Callback for checking if the state at a given reference is valid.
-    (BlockStateRef pv -> DiskLLDBM pv m Bool) ->
+    (BlockStateRef store pv -> DiskLLDBM store pv m Bool) ->
     -- | Returns the number of blocks rolled back and the best state after the roll back.
-    DiskLLDBM pv m RollbackResult
+    DiskLLDBM store pv m (RollbackResult store pv)
 rollBackBlocksUntil checkState = do
     lookupLastFinalizedBlock >>= \case
         Nothing -> throwM . DatabaseRecoveryFailure $ "No last finalized block."
@@ -702,9 +704,9 @@ rollBackBlocksUntil checkState = do
         -- last finalized round
         Round ->
         -- highest surviving block state so far (from last finalized block)
-        BlockStateRef pv ->
+        BlockStateRef store pv ->
         -- returns the @RollbackResult@.
-        DiskLLDBM pv m RollbackResult
+        DiskLLDBM store pv m (RollbackResult store pv)
     checkCertified lastFinRound bestState = do
         dbh <- ask
         mHighestQC <- asReadTransaction (dbh ^. storeEnv) $ \txn ->
@@ -722,13 +724,13 @@ rollBackBlocksUntil checkState = do
         -- last finalized round
         Round ->
         -- highest surviving block state so far
-        BlockStateRef pv ->
+        BlockStateRef store pv ->
         -- number of blocks rolled back so far
         Int ->
         -- QC for certified block to check
         QuorumCertificate ->
         -- returns the @RollbackResult@.
-        DiskLLDBM pv m RollbackResult
+        DiskLLDBM store pv m (RollbackResult store pv)
     checkCertifiedWithQC lastFinRound bestState !count qc = do
         dbh <- ask
         mBlock <- asReadTransaction (dbh ^. storeEnv) $ \txn ->
@@ -770,13 +772,13 @@ rollBackBlocksUntil checkState = do
         -- last finalized round
         Round ->
         -- highest surviving block so far
-        BlockStateRef pv ->
+        BlockStateRef store pv ->
         -- number of blocks rolled back so far
         Int ->
         -- round to check for
         Round ->
         -- returns the @RollbackResult@.
-        DiskLLDBM pv m RollbackResult
+        DiskLLDBM store pv m (RollbackResult store pv)
     checkCertifiedPreviousRound lastFinRound bestState count currentRound
         | currentRound <= lastFinRound = return $ RollbackResult count bestState
         | otherwise = do
@@ -821,13 +823,13 @@ rollBackBlocksUntil checkState = do
                     -- Accumulated list of rolled-back finalized blocks in ascending height order
                     [BlockHash] ->
                     -- Block to roll back
-                    StoredBlock pv ->
+                    StoredBlock store pv ->
                     -- Quorum certificate on the block
                     QuorumCertificate ->
                     -- Total number of blocks rolled back,
                     -- List of hashes of rolled-back blocks in ascending height order,
                     -- New last finalized block
-                    IO (Int, [BlockHash], StoredBlock pv)
+                    IO (Int, [BlockHash], StoredBlock store pv)
                 loop !c hashes fin finQC = case stbBlock fin of
                     GenesisBlock _ -> do
                         -- As a special case, the genesis block is self-finalizing.

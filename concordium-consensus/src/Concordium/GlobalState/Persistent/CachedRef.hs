@@ -459,11 +459,11 @@ openHashedCachedRef ::
     forall m h c a.
     ( MonadCache c m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef (MBSStore m) a,
       CacheValue c ~ a
     ) =>
-    HashedCachedRef' h c a ->
-    m (Either (BlobRef a) a)
+    HashedCachedRef' h (MBSStore m) c a ->
+    m (Either (BlobRef (MBSStore m) a) a)
 openHashedCachedRef HCRUnflushed{..} =
     liftIO (readIORef hcrUnflushed) >>= \case
         HCRMem val -> return (Right val)

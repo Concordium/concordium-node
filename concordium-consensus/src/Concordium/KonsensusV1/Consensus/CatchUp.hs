@@ -50,6 +50,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
@@ -99,7 +100,7 @@ makeTimeoutSet TimeoutMessages{..} =
         }
 
 -- | Generate a catch up status for the current state of the consensus.
-makeCatchUpStatus :: SkovData pv -> CatchUpStatus
+makeCatchUpStatus :: SkovData store pv -> CatchUpStatus
 makeCatchUpStatus sd = CatchUpStatus{..}
   where
     lfBlock = sd ^. lastFinalized
@@ -114,7 +115,7 @@ makeCatchUpStatus sd = CatchUpStatus{..}
         Set.Set BlockHash -> -- Hashes of blocks with known children
         [BlockHash] -> -- Accumulated leaf blocks
         [BlockHash] -> -- Accumulated branch blocks
-        Seq.Seq [BlockPointer pv] -> -- Unprocessed non-finalized blocks by height
+        Seq.Seq [BlockPointer store pv] -> -- Unprocessed non-finalized blocks by height
         ( [BlockHash], -- Leaves
           [BlockHash] -- Branches
         )
@@ -156,7 +157,7 @@ makeCatchUpStatus sd = CatchUpStatus{..}
 isCatchUpRequired ::
     (LowLevel.MonadTreeStateStore m) =>
     CatchUpStatus ->
-    SkovData (MPV m) ->
+    SkovData (MBSStore m) (MPV m) ->
     m Bool
 isCatchUpRequired CatchUpStatus{..} sd
     | cusCurrentRound > myCurrentRound || cusLastFinalizedRound > myLastFinalizedRound =
@@ -226,7 +227,7 @@ handleCatchUpRequest ::
       LowLevel.MonadTreeStateStore m
     ) =>
     CatchUpStatus ->
-    SkovData (MPV m) ->
+    SkovData (MBSStore m) (MPV m) ->
     m (CatchUpPartialResponse m)
 handleCatchUpRequest CatchUpStatus{..} skovData = do
     peerLFBStatus <- getBlockStatus cusLastFinalizedBlock skovData
@@ -425,7 +426,7 @@ data TerminalDataResult
 processCatchUpTerminalData ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       TimerMonad m,
       MonadIO m,
@@ -437,7 +438,7 @@ processCatchUpTerminalData ::
       MonadLogger m,
       MonadTimeout m,
       IsConsensusV1 (MPV m),
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
     CatchUpTerminalData ->
     m TerminalDataResult
@@ -684,8 +685,8 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                     "timeout message would trigger catch up"
             Timeout.ConsensusShutdown -> return currentProgress
 
-makeCatchUpStatusMessage :: SkovData pv -> CatchUpMessage
+makeCatchUpStatusMessage :: SkovData store pv -> CatchUpMessage
 makeCatchUpStatusMessage = CatchUpStatusMessage . (\s -> s{cusBranches = []}) . makeCatchUpStatus
 
-makeCatchUpRequestMessage :: SkovData pv -> CatchUpMessage
+makeCatchUpRequestMessage :: SkovData store pv -> CatchUpMessage
 makeCatchUpRequestMessage = CatchUpRequestMessage . makeCatchUpStatus

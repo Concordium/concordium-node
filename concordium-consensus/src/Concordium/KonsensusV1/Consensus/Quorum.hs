@@ -20,6 +20,7 @@ import Concordium.Types.Parameters
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
@@ -55,11 +56,11 @@ data ReceiveQuorumMessageRejectReason
     deriving (Eq, Show)
 
 -- | Result codes for receiving a 'QuorumMessage'.
-data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
+data ReceiveQuorumMessageResult store (pv :: ProtocolVersion)
     = -- | The 'QuorumMessage' was received i.e. it passed verification.
-      Received !(VerifiedQuorumMessage pv)
+      Received !(VerifiedQuorumMessage store pv)
     | -- | The 'QuorumMessage' was received but is a result of double signing.
-      ReceivedNoRelay !(VerifiedQuorumMessage pv)
+      ReceivedNoRelay !(VerifiedQuorumMessage store pv)
     | -- | The 'QuorumMessage' was rejected.
       Rejected !ReceiveQuorumMessageRejectReason
     | -- | The 'QuorumMessage' points to a round which indicates a catch up is required.
@@ -70,7 +71,7 @@ data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
 
 -- | A _received_ and verified 'QuorumMessage' together with
 --  the weight associated with the finalizer for the quorum message.
-data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
+data VerifiedQuorumMessage store (pv :: ProtocolVersion) = VerifiedQuorumMessage
     { -- | The verified 'QuorumMessage'.
       vqmMessage :: !QuorumMessage,
       -- | The weight of the finalizer.
@@ -78,7 +79,7 @@ data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
       -- | The baker id of the finalizer.
       vqmFinalizerBakerId :: !BakerId,
       -- | The block that is the target of the quorum message.
-      vqmBlock :: !(BlockPointer pv)
+      vqmBlock :: !(BlockPointer store pv)
     }
     deriving (Eq, Show)
 
@@ -96,9 +97,9 @@ receiveQuorumMessage ::
     -- | The 'QuorumMessage' to receive.
     QuorumMessage ->
     -- | The tree state to verify the 'QuorumMessage' within.
-    SkovData (MPV m) ->
+    SkovData (MBSStore m) (MPV m) ->
     -- | Result of receiving the 'QuorumMessage'.
-    m (ReceiveQuorumMessageResult (MPV m))
+    m (ReceiveQuorumMessageResult (MBSStore m) (MPV m))
 receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
     receive
@@ -191,7 +192,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
 --  Precondition. The finalizer must not be present already.
 addQuorumMessage ::
     -- | The verified quorum message
-    VerifiedQuorumMessage pv ->
+    VerifiedQuorumMessage store pv ->
     -- | The messages to update.
     QuorumMessages ->
     -- | The resulting messages.
@@ -225,10 +226,10 @@ addQuorumMessage
 makeQuorumCertificate ::
     -- | The block we want to check whether a
     --  can 'QuorumCertificate' can be formed or not.
-    BlockPointer pv ->
+    BlockPointer store pv ->
     -- | The state to use for making the
     -- 'QuorumCertificate'.
-    SkovData pv ->
+    SkovData store pv ->
     -- | Return @Just QuorumCertificate@ if there are enough (weighted) quorum signatures
     --  for the provided block.
     --  Otherwise return @Nothing@.
@@ -275,14 +276,14 @@ processQuorumMessage ::
       BlockStateStorage m,
       TimeMonad m,
       MonadTimeout m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       MonadConsensusEvent m,
       MonadLogger m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       LowLevel.MonadTreeStateStore m
     ) =>
     -- | The 'VerifiedQuorumMessage' to process.
-    VerifiedQuorumMessage (MPV m) ->
+    VerifiedQuorumMessage (MBSStore m) (MPV m) ->
     -- | Continuation to make a block
     m () ->
     m ()

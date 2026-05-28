@@ -83,8 +83,11 @@ instance Serialize LegacyReleaseSchedule where
 instance (MonadBlobStore m) => BlobStorable m LegacyReleaseSchedule
 instance (Applicative m) => Cacheable m LegacyReleaseSchedule
 
-instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyReleaseSchedule) where
-    type AccountRef (BufferedRef LegacyReleaseSchedule) = AccountAddress
+instance
+    (MonadBlobStore m, store ~ MBSStore m) =>
+    ReleaseScheduleOperations m (BufferedRef store LegacyReleaseSchedule)
+    where
+    type AccountRef (BufferedRef store LegacyReleaseSchedule) = AccountAddress
 
     addAccountRelease ts addr br = do
         LegacyReleaseSchedule{..} <- refLoad br
@@ -144,7 +147,7 @@ instance (Applicative m) => Cacheable m AccountSet
 
 -- | A release schedule for the P5 protocol version.  This uses a 'Trie.Trie' mapping 'Timestamp's
 --  to sets of accounts.
-data NewReleaseSchedule = NewReleaseSchedule
+data NewReleaseSchedule store = NewReleaseSchedule
     { -- | The first timestamp at which a release is scheduled (or the maximum possible timestamp if
       --  no releases are scheduled). This MUST NOT be used to infer that the release schedule is
       --  empty, since there can be a release at the maximum timestamp.
@@ -155,11 +158,11 @@ data NewReleaseSchedule = NewReleaseSchedule
       --  Timestamp which is the natural ordering due to big-endian
       --  serialization. This allows us to also use the Trie to find the release
       --  with minimal timestamp.
-      nrsMap :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
+      nrsMap :: !(Trie.TrieN (BufferedFix store) Timestamp AccountSet)
     }
     deriving (Show)
 
-instance (MonadBlobStore m) => BlobStorable m NewReleaseSchedule where
+instance (MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (NewReleaseSchedule store) where
     storeUpdate NewReleaseSchedule{..} = do
         (pmap, newMap) <- storeUpdate nrsMap
         let !p = do
@@ -174,13 +177,16 @@ instance (MonadBlobStore m) => BlobStorable m NewReleaseSchedule where
             nrsMap <- mmap
             return $! NewReleaseSchedule{..}
 
-instance (MonadBlobStore m) => Cacheable m NewReleaseSchedule where
+instance (MonadBlobStore m, store ~ MBSStore m) => Cacheable m (NewReleaseSchedule store) where
     cache rs = do
         newMap <- cache (nrsMap rs)
         return $! rs{nrsMap = newMap}
 
-instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule where
-    type AccountRef NewReleaseSchedule = AccountIndex
+instance
+    (MonadBlobStore m, store ~ MBSStore m) =>
+    ReleaseScheduleOperations m (NewReleaseSchedule store)
+    where
+    type AccountRef (NewReleaseSchedule store) = AccountIndex
 
     addAccountRelease ts ai rs = do
         (_, nrsMap) <- Trie.adjust addAcc ts (nrsMap rs)
@@ -225,7 +231,7 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule wh
                         go (accum ++ Set.toList (theAccountSet accs)) newMap
 
 -- | A release schedule with no entries.
-emptyNewReleaseSchedule :: NewReleaseSchedule
+emptyNewReleaseSchedule :: NewReleaseSchedule store
 emptyNewReleaseSchedule =
     NewReleaseSchedule
         { nrsFirstTimestamp = Timestamp maxBound,
@@ -233,7 +239,10 @@ emptyNewReleaseSchedule =
         }
 
 -- | Migrate a 'NewReleaseSchedule' from one 'BlobStore' to another.
-migrateNewReleaseSchedule :: (SupportMigration m t) => NewReleaseSchedule -> t m NewReleaseSchedule
+migrateNewReleaseSchedule ::
+    (SupportMigration m t) =>
+    NewReleaseSchedule (MBSStore m) ->
+    t m (NewReleaseSchedule (MBSStore (t m)))
 migrateNewReleaseSchedule rs = do
     newMap <- Trie.migrateTrieN True return (nrsMap rs)
     return $!
@@ -252,8 +261,8 @@ removeAccountFromReleaseSchedule ::
     -- | The account index to remove.
     AccountIndex ->
     -- | The release schedule to remove the account from.
-    NewReleaseSchedule ->
-    m NewReleaseSchedule
+    NewReleaseSchedule (MBSStore m) ->
+    m (NewReleaseSchedule (MBSStore m))
 removeAccountFromReleaseSchedule ts ai rs = do
     (_, nrsMap) <- Trie.adjust remAcc ts (nrsMap rs)
     newMin <- Trie.findMin nrsMap
@@ -283,21 +292,24 @@ type family RSAccountRef pv where
     RSAccountRef _ = AccountIndex
 
 -- | A top-level release schedule used for a particular protocol version.
-data ReleaseSchedule (pv :: ProtocolVersion) where
+data ReleaseSchedule store (pv :: ProtocolVersion) where
     -- | A release schedule for protocol versions 'P1' to 'P4'.
     ReleaseScheduleP0 ::
         (RSAccountRef pv ~ AccountAddress) =>
-        !(BufferedRef LegacyReleaseSchedule) ->
-        ReleaseSchedule pv
+        !(BufferedRef store LegacyReleaseSchedule) ->
+        ReleaseSchedule store pv
     -- | A release schedule for protocol versions 'P5' onwards.
     ReleaseScheduleP5 ::
         (RSAccountRef pv ~ AccountIndex) =>
-        !NewReleaseSchedule ->
-        ReleaseSchedule pv
+        !(NewReleaseSchedule store) ->
+        ReleaseSchedule store pv
 
-deriving instance (IsProtocolVersion pv) => Show (ReleaseSchedule pv)
+deriving instance (IsProtocolVersion pv) => Show (ReleaseSchedule store pv)
 
-instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSchedule pv) where
+instance
+    (MonadBlobStore m, IsProtocolVersion pv, store ~ MBSStore m) =>
+    BlobStorable m (ReleaseSchedule store pv)
+    where
     storeUpdate (ReleaseScheduleP0 rs) = second ReleaseScheduleP0 <$> storeUpdate rs
     storeUpdate (ReleaseScheduleP5 rs) = second ReleaseScheduleP5 <$> storeUpdate rs
     load = case protocolVersion @pv of
@@ -312,12 +324,15 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSche
         SP9 -> fmap ReleaseScheduleP5 <$> load
         SP10 -> fmap ReleaseScheduleP5 <$> load
 
-instance (MonadBlobStore m) => Cacheable m (ReleaseSchedule pv) where
+instance (MonadBlobStore m, store ~ MBSStore m) => Cacheable m (ReleaseSchedule store pv) where
     cache (ReleaseScheduleP0 rs) = ReleaseScheduleP0 <$> cache rs
     cache (ReleaseScheduleP5 rs) = ReleaseScheduleP5 <$> cache rs
 
-instance (MonadBlobStore m) => ReleaseScheduleOperations m (ReleaseSchedule pv) where
-    type AccountRef (ReleaseSchedule pv) = RSAccountRef pv
+instance
+    (MonadBlobStore m, store ~ MBSStore m) =>
+    ReleaseScheduleOperations m (ReleaseSchedule store pv)
+    where
+    type AccountRef (ReleaseSchedule store pv) = RSAccountRef pv
     addAccountRelease ts addr (ReleaseScheduleP0 rs) =
         ReleaseScheduleP0 <$!> addAccountRelease ts addr rs
     addAccountRelease ts addr (ReleaseScheduleP5 rs) =
@@ -332,7 +347,10 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (ReleaseSchedule pv) 
         second ReleaseScheduleP5 <$!> processReleasesUntil ts rs
 
 -- | Construct an empty release schedule.
-emptyReleaseSchedule :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => m (ReleaseSchedule pv)
+emptyReleaseSchedule ::
+    forall m pv.
+    (IsProtocolVersion pv, MonadBlobStore m) =>
+    m (ReleaseSchedule (MBSStore m) pv)
 emptyReleaseSchedule = case protocolVersion @pv of
     SP1 -> rsP0
     SP2 -> rsP0
@@ -345,7 +363,7 @@ emptyReleaseSchedule = case protocolVersion @pv of
     SP9 -> rsP1
     SP10 -> rsP1
   where
-    rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule pv)
+    rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule (MBSStore m) pv)
     rsP0 = do
         rsRef <-
             refMake $!
@@ -355,7 +373,7 @@ emptyReleaseSchedule = case protocolVersion @pv of
                       lrsEntryCount = 0
                     }
         return $! ReleaseScheduleP0 rsRef
-    rsP1 :: (RSAccountRef pv ~ AccountIndex) => m (ReleaseSchedule pv)
+    rsP1 :: (RSAccountRef pv ~ AccountIndex) => m (ReleaseSchedule (MBSStore m) pv)
     rsP1 = do
         return $!
             ReleaseScheduleP5
@@ -400,8 +418,8 @@ trivialReleaseScheduleMigration = case protocolVersion @pv of
 migrateReleaseSchedule ::
     (SupportMigration m t) =>
     ReleaseScheduleMigration m oldpv pv ->
-    ReleaseSchedule oldpv ->
-    t m (ReleaseSchedule pv)
+    ReleaseSchedule (MBSStore m) oldpv ->
+    t m (ReleaseSchedule (MBSStore (t m)) pv)
 migrateReleaseSchedule RSMLegacyToLegacy (ReleaseScheduleP0 rs) =
     ReleaseScheduleP0 <$!> migrateReference return rs
 migrateReleaseSchedule (RSMLegacyToNew resolveAcc) (ReleaseScheduleP0 rsRef) = do
@@ -427,14 +445,14 @@ migrateReleaseSchedule RSMNewToNew (ReleaseScheduleP5 rs) = do
 releasesMap ::
     (MonadBlobStore m) =>
     (AccountAddress -> m AccountIndex) ->
-    ReleaseSchedule pv ->
+    ReleaseSchedule (MBSStore m) pv ->
     m (Map.Map Timestamp (Set.Set AccountIndex))
 releasesMap resolveAddr (ReleaseScheduleP0 rsRef) = do
     LegacyReleaseSchedule{..} <- refLoad rsRef
     forM lrsMap $ fmap Set.fromList . mapM resolveAddr . Set.toList
 releasesMap _ (ReleaseScheduleP5 rs) = newReleasesMap rs
 
-newReleasesMap :: (MonadBlobStore m) => NewReleaseSchedule -> m (Map Timestamp (Set AccountIndex))
+newReleasesMap :: (MonadBlobStore m) => NewReleaseSchedule (MBSStore m) -> m (Map Timestamp (Set AccountIndex))
 newReleasesMap rs = do
     m <- Trie.toMap (nrsMap rs)
     return (theAccountSet <$> m)

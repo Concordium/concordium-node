@@ -71,7 +71,7 @@ data ParticipatingBakers = ParticipatingBakers
 -- | Input data used for executing a block (besides the transactions).
 --
 --  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
-data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
+data BlockExecutionData store (pv :: ProtocolVersion) = BlockExecutionData
     { -- | Indicates if the block is the first in a new epoch.
       bedIsNewEpoch :: Bool,
       -- | The duration of an epoch. (Obtained from genesis data.)
@@ -83,7 +83,7 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       -- | The block baker and QC signatories.
       bedParticipatingBakers :: ParticipatingBakers,
       -- | The block state of the parent block.
-      bedParentState :: PBS.HashedPersistentBlockState pv,
+      bedParentState :: PBS.HashedPersistentBlockState store pv,
       -- | Number of rounds a validator has missed (e.g. the validator was
       --   elected leader but a timeout certificate exist for the round) since the parent
       --   block.
@@ -312,10 +312,10 @@ doUpdateSeedStateForBlock blkTimestamp blkNonce theState = do
 executeBlockPrologue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      BlockState m ~ PBS.HashedPersistentBlockState store pv,
       IsConsensusV1 pv
     ) =>
-    BlockExecutionData pv ->
+    BlockExecutionData store pv ->
     m (PrologueResult m (AccountVersionFor (MPV m)))
 executeBlockPrologue BlockExecutionData{..} = do
     theState0 <- thawBlockState bedParentState
@@ -506,11 +506,11 @@ processSuspensions snapshotSuspendedBids bs0 = do
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next
 --  payday.
 executeBlockEpilogue ::
-    forall pv m.
+    forall store pv m.
     ( pv ~ MPV m,
       IsProtocolVersion pv,
       BlockStateStorage m,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      BlockState m ~ PBS.HashedPersistentBlockState store pv,
       IsConsensusV1 pv
     ) =>
     ParticipatingBakers ->
@@ -519,7 +519,7 @@ executeBlockEpilogue ::
     Map.Map BakerId Word64 ->
     Maybe (Set.Set BakerId) ->
     UpdatableBlockState m ->
-    m (PBS.HashedPersistentBlockState pv)
+    m (PBS.HashedPersistentBlockState store pv)
 executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds snapshotSuspendedBids theState0 = do
     theState1 <- processPaydayRewards paydayParams theState0
     theState2 <- processBlockRewards participants transactionRewardParams missedRounds theState1
@@ -668,13 +668,13 @@ executePostShutdownBlock parentState = do
 executeBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      BlockState m ~ PBS.HashedPersistentBlockState store pv,
       IsConsensusV1 pv,
       MonadLogger m
     ) =>
-    BlockExecutionData pv ->
+    BlockExecutionData store pv ->
     [(BlockItem, TVer.VerificationResult)] ->
-    m (Either (Maybe FailureKind) (PBS.HashedPersistentBlockState pv, Energy))
+    m (Either (Maybe FailureKind) (PBS.HashedPersistentBlockState store pv, Energy))
 executeBlockState execData@BlockExecutionData{..} transactions = do
     seedState <- getSeedState bedParentState
     if seedState ^. shutdownTriggered
@@ -717,7 +717,7 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
 constructBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      BlockState m ~ PBS.HashedPersistentBlockState store pv,
       IsConsensusV1 pv,
       TimeMonad m,
       MonadLogger m
@@ -725,8 +725,8 @@ constructBlockState ::
     RuntimeParameters ->
     TransactionTable ->
     PendingTransactionTable ->
-    BlockExecutionData pv ->
-    m (FilteredTransactions (TransactionOutcomesVersionFor pv), PBS.HashedPersistentBlockState pv, Energy)
+    BlockExecutionData store pv ->
+    m (FilteredTransactions (TransactionOutcomesVersionFor pv), PBS.HashedPersistentBlockState store pv, Energy)
 constructBlockState runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
     seedState <- getSeedState bedParentState
     if seedState ^. shutdownTriggered

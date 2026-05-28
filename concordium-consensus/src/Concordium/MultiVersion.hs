@@ -11,6 +11,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -110,7 +111,7 @@ instance
       MultiVersion fc,
       Skov.SkovConfiguration fc UpdateHandler
     ) =>
-    Skov.HandlerConfigHandlers UpdateHandler (VersionedSkovV0M fc pv)
+    Skov.HandlerConfigHandlers UpdateHandler (VersionedSkovV0M fc store pv)
     where
     -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
     -- baker ID of this node and it could be the case that the block was not baked by this node,
@@ -285,7 +286,7 @@ skovV1BlockHandler ::
     -- | Height of the genesis block
     AbsoluteBlockHeight ->
     -- | The newly-arrived block.
-    SkovV1.BlockPointer pv ->
+    SkovV1.BlockPointer store pv ->
     MVR finconf ()
 skovV1BlockHandler genHeight block = do
     -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
@@ -318,8 +319,8 @@ skovV1FinalizeHandler ::
     -- | Height of the genesis block
     AbsoluteBlockHeight ->
     KonsensusV1.FinalizationEntry pv ->
-    [SkovV1.BlockPointer pv] ->
-    VersionedSkovV1M finconf pv ()
+    [SkovV1.BlockPointer store pv] ->
+    VersionedSkovV1M finconf store pv ()
 skovV1FinalizeHandler genHeight _ finalizedBlocks = do
     lift $
         asks (notifyBlockFinalized . mvCallbacks) >>= \case
@@ -347,12 +348,12 @@ data Baker = Baker
     }
 
 -- | Configuration for the version-0 consensus at a particular genesis index.
-data VersionedConfigurationV0 finconf (pv :: ProtocolVersion) = VersionedConfigurationV0
+data VersionedConfigurationV0 finconf store (pv :: ProtocolVersion) = VersionedConfigurationV0
     { -- | The 'SkovContext' (immutable)
-      vc0Context :: !(Skov.SkovContext (Skov.SkovConfig pv finconf UpdateHandler)),
+      vc0Context :: !(Skov.SkovContext store (Skov.SkovConfig pv finconf UpdateHandler)),
       -- | The 'SkovState' (mutable) via an 'IORef'. This should only be updated
       --  by a thread that holds the global lock.
-      vc0State :: !(IORef (Skov.SkovState (Skov.SkovConfig pv finconf UpdateHandler))),
+      vc0State :: !(IORef (Skov.SkovState store (Skov.SkovConfig pv finconf UpdateHandler))),
       -- | The genesis index
       vc0Index :: GenesisIndex,
       -- | The absolute block height of the genesis block
@@ -363,12 +364,12 @@ data VersionedConfigurationV0 finconf (pv :: ProtocolVersion) = VersionedConfigu
     }
 
 -- | Configuration for the version-1 consensus at a particular genesis index.
-data VersionedConfigurationV1 finconf (pv :: ProtocolVersion) = VersionedConfigurationV1
+data VersionedConfigurationV1 finconf store (pv :: ProtocolVersion) = VersionedConfigurationV1
     { -- | The immutable 'SkovV1.SkovV1Context'.
-      vc1Context :: !(SkovV1.SkovV1Context pv (MVR finconf)),
+      vc1Context :: !(SkovV1.SkovV1Context store pv (MVR finconf)),
       -- | The 'SkovV1.SkovV1State' (mutable), wrapped in an 'IORef'. This should only be updated
       --  by a thread that holds the global lock.
-      vc1State :: !(IORef (SkovV1.SkovV1State pv)),
+      vc1State :: !(IORef (SkovV1.SkovV1State store pv)),
       -- | The genesis index
       vc1Index :: GenesisIndex,
       -- | The absolute block height of the genesis block
@@ -382,21 +383,22 @@ data VersionedConfigurationV1 finconf (pv :: ProtocolVersion) = VersionedConfigu
 type VersionedConfig finconf pv = Skov.SkovConfig pv finconf UpdateHandler
 
 -- | 'SkovHandlers' instantiated for the multi-version runner.
-type VersionedHandlers finconf (pv :: ProtocolVersion) =
-    Skov.SkovHandlers pv ThreadTimer (VersionedConfig finconf pv) (MVR finconf)
+type VersionedHandlers finconf store (pv :: ProtocolVersion) =
+    Skov.SkovHandlers store pv ThreadTimer (VersionedConfig finconf pv) (MVR finconf)
 
 -- | The 'SkovT' monad instantiated for the multi-version runner.
 --  This monad is used for running operations on the version-0 consensus.
-type VersionedSkovV0M finconf pv =
+type VersionedSkovV0M finconf store (pv :: ProtocolVersion) =
     Skov.SkovT
+        store
         pv
-        (VersionedHandlers finconf pv)
+        (VersionedHandlers finconf store pv)
         (VersionedConfig finconf pv)
         (MVR finconf)
 
 -- | The monad used for running operations on the version-1 consensus.
-type VersionedSkovV1M finconf pv =
-    SkovV1.SkovV1T pv (MVR finconf)
+type VersionedSkovV1M finconf store pv =
+    SkovV1.SkovV1T store pv (MVR finconf)
 
 -- | An existential wrapper around a 'VersionedConfigurationV0' or 'VersionedConfigurationV1' that
 --  abstracts the protocol version. For 'VersionedConfigurationV0', we require 'SkovMonad' and
@@ -405,18 +407,18 @@ type VersionedSkovV1M finconf pv =
 --  'IsProtocolVersion' for the protocol version.
 data EVersionedConfiguration finconf
     = -- | A configuration for consensus version 0.
-      forall (pv :: ProtocolVersion).
-        ( Skov.SkovMonad (VersionedSkovV0M finconf pv),
-          FinalizationMonad (VersionedSkovV0M finconf pv),
-          BakerMonad (VersionedSkovV0M finconf pv)
+      forall store (pv :: ProtocolVersion).
+        ( Skov.SkovMonad (VersionedSkovV0M finconf store pv),
+          FinalizationMonad (VersionedSkovV0M finconf store pv),
+          BakerMonad (VersionedSkovV0M finconf store pv)
         ) =>
-      EVersionedConfigurationV0 (VersionedConfigurationV0 finconf pv)
+      EVersionedConfigurationV0 (VersionedConfigurationV0 finconf store pv)
     | -- | A configuration for consensus version 1.
-      forall (pv :: ProtocolVersion).
+      forall store (pv :: ProtocolVersion).
         ( IsConsensusV1 pv,
           IsProtocolVersion pv
         ) =>
-      EVersionedConfigurationV1 (VersionedConfigurationV1 finconf pv)
+      EVersionedConfigurationV1 (VersionedConfigurationV1 finconf store pv)
 
 -- | Get the genesis height of an 'EVersionedConfiguration'.
 evcGenesisHeight :: EVersionedConfiguration finconf -> AbsoluteBlockHeight
@@ -436,9 +438,9 @@ evcIndex (EVersionedConfigurationV1 vc) = vc1Index vc
 
 -- | Get the protocol version associated with an 'EVersionedConfiguration'.
 evcProtocolVersion :: EVersionedConfiguration finconf -> ProtocolVersion
-evcProtocolVersion (EVersionedConfigurationV0 (_ :: VersionedConfigurationV0 finconf pv)) =
+evcProtocolVersion (EVersionedConfigurationV0 (_ :: VersionedConfigurationV0 finconf store pv)) =
     demoteProtocolVersion (protocolVersion @pv)
-evcProtocolVersion (EVersionedConfigurationV1 (_ :: VersionedConfigurationV1 finconf pv)) =
+evcProtocolVersion (EVersionedConfigurationV1 (_ :: VersionedConfigurationV1 finconf store pv)) =
     demoteProtocolVersion (protocolVersion @pv)
 
 -- | Activate an 'EVersionedConfiguration'. This means caching the state and
@@ -463,30 +465,30 @@ class MultiVersion finconf where
     -- | Convert a 'VersionedConfigurationV0' to an 'EVersionedConfiguration'.
     newVersionV0 ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
-        VersionedConfigurationV0 finconf pv ->
+        VersionedConfigurationV0 finconf store pv ->
         EVersionedConfiguration finconf
 
     -- | Convert a 'VersionedConfigurationV1' to an 'EVersionedConfiguration'.
     newVersionV1 ::
         (IsProtocolVersion pv, IsConsensusV1 pv) =>
-        VersionedConfigurationV1 finconf pv ->
+        VersionedConfigurationV1 finconf store pv ->
         EVersionedConfiguration finconf
 
     -- | Supply a 'VersionedSkovV0M' action with instances of 'SkovMonad', 'FinalizationMonad' and
     --  'TreeStateMonad'.
     liftSkov ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
-        ( ( Skov.SkovMonad (VersionedSkovV0M finconf pv),
-            FinalizationMonad (VersionedSkovV0M finconf pv),
-            TreeStateMonad (VersionedSkovV0M finconf pv)
+        ( ( Skov.SkovMonad (VersionedSkovV0M finconf store pv),
+            FinalizationMonad (VersionedSkovV0M finconf store pv),
+            TreeStateMonad (VersionedSkovV0M finconf store pv)
           ) =>
-          VersionedSkovV0M finconf pv a
+          VersionedSkovV0M finconf store pv a
         ) ->
-        VersionedSkovV0M finconf pv a
+        VersionedSkovV0M finconf store pv a
 
 instance
-    ( forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => BakerMonad (VersionedSkovV0M finconf pv),
-      forall pv. (IsProtocolVersion pv) => TreeStateMonad (VersionedSkovV0M finconf pv)
+    ( forall store pv. (IsProtocolVersion pv, IsConsensusV0 pv) => BakerMonad (VersionedSkovV0M finconf store pv),
+      forall store pv. (IsProtocolVersion pv) => TreeStateMonad (VersionedSkovV0M finconf store pv)
     ) =>
     MultiVersion finconf
     where
@@ -706,7 +708,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                             ++ show genesisHeight
                     oldVersions <- readIORef mvVersions
                     let vc0Index = fromIntegral (length oldVersions)
-                    (vc0Context, st) <-
+                    Skov.InitialisedSkov vc0Context st <-
                         runLoggerT
                             ( Skov.initialiseNewSkov
                                 gd
@@ -723,7 +725,8 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                             mvLog
                     vc0State <- newIORef st
                     let vc0Shutdown = Skov.shutdownSkov vc0Context =<< liftIO (readIORef vc0State)
-                    let newEConfig :: VersionedConfigurationV0 finconf pv
+                    let
+                        -- newEConfig :: VersionedConfigurationV0 finconf store pv
                         newEConfig = VersionedConfigurationV0{vc0GenesisHeight = genesisHeight, ..}
                     writeIORef mvVersions (oldVersions `Vec.snoc` newVersionV0 newEConfig)
                     -- Notify the network layer we have a new genesis.
@@ -745,8 +748,8 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                     -- This is used for implementing timer handlers.
                     -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
                     -- that will be set after initialization.
-                    configRef <- newEmptyMVar
-                    let unliftSkov :: forall b. VersionedSkovV1M finconf pv b -> IO b
+                    (configRef :: MVar (VersionedConfigurationV1 finconf store pv)) <- newEmptyMVar
+                    let unliftSkov :: forall b. VersionedSkovV1M finconf store pv b -> IO b
                         unliftSkov a = do
                             config <- readMVar configRef
                             runMVR (runSkovV1Transaction config a) mvr
@@ -756,7 +759,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                                 { gbhiAbsoluteHeight = genesisHeight,
                                   gbhiGenesisIndex = vc1Index
                                 }
-                    (vc1Context, st) <-
+                    (SkovV1.NewSkov vc1Context st) <-
                         runLoggerT
                             ( SkovV1.initialiseNewSkovV1
                                 gd
@@ -772,7 +775,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                             mvLog
                     vc1State <- newIORef st
                     let vc1Shutdown = SkovV1.shutdownSkovV1 vc1Context
-                    let newEConfig :: VersionedConfigurationV1 finconf pv
+                    let newEConfig :: VersionedConfigurationV1 finconf store pv
                         newEConfig = VersionedConfigurationV1{vc1GenesisHeight = genesisHeight, ..}
                     putMVar configRef newEConfig
                     writeIORef mvVersions (oldVersions `Vec.snoc` newVersionV1 newEConfig)
@@ -790,20 +793,20 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
 --  effectively stop accepting blocks.
 --  It is assumed that the thread holds the write lock.
 checkForProtocolUpdateV0 ::
-    forall lastpv fc.
+    forall lastpv store fc.
     ( IsProtocolVersion lastpv,
       IsConsensusV0 lastpv,
       MultiVersion fc,
       Skov.SkovConfiguration fc UpdateHandler
     ) =>
-    VersionedSkovV0M fc lastpv ()
+    VersionedSkovV0M fc store lastpv ()
 checkForProtocolUpdateV0 = liftSkov body
   where
     body ::
-        ( Skov.SkovMonad (VersionedSkovV0M fc lastpv),
-          TreeStateMonad (VersionedSkovV0M fc lastpv)
+        ( Skov.SkovMonad (VersionedSkovV0M fc store lastpv),
+          TreeStateMonad (VersionedSkovV0M fc store lastpv)
         ) =>
-        VersionedSkovV0M fc lastpv ()
+        VersionedSkovV0M fc store lastpv ()
     body =
         check >>= \case
             Nothing -> return ()
@@ -829,7 +832,7 @@ checkForProtocolUpdateV0 = liftSkov body
                         Skov.clearSkovOnProtocolUpdate
                         -- migrate the final block state into the new skov instance, and establish
                         -- all the necessary transaction table, and other, invariants.
-                        (vc0Context, st) <- do
+                        (Skov.InitialisedSkov (vc0Context :: Skov.SkovContext newstore (Skov.SkovConfig pv fc UpdateHandler)) st) <- do
                             ctx <- asks Skov.srContext
                             Skov.SkovT $ do
                                 currentState <- State.get
@@ -845,7 +848,7 @@ checkForProtocolUpdateV0 = liftSkov body
                         liftIO $ do
                             vc0State <- liftIO $ newIORef st
                             let vc0Shutdown = Skov.shutdownSkov vc0Context =<< liftIO (readIORef vc0State)
-                            let newEConfig :: VersionedConfigurationV0 fc newpv
+                            let newEConfig :: VersionedConfigurationV0 fc newstore newpv
                                 newEConfig = VersionedConfigurationV0{..}
                             writeIORef mvVersions (existingVersions `Vec.snoc` newVersionV0 newEConfig)
                             -- Notify the network layer we have a new genesis.
@@ -864,13 +867,13 @@ checkForProtocolUpdateV0 = liftSkov body
                         let latestEraGenesisHeight = evcGenesisHeight $ Vec.last existingVersions
                         let vc1Index = fromIntegral (length existingVersions)
                             vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
-                        configRef <- liftIO newEmptyMVar
+                        (configRef :: (MVar (VersionedConfigurationV1 fc newstore pv))) <- liftIO newEmptyMVar
                         -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
                         -- This is used for implementing timer handlers.
                         -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
                         -- that will be set after initialization.
                         let
-                            unliftSkov :: forall b. VersionedSkovV1M fc newpv b -> IO b
+                            unliftSkov :: forall b. VersionedSkovV1M fc newstore newpv b -> IO b
                             unliftSkov a = do
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
@@ -890,7 +893,7 @@ checkForProtocolUpdateV0 = liftSkov body
                                     }
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
-                        (vc1Context, newState) <-
+                        (SkovV1.NewSkov vc1Context newState) <-
                             liftIO $
                                 runLoggerT
                                     ( SkovV1.migrateSkovV1
@@ -924,7 +927,7 @@ checkForProtocolUpdateV0 = liftSkov body
                         -- Create a reference for the new state.
                         vc1State <- liftIO $ newIORef newState
                         let vc1Shutdown = SkovV1.shutdownSkovV1 vc1Context
-                            newECConfig :: VersionedConfigurationV1 fc newpv
+                            newECConfig :: VersionedConfigurationV1 fc store newpv
                             newECConfig = VersionedConfigurationV1{..}
                         liftIO $ do
                             -- Write the new configuration reference.
@@ -946,10 +949,10 @@ checkForProtocolUpdateV0 = liftSkov body
     -- Check whether a protocol update has taken effect. If it did return
     -- information needed to initialize a new skov instance.
     check ::
-        ( Skov.SkovMonad (VersionedSkovV0M fc lastpv),
-          TreeStateMonad (VersionedSkovV0M fc lastpv)
+        ( Skov.SkovMonad (VersionedSkovV0M fc store lastpv),
+          TreeStateMonad (VersionedSkovV0M fc store lastpv)
         ) =>
-        VersionedSkovV0M fc lastpv (Maybe (PVInit (VersionedSkovV0M fc lastpv)))
+        VersionedSkovV0M fc store lastpv (Maybe (PVInit (VersionedSkovV0M fc store lastpv)))
     check =
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case ProtocolUpdateV0.checkUpdate @lastpv pu of
@@ -1010,14 +1013,14 @@ checkForProtocolUpdateV0 = liftSkov body
 --  effectively stop accepting blocks.
 --  It is assumed that the thread holds the write lock.
 checkForProtocolUpdateV1 ::
-    forall lastpv fc.
+    forall lastpv store fc.
     ( IsProtocolVersion lastpv,
       IsConsensusV1 lastpv
     ) =>
-    VersionedSkovV1M fc lastpv ()
+    VersionedSkovV1M fc store lastpv ()
 checkForProtocolUpdateV1 = body
   where
-    body :: VersionedSkovV1M fc lastpv ()
+    body :: VersionedSkovV1M fc store lastpv ()
     body = do
         check >>= \case
             Nothing -> return ()
@@ -1039,13 +1042,13 @@ checkForProtocolUpdateV1 = body
                         let latestEraGenesisHeight = evcGenesisHeight $ Vec.last existingVersions
                         let vc1Index = fromIntegral (length existingVersions)
                             vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
-                        configRef <- liftIO newEmptyMVar
+                        (configRef :: (MVar (VersionedConfigurationV1 fc newstore pv))) <- liftIO newEmptyMVar
                         -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
                         -- This is used for implementing timer handlers.
                         -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
                         -- that will be set after initialization.
                         let
-                            unliftSkov :: forall b. VersionedSkovV1M fc newpv b -> IO b
+                            unliftSkov :: forall b. VersionedSkovV1M fc newstore newpv b -> IO b
                             unliftSkov a = do
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
@@ -1061,7 +1064,7 @@ checkForProtocolUpdateV1 = body
                         existingPbsc <- asks SkovV1._vcPersistentBlockStateContext
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
-                        (vc1Context, newState) <-
+                        (SkovV1.NewSkov vc1Context newState) <-
                             liftIO $
                                 runLoggerT
                                     ( SkovV1.migrateSkovV1
@@ -1095,7 +1098,7 @@ checkForProtocolUpdateV1 = body
                         -- Create a reference for the new state.
                         vc1State <- liftIO $ newIORef newState
                         let vc1Shutdown = SkovV1.shutdownSkovV1 vc1Context
-                            newECConfig :: VersionedConfigurationV1 fc newpv
+                            newECConfig :: VersionedConfigurationV1 fc store newpv
                             newECConfig = VersionedConfigurationV1{..}
                         liftIO $ do
                             -- Write the new configuration reference.
@@ -1115,7 +1118,7 @@ checkForProtocolUpdateV1 = body
             ++ ")]"
 
     check ::
-        VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
+        VersionedSkovV1M fc store lastpv (Maybe (PVInit (VersionedSkovV1M fc store lastpv)))
     check = do
         SkovV1.getProtocolUpdateState >>= \case
             SkovV1.ProtocolUpdateStateDone{..} ->
@@ -1279,11 +1282,11 @@ startupSkov genesis = do
                                 UpdateHandler
                             )
                 case r of
-                    Just (vc0Context, st) -> do
+                    Just (Skov.InitialisedSkov @_ @_ @_ @store vc0Context st) -> do
                         logEvent Runner LLTrace "Loaded configuration"
                         vc0State <- liftIO $ newIORef st
                         let vc0Shutdown = Skov.shutdownSkov vc0Context =<< liftIO (readIORef vc0State)
-                        let newEConfig :: VersionedConfigurationV0 finconf pv
+                        let newEConfig :: VersionedConfigurationV0 finconf store pv
                             newEConfig =
                                 VersionedConfigurationV0
                                     { vc0Index = genIndex,
@@ -1296,6 +1299,7 @@ startupSkov genesis = do
                         let getCurrentGenesisAndHeight ::
                                 VersionedSkovV0M
                                     finconf
+                                    store
                                     pv
                                     (BlockHash, AbsoluteBlockHeight, Maybe SomeProtocolVersion)
                             getCurrentGenesisAndHeight = liftSkov $ do
@@ -1337,8 +1341,8 @@ startupSkov genesis = do
                 -- This is used for implementing timer handlers.
                 -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
                 -- that will be set after initialization.
-                configRef <- liftIO newEmptyMVar
-                let unliftSkov :: forall b. VersionedSkovV1M finconf pv b -> IO b
+                (configRef :: MVar (VersionedConfigurationV1 finconf store pv)) <- liftIO newEmptyMVar
+                let unliftSkov :: forall b. VersionedSkovV1M finconf store pv b -> IO b
                     unliftSkov a = do
                         config <- readMVar configRef
                         runMVR (runSkovV1Transaction config a) mvr
@@ -1358,7 +1362,7 @@ startupSkov genesis = do
                         logEvent Runner LLTrace "Loaded configuration"
                         vc1State <- liftIO $ newIORef esState
                         let vc1Shutdown = SkovV1.shutdownSkovV1 esContext
-                        let newEConfig :: VersionedConfigurationV1 finconf pv
+                        let newEConfig :: VersionedConfigurationV1 finconf store pv
                             newEConfig =
                                 VersionedConfigurationV1
                                     { vc1Index = genIndex,
@@ -1549,8 +1553,8 @@ shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
 --  acquire the write lock: the caller must ensure that the lock
 --  is held.
 liftSkovV0Update ::
-    VersionedConfigurationV0 finconf pv ->
-    VersionedSkovV0M finconf pv a ->
+    VersionedConfigurationV0 finconf store pv ->
+    VersionedSkovV0M finconf store pv a ->
     MVR finconf a
 liftSkovV0Update vc a = MVR $ \mvr -> do
     oldState <- readIORef (vc0State vc)
@@ -1563,8 +1567,8 @@ liftSkovV0Update vc a = MVR $ \mvr -> do
 --  ensure that the lock is held.
 liftSkovV1Update ::
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
-    VersionedConfigurationV1 finconf pv ->
-    VersionedSkovV1M finconf pv a ->
+    VersionedConfigurationV1 finconf store pv ->
+    VersionedSkovV1M finconf store pv a ->
     MVR finconf a
 liftSkovV1Update vc a = MVR $ \mvr -> do
     oldState <- readIORef (vc1State vc)
@@ -1597,8 +1601,8 @@ liftSkovV1Update vc a = MVR $ \mvr -> do
 --  If the action throws an exception, the state will not be updated,
 --  but the lock is guaranteed to be released.
 runSkovV0Transaction ::
-    VersionedConfigurationV0 finconf pv ->
-    VersionedSkovV0M finconf pv a ->
+    VersionedConfigurationV0 finconf store pv ->
+    VersionedSkovV0M finconf store pv a ->
     MVR finconf a
 runSkovV0Transaction vc a = withWriteLock $ liftSkovV0Update vc a
 
@@ -1608,17 +1612,17 @@ runSkovV0Transaction vc a = withWriteLock $ liftSkovV0Update vc a
 --  but the lock is guaranteed to be released.
 runSkovV1Transaction ::
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
-    VersionedConfigurationV1 finconf pv ->
-    VersionedSkovV1M finconf pv a ->
+    VersionedConfigurationV1 finconf store pv ->
+    VersionedSkovV1M finconf store pv a ->
     MVR finconf a
 runSkovV1Transaction vc a = withWriteLock $ liftSkovV1Update vc a
 
 -- | An instance of 'SkovHandlers' for running operations on a
 --  'VersionedConfigurationV0' within a 'MultiVersionRunner'.
 mvrSkovHandlers ::
-    VersionedConfigurationV0 finconf pv ->
+    VersionedConfigurationV0 finconf store pv ->
     MultiVersionRunner finconf ->
-    Skov.SkovHandlers pv ThreadTimer (Skov.SkovConfig pv finconf UpdateHandler) (MVR finconf)
+    Skov.SkovHandlers store pv ThreadTimer (Skov.SkovConfig pv finconf UpdateHandler) (MVR finconf)
 mvrSkovHandlers vc mvr@MultiVersionRunner{mvCallbacks = Callbacks{..}} =
     Skov.SkovHandlers
         { shBroadcastFinalizationMessage =
@@ -1688,11 +1692,11 @@ sendCatchUpStatus :: MVR finconf ()
 sendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
     vvec <- readIORef mvVersions
     case Vec.last vvec of
-        EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv) -> do
+        EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv) -> do
             st <- readIORef (vc0State vc)
             cus <-
                 runMVR
-                    ( Skov.evalSkovT @_ @pv
+                    ( Skov.evalSkovT @_ @store @pv
                         (Skov.getCatchUpStatus False)
                         (mvrSkovHandlers vc mvr)
                         (vc0Context vc)
@@ -1702,7 +1706,7 @@ sendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
             notifyCatchUpStatus mvCallbacks (vc0Index vc) $
                 encode $
                     VersionedCatchUpStatusV0 cus
-        EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv) -> do
+        EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf store pv) -> do
             st <- readIORef (vc1State vc)
             let cus = KonsensusV1.makeCatchUpStatusMessage $ SkovV1._v1sSkovData st
             notifyCatchUpStatus mvCallbacks (vc1Index vc) $
@@ -1772,7 +1776,7 @@ receiveBlock ::
     MVR finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 receiveBlock gi blockBS = handleMVRExceptionsWith (Skov.ResultConsensusFailure, Nothing) $
     withLatestExpectedVersion gi $ \case
-        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
+        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv)) -> do
             MVR $ \mvr -> do
                 now <- currentTime
                 case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
@@ -1792,7 +1796,7 @@ receiveBlock gi blockBS = handleMVRExceptionsWith (Skov.ResultConsensusFailure, 
                                             Skov.executeBlock verifiedPendingBlock
                                 let cont = ExecuteBlock $ runMVR exec mvr
                                 return (updateResult, Just cont)
-        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
+        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf store pv)) -> do
             MVR $ \mvr -> do
                 now <- currentTime
                 case SkovV1.deserializeExactVersionedPendingBlock @pv blockBS now of
@@ -1831,13 +1835,13 @@ executeBlock = handleMVRExceptions . liftIO . runBlock
 -- | Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
 receiveFinalizationMessage gi finMsgBS = handleMVRExceptions $ withLatestExpectedVersion_ gi $ \case
-    (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
+    (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv)) ->
         case runGet getExactVersionedFPM finMsgBS of
             Left err -> do
                 logEvent Runner LLDebug $ "Could not deserialize finalization message: " ++ err
                 return Skov.ResultSerializationFail
             Right finMsg -> runSkovV0Transaction vc (finalizationReceiveMessage finMsg)
-    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) ->
+    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf store pv)) ->
         case decode finMsgBS of
             Left err -> do
                 logEvent Runner LLDebug $ "Could not deserialize finalization message: " ++ err
@@ -1859,13 +1863,13 @@ receiveFinalizationMessage gi finMsgBS = handleMVRExceptions $ withLatestExpecte
 --  For consensus version 1 this should be a 'FinalizationEntry'.
 receiveFinalization :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
 receiveFinalization gi finBS = handleMVRExceptions $ withLatestExpectedVersion_ gi $ \case
-    (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
+    (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv)) ->
         case runGet getExactVersionedFinalizationRecord finBS of
             Left err -> do
                 logEvent Runner LLDebug $ "Could not deserialize finalization record: " ++ err
                 return Skov.ResultSerializationFail
             Right finRec -> runSkovV0Transaction vc (finalizationReceiveRecord False finRec)
-    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
+    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf store pv)) -> do
         case runGet get finBS of
             Left err -> do
                 logEvent Runner LLDebug $ "Could not deserialize finalization entry: " <> err
@@ -1904,7 +1908,7 @@ receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
             vvec <- liftIO . readIORef =<< asks mvVersions
             case vvec Vec.!? fromIntegral gi of
                 -- If we have a (re)genesis as the given index then...
-                Just (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
+                Just (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv)) ->
                     case vcatchUp of
                         VersionedCatchUpStatusNoGenesis -> return Skov.ResultSuccess
                         VersionedCatchUpStatusV0 catchUp -> MVR $ \mvr -> do
@@ -1914,8 +1918,8 @@ receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
                             -- acquire the write lock, or to store the resulting state.
                             (mmsgs, res) <-
                                 runMVR
-                                    ( Skov.evalSkovT @_ @pv
-                                        ( Skov.handleCatchUpStatus @(VersionedSkovV0M finconf pv)
+                                    ( Skov.evalSkovT @_ @store @pv
+                                        ( Skov.handleCatchUpStatus @(VersionedSkovV0M finconf _ pv)
                                             catchUp
                                             catchUpMessageLimit
                                         )
@@ -1966,10 +1970,10 @@ receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
                         return Skov.ResultPendingBlock
 
 handleCatchUpStatusV1 ::
-    forall finconf pv.
+    forall finconf store pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     CatchUpConfiguration ->
-    VersionedConfigurationV1 finconf pv ->
+    VersionedConfigurationV1 finconf store pv ->
     KonsensusV1.CatchUpMessage ->
     MVR finconf Skov.UpdateResult
 handleCatchUpStatusV1 CatchUpConfiguration{..} vc msg = do
@@ -2034,7 +2038,7 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc msg = do
         st <- liftIO $ readIORef $ vc1State vc
         checkShouldCatchUp cumStatus st True
     runLowLevel ::
-        LowLevelDB.DiskLLDBM pv (ReaderT (SkovV1.SkovV1Context pv (MVR finconf)) (MVR finconf)) a ->
+        LowLevelDB.DiskLLDBM store pv (ReaderT (SkovV1.SkovV1Context store pv (MVR finconf)) (MVR finconf)) a ->
         MVR finconf a
     runLowLevel a = runReaderT (LowLevelDB.runDiskLLDBM a) (vc1Context vc)
     checkShouldCatchUp status st isResponse = do
@@ -2053,9 +2057,14 @@ getCatchUpRequest = do
     mvr <- ask
     vvec <- liftIO $ readIORef $ mvVersions mvr
     case Vec.last vvec of
-        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
+        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv)) -> do
             st <- liftIO $ readIORef $ vc0State vc
-            cus <- Skov.evalSkovT (Skov.getCatchUpStatus @(VersionedSkovV0M _ pv) True) (mvrSkovHandlers vc mvr) (vc0Context vc) st
+            cus <-
+                Skov.evalSkovT
+                    (Skov.getCatchUpStatus @(VersionedSkovV0M _ store pv) True)
+                    (mvrSkovHandlers vc mvr)
+                    (vc0Context vc)
+                    st
             return (vc0Index vc, encodeLazy $ VersionedCatchUpStatusV0 cus)
         (EVersionedConfigurationV1 vc) -> do
             st <- liftIO $ readIORef $ vc1State vc
@@ -2094,11 +2103,11 @@ receiveTransaction transactionBS = handleMVRExceptionsWith (Nothing, Skov.Result
     mvr <- ask
     vvec <- liftIO $ readIORef $ mvVersions mvr
     case Vec.last vvec of
-        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
+        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv)) ->
             withDeserializedTransaction (protocolVersion @pv) now $ \transaction -> do
                 st <- liftIO $ readIORef $ vc0State vc
                 (known, verRes) <-
-                    Skov.evalSkovT @_ @pv
+                    Skov.evalSkovT @_ @store @pv
                         (Skov.preverifyTransaction transaction)
                         (mvrSkovHandlers vc mvr)
                         (vc0Context vc)
@@ -2121,7 +2130,7 @@ receiveTransaction transactionBS = handleMVRExceptionsWith (Nothing, Skov.Result
                                     -- which re-does the verification.
                                     receiveUnverified (Vec.last vvec') transaction
                         _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
-        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) ->
+        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf store pv)) ->
             withDeserializedTransaction (protocolVersion @pv) now $ \transaction -> do
                 st <- liftIO $ readIORef $ vc1State vc
                 (known, verRes) <-
@@ -2165,14 +2174,14 @@ receiveTransaction transactionBS = handleMVRExceptionsWith (Nothing, Skov.Result
 --  Used for importing blocks i.e. out of band catchup.
 receiveExecuteBlock :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
 receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
-    EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv) -> do
+    EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf store pv) -> do
         now <- currentTime
         case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
             Left err -> do
                 logEvent Runner LLDebug err
                 return Skov.ResultSerializationFail
             Right block -> runSkovV0Transaction vc (Skov.receiveExecuteBlock block)
-    EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv) -> do
+    EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf store pv) -> do
         now <- currentTime
         case SkovV1.deserializeExactVersionedPendingBlock @pv blockBS now of
             Left err -> do

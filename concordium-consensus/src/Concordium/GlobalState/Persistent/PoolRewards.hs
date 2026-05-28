@@ -100,8 +100,8 @@ migratePoolRewardsP6 ::
     Epoch ->
     -- | The length of the reward period.
     RewardPeriodLength ->
-    PoolRewards bhv0 av0 ->
-    t m (PoolRewards bhv1 av1)
+    PoolRewards (MBSStore m) bhv0 av0 ->
+    t m (PoolRewards (MBSStore (t m)) bhv1 av1)
 migratePoolRewardsP6 oldEpoch rpLength pr = migratePoolRewards newNextPayday pr
   where
     oldPaydayEpoch = nextPaydayEpoch pr
@@ -281,7 +281,7 @@ bakerBlockCounts PoolRewards{..} = do
 --  missed rounds are carried over from the old pool rewards.
 rotateCapitalDistribution ::
     forall av ref m bhv.
-    ( MonadBlobStore m, 
+    ( MonadBlobStore m,
       Reference m (MBSStore m) ref (PoolRewards (MBSStore m) bhv av),
       IsBlockHashVersion bhv,
       IsAccountVersion av

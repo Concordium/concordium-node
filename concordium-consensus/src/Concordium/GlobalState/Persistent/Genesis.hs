@@ -59,10 +59,10 @@ import Lens.Micro.Platform
 --  This also returns the transaction table.
 --  The result is immediately flushed to disc and cached.
 genesisState ::
-    forall pv av m.
-    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
+    forall store pv av m.
+    (BS.SupportsPersistentState store pv m, Types.AccountVersionFor pv ~ av) =>
     GenesisData.GenesisData pv ->
-    m (Either String (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable))
+    m (Either String (BS.HashedPersistentBlockState store pv, TransactionTable.TransactionTable))
 genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
     Types.SP1 -> case gd of
         GenesisData.GDP1 P1.GDP1Initial{..} ->
@@ -104,19 +104,19 @@ data VersionedCoreGenesisParameters (pv :: Types.ProtocolVersion) where
 
 -- | State being accumulated while iterating the accounts in genesis data.
 --  It is then used to construct the initial block state from genesis.
-data AccumGenesisState pv = AccumGenesisState
+data AccumGenesisState store pv = AccumGenesisState
     { -- | Tracking all the accounts.
-      agsAllAccounts :: !(Accounts.Accounts pv),
+      agsAllAccounts :: !(Accounts.Accounts store pv),
       -- | Collection of the IDs of the active bakers.
-      agsBakerIds :: !(Bakers.BakerIdTrieMap (Types.AccountVersionFor pv)),
+      agsBakerIds :: !(Bakers.BakerIdTrieMap store (Types.AccountVersionFor pv)),
       -- | Collection of the aggregation keys of the active bakers.
-      agsBakerKeys :: !Bakers.AggregationKeySet,
+      agsBakerKeys :: !(Bakers.AggregationKeySet store),
       -- | Total amount owned by accounts.
       agsTotal :: !Types.Amount,
       -- | Total staked amount by bakers.
       agsStakedTotal :: !Types.Amount,
       -- | List of baker info refs in incremental order of the baker ID.
-      agsBakerInfoRefs :: !(Vec.Vector (Account.PersistentBakerInfoRef (Types.AccountVersionFor pv))),
+      agsBakerInfoRefs :: !(Vec.Vector (Account.PersistentBakerInfoRef store (Types.AccountVersionFor pv))),
       -- | List of baker stake in incremental order of the baker ID.
       -- Entries in this list should have a matching entry in agsBakerCapitals.
       -- In the end result these are needed separately and are therefore constructed separately.
@@ -130,7 +130,7 @@ data AccumGenesisState pv = AccumGenesisState
 --------- Helper functions ----------
 
 -- | The initial value for accumulating data from genesis data accounts.
-initialAccumGenesisState :: (MTL.MonadIO m) => m (AccumGenesisState pv)
+initialAccumGenesisState :: (MTL.MonadIO m) => m (AccumGenesisState store pv)
 initialAccumGenesisState = do
     emptyAccs <- Accounts.emptyAccounts
     return $
@@ -148,18 +148,18 @@ initialAccumGenesisState = do
 -- | Construct a hashed persistent block state from the data in genesis.
 -- The result is immediately flushed to disc and cached.
 buildGenesisBlockState ::
-    forall pv av m.
-    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
+    forall store pv av m.
+    (BS.SupportsPersistentState store pv m, Types.AccountVersionFor pv ~ av) =>
     VersionedCoreGenesisParameters pv ->
     GenesisData.GenesisState pv ->
-    MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable)
+    MTL.ExceptT String m (BS.HashedPersistentBlockState store pv, TransactionTable.TransactionTable)
 buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     initState <- initialAccumGenesisState
     -- Iterate the accounts in genesis once and accumulate all relevant information.
     AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initState genesisAccounts
 
     -- Birk parameters
-    persistentBirkParameters :: BS.PersistentBirkParameters pv <- do
+    persistentBirkParameters :: BS.PersistentBirkParameters store pv <- do
         _birkActiveBakers <-
             Blob.refMakeFlushed $
                 Bakers.PersistentActiveBakers
@@ -202,7 +202,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
         Types.SAVDelegationSupported ->
             case Types.delegationChainParameters @pv of
                 Types.DelegationChainParameters -> do
-                    capRef :: Blob.HashedBufferedRef' (CapDist.CapitalDistributionHash pv) CapDist.CapitalDistribution <-
+                    capRef :: Blob.HashedBufferedRef' (CapDist.CapitalDistributionHash pv) store CapDist.CapitalDistribution <-
                         Blob.refMakeFlushed
                             CapDist.CapitalDistribution
                                 { bakerPoolCapital = agsBakerCapitals,
@@ -269,12 +269,12 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     -- For iterating the genesis accounts and accumulating relevant states to build up the genesis block.
     accumStateFromGenesisAccounts ::
         -- The state being accumulated so far.
-        AccumGenesisState pv ->
+        AccumGenesisState store pv ->
         -- The index of the account
         Int ->
         -- Account from genesis to accumulate.
         GenesisData.GenesisAccount ->
-        MTL.ExceptT String m (AccumGenesisState pv)
+        MTL.ExceptT String m (AccumGenesisState store pv)
     accumStateFromGenesisAccounts state index genesisAccount = do
         -- Create the persistent account
         !persistentAccount <-

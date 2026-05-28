@@ -29,6 +29,7 @@ import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference)
 import Concordium.GlobalState.BlockState as BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Statistics as Stats
 import qualified Concordium.GlobalState.TransactionTable as TT
@@ -51,11 +52,11 @@ import qualified Data.HashMap.Strict as HM
 -- | Generate the 'EpochBakers' for a genesis block.
 genesisEpochBakers ::
     ( BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) pv,
       IsConsensusV1 pv,
       MPV m ~ pv
     ) =>
-    PBS.HashedPersistentBlockState pv ->
+    PBS.HashedPersistentBlockState (MBSStore m) pv ->
     m EpochBakers
 genesisEpochBakers genState = do
     curFullBakers <- getCurrentEpochBakers genState
@@ -72,14 +73,14 @@ genesisEpochBakers genState = do
 --  store.
 makeEpochBakers ::
     ( BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) pv,
       IsConsensusV1 pv,
       MPV m ~ pv,
       MonadThrow m,
       LowLevel.MonadTreeStateStore m,
       MonadIO m
     ) =>
-    BlockPointer pv ->
+    BlockPointer (MBSStore m) pv ->
     m EpochBakers
 makeEpochBakers lastFinBlock = do
     let lfbState = bpState lastFinBlock
@@ -135,14 +136,14 @@ makeEpochBakers lastFinBlock = do
 --  chain to find the earliest such block.
 findShutdownTriggerBlock ::
     ( LowLevel.MonadTreeStateStore m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
       BlockStateQuery m,
       IsConsensusV1 (MPV m),
       MonadIO m,
       MonadThrow m
     ) =>
-    BlockPointer (MPV m) ->
-    m (BlockPointer (MPV m))
+    BlockPointer (MBSStore m) (MPV m) ->
+    m (BlockPointer (MBSStore m) (MPV m))
 findShutdownTriggerBlock candidateTriggerBlock = do
     parentHash <- case blockBakedData candidateTriggerBlock of
         Absent ->
@@ -173,7 +174,7 @@ loadSkovData ::
       LowLevel.MonadTreeStateStore m,
       MonadIO m,
       BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) pv,
       MPV m ~ pv,
       IsConsensusV1 pv
     ) =>
@@ -185,7 +186,7 @@ loadSkovData ::
     Bool ->
     -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update and
     --  relative block height of the terminal block.
-    m (SkovData pv, Maybe (ProtocolUpdate, BlockHeight))
+    m (SkovData (MBSStore m) pv, Maybe (ProtocolUpdate, BlockHeight))
 loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
@@ -325,8 +326,8 @@ loadCertifiedBlocks ::
       LowLevel.MonadTreeStateStore m,
       MonadIO m,
       BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadState (SkovData (MPV m)) m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m),
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
       TimeMonad m,
       MonadLogger m
     ) =>
@@ -442,7 +443,7 @@ loadCertifiedBlocks = do
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} -> (Just . addressFromRegId . credId) credential
         _ -> Nothing
     loadCertBlock ::
-        (LowLevel.StoredBlock (MPV m), QuorumCertificate) ->
+        (LowLevel.StoredBlock (MBSStore m) (MPV m), QuorumCertificate) ->
         HM.HashMap BlockHash MapInfo ->
         m (HM.HashMap BlockHash MapInfo)
     loadCertBlock (storedBlock, qc) loadedBlocks = do

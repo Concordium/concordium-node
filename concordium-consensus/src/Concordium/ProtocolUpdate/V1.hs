@@ -12,6 +12,7 @@ import Concordium.Types
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState (BlockStateStorage)
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types (PVInit)
 import qualified Concordium.GlobalState.Types as GSTypes
@@ -57,13 +58,13 @@ checkUpdate = case protocolVersion @pv of
 -- | Construct the genesis data for a P1 update.
 updateRegenesis ::
     ( BlockStateStorage m,
-      MonadState (SkovData (MPV m)) m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      MonadState (SkovData (MBSStore m) (MPV m)) m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
     -- | The update to take effect.
     Update (MPV m) ->
     -- | The terminal block of the old chain.
-    BlockPointer (MPV m) ->
+    BlockPointer (MBSStore m) (MPV m) ->
     m (PVInit m)
 updateRegenesis (UpdateP6 u) = P6.updateRegenesis u
 updateRegenesis (UpdateP7 u) = P7.updateRegenesis u

@@ -204,25 +204,25 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 --  The first type parameter, @pv@, is the protocol version.
 --  The second type parameter, @ati@, is a type determining the account transaction index to use.
 --  The third type parameter, @bs@, is the type of block states.
-data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
+data SkovPersistentData store (pv :: ProtocolVersion) = SkovPersistentData
     { -- | Map of all received blocks by hash.
-      _blockTable :: !(BlockTable pv (PBS.HashedPersistentBlockState pv)),
+      _blockTable :: !(BlockTable pv (PBS.HashedPersistentBlockState store pv)),
       -- | Map of (possibly) pending blocks by hash
       _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
       -- | Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
       _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
       -- | Pointer to the last finalized block
-      _lastFinalized :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
+      _lastFinalized :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState store pv)),
       -- | Pointer to the last finalization record
       _lastFinalizationRecord :: !FinalizationRecord,
       -- | Branches of the tree by height above the last finalized block
-      _branches :: !(Seq.Seq [PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)]),
+      _branches :: !(Seq.Seq [PersistentBlockPointer pv (PBS.HashedPersistentBlockState store pv)]),
       -- | Genesis data
       _genesisData :: !GenesisConfiguration,
       -- | Block pointer to genesis block
-      _genesisBlockPointer :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
+      _genesisBlockPointer :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState store pv)),
       -- | Current focus block
-      _focusBlock :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
+      _focusBlock :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState store pv)),
       -- | Pending transaction table
       _pendingTransactions :: !PendingTransactionTable,
       -- | Transaction table
@@ -236,20 +236,20 @@ data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
       -- | Tree state directory
       _treeStateDirectory :: !FilePath,
       -- | Database handlers
-      _db :: !(DatabaseHandlers pv (TS.BlockStatePointer (PBS.HashedPersistentBlockState pv))),
+      _db :: !(DatabaseHandlers pv (TS.BlockStatePointer (PBS.HashedPersistentBlockState store pv))),
       -- | State where we store the initial state for the new protocol update.
       --  TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
       --  If we only had the one state implementation this would not be necessary, and we could simply
       --  return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
       --  specify the types of these values due to the way the relevant types are parameterized.
-      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv))
+      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState store pv))
     }
 
 makeLenses ''SkovPersistentData
 
 instance
-    (bsp ~ TS.BlockStatePointer (PBS.HashedPersistentBlockState pv)) =>
-    HasDatabaseHandlers pv bsp (SkovPersistentData pv)
+    (bsp ~ TS.BlockStatePointer (PBS.HashedPersistentBlockState store pv)) =>
+    HasDatabaseHandlers pv bsp (SkovPersistentData store pv)
     where
     dbHandlers = db
 
@@ -259,12 +259,12 @@ initialSkovPersistentDataDefault ::
     -- | Tree state directory
     FilePath ->
     GenesisConfiguration ->
-    PBS.HashedPersistentBlockState pv ->
+    PBS.HashedPersistentBlockState store pv ->
     -- | How to serialize the block state reference for inclusion in the table.
-    TS.BlockStatePointer (PBS.HashedPersistentBlockState pv) ->
+    TS.BlockStatePointer (PBS.HashedPersistentBlockState store pv) ->
     TransactionTable ->
     Maybe PendingTransactionTable ->
-    m (SkovPersistentData pv)
+    m (SkovPersistentData store pv)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 -- | Create an initial 'SkovPersistentData'.
@@ -279,9 +279,9 @@ initialSkovPersistentData ::
     -- | Genesis data
     GenesisConfiguration ->
     -- | Genesis state
-    PBS.HashedPersistentBlockState pv ->
+    PBS.HashedPersistentBlockState store pv ->
     -- | Genesis block state
-    TS.BlockStatePointer (PBS.HashedPersistentBlockState pv) ->
+    TS.BlockStatePointer (PBS.HashedPersistentBlockState store pv) ->
     -- | The table of transactions to start the configuration with. If this
     --  transaction table has any non-finalized transactions then the pending
     --  table corresponding to those non-finalized transactions must be supplied.
@@ -292,7 +292,7 @@ initialSkovPersistentData ::
     --  supplied to record these, satisfying the usual properties. See
     --  documentation of the 'PendingTransactionTable' for details.
     Maybe PendingTransactionTable ->
-    m (SkovPersistentData pv)
+    m (SkovPersistentData store pv)
 initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
     gb <- makeGenesisPersistentBlockPointer gd genState
     let gbh = bpHash gb
@@ -398,13 +398,13 @@ checkExistingDatabase treeStateDir blockStateFile = do
 --  consuming, and it is not needed when starting a node on a chain which had
 --  multiple protocol updates.
 loadSkovPersistentData ::
-    forall pv.
+    forall store pv.
     (IsProtocolVersion pv) =>
     RuntimeParameters ->
     -- | Tree state directory
     FilePath ->
-    PBS.PersistentBlockStateContext pv ->
-    LogIO (SkovPersistentData pv)
+    PBS.PersistentBlockStateContext store pv ->
+    LogIO (SkovPersistentData store pv)
 loadSkovPersistentData rp _treeStateDirectory pbsc = do
     -- we open the environment first.
     -- It might be that the database is bigger than the default environment size.
@@ -469,12 +469,12 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                     }
   where
     makeBlockPointer ::
-        StoredBlockWithStateHash pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) ->
-        LogIO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
+        StoredBlockWithStateHash pv (TS.BlockStatePointer (PBS.PersistentBlockState store pv)) ->
+        LogIO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState store pv))
     makeBlockPointer StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} = do
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState sbshStateHash sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
-    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> LogIO Bool
+    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState store pv)) -> LogIO Bool
     isBlockStateCorrupted block =
         not <$> runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef (sbState block))) pbsc
 
@@ -487,11 +487,11 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 --  This function will raise an IO exception in the following scenarios
 --  * in the block state, an account which is listed cannot be loaded
 activateSkovPersistentData ::
-    forall pv.
+    forall store pv.
     (IsProtocolVersion pv) =>
-    PBS.PersistentBlockStateContext pv ->
-    SkovPersistentData pv ->
-    LogIO (SkovPersistentData pv)
+    PBS.PersistentBlockStateContext store pv ->
+    SkovPersistentData store pv ->
+    LogIO (SkovPersistentData store pv)
 activateSkovPersistentData pbsc uninitState =
     runBlockState $ do
         logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
@@ -504,11 +504,11 @@ activateSkovPersistentData pbsc uninitState =
         logEvent GlobalState LLDebug "Finished initializing LMDB account map and module map"
         return $! uninitState{_transactionTable = tt}
   where
-    runBlockState a = runReaderT (PBS.runPersistentBlockStateMonad @pv a) pbsc
+    runBlockState a = runReaderT (PBS.runPersistentBlockStateMonad a) pbsc
 
 -- | Close the database associated with a 'SkovPersistentData'.
 --  The database should not be used after this.
-closeSkovPersistentData :: SkovPersistentData pv -> IO ()
+closeSkovPersistentData :: SkovPersistentData store pv -> IO ()
 closeSkovPersistentData = closeDatabase . _db
 
 -- | Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
@@ -542,6 +542,8 @@ newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = Persist
           TimeMonad
         )
 
+type instance MBSStore (PersistentTreeStateMonad state m) = MBSStore m
+
 deriving instance (TokenStateOperations ts m) => TokenStateOperations ts (PersistentTreeStateMonad state m)
 
 deriving instance (PLTQuery bs ts m) => PLTQuery bs ts (PersistentTreeStateMonad state m)
@@ -559,10 +561,10 @@ deriving instance
 instance GlobalStateTypes (PersistentTreeStateMonad state m) where
     type BlockPointerType (PersistentTreeStateMonad state m) = PersistentBlockPointer (MPV m) (BlockState m)
 
-class (HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState pv)) s) => HasSkovPersistentData pv s | s -> pv where
-    skovPersistentData :: Lens' s (SkovPersistentData pv)
+class (HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState store pv)) s) => HasSkovPersistentData store pv s | s -> store pv where
+    skovPersistentData :: Lens' s (SkovPersistentData store pv)
 
-instance HasSkovPersistentData pv (SkovPersistentData pv) where
+instance HasSkovPersistentData store pv (SkovPersistentData store pv) where
     skovPersistentData = id
 
 getWeakPointer ::
@@ -570,15 +572,15 @@ getWeakPointer ::
       MonadIO (PersistentTreeStateMonad state m),
       BlockStateStorage (PersistentTreeStateMonad state m),
       MPV m ~ pv,
-      HasSkovPersistentData pv state,
-      BlockState (PersistentTreeStateMonad state m) ~ PBS.HashedPersistentBlockState pv,
+      HasSkovPersistentData store pv state,
+      BlockState (PersistentTreeStateMonad state m) ~ PBS.HashedPersistentBlockState store pv,
       MonadState state (PersistentTreeStateMonad state m),
       MonadProtocolVersion m
     ) =>
-    Weak (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState pv)) ->
+    Weak (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState store pv)) ->
     BlockHash ->
     String ->
-    PersistentTreeStateMonad state m (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState pv))
+    PersistentTreeStateMonad state m (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState store pv))
 getWeakPointer weakPtr ptrHash name = do
     d <- liftIO $ deRefWeak weakPtr
     case d of
@@ -608,9 +610,9 @@ instance
       MonadLogger (PersistentTreeStateMonad state m),
       MonadIO (PersistentTreeStateMonad state m),
       MPV m ~ pv,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      BlockState m ~ PBS.HashedPersistentBlockState store pv,
       BlockStateStorage (PersistentTreeStateMonad state m),
-      HasSkovPersistentData pv state,
+      HasSkovPersistentData store pv state,
       MonadState state (PersistentTreeStateMonad state m),
       MonadProtocolVersion m
     ) =>
@@ -636,8 +638,8 @@ constructBlock StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} =
 
 instance
     ( MonadState state m,
-      HasSkovPersistentData pv state,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      HasSkovPersistentData store pv state,
+      BlockState m ~ PBS.HashedPersistentBlockState store pv,
       MonadProtocolVersion m,
       MPV m ~ pv,
       MonadLogger (PersistentTreeStateMonad state m),
@@ -664,10 +666,10 @@ instance
       BlockStateStorage (PersistentTreeStateMonad state m),
       MonadState state m,
       BlockStateQuery m,
-      HasSkovPersistentData pv state,
+      HasSkovPersistentData store pv state,
       MonadProtocolVersion m,
       MPV m ~ pv,
-      BlockState m ~ PBS.HashedPersistentBlockState pv
+      BlockState m ~ PBS.HashedPersistentBlockState store pv
     ) =>
     TS.TreeStateMonad (PersistentTreeStateMonad state m)
     where

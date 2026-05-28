@@ -5,6 +5,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- The instance `GlobalStateTypes (SkovQueryMonadT m)` technically has a redundant constraint,
 -- which we allow by supressing this warning.
@@ -33,6 +34,7 @@ import Concordium.GlobalState.BlockState (AccountOperations, BlockStateOperation
 import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.TreeState as TS
@@ -453,6 +455,8 @@ unlessShutDown a =
 
 newtype SkovQueryMonadT m a = SkovQueryMonadT {runSkovQueryMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO)
+
+type instance MBSStore (SkovQueryMonadT m) = MBSStore m
 
 instance MonadTrans SkovQueryMonadT where
     {- - INLINE lift - -}

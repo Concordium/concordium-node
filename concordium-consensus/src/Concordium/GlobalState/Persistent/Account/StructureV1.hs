@@ -237,8 +237,8 @@ migratePersistentAccountStakeEnduringAV4 ::
       AVSupportsValidatorSuspension av1,
       AVSupportsValidatorSuspension av2
     ) =>
-    PersistentAccountStakeEnduring av1 ->
-    t m (PersistentAccountStakeEnduring av2)
+    PersistentAccountStakeEnduring (MBSStore m) av1 ->
+    t m (PersistentAccountStakeEnduring (MBSStore (t m)) av2)
 migratePersistentAccountStakeEnduringAV4 PersistentAccountStakeEnduringNone =
     return PersistentAccountStakeEnduringNone
 migratePersistentAccountStakeEnduringAV4 PersistentAccountStakeEnduringBaker{..} = do
@@ -394,9 +394,9 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelega
 --  false.
 migratePersistentAccountStakeEnduringV3toV4 ::
     (SupportMigration m t, AccountMigration 'AccountV4 (t m)) =>
-    PersistentAccountStakeEnduring 'AccountV3 ->
+    PersistentAccountStakeEnduring (MBSStore m) 'AccountV3 ->
     -- | Returns the new 'PersistentAccountStakeEnduring' and 'CooldownQueue'.
-    t m (PersistentAccountStakeEnduring 'AccountV4)
+    t m (PersistentAccountStakeEnduring (MBSStore (t m)) 'AccountV4)
 migratePersistentAccountStakeEnduringV3toV4 PersistentAccountStakeEnduringNone =
     return PersistentAccountStakeEnduringNone
 migratePersistentAccountStakeEnduringV3toV4 PersistentAccountStakeEnduringBaker{..} = do
@@ -428,10 +428,10 @@ instance
     where
     getHashM stake = getHash <$> persistentToAccountStake stake 0
 
-instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV4) (PersistentAccountStakeEnduring 'AccountV4) where
+instance (MonadBlobStore m, store ~ MBSStore m) => MHashableTo m (AccountStakeHash 'AccountV4) (PersistentAccountStakeEnduring store 'AccountV4) where
     getHashM stake = getHash <$> persistentToAccountStake stake 0
 
-instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV5) (PersistentAccountStakeEnduring 'AccountV5) where
+instance (MonadBlobStore m, store ~ MBSStore m) => MHashableTo m (AccountStakeHash 'AccountV5) (PersistentAccountStakeEnduring store 'AccountV5) where
     getHashM stake = getHash <$> persistentToAccountStake stake 0
 
 -- * Enduring account data
@@ -553,12 +553,12 @@ makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV4 ::
     (MonadBlobStore m) =>
-    EagerBufferedRef PersistingAccountData ->
-    Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
-    Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
-    PersistentAccountStakeEnduring 'AccountV4 ->
-    CooldownQueue 'AccountV4 ->
-    m (PersistentAccountEnduringData 'AccountV4)
+    EagerBufferedRef (MBSStore m) PersistingAccountData ->
+    Nullable (LazyBufferedRef (MBSStore m) (PersistentAccountEncryptedAmount (MBSStore m))) ->
+    Nullable (LazyBufferedRef (MBSStore m) (AccountReleaseSchedule (MBSStore m)), Amount) ->
+    PersistentAccountStakeEnduring (MBSStore m) 'AccountV4 ->
+    CooldownQueue (MBSStore m) 'AccountV4 ->
+    m (PersistentAccountEnduringData (MBSStore m) 'AccountV4)
 makeAccountEnduringDataAV4 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown = do
     amhi4PersistingAccountDataHash <- getHashM paedPersistingData
     (amhi4AccountStakeHash :: AccountStakeHash 'AccountV4) <- getHashM paedStake
@@ -584,12 +584,12 @@ makeAccountEnduringDataAV4 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV5 ::
     (MonadBlobStore m) =>
-    EagerBufferedRef PersistingAccountData ->
-    Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
-    Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
-    PersistentAccountStakeEnduring 'AccountV5 ->
-    CooldownQueue 'AccountV5 ->
-    m (PersistentAccountEnduringData 'AccountV5)
+    EagerBufferedRef (MBSStore m) PersistingAccountData ->
+    Nullable (LazyBufferedRef (MBSStore m) (PersistentAccountEncryptedAmount (MBSStore m))) ->
+    Nullable (LazyBufferedRef (MBSStore m) (AccountReleaseSchedule (MBSStore m)), Amount) ->
+    PersistentAccountStakeEnduring (MBSStore m) 'AccountV5 ->
+    CooldownQueue (MBSStore m) 'AccountV5 ->
+    m (PersistentAccountEnduringData (MBSStore m) 'AccountV5)
 makeAccountEnduringDataAV5 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown = do
     amhi5PersistingAccountDataHash <- getHashM paedPersistingData
     (amhi5AccountStakeHash :: AccountStakeHash 'AccountV5) <- getHashM paedStake
@@ -644,8 +644,8 @@ rehashAccountEnduringDataAV3 ed = do
 
 rehashAccountEnduringDataAV4 ::
     (MonadBlobStore m) =>
-    PersistentAccountEnduringData 'AccountV4 ->
-    m (PersistentAccountEnduringData 'AccountV4)
+    PersistentAccountEnduringData (MBSStore m) 'AccountV4 ->
+    m (PersistentAccountEnduringData (MBSStore m) 'AccountV4)
 rehashAccountEnduringDataAV4 ed = do
     amhi4PersistingAccountDataHash <- getHashM (paedPersistingData ed)
     (amhi4AccountStakeHash :: AccountStakeHash 'AccountV4) <- getHashM (paedStake ed)
@@ -661,8 +661,8 @@ rehashAccountEnduringDataAV4 ed = do
 
 rehashAccountEnduringDataAV5 ::
     (MonadBlobStore m) =>
-    PersistentAccountEnduringData 'AccountV5 ->
-    m (PersistentAccountEnduringData 'AccountV5)
+    PersistentAccountEnduringData (MBSStore m) 'AccountV5 ->
+    m (PersistentAccountEnduringData (MBSStore m) 'AccountV5)
 rehashAccountEnduringDataAV5 ed = do
     amhi5PersistingAccountDataHash <- getHashM (paedPersistingData ed)
     (amhi5AccountStakeHash :: AccountStakeHash 'AccountV5) <- getHashM (paedStake ed)
@@ -1028,7 +1028,13 @@ data PersistentAccount store av = PersistentAccount
       --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
       -- | The state table of the protocol level tokens of the account in ascending order of the TokenIndex.
-      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (Nullable (EagerlyHashedBufferedRef' TokenStateTableHash TokenAccountStateTable))),
+      accountTokenStateTable ::
+        !( Conditionally
+            (SupportsPLT av)
+            ( Nullable
+                (EagerlyHashedBufferedRef' TokenStateTableHash store (TokenAccountStateTable store))
+            )
+         ),
       -- | The enduring account data.
       accountEnduringData :: !(EagerBufferedRef store (PersistentAccountEnduringData store av))
     }
@@ -1068,9 +1074,9 @@ instance HashableTo (AccountHash 'AccountV4) (PersistentAccount store 'AccountV4
                       ahi2MerkleHash = getHash accountEnduringData
                     }
 
-instance (Monad m) => MHashableTo m (AccountHash 'AccountV3) (PersistentAccount 'AccountV3)
-instance (Monad m) => MHashableTo m (AccountHash 'AccountV4) (PersistentAccount 'AccountV4)
-instance (MonadBlobStore m) => MHashableTo m (AccountHash 'AccountV5) (PersistentAccount 'AccountV5) where
+instance (Monad m) => MHashableTo m (AccountHash 'AccountV3) (PersistentAccount store 'AccountV3)
+instance (Monad m) => MHashableTo m (AccountHash 'AccountV4) (PersistentAccount store 'AccountV4)
+instance (MonadBlobStore m) => MHashableTo m (AccountHash 'AccountV5) (PersistentAccount store 'AccountV5) where
     getHashM PersistentAccount{..} = do
         h <- case uncond accountTokenStateTable of
             Null -> return $ TokenStateTableHash emptyTokenAccountStateTableHash
@@ -1386,7 +1392,7 @@ getCooldowns =
 --  state table is not present, the empty map is returned.
 getTokenStateTable ::
     (MonadBlobStore m) =>
-    PersistentAccount av ->
+    PersistentAccount (MBSStore m) av ->
     m (Conditionally (SupportsPLT av) (Map.Map TokenIndex TokenAccountState))
 getTokenStateTable acc = forM (accountTokenStateTable acc) $ \case
     Null -> return Map.empty
@@ -1398,7 +1404,7 @@ getTokenStateTable acc = forM (accountTokenStateTable acc) $ \case
 --  This is only available at account versions that support protocol-level tokens.
 getTokenBalance ::
     (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
+    PersistentAccount (MBSStore m) av ->
     TokenIndex ->
     m TokenRawAmount
 getTokenBalance acc tokenIx = do
@@ -1674,8 +1680,8 @@ setValidatorSuspended ::
       AVSupportsValidatorSuspension av
     ) =>
     Bool ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setValidatorSuspended isSusp = updateStake $ \case
     baker@PersistentAccountStakeEnduringBaker{} -> do
         oldInfo <- refLoad (paseBakerInfo baker)
@@ -2187,9 +2193,9 @@ migrateEnduringDataV2toV3 ed = do
 migrateEnduringDataV3toV4 ::
     (SupportMigration m t, AccountMigration 'AccountV4 (t m), MonadLogger (t m)) =>
     -- | Current enduring data
-    PersistentAccountEnduringData 'AccountV3 ->
+    PersistentAccountEnduringData (MBSStore m) 'AccountV3 ->
     -- | New enduring data.
-    t m (PersistentAccountEnduringData 'AccountV4)
+    t m (PersistentAccountEnduringData (MBSStore (t m)) 'AccountV4)
 migrateEnduringDataV3toV4 ed = do
     logEvent GlobalState LLTrace "Migrating persisting data"
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
@@ -2215,9 +2221,9 @@ migrateEnduringDataV3toV4 ed = do
 migrateEnduringDataV4toV5 ::
     (SupportMigration m t, MonadLogger (t m)) =>
     -- | Current enduring data
-    PersistentAccountEnduringData 'AccountV4 ->
+    PersistentAccountEnduringData (MBSStore m) 'AccountV4 ->
     -- | New enduring data.
-    t m (PersistentAccountEnduringData 'AccountV5)
+    t m (PersistentAccountEnduringData (MBSStore (t m)) 'AccountV5)
 migrateEnduringDataV4toV5 ed = do
     logEvent GlobalState LLTrace "Migrating persisting data"
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
@@ -2260,8 +2266,8 @@ migrateEnduringDataV3toV3 ed = do
 --  The data is unchanged in the migration.
 migrateEnduringDataV4toV4 ::
     (SupportMigration m t) =>
-    PersistentAccountEnduringData 'AccountV4 ->
-    t m (PersistentAccountEnduringData 'AccountV4)
+    PersistentAccountEnduringData (MBSStore m) 'AccountV4 ->
+    t m (PersistentAccountEnduringData (MBSStore (t m)) 'AccountV4)
 migrateEnduringDataV4toV4 ed = do
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
     paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
@@ -2276,8 +2282,8 @@ migrateEnduringDataV4toV4 ed = do
 --  The data is unchanged in the migration.
 migrateEnduringDataV5toV5 ::
     (SupportMigration m t) =>
-    PersistentAccountEnduringData 'AccountV5 ->
-    t m (PersistentAccountEnduringData 'AccountV5)
+    PersistentAccountEnduringData (MBSStore m) 'AccountV5 ->
+    t m (PersistentAccountEnduringData (MBSStore (t m)) 'AccountV5)
 migrateEnduringDataV5toV5 ed = do
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
     paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
@@ -2376,8 +2382,8 @@ migrateV3ToV4 ::
       MonadTrans t,
       MonadLogger (t m)
     ) =>
-    PersistentAccount 'AccountV3 ->
-    t m (PersistentAccount 'AccountV4)
+    PersistentAccount (MBSStore m) 'AccountV3 ->
+    t m (PersistentAccount (MBSStore (t m)) 'AccountV4)
 migrateV3ToV4 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV3toV4 (accountEnduringData acc)
     return $!
@@ -2396,8 +2402,8 @@ migrateV4ToV4 ::
       MonadBlobStore (t m),
       MonadTrans t
     ) =>
-    PersistentAccount 'AccountV4 ->
-    t m (PersistentAccount 'AccountV4)
+    PersistentAccount (MBSStore m) 'AccountV4 ->
+    t m (PersistentAccount (MBSStore (t m)) 'AccountV4)
 migrateV4ToV4 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV4toV4 (accountEnduringData acc)
     return $!
@@ -2415,8 +2421,8 @@ migrateV4ToV5 ::
       MonadTrans t,
       MonadLogger (t m)
     ) =>
-    PersistentAccount 'AccountV4 ->
-    t m (PersistentAccount 'AccountV5)
+    PersistentAccount (MBSStore m) 'AccountV4 ->
+    t m (PersistentAccount (MBSStore (t m)) 'AccountV5)
 migrateV4ToV5 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV4toV5 (accountEnduringData acc)
     return $!
@@ -2435,8 +2441,8 @@ migrateV5ToV5 ::
       MonadBlobStore (t m),
       MonadTrans t
     ) =>
-    PersistentAccount 'AccountV5 ->
-    t m (PersistentAccount 'AccountV5)
+    PersistentAccount (MBSStore m) 'AccountV5 ->
+    t m (PersistentAccount (MBSStore (t m)) 'AccountV5)
 migrateV5ToV5 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV5toV5 (accountEnduringData acc)
     accountTokenStateTable <-

@@ -66,6 +66,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P8 as P8
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
@@ -86,12 +87,12 @@ updateHash = read "f12e20b6936a6b1b736e95715e1654b92adb4226ef7601b4183895bee563f
 updateRegenesis ::
     ( MPV m ~ 'P7,
       BlockStateStorage m,
-      MonadState (TreeState.SkovData (MPV m)) m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+      MonadState (TreeState.SkovData (MBSStore m) (MPV m)) m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MBSStore m) (MPV m)
     ) =>
     P8.ProtocolUpdateData ->
     -- | The terminal block of the old chain.
-    BlockPointer 'P7 ->
+    BlockPointer (MBSStore m) 'P7 ->
     m (PVInit m)
 updateRegenesis protocolUpdateData terminalBlock = do
     -- Genesis time is the timestamp of the terminal block

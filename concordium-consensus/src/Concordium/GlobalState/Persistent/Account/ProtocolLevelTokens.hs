@@ -23,12 +23,15 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 
 -- | The table of PLT account states. The table is indexed by the token index
 --  into the global token table.
-newtype TokenAccountStateTable = TokenAccountStateTable
-    { tokenAccountStateTable :: Map.Map TokenIndex (HashedBufferedRef TokenAccountState)
+newtype TokenAccountStateTable store = TokenAccountStateTable
+    { tokenAccountStateTable :: Map.Map TokenIndex (HashedBufferedRef store TokenAccountState)
     }
     deriving newtype (Show)
 
-instance (MonadBlobStore m) => MHashableTo m TokenStateTableHash TokenAccountStateTable where
+instance
+    (MonadBlobStore m, store ~ MBSStore m) =>
+    MHashableTo m TokenStateTableHash (TokenAccountStateTable store)
+    where
     getHashM (TokenAccountStateTable tast) = do
         hashes <-
             mapM
@@ -39,7 +42,10 @@ instance (MonadBlobStore m) => MHashableTo m TokenStateTableHash TokenAccountSta
                 $ Map.toAscList tast
         return $ TokenStateTableHash $ hashAsLFMBTV1 emptyTokenAccountStateTableHash hashes
 
-instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
+instance
+    (MonadBlobStore m, store ~ MBSStore m) =>
+    BlobStorable m (TokenAccountStateTable store)
+    where
     storeUpdate (TokenAccountStateTable tast) = do
         storeUpdatedMap <- mapM storeUpdate tast
         let putter = do
@@ -56,7 +62,7 @@ instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
         return $ TokenAccountStateTable <$> sequenceA (Map.fromList l)
 
 -- | The empty token account state table.
-emptyTokenAccountStateTable :: TokenAccountStateTable
+emptyTokenAccountStateTable :: TokenAccountStateTable store
 emptyTokenAccountStateTable = TokenAccountStateTable{tokenAccountStateTable = Map.empty}
 
 -- | The empty token account state.
@@ -68,16 +74,16 @@ emptyTokenAccountState =
 
 -- | Helper function to update a reference to a token account state table.
 updateTokenAccountStateTable ::
-    (MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
+    (MonadBlobStore m, Reference m (MBSStore m) ref (TokenAccountStateTable (MBSStore m))) =>
     -- | The token account state table to update
-    ref TokenAccountStateTable ->
+    ref (TokenAccountStateTable (MBSStore m)) ->
     -- | The index of the token in question
     TokenIndex ->
     -- | How to create a new token account state if the token doesn't have a token account state associated yet
     m TokenAccountState ->
     -- | How to update an existing token account state
     (TokenAccountState -> m TokenAccountState) ->
-    m (ref TokenAccountStateTable)
+    m (ref (TokenAccountStateTable (MBSStore m)))
 updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
     TokenAccountStateTable tst <- refLoad ref
     tst' <-
@@ -99,8 +105,8 @@ updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
 --  Note, this migration preseves hashing.
 migrateTokenAccountStateTable ::
     (SupportMigration m t) =>
-    TokenAccountStateTable ->
-    t m TokenAccountStateTable
+    TokenAccountStateTable (MBSStore m) ->
+    t m (TokenAccountStateTable (MBSStore (t m)))
 migrateTokenAccountStateTable tast = do
     newTable <- mapM migrateHashedBufferedRefKeepHash (tokenAccountStateTable tast)
     return TokenAccountStateTable{tokenAccountStateTable = newTable}
