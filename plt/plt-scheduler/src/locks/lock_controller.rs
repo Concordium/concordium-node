@@ -1,8 +1,7 @@
 //! Runtime interface for protocol-level lock controllers.
 
-use concordium_base::{
-    protocol_level_locks::LockId,
-    protocol_level_tokens::{CborHolderAccount, CborMemo, TokenAmount, TokenId},
+use concordium_base::protocol_level_tokens::meta_operations::{
+    MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
 };
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
 use plt_block_state::persistent::protocol_level_locks::p11::{
@@ -13,54 +12,27 @@ use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 /// Runtime lock operation model. This corresponds to the "fund", "send", "return", and "cancel"
 /// CBOR operations for interacting with locks from concordium-base.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[allow(dead_code)] // FIXME: remove when this is used.
+#[allow(dead_code)] // FIXME: remove this when all operations are implemented.
 pub enum LockOperation {
-    Fund {
-        lock: LockId,
-        token: TokenId,
-        amount: TokenAmount,
-        memo: Option<CborMemo>,
-    },
-    Send {
-        lock: LockId,
-        token: TokenId,
-        source: CborHolderAccount,
-        amount: TokenAmount,
-        recipient: CborHolderAccount,
-        memo: Option<CborMemo>,
-    },
-    Return {
-        lock: LockId,
-        token: TokenId,
-        source: CborHolderAccount,
-        amount: TokenAmount,
-        memo: Option<CborMemo>,
-    },
-    Cancel {
-        lock: LockId,
-        memo: Option<CborMemo>,
-    },
+    Fund(MetaLockFundDetails),
+    Send(MetaLockSendDetails),
+    Return(MetaLockReturnDetails),
+    Cancel(MetaLockCancelDetails),
 }
-
-/// Lock-controller specific rejection.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LockControllerRejectReason;
 
 /// Runtime interface implemented by protocol-level locks.
 pub trait LockController {
-    /// Approve or reject a lock operation.
+    /// Approve or reject a lock operation. Returns `true` if the operation is authorized.
     ///
     /// * `bsq`: the block state to query on
     /// * `sender`: the transaction sender reference
-    /// * `lock`: the lock reference. This is used instead of the lock ID from the operation.
     /// * `operation`: the lock operation to approve/reject.
-    #[allow(dead_code)] // FIXME: remove when this is used.
     fn validate_operation<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
         sender: &BSQ::Account,
         operation: &LockOperation,
-    ) -> Result<(), LockControllerRejectReason>;
+    ) -> bool;
 
     /// Convert this controller configuration to its canonical CBOR
     /// [`concordium_base::protocol_level_locks::LockController`] representation, used by the
@@ -96,7 +68,7 @@ impl LockController for LockControllerConfig {
         bsq: &BSQ,
         sender: &BSQ::Account,
         operation: &LockOperation,
-    ) -> Result<(), LockControllerRejectReason> {
+    ) -> bool {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
                 lock_controller_simple_v0.validate_operation(bsq, sender, operation)

@@ -4,8 +4,10 @@ use crate::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenMintError,
     TokenStateInvariantError, TokenTransferError,
 };
-use concordium_base::base::ProtocolVersion;
+use crate::token_module::key_value_state;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 use plt_block_state::block_state_interface::{
@@ -197,6 +199,8 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
                 decimals: self.block_state.token_configuration(self.token).decimals,
             },
             memo,
+            from_lock: None,
+            to_lock: None,
         });
 
         self.events.push(event);
@@ -237,5 +241,41 @@ impl<BSO: BlockStateOperations> TokenOperationContext<'_, BSO> {
     /// Whether the protocol version of the block supports updating the token metadata.
     pub fn support_updating_metadata(&self) -> bool {
         self.block_state.protocol_version() >= ProtocolVersion::P11
+    }
+
+    /// Unlock the balance of an account associated with a particular lock for
+    /// this particular token. This generates a `TokenTransferEvent` to reflect
+    /// the change in the locked balance.
+    pub fn unlock_balance(
+        &mut self,
+        account_index: AccountIndex,
+        lock_id: &LockId,
+        memo: &Option<Memo>,
+    ) -> Result<(), TokenStateInvariantError> {
+        let old_balance = key_value_state::get_locked_balance_for(self, account_index, lock_id)?;
+        if old_balance == RawTokenAmount(0) {
+            // No locked balance, nothing to do.
+            return Ok(());
+        }
+        key_value_state::set_locked_balance_for(self, account_index, lock_id, RawTokenAmount(0));
+        let account = self
+            .block_state
+            .account_by_index(account_index)
+            .map_err(|e| TokenStateInvariantError(e.to_string()))?
+            .canonical_account_address;
+        self.events
+            .push(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+                token_id: self.token_configuration.token_id.clone(),
+                from: TokenHolder::Account(account),
+                to: TokenHolder::Account(account),
+                amount: TokenAmount {
+                    amount: old_balance,
+                    decimals: self.block_state.token_configuration(self.token).decimals,
+                },
+                memo: memo.clone(),
+                from_lock: Some(lock_id.clone()),
+                to_lock: None,
+            }));
+        Ok(())
     }
 }

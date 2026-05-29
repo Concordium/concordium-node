@@ -3,7 +3,6 @@
 use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenAdminRole, TokenAuthorizations, TokenId, TokenOperation,
@@ -98,11 +97,9 @@ fn test_rbac_assign_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -200,11 +197,9 @@ fn test_rbac_assign_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -228,11 +223,9 @@ fn test_rbac_assign_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            gov_account_addr,
-            2.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -301,11 +294,9 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -342,11 +333,9 @@ fn test_rbac_assign_rejects_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -381,11 +370,9 @@ fn test_rbac_assign_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -409,11 +396,9 @@ fn test_rbac_assign_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            gov_account_addr,
-            2.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -474,11 +459,9 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -518,11 +501,9 @@ fn test_rbac_revoke_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -588,11 +569,9 @@ fn test_rbac_revoke_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -613,11 +592,9 @@ fn test_rbac_revoke_same_roles() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            gov_addr,
-            2.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -695,11 +672,9 @@ fn test_rbac_revoke_rejects_without_admin_role() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -735,11 +710,9 @@ fn test_rbac_revoke_rejects_p10() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -773,11 +746,9 @@ fn test_rbac_revoke_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -798,11 +769,9 @@ fn test_rbac_revoke_role_works_when_paused() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            gov_addr,
-            2.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -868,11 +837,9 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -908,11 +875,9 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -953,11 +918,9 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            gov_account_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -981,11 +944,9 @@ fn test_rbac_admin_role_rotation_succeeds() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            account2_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

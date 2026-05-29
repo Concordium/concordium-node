@@ -1,3 +1,5 @@
+use crate::utils;
+
 use super::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
@@ -208,11 +210,11 @@ pub fn increment_account_balance_p11(
     let outcome = block_state
         .execute_transaction(
             context,
+            utils::simple_transaction_context(
+                token_module_state.governance_account.unwrap().address,
+            ),
             gov_account.account_index(),
-            token_module_state.governance_account.unwrap().address,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
@@ -234,11 +236,9 @@ pub fn pause_token(
     let result = block_state
         .execute_transaction(
             context,
+            utils::simple_transaction_context(gov_addr),
             gov_account,
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -260,11 +260,9 @@ pub fn unpause_token(
     let result = block_state
         .execute_transaction(
             context,
+            utils::simple_transaction_context(gov_addr),
             gov_account,
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -287,11 +285,9 @@ pub fn execute_token_operations(
     let result = block_state
         .execute_transaction(
             context,
+            utils::simple_transaction_context(sender_addr),
             sender,
-            sender_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)

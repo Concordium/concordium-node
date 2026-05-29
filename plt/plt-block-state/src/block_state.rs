@@ -10,6 +10,7 @@ use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
 use crate::entity::block_state::Accounts;
 use crate::entity::block_state::p9::BlockStateP9;
 use crate::entity::block_state::p11::BlockStateP11;
+use crate::entity::protocol_level_locks::p11::LockP11;
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::external::TokenAccountState;
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
@@ -20,7 +21,6 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use std::vec;
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
@@ -157,19 +157,22 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     }
 
     fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
-        panic!("no locks on P9") as vec::IntoIter<_>
+        std::iter::empty()
     }
 
-    fn lock_by_id(&self, _lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
-        panic!("no locks on P9")
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockP11, LockNotFoundByIdError> {
+        // There are no locks, so always return not found.
+        Err(LockNotFoundByIdError(lock_id.clone()))
     }
 
-    fn lock_configuration(&self, _lock: &LockId) -> LockConfiguration {
-        panic!("no locks on P9")
+    fn lock_configuration(&self, _lock: &LockP11) -> LockConfiguration {
+        panic!("protocol version does not support locks")
     }
 
-    fn lock_balances(&self, _lock: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
-        panic!("no locks on P9") as vec::IntoIter<_>
+    fn lock_balances(&self, _lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+        panic!("protocol version does not support locks");
+        #[allow(unreachable_code)]
+        std::iter::empty()
     }
 }
 
@@ -233,6 +236,10 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
     }
 
     fn create_lock(&mut self, _lock_id: LockId, _configuration: LockConfiguration) {
+        panic!("no locks on P9")
+    }
+
+    fn delete_lock(&mut self, _lock_id: &LockId) -> Option<LockP11> {
         panic!("no locks on P9")
     }
 
@@ -392,27 +399,15 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
             .into_iter()
     }
 
-    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockId, LockNotFoundByIdError> {
-        self.block_state
-            .lock_by_id(&self.context, lock_id)
-            .unwrap()
-            .map(|lock| lock.lock_id().clone())
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockP11, LockNotFoundByIdError> {
+        self.block_state.lock_by_id(&self.context, lock_id).unwrap()
     }
 
-    fn lock_configuration(&self, lock_id: &LockId) -> LockConfiguration {
-        self.block_state
-            .lock_by_id(&self.context, lock_id)
-            .unwrap()
-            .unwrap()
-            .lock_configuration(&self.context)
+    fn lock_configuration(&self, lock: &LockP11) -> LockConfiguration {
+        lock.lock_configuration(&self.context)
     }
 
-    fn lock_balances(&self, lock_id: &LockId) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
-        let lock = self
-            .block_state
-            .lock_by_id(&self.context, lock_id)
-            .unwrap()
-            .unwrap();
+    fn lock_balances(&self, lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
         lock.lock_balance_refs().into_iter()
     }
 }
@@ -486,6 +481,12 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<
         self.block_state
             .create_lock(&self.context, lock_id, configuration)
             .unwrap();
+    }
+
+    fn delete_lock(&mut self, lock_id: &LockId) -> Option<LockP11> {
+        self.block_state
+            .delete_lock(&self.context, lock_id)
+            .unwrap()
     }
 
     fn add_lock_balance_ref(

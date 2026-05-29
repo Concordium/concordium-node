@@ -1,13 +1,14 @@
 //! Entry points to calling the scheduler. The scheduler is responsible for executing
 //! transaction and update instruction payloads.
 
-use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::{Energy, Nonce, ProtocolVersion};
-use concordium_base::contracts_common::AccountAddress;
+use crate::token_module::errors::TokenStateInvariantError;
+use crate::transaction_execution::{TransactionContext, TransactionExecution};
+use concordium_base::base::ProtocolVersion;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::block_state_interface::BlockStateOperations;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
 pub mod helpers;
 mod plt_scheduler;
@@ -23,6 +24,33 @@ pub enum TransactionExecutionError {
     /// is broken. This is generally an error that should never happen and is unrecoverable.
     #[error("State invariant broken: {0}")]
     StateInvariantBroken(String),
+}
+
+/// Failure mode for executing a transaction. A transaction may either be
+/// reject, which means it is included in the block but does not have any effect,
+/// or it may fail with an unrecoverable error, leading to a panic.
+#[derive(Debug, thiserror::Error)]
+pub enum TransactionFailure {
+    /// The transaction was rejected, but can be included in a block.
+    #[error("transaction rejected")]
+    Reject(TransactionRejectReason),
+    /// An unrecoverable error occurred when executing the transaction.
+    #[error("unrecoverable: {0}")]
+    Error(#[from] TransactionExecutionError),
+}
+
+impl From<TransactionRejectReason> for TransactionFailure {
+    fn from(value: TransactionRejectReason) -> Self {
+        Self::Reject(value)
+    }
+}
+
+impl From<TokenStateInvariantError> for TransactionFailure {
+    fn from(value: TokenStateInvariantError) -> Self {
+        Self::Error(TransactionExecutionError::StateInvariantBroken(
+            value.to_string(),
+        ))
+    }
 }
 
 /// Execute a transaction payload modifying `block_state` accordingly.
@@ -46,19 +74,12 @@ pub enum TransactionExecutionError {
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_transaction<BSO: BlockStateOperations>(
+    transaction_context: TransactionContext,
     sender_account: BSO::Account,
-    sender_account_address: AccountAddress,
-    transaction_sequence_number: Nonce,
     block_state: &mut BSO,
     payload: Payload,
-    energy_limit: Energy,
 ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-    let mut execution = TransactionExecution::new(
-        energy_limit,
-        sender_account,
-        sender_account_address,
-        transaction_sequence_number,
-    );
+    let mut execution = TransactionExecution::new(transaction_context, sender_account);
 
     match payload {
         Payload::TokenUpdate { payload } => {
