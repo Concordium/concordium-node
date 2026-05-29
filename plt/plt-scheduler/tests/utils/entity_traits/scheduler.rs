@@ -6,6 +6,7 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::blob_reference;
 use plt_scheduler::TransactionContext;
 use plt_scheduler::queries::QueryLockError;
@@ -44,7 +45,7 @@ pub trait SchedulerOperations {
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo>;
+    ) -> BlockStateResult<Vec<TokenAccountInfo>>;
 
     fn query_token_authorizations<C: EntityContextTypes>(
         &self,

@@ -9,7 +9,7 @@ pub enum TokenPX {
 
 impl TokenPX {
     /// Access the token as a base P9 token.
-    pub fn token_base(&self) -> &TokenP9Base {
+    pub fn token_p9_base(&self) -> &TokenP9Base {
         match self {
             Self::TokenP9(token) => &token.token_p9_base,
             Self::TokenP11(token) => &token.token_p9_base,
@@ -17,7 +17,7 @@ impl TokenPX {
     }
 
     /// Mutate the token as a base P9 token.
-    pub fn token_base_mut(&mut self) -> &mut TokenP9Base {
+    pub fn token_p9_base_mut(&mut self) -> &mut TokenP9Base {
         match self {
             Self::TokenP9(token) => &mut token.token_p9_base,
             Self::TokenP11(token) => &mut token.token_p9_base,
@@ -75,7 +75,7 @@ pub enum TokenPXRef<'a> {
 
 impl<'a> TokenPXRef<'a> {
     /// Access the token as a base P9 token.
-    pub fn token_base(&self) -> &'a TokenP9Base {
+    pub fn token_p9_base(&self) -> &'a TokenP9Base {
         match self {
             Self::TokenP9(token) => &token.token_p9_base,
             Self::TokenP11(token) => &token.token_p9_base,

@@ -11,6 +11,7 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::failure::BlockStateResult;
 use plt_scheduler::protocol_level_tokens;
 use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
@@ -62,13 +63,12 @@ impl SchedulerOperations for BlockStateP9 {
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo> {
+    ) -> BlockStateResult<Vec<TokenAccountInfo>> {
         protocol_level_tokens::p9::query_token_account_infos(
             context,
             self,
             Account::from_existing_account(account),
         )
-        .unwrap()
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(
@@ -154,13 +154,12 @@ impl SchedulerOperations for BlockStateP11 {
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo> {
+    ) -> BlockStateResult<Vec<TokenAccountInfo>> {
         protocol_level_tokens::p11::query_token_account_infos(
             context,
             self,
             Account::from_existing_account(account),
         )
-        .unwrap()
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(

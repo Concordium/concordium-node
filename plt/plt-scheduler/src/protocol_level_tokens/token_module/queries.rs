@@ -1,8 +1,9 @@
+use crate::block_state_polymorph::token::TokenPXRef;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, TokenAdminRole, TokenAuthorizations, TokenModuleAccountState,
-    TokenModuleState, TokenRoleAuthorizations,
+    AccountLockAmount, CborHolderAccount, TokenAdminRole, TokenAmount, TokenAuthorizations,
+    TokenModuleAccountState, TokenModuleState, TokenRoleAuthorizations,
 };
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
@@ -46,27 +47,72 @@ pub fn query_token_module_state<C: EntityContextTypes>(
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    token: &TokenP9Base,
+    token: TokenPXRef<'_>,
     account: AccountIndex,
+    total_token_balance: RawTokenAmount,
 ) -> BlockStateResult<TokenModuleAccountState> {
-    let has_allow_list = token.has_allow_list(context);
+    let token_base = token.token_p9_base();
+    let has_allow_list = token_base.has_allow_list(context);
     let allow_list = if has_allow_list {
-        token.get_allow_list_for(context, account).into()
+        token_base.get_allow_list_for(context, account).into()
     } else {
         None
     };
-    let has_deny_list = token.has_deny_list(context);
+    let has_deny_list = token_base.has_deny_list(context);
     let deny_list = if has_deny_list {
-        token.get_deny_list_for(context, account).into()
+        token_base.get_deny_list_for(context, account).into()
     } else {
         None
+    };
+
+    let token_configuration = token_base.token_configuration(context)?;
+
+    let mut total_locked = RawTokenAmount(0);
+    let mut locks = Vec::new();
+
+    if let TokenPXRef::TokenP11(token_p11) = token {
+        for (lock, locked_balance) in token_p11
+            .get_locked_balances_for_account(context, account)?
+            .into_iter()
+        {
+            if locked_balance == RawTokenAmount(0) {
+                continue;
+            }
+            total_locked.0 = total_locked
+                .0
+                .checked_add(locked_balance.0)
+                .ok_or_else(|| {
+                    BlockStateFailure::Invariant("Total locked token balance overflow".to_string())
+                })?;
+            locks.push(AccountLockAmount {
+                lock,
+                amount: TokenAmount::from_raw(locked_balance.0, token_configuration.decimals),
+            });
+        }
+    }
+
+    let available = if total_locked == RawTokenAmount(0) {
+        None
+    } else {
+        let available = total_token_balance
+            .0
+            .checked_sub(total_locked.0)
+            .ok_or_else(|| {
+                BlockStateFailure::Invariant(
+                    "Total locked token balance exceeds account token balance".to_string(),
+                )
+            })?;
+        Some(TokenAmount::from_raw(
+            available,
+            token_configuration.decimals,
+        ))
     };
 
     Ok(TokenModuleAccountState {
         allow_list,
         deny_list,
-        locks: vec![],   // FIXME: COR-2316
-        available: None, // FIXME: COR-2316
+        locks,
+        available,
     })
 }
 
@@ -132,5 +178,5 @@ pub fn query_locked_balance<C: EntityContextTypes>(
     account: AccountIndex,
     lock_id: &LockId,
 ) -> BlockStateResult<RawTokenAmount> {
-    token.get_locked_balance_for(context, account, lock_id)
+    token.get_locked_balance_for_account(context, account, lock_id)
 }

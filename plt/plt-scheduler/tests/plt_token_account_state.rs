@@ -25,8 +25,9 @@ fn test_query_token_module_account_state_default() {
     );
     let account = context.external.create_account();
 
-    let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+    let token_account_infos = block_state
+        .query_token_account_infos(&context, account.account_index())
+        .unwrap();
     // Account has no balance and no list entries, so it does not appear in the infos
     assert!(token_account_infos.is_empty());
 }

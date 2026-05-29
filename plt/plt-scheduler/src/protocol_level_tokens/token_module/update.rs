@@ -376,7 +376,9 @@ fn check_authorized<C: EntityContextTypes>(
         }
     } else {
         // Ensure the sender is the governance account.
-        if token.token_base().get_governance_account_index(context)?
+        if token
+            .token_p9_base()
+            .get_governance_account_index(context)?
             != transaction_execution.sender_account().account_index()
         {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {

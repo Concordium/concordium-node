@@ -53,8 +53,8 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
     );
 
     let lock_id = LockId {
-        account_index: recipient.account_index().into(),
-        sequence_number: 2,
+        account_index: funding_account.account_index().into(),
+        sequence_number: 1,
         creation_order: 0,
     };
     utils::create_lock(

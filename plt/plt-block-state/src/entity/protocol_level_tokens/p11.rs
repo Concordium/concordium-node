@@ -90,7 +90,7 @@ impl TokenP11 {
     }
 
     /// Get the locked balance for the given account and lock.
-    pub fn get_locked_balance_for<C: EntityContextTypes>(
+    pub fn get_locked_balance_for_account<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
@@ -111,7 +111,7 @@ impl TokenP11 {
     }
 
     /// Set the locked balance for the given account and lock.
-    pub fn set_locked_balance_for<C: EntityContextTypes>(
+    pub fn set_locked_balance_for_account<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
@@ -131,6 +131,41 @@ impl TokenP11 {
             )?;
         }
         Ok(())
+    }
+
+    /// Get the locked balances recorded in token-module account state for the given
+    /// account.
+    pub fn get_locked_balances_for_account<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        account: AccountIndex,
+    ) -> BlockStateResult<Vec<(LockId, RawTokenAmount)>> {
+        let prefix = state_keys::account_state_key(account, state_keys::ACCOUNT_STATE_KEY_QUANTA);
+        self.token_p9_base
+            .mutable_key_value_state
+            .iter_prefix(&context.loader, &prefix)?
+            .map(move |(key, value)| {
+                let Some(lock_bytes) = key.strip_prefix(prefix.as_slice()) else {
+                    return Err(BlockStateFailure::Invariant(
+                        "Iterator over account quanta state produced invalid key".to_string(),
+                    ));
+                };
+                let lock = common::from_bytes_complete(lock_bytes).map_err(|err| {
+                    BlockStateFailure::Invariant(format!(
+                        "Stored lock id cannot be decoded: {}",
+                        err
+                    ))
+                })?;
+                let amount = common::from_bytes_complete(value).map_err(|err| {
+                    BlockStateFailure::BlobStoreDecode(format!(
+                        "Stored locked balance cannot be decoded: {}",
+                        err
+                    ))
+                })?;
+
+                Ok((lock, amount))
+            })
+            .collect()
     }
 
     /// Iterate all authorization roles assigned for the token, together

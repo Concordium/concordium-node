@@ -148,7 +148,7 @@ fn test_token_properties() {
     );
     assert_eq!(
         token
-            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(0)
     );
@@ -162,7 +162,7 @@ fn test_token_properties() {
         )
         .unwrap();
     token
-        .set_locked_balance_for(&context, account_index1, &lock_id, RawTokenAmount(100))
+        .set_locked_balance_for_account(&context, account_index1, &lock_id, RawTokenAmount(100))
         .unwrap();
 
     // Update token
@@ -179,7 +179,7 @@ fn test_token_properties() {
     );
     assert_eq!(
         token
-            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(100)
     );
@@ -189,7 +189,7 @@ fn test_token_properties() {
         .revoke_account_roles(&context, account_index1, &[TokenAdminRole::Mint])
         .unwrap();
     token
-        .set_locked_balance_for(&context, account_index1, &lock_id, RawTokenAmount(0))
+        .set_locked_balance_for_account(&context, account_index1, &lock_id, RawTokenAmount(0))
         .unwrap();
 
     // Update token
@@ -205,7 +205,7 @@ fn test_token_properties() {
     );
     assert_eq!(
         token
-            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(0)
     );

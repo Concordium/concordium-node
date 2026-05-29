@@ -225,12 +225,12 @@ pub fn unlock_balance<C: EntityContextTypes>(
     lock_id: &LockId,
     memo: &Option<Memo>,
 ) -> BlockStateResult<()> {
-    let old_balance = token.get_locked_balance_for(context, account_index, lock_id)?;
+    let old_balance = token.get_locked_balance_for_account(context, account_index, lock_id)?;
     if old_balance == RawTokenAmount(0) {
         // No locked balance, nothing to do.
         return Ok(());
     }
-    token.set_locked_balance_for(context, account_index, lock_id, RawTokenAmount(0))?;
+    token.set_locked_balance_for_account(context, account_index, lock_id, RawTokenAmount(0))?;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
     let account_address = context

@@ -1,4 +1,4 @@
-use crate::block_state_polymorph::token::TokenPXRefMut;
+use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
 use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use crate::{TOKEN_MODULE_REF, protocol_level_tokens::token_module};
@@ -85,8 +85,9 @@ pub fn query_token_account_infos<C: EntityContextTypes>(
 
             let module_state = token_module::query_token_module_account_state(
                 context,
-                &token.token_p9_base,
+                TokenPXRef::TokenP9(&token),
                 account.account_index(),
+                state.balance,
             )?;
 
             let balance = TokenAmount {

@@ -115,7 +115,7 @@ pub fn lock_balance(
         .unwrap()
         .expect("token must exist");
     token
-        .set_locked_balance_for(context, funder_account, lock_id, amount)
+        .set_locked_balance_for_account(context, funder_account, lock_id, amount)
         .unwrap();
     block_state.update_token(context, token).unwrap();
 }
