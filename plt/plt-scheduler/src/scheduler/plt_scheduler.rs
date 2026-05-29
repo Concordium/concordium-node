@@ -4,8 +4,8 @@
 use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
 
-use crate::scheduler::TransactionFailure;
 use crate::protocol_level_tokens::balance_operations;
+use crate::scheduler::TransactionFailure;
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::LockId;

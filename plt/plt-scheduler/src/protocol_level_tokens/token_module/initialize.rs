@@ -1,7 +1,9 @@
 use crate::block_state_polymorph::token::TokenPXRefMut;
 use crate::protocol_level_tokens::balance_operations;
-use crate::token_module::errors::{MintWouldOverflowError, TokenAmountDecimalsMismatchError};
-use crate::token_module::util;
+use crate::protocol_level_tokens::token_module::errors::{
+    MintWouldOverflowError, TokenAmountDecimalsMismatchError,
+};
+use crate::protocol_level_tokens::token_module::util;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
 use plt_block_state::entity::accounts::Accounts;

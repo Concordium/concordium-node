@@ -1,9 +1,9 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
 use crate::protocol_level_tokens::balance_operations;
-use crate::token_module::errors::{
+use crate::protocol_level_tokens::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
-use crate::token_module::util;
+use crate::protocol_level_tokens::token_module::util;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;

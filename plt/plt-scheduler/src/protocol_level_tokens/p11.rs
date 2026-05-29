@@ -1,7 +1,7 @@
 use crate::block_state_polymorph::token::TokenPXRefMut;
-use crate::token_module::TokenUpdateError;
+use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
-use crate::{TOKEN_MODULE_REF, token_module};
+use crate::{TOKEN_MODULE_REF, protocol_level_tokens::token_module};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     DeserializationFailureRejectReason, RawCbor, TokenId, TokenModuleInitializationParameters,

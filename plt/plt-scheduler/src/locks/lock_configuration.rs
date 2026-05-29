@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::{locks::lock_controller::LockController, queries::QueryLockError, token_module};
+use crate::{
+    locks::lock_controller::LockController, protocol_level_tokens::token_module,
+    queries::QueryLockError,
+};
 use concordium_base::{
     base::AccountIndex,
     protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
