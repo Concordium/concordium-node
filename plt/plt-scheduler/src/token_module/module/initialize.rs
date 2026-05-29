@@ -1,5 +1,5 @@
 use crate::block_state_polymorph::token::TokenPXRefMut;
-use crate::token_context;
+use crate::protocol_level_tokens::balance_operations;
 use crate::token_module::errors::{MintWouldOverflowError, TokenAmountDecimalsMismatchError};
 use crate::token_module::util;
 use concordium_base::common::cbor::CborSerializationError;
@@ -104,7 +104,7 @@ pub fn initialize_token<C: EntityContextTypes>(
             Err(err) => return Ok(Err(err.into())),
         };
 
-        match token_context::mint(
+        match balance_operations::mint(
             context,
             events,
             token.token_p9_base_mut(),

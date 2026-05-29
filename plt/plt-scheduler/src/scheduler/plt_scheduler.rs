@@ -5,7 +5,7 @@ use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
 
 use crate::scheduler::TransactionFailure;
-use crate::token_context;
+use crate::protocol_level_tokens::balance_operations;
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::LockId;
@@ -116,7 +116,7 @@ where
             }
             for (account_index, token_index) in lock.lock_balance_refs() {
                 let mut token = block_state.token_by_index(context, token_index)?;
-                token_context::unlock_balance(
+                balance_operations::unlock_balance(
                     context,
                     events,
                     &mut token,

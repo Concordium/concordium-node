@@ -1,5 +1,5 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
-use crate::token_context;
+use crate::protocol_level_tokens::balance_operations;
 use crate::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
 };
@@ -438,7 +438,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
         }
     }
 
-    token_context::transfer(
+    balance_operations::transfer(
         context,
         events,
         token,
@@ -478,7 +478,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     )?;
     check_not_paused(context, token.token_p9_base())?;
 
-    token_context::mint(
+    balance_operations::mint(
         context,
         events,
         token.token_p9_base_mut(),
@@ -515,7 +515,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     )?;
     check_not_paused(context, token.token_p9_base())?;
 
-    token_context::burn(
+    balance_operations::burn(
         context,
         events,
         token.token_p9_base_mut(),

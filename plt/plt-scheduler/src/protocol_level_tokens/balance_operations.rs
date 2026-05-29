@@ -14,8 +14,6 @@ use plt_scheduler_types::types::events::{
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
-// todo ar move to token module
-
 /// Mint a specified amount and deposit it in the account.
 ///
 /// # Events
