@@ -102,7 +102,7 @@ impl SchedulerOperations for BlockStateP9 {
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo>
+    ) -> Result<Vec<TokenAccountInfo>, QueryTokenInfoError>
     where
         EntityContext<C>: Clone,
     {
@@ -114,7 +114,6 @@ impl SchedulerOperations for BlockStateP9 {
         };
 
         queries::query_token_account_infos(&exec_block_state, account)
-            .expect("query_token_account_infos must succeed")
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(
@@ -249,7 +248,7 @@ impl SchedulerOperations for BlockStateP11 {
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo>
+    ) -> Result<Vec<TokenAccountInfo>, QueryTokenInfoError>
     where
         EntityContext<C>: Clone,
     {
@@ -261,7 +260,6 @@ impl SchedulerOperations for BlockStateP11 {
         };
 
         queries::query_token_account_infos(&exec_block_state, account)
-            .expect("query_token_account_infos must succeed")
     }
 
     fn query_token_authorizations<C: EntityContextTypes>(

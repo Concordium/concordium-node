@@ -134,8 +134,9 @@ fn test_query_token_account_info() {
     );
 
     // Lookup account token infos
-    let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+    let token_account_infos = block_state
+        .query_token_account_infos(&context, account.account_index())
+        .unwrap();
     assert_eq!(token_account_infos.len(), 2);
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(
@@ -202,8 +203,9 @@ fn test_query_token_account_info_available_with_locked_balance() {
         RawTokenAmount(250),
     );
 
-    let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+    let token_account_infos = block_state
+        .query_token_account_infos(&context, account.account_index())
+        .unwrap();
     assert_eq!(token_account_infos.len(), 1);
     assert_eq!(token_account_infos[0].token_id, token_id);
     let module_state: TokenModuleAccountState = cbor::cbor_decode(
@@ -299,8 +301,9 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         RawTokenAmount(300),
     );
 
-    let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+    let token_account_infos = block_state
+        .query_token_account_infos(&context, account.account_index())
+        .unwrap();
     let module_state: TokenModuleAccountState = cbor::cbor_decode(
         token_account_infos[0]
             .account_state
@@ -372,8 +375,9 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
         RawTokenAmount(1000),
     );
 
-    let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+    let token_account_infos = block_state
+        .query_token_account_infos(&context, account.account_index())
+        .unwrap();
     let module_state: TokenModuleAccountState = cbor::cbor_decode(
         token_account_infos[0]
             .account_state
@@ -435,8 +439,9 @@ fn test_query_token_account_info_allow_list_no_balance() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let token_account_infos =
-        block_state.query_token_account_infos(&context, account.account_index());
+    let token_account_infos = block_state
+        .query_token_account_infos(&context, account.account_index())
+        .unwrap();
     assert_eq!(token_account_infos.len(), 1);
     assert_eq!(token_account_infos[0].token_id, token_id);
     assert_eq!(
