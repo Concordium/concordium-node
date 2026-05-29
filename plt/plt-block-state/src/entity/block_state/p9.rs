@@ -81,7 +81,9 @@ impl BlockStateP9 {
             token_index,
         )?;
 
-        Ok(TokenP9 { token_p9_base: token_base })
+        Ok(TokenP9 {
+            token_p9_base: token_base,
+        })
     }
 
     /// Update the token in the block state. Any modifications

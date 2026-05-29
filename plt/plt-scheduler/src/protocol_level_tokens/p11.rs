@@ -1,5 +1,4 @@
 use crate::block_state_polymorph::token::TokenPXRefMut;
-use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_module::TokenUpdateError;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use crate::{TOKEN_MODULE_REF, token_module};

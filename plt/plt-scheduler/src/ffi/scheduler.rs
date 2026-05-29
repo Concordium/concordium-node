@@ -26,9 +26,10 @@ use plt_block_state::ffi::block_state_callbacks::{
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
+use std::marker::PhantomData;
 
 /// Context with no external block state (will panic if accessed).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FfiSchedulerBlockStateTypes;
 
 impl EntityContextTypes for FfiSchedulerBlockStateTypes {
@@ -145,6 +146,7 @@ extern "C" fn ffi_execute_transaction(
             update_token_account_balance_ptr: update_token_account_balance_callback,
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+            _not_send_sync: PhantomData,
         };
         let mut context = FfiSchedulerEntityContext {
             external,
@@ -331,6 +333,7 @@ extern "C" fn ffi_execute_chain_update(
             update_token_account_balance_ptr: update_token_account_balance_callback,
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+            _not_send_sync: PhantomData,
         };
         let mut context = FfiSchedulerEntityContext {
             external,

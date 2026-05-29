@@ -14,11 +14,11 @@ use concordium_base::{
     },
     transactions::Payload,
 };
+use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_block_state::entity::accounts::Accounts;
-use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::TokenHolder;
 use plt_scheduler_types::types::{

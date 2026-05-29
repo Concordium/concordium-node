@@ -75,7 +75,10 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
             .block_state
             .token_by_index(&self.context, *token)
             .unwrap();
-        token.token_p9_base.token_configuration(&self.context).unwrap()
+        token
+            .token_p9_base
+            .token_configuration(&self.context)
+            .unwrap()
     }
 
     fn token_p11(&self, _token: &Self::Token) -> TokenP11 {
@@ -283,10 +286,6 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
         _token: &Self::Token,
     ) {
         panic!("no locks on P9")
-    }
-
-    fn update_token_p11(&mut self, token: TokenP11) {
-        todo!()
     }
 }
 

@@ -11,10 +11,10 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_scheduler::{queries, scheduler, TransactionContext};
 use plt_scheduler::protocol_level_tokens;
 use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
+use plt_scheduler::{TransactionContext, queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
 use std::mem;
@@ -115,10 +115,19 @@ impl SchedulerOperations for BlockStateP11 {
         transaction_context: TransactionContext,
         sender_account: AccountIndex,
         payload: Payload,
-    ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
+    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
+    where
+        EntityContext<C>: Clone,
+    {
         let sender_account = Account::from_existing_account(sender_account);
 
-        scheduler::p11::execute_transaction(context, self, transaction_context, sender_account.clone(), payload)
+        scheduler::p11::execute_transaction(
+            context,
+            self,
+            transaction_context,
+            sender_account.clone(),
+            payload,
+        )
     }
 
     fn execute_chain_update<C: EntityContextTypes>(

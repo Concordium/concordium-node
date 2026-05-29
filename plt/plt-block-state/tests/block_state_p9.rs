@@ -176,18 +176,28 @@ fn test_token_properties() {
             .token_p9_base
             .get_allow_list_for(&context, account_index1)
     );
-    assert!(!token.token_p9_base.get_deny_list_for(&context, account_index1));
+    assert!(
+        !token
+            .token_p9_base
+            .get_deny_list_for(&context, account_index1)
+    );
 
     // Set values
     token
         .token_p9_base
         .set_token_circulating_supply(RawTokenAmount(10));
     token.token_p9_base.set_deny_list_enabled(&context).unwrap();
-    token.token_p9_base.set_allow_list_enabled(&context).unwrap();
+    token
+        .token_p9_base
+        .set_allow_list_enabled(&context)
+        .unwrap();
     token.token_p9_base.set_mintable_enabled(&context).unwrap();
     token.token_p9_base.set_burnable_enabled(&context).unwrap();
     token.token_p9_base.set_paused(&context, true).unwrap();
-    token.token_p9_base.set_token_name(&context, "token1").unwrap();
+    token
+        .token_p9_base
+        .set_token_name(&context, "token1")
+        .unwrap();
     let gov_account_index = AccountIndex::from(10);
     token
         .token_p9_base
@@ -217,7 +227,10 @@ fn test_token_properties() {
     assert!(token.token_p9_base.is_mintable(&context));
     assert!(token.token_p9_base.is_burnable(&context));
     assert!(token.token_p9_base.is_paused(&context));
-    assert_eq!(token.token_p9_base.get_token_name(&context).unwrap(), "token1");
+    assert_eq!(
+        token.token_p9_base.get_token_name(&context).unwrap(),
+        "token1"
+    );
     assert_eq!(
         token
             .token_p9_base
@@ -230,7 +243,11 @@ fn test_token_properties() {
             .token_p9_base
             .get_allow_list_for(&context, account_index1)
     );
-    assert!(token.token_p9_base.get_deny_list_for(&context, account_index1));
+    assert!(
+        token
+            .token_p9_base
+            .get_deny_list_for(&context, account_index1)
+    );
     assert_eq!(
         token.token_p9_base.get_metadata(&context).unwrap(),
         metadata_url
@@ -258,5 +275,9 @@ fn test_token_properties() {
             .token_p9_base
             .get_allow_list_for(&context, account_index1)
     );
-    assert!(!token.token_p9_base.get_deny_list_for(&context, account_index1));
+    assert!(
+        !token
+            .token_p9_base
+            .get_deny_list_for(&context, account_index1)
+    );
 }
