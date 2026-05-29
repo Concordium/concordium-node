@@ -146,11 +146,18 @@ fn test_token_properties() {
         token.get_account_roles(&context, account_index1).unwrap(),
         Roles::none()
     );
+    assert_eq!(token.all_roles(&context).unwrap(), vec![]);
     assert_eq!(
         token
             .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(0)
+    );
+    assert_eq!(
+        token
+            .get_locked_balances_for_account(&context, account_index1)
+            .unwrap(),
+        vec![]
     );
 
     // Set values
@@ -178,10 +185,20 @@ fn test_token_properties() {
         expected_roles
     );
     assert_eq!(
+        token.all_roles(&context).unwrap(),
+        vec![(account_index1, expected_roles)]
+    );
+    assert_eq!(
         token
             .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(100)
+    );
+    assert_eq!(
+        token
+            .get_locked_balances_for_account(&context, account_index1)
+            .unwrap(),
+        vec![(lock_id.clone(), RawTokenAmount(100))]
     );
 
     // Update values
@@ -204,10 +221,20 @@ fn test_token_properties() {
         expected_roles
     );
     assert_eq!(
+        token.all_roles(&context).unwrap(),
+        vec![(account_index1, expected_roles)]
+    );
+    assert_eq!(
         token
             .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(0)
+    );
+    assert_eq!(
+        token
+            .get_locked_balances_for_account(&context, account_index1)
+            .unwrap(),
+        vec![]
     );
 }
 
