@@ -12,7 +12,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 /// Representation of protocol-level token on P11.
 #[derive(Debug)]
 pub struct TokenP11 {
-    /// P9 token representation
+    /// Base P9 token representation
     pub token_base: TokenP9Base,
 }
 

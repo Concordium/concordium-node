@@ -27,7 +27,7 @@ fn test_create_plt() {
     let read_configuration = block_state
         .token_by_index(&context, token_index)
         .unwrap()
-        .token_base
+        .token_p9_base
         .token_configuration(&context)
         .unwrap();
     assert_eq!(read_configuration, configuration);
@@ -91,7 +91,7 @@ fn test_token_by_id() {
         .token_by_id(&context, &token_id1)
         .unwrap()
         .expect("token should exist");
-    assert_eq!(token_by_id.token_base.token_index(), token_index);
+    assert_eq!(token_by_id.token_p9_base.token_index(), token_index);
 
     // Get token by non-canonical id
     let non_canonical_token_id1: TokenId = "TOKEN1".parse().unwrap();
@@ -99,7 +99,7 @@ fn test_token_by_id() {
         .token_by_id(&context, &non_canonical_token_id1)
         .unwrap()
         .expect("token should exist");
-    assert_eq!(token_index_by_id.token_base.token_index(), token_index);
+    assert_eq!(token_index_by_id.token_p9_base.token_index(), token_index);
 
     // Get non-existing token by id
     let token_id2 = "token2".parse().unwrap();
@@ -128,12 +128,12 @@ fn test_circulating_supply() {
     let mut token = block_state.token_by_index(&context, token_index).unwrap();
 
     // Assert initially 0
-    let circulating_supply = token.token_base.token_circulating_supply();
+    let circulating_supply = token.token_p9_base.token_circulating_supply();
     assert_eq!(circulating_supply, RawTokenAmount(0));
 
     // Set supply
     token
-        .token_base
+        .token_p9_base
         .set_token_circulating_supply(RawTokenAmount(10));
 
     // Update token
@@ -142,7 +142,7 @@ fn test_circulating_supply() {
     // Read supply
     let token = block_state.token_by_index(&context, token_index).unwrap();
     assert_eq!(
-        token.token_base.token_circulating_supply(),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(10)
     );
 }
@@ -165,45 +165,45 @@ fn test_token_properties() {
     let mut token = block_state.token_by_index(&context, token_index).unwrap();
 
     // Assert initial values
-    assert!(!token.token_base.has_deny_list(&context));
-    assert!(!token.token_base.has_allow_list(&context));
-    assert!(!token.token_base.is_mintable(&context));
-    assert!(!token.token_base.is_burnable(&context));
-    assert!(!token.token_base.is_paused(&context));
+    assert!(!token.token_p9_base.has_deny_list(&context));
+    assert!(!token.token_p9_base.has_allow_list(&context));
+    assert!(!token.token_p9_base.is_mintable(&context));
+    assert!(!token.token_p9_base.is_burnable(&context));
+    assert!(!token.token_p9_base.is_paused(&context));
     let account_index1 = AccountIndex::from(1);
     assert!(
         !token
-            .token_base
+            .token_p9_base
             .get_allow_list_for(&context, account_index1)
     );
-    assert!(!token.token_base.get_deny_list_for(&context, account_index1));
+    assert!(!token.token_p9_base.get_deny_list_for(&context, account_index1));
 
     // Set values
     token
-        .token_base
+        .token_p9_base
         .set_token_circulating_supply(RawTokenAmount(10));
-    token.token_base.set_deny_list_enabled(&context).unwrap();
-    token.token_base.set_allow_list_enabled(&context).unwrap();
-    token.token_base.set_mintable_enabled(&context).unwrap();
-    token.token_base.set_burnable_enabled(&context).unwrap();
-    token.token_base.set_paused(&context, true).unwrap();
-    token.token_base.set_token_name(&context, "token1").unwrap();
+    token.token_p9_base.set_deny_list_enabled(&context).unwrap();
+    token.token_p9_base.set_allow_list_enabled(&context).unwrap();
+    token.token_p9_base.set_mintable_enabled(&context).unwrap();
+    token.token_p9_base.set_burnable_enabled(&context).unwrap();
+    token.token_p9_base.set_paused(&context, true).unwrap();
+    token.token_p9_base.set_token_name(&context, "token1").unwrap();
     let gov_account_index = AccountIndex::from(10);
     token
-        .token_base
+        .token_p9_base
         .set_governance_account(&context, gov_account_index)
         .unwrap();
     token
-        .token_base
+        .token_p9_base
         .set_allow_list_for(&context, account_index1, true)
         .unwrap();
     token
-        .token_base
+        .token_p9_base
         .set_deny_list_for(&context, account_index1, true)
         .unwrap();
     let metadata_url = MetadataUrl::from("http://test".to_string());
     token
-        .token_base
+        .token_p9_base
         .set_metadata_url(&context, &metadata_url)
         .unwrap();
 
@@ -212,38 +212,38 @@ fn test_token_properties() {
 
     // Read values
     let mut token = block_state.token_by_index(&context, token_index).unwrap();
-    assert!(token.token_base.has_deny_list(&context));
-    assert!(token.token_base.has_allow_list(&context));
-    assert!(token.token_base.is_mintable(&context));
-    assert!(token.token_base.is_burnable(&context));
-    assert!(token.token_base.is_paused(&context));
-    assert_eq!(token.token_base.get_token_name(&context).unwrap(), "token1");
+    assert!(token.token_p9_base.has_deny_list(&context));
+    assert!(token.token_p9_base.has_allow_list(&context));
+    assert!(token.token_p9_base.is_mintable(&context));
+    assert!(token.token_p9_base.is_burnable(&context));
+    assert!(token.token_p9_base.is_paused(&context));
+    assert_eq!(token.token_p9_base.get_token_name(&context).unwrap(), "token1");
     assert_eq!(
         token
-            .token_base
+            .token_p9_base
             .get_governance_account_index(&context)
             .unwrap(),
         gov_account_index
     );
     assert!(
         token
-            .token_base
+            .token_p9_base
             .get_allow_list_for(&context, account_index1)
     );
-    assert!(token.token_base.get_deny_list_for(&context, account_index1));
+    assert!(token.token_p9_base.get_deny_list_for(&context, account_index1));
     assert_eq!(
-        token.token_base.get_metadata(&context).unwrap(),
+        token.token_p9_base.get_metadata(&context).unwrap(),
         metadata_url
     );
 
     // Update values
-    token.token_base.set_paused(&context, false).unwrap();
+    token.token_p9_base.set_paused(&context, false).unwrap();
     token
-        .token_base
+        .token_p9_base
         .set_allow_list_for(&context, account_index1, false)
         .unwrap();
     token
-        .token_base
+        .token_p9_base
         .set_deny_list_for(&context, account_index1, false)
         .unwrap();
 
@@ -252,11 +252,11 @@ fn test_token_properties() {
 
     // Read values
     let token = block_state.token_by_index(&context, token_index).unwrap();
-    assert!(!token.token_base.is_paused(&context));
+    assert!(!token.token_p9_base.is_paused(&context));
     assert!(
         !token
-            .token_base
+            .token_p9_base
             .get_allow_list_for(&context, account_index1)
     );
-    assert!(!token.token_base.get_deny_list_for(&context, account_index1));
+    assert!(!token.token_p9_base.get_deny_list_for(&context, account_index1));
 }

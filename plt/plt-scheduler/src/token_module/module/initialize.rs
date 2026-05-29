@@ -40,7 +40,7 @@ pub fn initialize_token<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     init_params: &TokenModuleInitializationParameters,
 ) -> BlockStateResult<Result<(), TokenInitializationError>> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     let Some(name) = init_params.name.as_ref() else {
         return Ok(Err(
@@ -63,27 +63,27 @@ pub fn initialize_token<C: EntityContextTypes>(
             ),
         ));
     };
-    token.token_base_mut().set_token_name(context, name)?;
-    token.token_base_mut().set_metadata_url(context, metadata)?;
+    token.token_p9_base_mut().set_token_name(context, name)?;
+    token.token_p9_base_mut().set_metadata_url(context, metadata)?;
 
     // The governance account should hold every role, except for disabled features, so we build a
     // list of every enabled role and the mandatory roles.
     let mut enabled_roles = Vec::from(UNIVERSAL_ROLES);
 
     if init_params.allow_list == Some(true) {
-        token.token_base_mut().set_allow_list_enabled(context)?;
+        token.token_p9_base_mut().set_allow_list_enabled(context)?;
         enabled_roles.push(TokenAdminRole::UpdateAllowList);
     }
     if init_params.deny_list == Some(true) {
-        token.token_base_mut().set_deny_list_enabled(context)?;
+        token.token_p9_base_mut().set_deny_list_enabled(context)?;
         enabled_roles.push(TokenAdminRole::UpdateDenyList);
     }
     if init_params.mintable == Some(true) {
-        token.token_base_mut().set_mintable_enabled(context)?;
+        token.token_p9_base_mut().set_mintable_enabled(context)?;
         enabled_roles.push(TokenAdminRole::Mint);
     }
     if init_params.burnable == Some(true) {
-        token.token_base_mut().set_burnable_enabled(context)?;
+        token.token_p9_base_mut().set_burnable_enabled(context)?;
         enabled_roles.push(TokenAdminRole::Burn);
     }
 
@@ -93,7 +93,7 @@ pub fn initialize_token<C: EntityContextTypes>(
     };
     let governance_account_index = governance_account.account_index();
     token
-        .token_base_mut()
+        .token_p9_base_mut()
         .set_governance_account(context, governance_account_index)?;
 
     if let Some(initial_supply) = init_params.initial_supply {
@@ -105,7 +105,7 @@ pub fn initialize_token<C: EntityContextTypes>(
         match token_context::mint(
             context,
             events,
-            token.token_base_mut(),
+            token.token_p9_base_mut(),
             &governance_account,
             cbor_governance_account.address,
             mint_amount,

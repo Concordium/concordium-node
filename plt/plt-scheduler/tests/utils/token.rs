@@ -104,7 +104,7 @@ pub fn create_and_init_token_p9(
         .token_by_id(context, &token_id)
         .unwrap()
         .unwrap()
-        .token_base
+        .token_p9_base
         .token_index();
 
     (gov_account, token_index)

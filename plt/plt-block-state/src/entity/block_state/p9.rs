@@ -81,7 +81,7 @@ impl BlockStateP9 {
             token_index,
         )?;
 
-        Ok(TokenP9 { token_base })
+        Ok(TokenP9 { token_p9_base: token_base })
     }
 
     /// Update the token in the block state. Any modifications
@@ -94,7 +94,7 @@ impl BlockStateP9 {
         protocol_level_tokens::p9::update_token(
             context,
             &mut self.persistent.tokens,
-            token.token_base,
+            token.token_p9_base,
         )
     }
 

@@ -76,15 +76,15 @@ mod test {
             .unwrap();
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
-            .token_base
+            .token_p9_base
             .set_token_circulating_supply(RawTokenAmount(100));
         token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 1], vec![0, 0])
             .unwrap();
         token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 2], vec![1, 1])
             .unwrap();
@@ -107,20 +107,20 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(
-            token1.token_base.token_circulating_supply(),
+            token1.token_p9_base.token_circulating_supply(),
             RawTokenAmount(100)
         );
         assert_eq!(
-            token1.token_base.token_configuration(&context).unwrap(),
+            token1.token_p9_base.token_configuration(&context).unwrap(),
             configuration1
         );
         let value = token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
@@ -129,11 +129,11 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(
-            token2.token_base.token_circulating_supply(),
+            token2.token_p9_base.token_circulating_supply(),
             RawTokenAmount(0)
         );
         assert_eq!(
-            token2.token_base.token_configuration(&context).unwrap(),
+            token2.token_p9_base.token_configuration(&context).unwrap(),
             configuration2
         );
     }
@@ -171,15 +171,15 @@ mod test {
             .unwrap();
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
-            .token_base
+            .token_p9_base
             .set_token_circulating_supply(RawTokenAmount(100));
         token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 1], vec![0, 0])
             .unwrap();
         token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .insert_value(&context.loader, &[0, 2], vec![1, 1])
             .unwrap();
@@ -237,7 +237,7 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(
-            token1.token_base.token_circulating_supply(),
+            token1.token_p9_base.token_circulating_supply(),
             RawTokenAmount(100)
         );
         let configuration1 = TokenConfiguration {
@@ -246,16 +246,16 @@ mod test {
             decimals: 2,
         };
         assert_eq!(
-            token1.token_base.token_configuration(&context).unwrap(),
+            token1.token_p9_base.token_configuration(&context).unwrap(),
             configuration1
         );
         let value = token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
-            .token_base
+            .token_p9_base
             .mutable_key_value_state
             .lookup_value(&context.loader, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
@@ -264,7 +264,7 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(
-            token2.token_base.token_circulating_supply(),
+            token2.token_p9_base.token_circulating_supply(),
             RawTokenAmount(0)
         );
         let configuration2 = TokenConfiguration {
@@ -273,7 +273,7 @@ mod test {
             decimals: 4,
         };
         assert_eq!(
-            token2.token_base.token_configuration(&context).unwrap(),
+            token2.token_p9_base.token_configuration(&context).unwrap(),
             configuration2
         );
     }

@@ -131,7 +131,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             ))
         }
         TokenUpdateErrorInternal::InsufficientBalance(err) => {
-            let token_configuration = token.token_base().token_configuration(context)?;
+            let token_configuration = token.token_p9_base().token_configuration(context)?;
 
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
                 TokenBalanceInsufficientRejectReason {
@@ -142,7 +142,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             ))
         }
         TokenUpdateErrorInternal::MintWouldOverflow(err) => {
-            let token_configuration = token.token_base().token_configuration(context)?;
+            let token_configuration = token.token_p9_base().token_configuration(context)?;
 
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::MintWouldOverflow(
                 MintWouldOverflowRejectReason {
@@ -259,7 +259,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
             transaction_execution,
             context,
             events,
-            token.token_base_mut(),
+            token.token_p9_base_mut(),
             transfer,
         ),
         TokenOperation::Mint(mint) => {
@@ -459,13 +459,13 @@ fn execute_token_mint<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
     let raw_amount = util::to_raw_token_amount(&token_configuration, mint_operation.amount)?;
 
     // operation execution
-    if !token.token_base().is_mintable(context) {
+    if !token.token_p9_base().is_mintable(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -476,12 +476,12 @@ fn execute_token_mint<C: EntityContextTypes>(
         token.as_ref(),
         TokenAdminRole::Mint,
     )?;
-    check_not_paused(context, token.token_base())?;
+    check_not_paused(context, token.token_p9_base())?;
 
     token_context::mint(
         context,
         events,
-        token.token_base_mut(),
+        token.token_p9_base_mut(),
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
@@ -496,13 +496,13 @@ fn execute_token_burn<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
     let raw_amount = util::to_raw_token_amount(&token_configuration, burn_operation.amount)?;
 
     // operation execution
-    if !token.token_base().is_burnable(context) {
+    if !token.token_p9_base().is_burnable(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -513,12 +513,12 @@ fn execute_token_burn<C: EntityContextTypes>(
         token.as_ref(),
         TokenAdminRole::Burn,
     )?;
-    check_not_paused(context, token.token_base())?;
+    check_not_paused(context, token.token_p9_base())?;
 
     token_context::burn(
         context,
         events,
-        token.token_base_mut(),
+        token.token_p9_base_mut(),
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
@@ -532,7 +532,7 @@ fn execute_token_pause<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     mut token: TokenPXRefMut<'_>,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     check_authorized(
         transaction_execution,
@@ -541,7 +541,7 @@ fn execute_token_pause<C: EntityContextTypes>(
         TokenAdminRole::Pause,
     )?;
 
-    token.token_base_mut().set_paused(context, true)?;
+    token.token_p9_base_mut().set_paused(context, true)?;
 
     let (event_type, details) = TokenModuleEvent::Pause(TokenPauseEventDetails {}).encode_event();
     events.extend(Some(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
@@ -559,7 +559,7 @@ fn execute_token_unpause<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     mut token: TokenPXRefMut<'_>,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     check_authorized(
         transaction_execution,
@@ -568,7 +568,7 @@ fn execute_token_unpause<C: EntityContextTypes>(
         TokenAdminRole::Pause,
     )?;
 
-    token.token_base_mut().set_paused(context, false)?;
+    token.token_p9_base_mut().set_paused(context, false)?;
 
     let (event_type, details) = TokenModuleEvent::Unpause(TokenPauseEventDetails {}).encode_event();
     events.extend(Some(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
@@ -587,9 +587,9 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
-    if !token.token_base().has_allow_list(context) {
+    if !token.token_p9_base().has_allow_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -602,9 +602,9 @@ fn execute_add_allow_list<C: EntityContextTypes>(
     )?;
 
     let account = context.account_by_address(&list_operation.target.address)?;
-    account.touch_token_account(context, token.token_base().token_index());
+    account.touch_token_account(context, token.token_p9_base().token_index());
     token
-        .token_base_mut()
+        .token_p9_base_mut()
         .set_allow_list_for(context, account.account_index(), true)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -627,9 +627,9 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
-    if !token.token_base().has_deny_list(context) {
+    if !token.token_p9_base().has_deny_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -642,9 +642,9 @@ fn execute_add_deny_list<C: EntityContextTypes>(
     )?;
 
     let account = context.account_by_address(&list_operation.target.address)?;
-    account.touch_token_account(context, token.token_base().token_index());
+    account.touch_token_account(context, token.token_p9_base().token_index());
     token
-        .token_base_mut()
+        .token_p9_base_mut()
         .set_deny_list_for(context, account.account_index(), true)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -667,9 +667,9 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
-    if !token.token_base().has_allow_list(context) {
+    if !token.token_p9_base().has_allow_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -682,9 +682,9 @@ fn execute_remove_allow_list<C: EntityContextTypes>(
     )?;
 
     let account = context.account_by_address(&list_operation.target.address)?;
-    account.touch_token_account(context, token.token_base().token_index());
+    account.touch_token_account(context, token.token_p9_base().token_index());
     token
-        .token_base_mut()
+        .token_p9_base_mut()
         .set_allow_list_for(context, account.account_index(), false)?;
 
     let event_details = TokenListUpdateEventDetails {
@@ -707,9 +707,9 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base().token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
-    if !token.token_base().has_deny_list(context) {
+    if !token.token_p9_base().has_deny_list(context) {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
             reason: "feature not enabled",
         });
@@ -722,9 +722,9 @@ fn execute_remove_deny_list<C: EntityContextTypes>(
     )?;
 
     let account = context.account_by_address(&list_operation.target.address)?;
-    account.touch_token_account(context, token.token_base().token_index());
+    account.touch_token_account(context, token.token_p9_base().token_index());
     token
-        .token_base_mut()
+        .token_p9_base_mut()
         .set_deny_list_for(context, account.account_index(), false)?;
 
     let event_details = TokenListUpdateEventDetails {

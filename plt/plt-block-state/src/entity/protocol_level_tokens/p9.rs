@@ -124,10 +124,11 @@ pub(crate) fn token_index_by_id(
 #[derive(Debug)]
 pub struct TokenP9 {
     /// Base P9 token representation
-    pub token_base: TokenP9Base,
+    pub token_p9_base: TokenP9Base,
 }
 
 /// Base type for protocol-level token on P9 and later protocols with compatible model.
+/// Protocol-specific token types (P9 and P11 currently) uses this type via composition
 #[derive(Debug)]
 pub struct TokenP9Base {
     /// Token index
