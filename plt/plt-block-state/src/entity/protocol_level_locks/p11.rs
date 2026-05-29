@@ -35,6 +35,18 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     Ok(())
 }
 
+pub(crate) fn delete_lock<C: EntityContextTypes>(
+    _context: &EntityContext<C>,
+    persistent_locks: &mut PersistentLocksP11,
+    lock_id: &LockId,
+) -> BlockStateResult<Option<LockP11>> {
+    let existing = persistent_locks.locks.0.remove(lock_id);
+    Ok(existing.map(|persistent| LockP11 {
+        lock_id: lock_id.clone(),
+        persistent,
+    }))
+}
+
 pub(crate) fn update_lock<C: EntityContextTypes>(
     _context: &EntityContext<C>,
     persistent_locks: &mut PersistentLocksP11,
@@ -62,17 +74,17 @@ pub(crate) fn lock_by_id<C: EntityContextTypes>(
     }))
 }
 
-/// Representation of protocol-level token on P9 and later protocols with compatible model.
+/// Representation of protocol-level lock on P11 and later protocols with compatible model.
 #[derive(Debug)]
 pub struct LockP11 {
-    /// Token index
+    /// Lock ID
     pub(crate) lock_id: LockId,
-    /// Persistent model of the protoco-level token.
+    /// Persistent model of the protocol-level lock.
     pub(crate) persistent: PersistentLockP11,
 }
 
 impl LockP11 {
-    /// Get the id of the lock.
+    /// Get the Lock ID of the lock.
     pub fn lock_id(&self) -> &LockId {
         &self.lock_id
     }

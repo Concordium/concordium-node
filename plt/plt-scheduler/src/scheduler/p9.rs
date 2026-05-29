@@ -1,8 +1,6 @@
-use crate::protocol_level_tokens;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::{Energy, Nonce};
-use concordium_base::contracts_common::AccountAddress;
+use crate::{protocol_level_tokens, TransactionContext};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::accounts::Account;
@@ -20,11 +18,9 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecu
 /// # Arguments
 ///
 /// - `sender_account` The account initiating the transaction (signer of the transaction)
-/// - `sender_account_address` The address of the account initiating the transaction (from the transaction header)
-/// - `transaction_sequence_number` The sequence number of the transaction
+/// - `transaction_context` Transacstion context containing sender, energy limit etc.
 /// - `block_state` Block state that can be queried and updated during execution.
 /// - `payload` The transaction payload to execute
-/// - `energy_limit` The payload to execute
 ///
 /// # Errors
 ///
@@ -33,18 +29,11 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecu
 pub fn execute_transaction<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     block_state: &mut BlockStateP9,
+    transaction_context: TransactionContext,
     sender_account: Account,
-    sender_account_address: AccountAddress,
-    transaction_sequence_number: Nonce,
     payload: Payload,
-    energy_limit: Energy,
 ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-    let mut execution = TransactionExecution::new(
-        energy_limit,
-        sender_account,
-        sender_account_address,
-        transaction_sequence_number,
-    );
+    let mut execution = TransactionExecution::new(transaction_context, sender_account);
 
     let outcome = match payload {
         Payload::TokenUpdate { payload } => {

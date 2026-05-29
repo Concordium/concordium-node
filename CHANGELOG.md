@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Add support for the following "meta update" operations:
+  - `lockCancel`: cancel a PLT Lock, releasing all funds to their owners.
+
 ## 11.2.0 (Devnet)
 
 - Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.

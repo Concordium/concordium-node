@@ -1,6 +1,6 @@
 use super::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
-use concordium_base::contracts_common::AccountAddress;
+use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -11,9 +11,10 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_scheduler::{queries, scheduler, TransactionContext};
+use plt_scheduler::protocol_level_tokens;
 use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
-use plt_scheduler::{protocol_level_tokens, queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
 use std::mem;
@@ -22,22 +23,18 @@ impl SchedulerOperations for BlockStateP9 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
+        transaction_context: TransactionContext,
         sender_account: AccountIndex,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
         payload: Payload,
-        energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
         let sender_account = Account::from_existing_account(sender_account);
 
         scheduler::p9::execute_transaction(
             context,
             self,
+            transaction_context,
             sender_account.clone(),
-            sender_account_address,
-            transaction_sequence_number,
             payload,
-            energy_limit,
         )
     }
 
@@ -115,23 +112,13 @@ impl SchedulerOperations for BlockStateP11 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
+        transaction_context: TransactionContext,
         sender_account: AccountIndex,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
         payload: Payload,
-        energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
         let sender_account = Account::from_existing_account(sender_account);
 
-        scheduler::p11::execute_transaction(
-            context,
-            self,
-            sender_account.clone(),
-            sender_account_address,
-            transaction_sequence_number,
-            payload,
-            energy_limit,
-        )
+        scheduler::p11::execute_transaction(context, self, transaction_context, sender_account.clone(), payload)
     }
 
     fn execute_chain_update<C: EntityContextTypes>(

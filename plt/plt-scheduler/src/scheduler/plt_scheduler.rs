@@ -1,9 +1,10 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::locks::get_lock_config;
 use crate::locks::lock_controller::LockController;
 use crate::scheduler::TransactionExecutionError;
+use crate::locks::{get_lock_config, lock_controller};
+use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError, TransactionFailure};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::common::cbor::{self};
 use concordium_base::protocol_level_locks::LockId;
@@ -14,6 +15,9 @@ use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenOperation};
 use concordium_base::transactions;
 use plt_block_state::block_state_interface::BlockStateOperations;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
+use plt_block_state::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError,
+};
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 use plt_block_state::utils;
 use plt_scheduler_types::types::events::{self, BlockItemEvent};
@@ -128,20 +132,51 @@ pub fn execute_meta_update_transaction<BSO: BlockStateOperations>(
                 }
             }
             MetaUpdateOperationKind::Lock(lock_operation) => {
-                let result = execute_lock_operation(
+                if let Err(e) = execute_lock_operation(
                     transaction_execution,
                     block_state,
                     index,
                     lock_operation,
                     &mut events,
-                )?;
-                if let Some(reject_reason) = result {
-                    return Ok(TransactionOutcome::Rejected(reject_reason));
-                }
+                ) {
+                    match e {
+                        TransactionFailure::Reject(reject_reason) => {
+                            return Ok(TransactionOutcome::Rejected(reject_reason));
+                        }
+                        TransactionFailure::Error(error) => return Err(error),
+                    }
+                };
             }
         }
     }
     Ok(TransactionOutcome::Success(events))
+}
+
+fn with_token<BSO: BlockStateOperations, F, R, E>(
+    block_state: &mut BSO,
+    token: &<BSO as BlockStateQuery>::Token,
+    events: &mut Vec<BlockItemEvent>,
+    f: F,
+) -> Result<R, E>
+where
+    F: FnOnce(&mut TokenOperationContext<BSO>) -> Result<R, E>,
+{
+    let token_configuration = block_state.token_configuration(token);
+    let mut token_module_state = block_state.mutable_token_key_value_state(token);
+    let mut token_module_state_dirty = false;
+    let mut kernel = TokenOperationContext {
+        block_state,
+        token,
+        token_configuration: &token_configuration,
+        token_module_state: &mut token_module_state,
+        token_module_state_dirty: &mut token_module_state_dirty,
+        events,
+    };
+    let result = f(&mut kernel)?;
+    if token_module_state_dirty {
+        block_state.set_token_key_value_state(token, token_module_state);
+    }
+    Ok(result)
 }
 
 fn execute_lock_operation<BSO: BlockStateOperations>(
@@ -150,7 +185,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
     _index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<Option<TransactionRejectReason>, TransactionExecutionError> {
+) -> Result<(), TransactionFailure> {
     match lock_operation {
         LockOperation::Fund(_meta_lock_fund_details) => todo!(),
         LockOperation::Send(_meta_lock_send_details) => todo!(),
@@ -161,12 +196,9 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
             let sequence_number = transaction_execution.transaction_sequence_number();
             let creation_order = transaction_execution.next_lock_creation_order();
             let lock_id = LockId::new(account_index, sequence_number, creation_order);
-            let controller = match LockController::new(block_state, config.controller) {
-                Ok(controller) => controller,
-                Err(reject_reason) => return Ok(Some(reject_reason)),
-            };
+            let controller = LockController::new(block_state, config.controller)?;
 
-            let recipients = match config
+            let recipients = config
                 .recipients
                 .iter()
                 .map(
@@ -177,11 +209,7 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
                         )),
                     },
                 )
-                .collect::<Result<Vec<_>, TransactionRejectReason>>()
-            {
-                Ok(recipients) => recipients,
-                Err(reject_reason) => return Ok(Some(reject_reason)),
-            };
+                .collect::<Result<Vec<_>, TransactionRejectReason>>()?;
             let configuration = LockConfiguration::new(recipients, config.expiry, controller);
 
             // We reconstruct the lock config for the event, rather than using
@@ -200,9 +228,50 @@ fn execute_lock_operation<BSO: BlockStateOperations>(
 
             block_state.create_lock(lock_id.clone(), configuration);
 
-            Ok(None)
+            Ok(())
         }
-        LockOperation::Cancel(_meta_lock_cancel_details) => todo!(),
+        LockOperation::Cancel(meta_lock_cancel_details) => {
+            // TODO: (COR-2306) charge.
+            let lock = block_state
+                .lock_by_id(&meta_lock_cancel_details.lock)
+                .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
+
+            let lock_configuration = block_state.lock_configuration(&lock);
+            let memo: Option<transactions::Memo> = meta_lock_cancel_details
+                .memo
+                .clone()
+                .map(transactions::Memo::from);
+
+            if !lock_configuration
+                .expiry()
+                .is_expired(transaction_execution.timestamp())
+                && !lock_configuration.controller().validate_operation(
+                    block_state,
+                    transaction_execution.sender_account(),
+                    &lock_controller::LockOperation::Cancel(meta_lock_cancel_details),
+                )
+            {
+                // The lock is neither expired, nor is the sender authorized to
+                // cancel the lock, so we reject the transaction.
+                return Err(TransactionRejectReason::LockCancelNotAuthorized(
+                    lock.lock_id().clone(),
+                    transaction_execution.sender_account_address(),
+                )
+                .into());
+            }
+            for (account_index, token) in block_state.lock_balances(&lock).collect::<Vec<_>>() {
+                with_token(block_state, &token, events, |kernel| {
+                    kernel.unlock_balance(account_index, lock.lock_id(), &memo)
+                })?;
+            }
+            block_state.delete_lock(lock.lock_id());
+            let event = events::LockDestroyEvent {
+                lock_id: lock.lock_id().clone(),
+            };
+            events.push(BlockItemEvent::LockDestroyed(event));
+
+            Ok(())
+        }
     }
 }
 

@@ -3,10 +3,11 @@ use std::collections::BTreeMap;
 use crate::{locks::lock_controller::LockController, queries::QueryLockError, token_module};
 use concordium_base::{
     base::AccountIndex,
-    protocol_level_locks::{LockAccountFunds, LockConfig, LockId, LockInfo, LockedTokenAmount},
+    protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
 use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_block_state::entity::protocol_level_locks::p11::LockP11;
 use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 
@@ -45,7 +46,7 @@ pub fn get_lock_config<BSQ: BlockStateQuery>(
 /// per-`(account, token)` balances held by the lock.
 pub fn get_lock_info<BSQ: BlockStateQuery>(
     bsq: &BSQ,
-    lock_id: &LockId,
+    lock: &LockP11,
     configuration: &LockConfiguration,
 ) -> Result<LockInfo, QueryLockError> {
     // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
@@ -61,19 +62,18 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
-    for (account_index, token) in bsq.lock_balances(lock_id) {
+    for (account_index, token) in bsq.lock_balances(lock) {
         let token_configuration = bsq.token_configuration(&token);
 
         // for each locked balance record for the lock, get the locked token amount recorded in the
         // account state of the token.
-        // todo handle BlockStateFailure as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler instead of unwrap
         let raw_balance = token_module::query_locked_balance(
             bsq.context(),
             &bsq.token_p11(&token),
             account_index,
-            lock_id,
+            lock.lock_id(),
         )
-        .unwrap();
+        .map_err(|err| QueryLockError::StateInvariantViolation(err.to_string()))?;
         let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
         funds_by_account
             .entry(account_index)
@@ -102,7 +102,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         .collect::<Result<_, QueryLockError>>()?;
 
     Ok(LockInfo {
-        lock: lock_id.clone(),
+        lock: lock.lock_id().clone(),
         recipients,
         expiry: configuration.expiry(),
         controller,

@@ -57,6 +57,6 @@ pub fn query_lock_info<BSQ: BlockStateQuery>(
 ) -> Result<RawCbor, QueryLockError> {
     let lock = block_state.lock_by_id(lock_id)?;
     let configuration = block_state.lock_configuration(&lock);
-    let lock_info = locks::get_lock_info(block_state, lock_id, &configuration)?;
+    let lock_info = locks::get_lock_info(block_state, &lock, &configuration)?;
     Ok(RawCbor::from(cbor_encode(&lock_info)))
 }

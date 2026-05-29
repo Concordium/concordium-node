@@ -202,6 +202,8 @@ pub fn transfer<C: EntityContextTypes>(
             decimals: token_configuration.decimals,
         },
         memo,
+        from_lock: None,
+        to_lock: None,
     });
 
     events.extend(Some(event));

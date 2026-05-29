@@ -248,7 +248,9 @@ metaUpdateMultiEvents =
           ettFrom = holder1,
           ettTo = holder2,
           ettAmount = TokenAmount{taValue = 100, taDecimals = 2},
-          ettMemo = Nothing
+          ettMemo = Nothing,
+          ettFromLock = Nothing,
+          ettToLock = Nothing
         },
       TokenMint
         { etmTokenId = pltY,
@@ -285,7 +287,9 @@ metaUpdateMultiEvents =
           ettFrom = holder1,
           ettTo = holder2,
           ettAmount = TokenAmount{taValue = 2200, taDecimals = 0},
-          ettMemo = Just (Memo "\xa0")
+          ettMemo = Just (Memo "\xa0"),
+          ettFromLock = Nothing,
+          ettToLock = Nothing
         },
       TokenModuleEvent
         { etmeTokenId = pltX,

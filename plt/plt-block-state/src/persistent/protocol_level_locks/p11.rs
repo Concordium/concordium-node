@@ -142,6 +142,15 @@ pub struct LockControllerSimpleV0 {
     pub memo: Option<CborMemo>,
 }
 
+impl LockControllerSimpleV0 {
+    /// Check if an account has a specified role.
+    pub fn has_role(&self, account: AccountIndex, role: LockControllerSimpleV0Capability) -> bool {
+        self.grants
+            .iter()
+            .any(|grant| grant.account == account && grant.roles.contains(&role))
+    }
+}
+
 /// A grant of capabilities to a specific account for a SimpleV0 lock
 /// controller.
 ///

@@ -77,11 +77,14 @@ fn test_create_simple_lock() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account_1,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
             account_index_1,
-            account_1,
-            1.into(),
             Payload::MetaUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
