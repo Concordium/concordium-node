@@ -181,11 +181,14 @@ fn test_query_token_account_info_allow_list_no_balance() {
     let result = block_state
         .execute_transaction(
             &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: gov_addr,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
             gov_account.account_index(),
-            gov_addr,
-            1.into(),
             Payload::TokenUpdate { payload },
-            Energy::from(u64::MAX),
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

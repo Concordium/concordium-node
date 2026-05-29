@@ -317,14 +317,18 @@ testTwoOperations _ pvString =
                                       ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
                                       ettTo = HolderAccount $ CBOR.chaAccount recptAcct,
                                       ettAmount = TokenAmount 10 0,
-                                      ettMemo = Nothing
+                                      ettMemo = Nothing,
+                                      ettFromLock = Nothing,
+                                      ettToLock = Nothing
                                     },
                                   TokenTransfer
                                     { ettTokenId = gtu,
                                       ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
                                       ettTo = HolderAccount $ CBOR.chaAccount recptAcct,
                                       ettAmount = TokenAmount 90 0,
-                                      ettMemo = Nothing
+                                      ettMemo = Nothing,
+                                      ettFromLock = Nothing,
+                                      ettToLock = Nothing
                                     }
                                 ]
                                 result
@@ -834,7 +838,9 @@ testTransfer _ = property (ioProperty . theTest)
                                               ettFrom = HolderAccount actualSenderAddress,
                                               ettTo = HolderAccount actualRecipientAddress,
                                               ettAmount = mintAmt,
-                                              ettMemo = CBOR.taggableMemoInner <$> tcMemo
+                                              ettMemo = CBOR.taggableMemoInner <$> tcMemo,
+                                              ettFromLock = Nothing,
+                                              ettToLock = Nothing
                                             }
                                         ]
                                         result
@@ -1051,7 +1057,9 @@ testPauseUnpause spv = do
                           ettFrom = HolderAccount dummyAddress,
                           ettTo = HolderAccount dummyAddress,
                           ettAmount = TokenAmount 10 0,
-                          ettMemo = Nothing
+                          ettMemo = Nothing,
+                          ettFromLock = Nothing,
+                          ettToLock = Nothing
                         },
                       pauseEvent
                     ]
@@ -1477,7 +1485,9 @@ testNoCoinInfoTransfer _ pvString =
                                       ettFrom = HolderAccount dummyAddress,
                                       ettTo = HolderAccount dummyAddress2,
                                       ettAmount = transferAmt,
-                                      ettMemo = Nothing
+                                      ettMemo = Nothing,
+                                      ettFromLock = Nothing,
+                                      ettToLock = Nothing
                                     }
                                 ]
                                 result

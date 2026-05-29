@@ -1,6 +1,6 @@
 use super::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
-use concordium_base::contracts_common::AccountAddress;
+use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -13,7 +13,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_scheduler::queries::{QueryLockError, QueryTokenInfoError};
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
-use plt_scheduler::{queries, scheduler};
+use plt_scheduler::{TransactionContext, queries, scheduler};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
 use std::mem;
@@ -22,11 +22,9 @@ impl SchedulerOperations for BlockStateP9 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
+        transaction_context: TransactionContext,
         sender_account: AccountIndex,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
         payload: Payload,
-        energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
     where
         EntityContext<C>: Default,
@@ -39,12 +37,10 @@ impl SchedulerOperations for BlockStateP9 {
         };
 
         let res = scheduler::execute_transaction(
+            transaction_context,
             sender_account,
-            sender_account_address,
-            transaction_sequence_number,
             &mut exec_block_state,
             payload,
-            energy_limit,
         );
 
         mem::swap(context, &mut exec_block_state.context);
@@ -169,11 +165,9 @@ impl SchedulerOperations for BlockStateP11 {
     fn execute_transaction<C: EntityContextTypes>(
         &mut self,
         context: &mut EntityContext<C>,
+        transaction_context: TransactionContext,
         sender_account: AccountIndex,
-        sender_account_address: AccountAddress,
-        transaction_sequence_number: Nonce,
         payload: Payload,
-        energy_limit: Energy,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
     where
         EntityContext<C>: Default,
@@ -189,12 +183,10 @@ impl SchedulerOperations for BlockStateP11 {
         };
 
         let res = scheduler::execute_transaction(
+            transaction_context,
             sender_account,
-            sender_account_address,
-            transaction_sequence_number,
             &mut exec_block_state,
             payload,
-            energy_limit,
         );
 
         mem::swap(context, &mut exec_block_state.context);
