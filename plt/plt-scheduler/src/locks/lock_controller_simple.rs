@@ -41,7 +41,7 @@ impl LockController for LockControllerSimpleV0 {
                         sender_address,
                     ));
                 }
-            },
+            }
             LockOperation::Return(return_details) => {
                 if !self.has_role(sender_index, LockControllerSimpleV0Capability::Return) {
                     return Err(TransactionRejectReason::LockReturnNotAuthorized(
@@ -49,7 +49,7 @@ impl LockController for LockControllerSimpleV0 {
                         sender_address,
                     ));
                 }
-            },
+            }
             LockOperation::Cancel(cancel_details) => {
                 if !self.has_role(sender_index, LockControllerSimpleV0Capability::Cancel) {
                     return Err(TransactionRejectReason::LockCancelNotAuthorized(
@@ -57,7 +57,7 @@ impl LockController for LockControllerSimpleV0 {
                         sender_address,
                     ));
                 }
-            },
+            }
         }
         Ok(())
     }
