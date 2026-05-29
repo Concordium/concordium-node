@@ -462,6 +462,39 @@ pub fn get_locked_balance_for(
     else {
         return Ok(RawTokenAmount(0));
     };
+    decode_locked_balance(value)
+}
+
+/// Get the locked balances recorded in token-module account state for the given
+/// account.
+pub fn get_locked_balances_for_account(
+    context: &impl ReadTokenKeyValueState,
+    account: AccountIndex,
+) -> Result<Vec<(LockId, RawTokenAmount)>, TokenStateInvariantError> {
+    let prefix = account_state_key(account, ACCOUNT_STATE_KEY_QUANTA);
+    context
+        .iter_token_state_prefix(&prefix)
+        .map(|(key, value)| {
+            let lock_bytes = key
+                .0
+                .strip_prefix::<[u8]>(prefix.0.as_ref())
+                .ok_or_else(|| {
+                    TokenStateInvariantError(
+                        "Iterator over account quanta state produced invalid key".to_string(),
+                    )
+                })?;
+            let lock = common::from_bytes_complete(lock_bytes).map_err(|err| {
+                TokenStateInvariantError(format!("Stored lock id cannot be decoded: {}", err))
+            })?;
+            let amount = decode_locked_balance(value)?;
+            Ok((lock, amount))
+        })
+        .collect()
+}
+
+fn decode_locked_balance(
+    value: TokenStateValue,
+) -> Result<RawTokenAmount, TokenStateInvariantError> {
     common::from_bytes_complete(value.0).map_err(|err| {
         TokenStateInvariantError(format!("Stored locked balance cannot be decoded: {}", err))
     })

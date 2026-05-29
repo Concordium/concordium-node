@@ -251,6 +251,15 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
     ) {
         panic!("no locks on P9")
     }
+
+    fn remove_lock_balance_ref(
+        &mut self,
+        _lock: &LockId,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
+        panic!("no locks on P9")
+    }
 }
 
 /// Runtime/execution state relevant for providing an implementation of
@@ -502,5 +511,23 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<
             .unwrap();
         lock.add_lock_balance_ref(account.account_index(), *token);
         self.block_state.update_lock(&self.context, lock).unwrap();
+    }
+
+    fn remove_lock_balance_ref(
+        &mut self,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) {
+        let mut lock = self
+            .block_state
+            .lock_by_id(&self.context, lock)
+            .unwrap()
+            .unwrap();
+        let removed = lock.remove_lock_balance_ref(account.account_index(), *token);
+        if removed {
+            // Only update on a change.
+            self.block_state.update_lock(&self.context, lock).unwrap();
+        }
     }
 }

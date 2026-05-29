@@ -1,3 +1,4 @@
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
@@ -13,17 +14,52 @@ impl LockController for LockControllerSimpleV0 {
     fn validate_operation<BSQ: BlockStateQuery>(
         &self,
         bsq: &BSQ,
+        sender_address: AccountAddress,
         sender: &BSQ::Account,
         operation: &LockOperation,
-    ) -> bool {
+    ) -> Result<(), TransactionRejectReason> {
         let sender_index = bsq.account_index(sender);
-        let role = match operation {
-            LockOperation::Fund(_) => LockControllerSimpleV0Capability::Fund,
-            LockOperation::Send(_) => LockControllerSimpleV0Capability::Send,
-            LockOperation::Return(_) => LockControllerSimpleV0Capability::Return,
-            LockOperation::Cancel(_) => LockControllerSimpleV0Capability::Cancel,
-        };
-        self.has_role(sender_index, role)
+        match operation {
+            LockOperation::Fund(fund_details) => {
+                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Fund) {
+                    return Err(TransactionRejectReason::LockFundNotAuthorized(
+                        fund_details.lock.clone(),
+                        sender_address,
+                    ));
+                }
+                if !self.tokens.contains(&fund_details.token) {
+                    return Err(TransactionRejectReason::LockTokenNotPermitted(
+                        fund_details.lock.clone(),
+                        fund_details.token.clone(),
+                    ));
+                }
+            }
+            LockOperation::Send(send_details) => {
+                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Send) {
+                    return Err(TransactionRejectReason::LockSendNotAuthorized(
+                        send_details.lock.clone(),
+                        sender_address,
+                    ));
+                }
+            }
+            LockOperation::Return(return_details) => {
+                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Return) {
+                    return Err(TransactionRejectReason::LockReturnNotAuthorized(
+                        return_details.lock.clone(),
+                        sender_address,
+                    ));
+                }
+            }
+            LockOperation::Cancel(cancel_details) => {
+                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Cancel) {
+                    return Err(TransactionRejectReason::LockCancelNotAuthorized(
+                        cancel_details.lock.clone(),
+                        sender_address,
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn to_cbor_controller<BSQ: BlockStateQuery>(
