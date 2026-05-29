@@ -393,7 +393,7 @@ fn test_pause_multiple_ops() {
 
     // No tokens minted
     assert_eq!(
-        token.token_base.token_circulating_supply(),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(0)
     );
     // Token is NOT paused (local state was discarded on rejection)
@@ -474,7 +474,7 @@ fn test_unpause_multiple_ops() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        token.token_base.token_circulating_supply(),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(1000)
     );
 }

@@ -12,7 +12,7 @@ impl TokenPX {
     pub fn token_base(&self) -> &TokenP9Base {
         match self {
             Self::TokenP9(token) => &token.token_p9_base,
-            Self::TokenP11(token) => &token.token_base,
+            Self::TokenP11(token) => &token.token_p9_base,
         }
     }
 
@@ -20,7 +20,7 @@ impl TokenPX {
     pub fn token_base_mut(&mut self) -> &mut TokenP9Base {
         match self {
             Self::TokenP9(token) => &mut token.token_p9_base,
-            Self::TokenP11(token) => &mut token.token_base,
+            Self::TokenP11(token) => &mut token.token_p9_base,
         }
     }
 }
@@ -37,7 +37,7 @@ impl<'a> TokenPXRefMut<'a> {
     pub fn token_p9_base(&self) -> &TokenP9Base {
         match self {
             Self::TokenP9(token) => &token.token_p9_base,
-            Self::TokenP11(token) => &token.token_base,
+            Self::TokenP11(token) => &token.token_p9_base,
         }
     }
 
@@ -45,7 +45,7 @@ impl<'a> TokenPXRefMut<'a> {
     pub fn token_p9_base_mut(&mut self) -> &mut TokenP9Base {
         match self {
             Self::TokenP9(token) => &mut token.token_p9_base,
-            Self::TokenP11(token) => &mut token.token_base,
+            Self::TokenP11(token) => &mut token.token_p9_base,
         }
     }
 
@@ -78,7 +78,7 @@ impl<'a> TokenPXRef<'a> {
     pub fn token_base(&self) -> &'a TokenP9Base {
         match self {
             Self::TokenP9(token) => &token.token_p9_base,
-            Self::TokenP11(token) => &token.token_base,
+            Self::TokenP11(token) => &token.token_p9_base,
         }
     }
 }

@@ -99,7 +99,7 @@ pub fn lock_balance(
         .token_by_id(context, token_id)
         .unwrap()
         .expect("token must exist");
-    let token_index = token.token_base.token_index();
+    let token_index = token.token_p9_base.token_index();
 
     // Register the (account, token) pair in the lock state
     let mut lock = block_state

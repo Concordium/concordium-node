@@ -232,7 +232,7 @@ pub fn unlock_balance<C: EntityContextTypes>(
     }
     token.set_locked_balance_for(context, account_index, lock_id, RawTokenAmount(0))?;
 
-    let token_configuration = token.token_base.token_configuration(context)?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
     let account_address = context
         .account_by_index(account_index)
         .map_err(|err| {

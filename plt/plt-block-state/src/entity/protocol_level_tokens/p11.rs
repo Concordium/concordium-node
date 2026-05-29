@@ -13,7 +13,7 @@ use plt_scheduler_types::types::tokens::RawTokenAmount;
 #[derive(Debug)]
 pub struct TokenP11 {
     /// Base P9 token representation
-    pub token_base: TokenP9Base,
+    pub token_p9_base: TokenP9Base,
 }
 
 impl TokenP11 {
@@ -24,7 +24,7 @@ impl TokenP11 {
         account: AccountIndex,
     ) -> BlockStateResult<Roles> {
         Roles::try_from_state_value(
-            self.token_base
+            self.token_p9_base
                 .mutable_key_value_state
                 .lookup_value(
                     &context.loader,
@@ -48,13 +48,13 @@ impl TokenP11 {
         roles: Roles,
     ) -> BlockStateResult<()> {
         if let Some(value) = roles.into_state_value() {
-            self.token_base.mutable_key_value_state.insert_value(
+            self.token_p9_base.mutable_key_value_state.insert_value(
                 &context.loader,
                 &state_keys::account_roles_state_key(account),
                 value,
             )
         } else {
-            self.token_base.mutable_key_value_state.delete_value(
+            self.token_p9_base.mutable_key_value_state.delete_value(
                 &context.loader,
                 &state_keys::account_roles_state_key(account),
             )
@@ -96,7 +96,7 @@ impl TokenP11 {
         account_index: AccountIndex,
         lock_id: &LockId,
     ) -> BlockStateResult<RawTokenAmount> {
-        let Some(value) = self.token_base.mutable_key_value_state.lookup_value(
+        let Some(value) = self.token_p9_base.mutable_key_value_state.lookup_value(
             &context.loader,
             &state_keys::account_quanta_state_key(account_index, lock_id),
         ) else {
@@ -119,12 +119,12 @@ impl TokenP11 {
         amount: RawTokenAmount,
     ) -> BlockStateResult<()> {
         if amount == RawTokenAmount(0) {
-            self.token_base.mutable_key_value_state.delete_value(
+            self.token_p9_base.mutable_key_value_state.delete_value(
                 &context.loader,
                 &state_keys::account_quanta_state_key(account_index, lock_id),
             )?;
         } else {
-            self.token_base.mutable_key_value_state.insert_value(
+            self.token_p9_base.mutable_key_value_state.insert_value(
                 &context.loader,
                 &state_keys::account_quanta_state_key(account_index, lock_id),
                 common::to_bytes(&amount),
@@ -139,7 +139,7 @@ impl TokenP11 {
         &self,
         context: &EntityContext<C>,
     ) -> BlockStateResult<Vec<(AccountIndex, Roles)>> {
-        self.token_base
+        self.token_p9_base
             .mutable_key_value_state
             .iter_prefix(&context.loader, &ACCOUNT_ROLES_STATE_PREFIX)?
             .map(|(key, value)| {

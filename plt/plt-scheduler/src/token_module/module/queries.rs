@@ -110,14 +110,14 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
     }
     Ok(TokenAuthorizations {
         update_admin_roles: Some(update_admin_roles),
-        mint: token.token_base.is_mintable(context).then_some(mint),
-        burn: token.token_base.is_burnable(context).then_some(burn),
+        mint: token.token_p9_base.is_mintable(context).then_some(mint),
+        burn: token.token_p9_base.is_burnable(context).then_some(burn),
         update_allow_list: token
-            .token_base
+            .token_p9_base
             .has_allow_list(context)
             .then_some(update_allow_list),
         update_deny_list: token
-            .token_base
+            .token_p9_base
             .has_deny_list(context)
             .then_some(update_deny_list),
         pause: Some(pause),

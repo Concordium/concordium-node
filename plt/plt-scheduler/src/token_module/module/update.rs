@@ -748,10 +748,10 @@ fn check_roles_supported<C: EntityContextTypes>(
     for role in roles {
         let supported = match role {
             TokenAdminRole::UpdateAdminRoles => true,
-            TokenAdminRole::Mint => token.token_base.is_mintable(context),
-            TokenAdminRole::Burn => token.token_base.is_burnable(context),
-            TokenAdminRole::UpdateAllowList => token.token_base.has_allow_list(context),
-            TokenAdminRole::UpdateDenyList => token.token_base.has_deny_list(context),
+            TokenAdminRole::Mint => token.token_p9_base.is_mintable(context),
+            TokenAdminRole::Burn => token.token_p9_base.is_burnable(context),
+            TokenAdminRole::UpdateAllowList => token.token_p9_base.has_allow_list(context),
+            TokenAdminRole::UpdateDenyList => token.token_p9_base.has_deny_list(context),
             TokenAdminRole::Pause => true,
             TokenAdminRole::UpdateMetadata => true,
         };
@@ -771,7 +771,7 @@ fn execute_assign_admin_roles<C: EntityContextTypes>(
     token: &mut TokenP11,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base.token_configuration(context)?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
 
     check_authorized(
         transaction_execution,
@@ -805,7 +805,7 @@ fn execute_revoke_admin_roles<C: EntityContextTypes>(
     token: &mut TokenP11,
     operation: &TokenUpdateAdminRolesDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base.token_configuration(context)?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
 
     check_authorized(
         transaction_execution,
@@ -847,7 +847,7 @@ fn execute_update_metadata<C: EntityContextTypes>(
     token: &mut TokenP11,
     metadata_url: &MetadataUrl,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_base.token_configuration(context)?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
 
     if !metadata_url.additional.is_empty() {
         return Err(TokenUpdateErrorInternal::UnsupportedOperation {
@@ -860,7 +860,9 @@ fn execute_update_metadata<C: EntityContextTypes>(
         TokenPXRef::TokenP11(token),
         TokenAdminRole::UpdateMetadata,
     )?;
-    token.token_base.set_metadata_url(context, metadata_url)?;
+    token
+        .token_p9_base
+        .set_metadata_url(context, metadata_url)?;
     let event = TokenModuleEvent::UpdateMetadata(TokenUpdateMetadataEventDetails {
         metadata_url: metadata_url.clone(),
     });

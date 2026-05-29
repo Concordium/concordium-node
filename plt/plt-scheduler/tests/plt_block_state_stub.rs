@@ -79,11 +79,11 @@ fn test_account_balance() {
         .unwrap();
 
     assert_eq!(
-        account0.account_token_balance(&context, token.token_base.token_index()),
+        account0.account_token_balance(&context, token.token_p9_base.token_index()),
         RawTokenAmount(245)
     );
     assert_eq!(
-        account1.account_token_balance(&context, token.token_base.token_index()),
+        account1.account_token_balance(&context, token.token_p9_base.token_index()),
         RawTokenAmount(0)
     );
 }

@@ -34,7 +34,7 @@ fn test_create_plt() {
     let read_configuration = block_state
         .token_by_index(&context, token_index)
         .unwrap()
-        .token_base
+        .token_p9_base
         .token_configuration(&context)
         .unwrap();
     assert_eq!(read_configuration, configuration);
@@ -99,7 +99,7 @@ fn test_token_by_id() {
         .token_by_id(&context, &token_id1)
         .unwrap()
         .expect("token should exist");
-    assert_eq!(token_by_id.token_base.token_index(), token_index);
+    assert_eq!(token_by_id.token_p9_base.token_index(), token_index);
 
     // Get token by non-canonical id
     let non_canonical_token_id1: TokenId = "TOKEN1".parse().unwrap();
@@ -107,7 +107,7 @@ fn test_token_by_id() {
         .token_by_id(&context, &non_canonical_token_id1)
         .unwrap()
         .expect("token should exist");
-    assert_eq!(token_index_by_id.token_base.token_index(), token_index);
+    assert_eq!(token_index_by_id.token_p9_base.token_index(), token_index);
 
     // Get non-existing token by id
     let token_id2 = "token2".parse().unwrap();
