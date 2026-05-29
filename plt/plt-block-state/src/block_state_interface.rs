@@ -78,6 +78,8 @@ pub trait BlockStateQuery {
     /// Get token P11 entity.
     fn token_p11(&self, token: &Self::Token) -> TokenP11;
 
+
+
     /// Get the circulating supply of a protocol-level token.
     ///
     /// # Arguments
@@ -329,4 +331,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - The `lock` MUST already exist in the block state, i.e.
     ///   `s.lock_by_id(lock_id).expect("lock exists")`.
     fn add_lock_balance_ref(&mut self, lock: &LockId, account: &Self::Account, token: &Self::Token);
+
+    /// Update token P11 entity.
+    fn update_token_p11(&mut self, token: TokenP11);
 }

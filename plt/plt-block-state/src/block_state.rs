@@ -284,6 +284,10 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
     ) {
         panic!("no locks on P9")
     }
+
+    fn update_token_p11(&mut self, token: TokenP11) {
+        todo!()
+    }
 }
 
 /// Runtime/execution state relevant for providing an implementation of

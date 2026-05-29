@@ -1,6 +1,6 @@
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::TransactionExecution;
-use crate::{protocol_level_tokens, TransactionContext};
+use crate::{TransactionContext, protocol_level_tokens};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::accounts::Account;
@@ -74,11 +74,11 @@ pub fn execute_chain_update<C: EntityContextTypes>(
 ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            protocol_level_tokens::p9::execute_create_plt_chain_update(
+            Ok(protocol_level_tokens::p9::execute_create_plt_chain_update(
                 context,
                 block_state,
                 create_plt,
-            )
+            )?)
         }
         _ => Err(ChainUpdateExecutionError::UnexpectedPayload),
     }

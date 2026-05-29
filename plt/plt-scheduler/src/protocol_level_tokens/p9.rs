@@ -147,7 +147,7 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     block_state: &mut BlockStateP9,
     payload: CreatePlt,
-) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
+) -> BlockStateResult<ChainUpdateOutcome> {
     // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(context, &payload.token_id)? {
@@ -243,7 +243,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP9,
     payload: TokenOperationsPayload,
-) -> Result<TransactionOutcome, TransactionExecutionError> {
+) -> BlockStateResult<TransactionOutcome> {
     // Charge energy
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)

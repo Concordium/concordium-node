@@ -1,8 +1,11 @@
 use crate::token_module::errors::{InsufficientBalanceError, MintWouldOverflowError};
+use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::transactions::Memo;
-use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
+use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::{OverflowError, RawTokenAmountDelta};
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
@@ -209,4 +212,45 @@ pub fn transfer<C: EntityContextTypes>(
     events.extend(Some(event));
 
     Ok(Ok(()))
+}
+
+/// Unlock the balance of an account associated with a particular lock for
+/// this particular token. This generates a `TokenTransferEvent` to reflect
+/// the change in the locked balance.
+pub fn unlock_balance<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    events: &mut impl Extend<BlockItemEvent>,
+    token: &mut TokenP11,
+    account_index: AccountIndex,
+    lock_id: &LockId,
+    memo: &Option<Memo>,
+) -> BlockStateResult<()> {
+    let old_balance = token.get_locked_balance_for(context, account_index, lock_id)?;
+    if old_balance == RawTokenAmount(0) {
+        // No locked balance, nothing to do.
+        return Ok(());
+    }
+    token.set_locked_balance_for(context, account_index, lock_id, RawTokenAmount(0))?;
+
+    let token_configuration = token.token_base.token_configuration(context)?;
+    let account_address = context
+        .account_by_index(account_index)
+        .map_err(|err| {
+            BlockStateFailure::Invariant(format!("Account not found by index: {}", err))
+        })?
+        .canonical_account_address;
+    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+        token_id: token_configuration.token_id,
+        from: TokenHolder::Account(account_address),
+        to: TokenHolder::Account(account_address),
+        amount: TokenAmount {
+            amount: old_balance,
+            decimals: token_configuration.decimals,
+        },
+        memo: memo.clone(),
+        from_lock: Some(lock_id.clone()),
+        to_lock: None,
+    })));
+
+    Ok(())
 }

@@ -6,7 +6,7 @@ use crate::{TOKEN_MODULE_REF, token_module};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     DeserializationFailureRejectReason, RawCbor, TokenId, TokenModuleInitializationParameters,
-    TokenModuleRejectReason, TokenOperations, TokenOperationsPayload,
+    TokenModuleRejectReason, TokenOperation, TokenOperations, TokenOperationsPayload,
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
@@ -147,7 +147,7 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     block_state: &mut BlockStateP11,
     payload: CreatePlt,
-) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
+) -> BlockStateResult<ChainUpdateOutcome> {
     // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(context, &payload.token_id)? {
@@ -242,7 +242,7 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     payload: TokenOperationsPayload,
-) -> Result<TransactionOutcome, TransactionExecutionError> {
+) -> BlockStateResult<TransactionOutcome> {
     // Charge energy
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
@@ -326,4 +326,57 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
 
     // Return events
     Ok(TransactionOutcome::Success(events))
+}
+
+/// Execute [`TokenOperation`]
+pub fn execute_token_update_operation<C: EntityContextTypes>(
+    context: &mut EntityContext<C>,
+    transaction_execution: &mut TransactionExecution,
+    block_state: &mut BlockStateP11,
+    operation_index: usize,
+    token_id: &TokenId,
+    token_operation: TokenOperation,
+    events: &mut Vec<BlockItemEvent>,
+) -> BlockStateResult<Result<(), TransactionRejectReason>> {
+    // Lookup token
+    let mut token = match block_state.token_by_id(context, token_id)? {
+        Ok(token) => token,
+        Err(TokenNotFoundByIdError(_)) => {
+            return Ok(Err(TransactionRejectReason::NonExistentTokenId(
+                token_id.clone(),
+            )));
+        }
+    };
+    let token_configuration = token.token_base.token_configuration(context)?;
+
+    // Execute operation
+    match token_module::execute_token_update_operation_at_index(
+        transaction_execution,
+        context,
+        events,
+        TokenPXRefMut::TokenP11(&mut token),
+        operation_index,
+        &token_operation,
+    )? {
+        Ok(()) => (),
+        Err(TokenUpdateError::OutOfEnergy(_)) => {
+            return Ok(Err(TransactionRejectReason::OutOfEnergy));
+        }
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
+            let (reason_type, cbor) = reject_reason.encode_reject_reason();
+            return Ok(Err(TransactionRejectReason::TokenUpdateTransactionFailed(
+                EncodedTokenModuleRejectReason {
+                    // Use the canonical token id from the token configuration
+                    token_id: token_configuration.token_id.clone(),
+                    reason_type: reason_type.to_type_discriminator(),
+                    details: Some(cbor),
+                },
+            )));
+        }
+    }
+
+    // Write back the token
+    block_state.update_token(context, token)?;
+
+    Ok(Ok(()))
 }
