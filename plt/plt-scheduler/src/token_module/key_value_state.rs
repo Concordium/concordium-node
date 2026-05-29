@@ -47,7 +47,7 @@ pub trait ReadTokenKeyValueState {
     /// Get an iterator over key-value pairs that share the given prefix.
     fn iter_token_state_prefix(
         &self,
-        prefix: &TokenStateKey,
+        prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)>;
 }
 
@@ -62,10 +62,10 @@ where
 
     fn iter_token_state_prefix(
         &self,
-        prefix: &TokenStateKey,
+        prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -80,10 +80,10 @@ where
 
     fn iter_token_state_prefix(
         &self,
-        prefix: &TokenStateKey,
+        prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -355,7 +355,7 @@ pub fn get_token_authorizations<BSQ: BlockStateQuery>(
     let mut update_metadata = TokenRoleAuthorizations::default();
 
     for (key, roles) in
-        context.iter_token_state_prefix(&TokenStateKey(ACCOUNT_ROLES_STATE_PREFIX.into()))
+        context.iter_token_state_prefix(TokenStateKey(ACCOUNT_ROLES_STATE_PREFIX.into()))
     {
         let account_index_bytes =
             key.0
@@ -462,6 +462,46 @@ pub fn get_locked_balance_for(
     else {
         return Ok(RawTokenAmount(0));
     };
+    decode_locked_balance(value)
+}
+
+/// Get the locked balances recorded in token-module account state for the given
+/// account.
+///
+/// # Arguments
+///
+/// - `context`: Read access to token key-value state.
+/// - `account`: Account whose lock-controlled balances should be returned.
+///
+/// # Errors
+///
+/// Returns an error if a stored lock identifier or locked amount cannot be
+/// decoded from token-module state.
+pub fn get_locked_balances_for_account(
+    context: &impl ReadTokenKeyValueState,
+    account: AccountIndex,
+) -> impl Iterator<Item = Result<(LockId, RawTokenAmount), TokenStateInvariantError>> {
+    let prefix = account_state_key(account, ACCOUNT_STATE_KEY_QUANTA);
+    let prefix_bytes = prefix.0.clone();
+    context
+        .iter_token_state_prefix(prefix)
+        .map(move |(key, value)| {
+            let Some(lock_bytes) = key.0.strip_prefix::<[u8]>(prefix_bytes.as_ref()) else {
+                return Err(TokenStateInvariantError(
+                    "Iterator over account quanta state produced invalid key".to_string(),
+                ));
+            };
+            let lock = common::from_bytes_complete(lock_bytes).map_err(|err| {
+                TokenStateInvariantError(format!("Stored lock id cannot be decoded: {}", err))
+            })?;
+            let amount = decode_locked_balance(value)?;
+            Ok((lock, amount))
+        })
+}
+
+fn decode_locked_balance(
+    value: TokenStateValue,
+) -> Result<RawTokenAmount, TokenStateInvariantError> {
     common::from_bytes_complete(value.0).map_err(|err| {
         TokenStateInvariantError(format!("Stored locked balance cannot be decoded: {}", err))
     })

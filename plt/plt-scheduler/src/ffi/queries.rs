@@ -493,8 +493,13 @@ extern "C" fn ffi_query_token_account_infos(
                 )
             }
         };
-        let return_data = common::to_bytes(&token_account_infos);
-        (status::FfiStatusCode::Success, return_data)
+        match token_account_infos {
+            Ok(token_account_infos) => {
+                let return_data = common::to_bytes(&token_account_infos);
+                (status::FfiStatusCode::Success, return_data)
+            }
+            Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
+        }
     });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {

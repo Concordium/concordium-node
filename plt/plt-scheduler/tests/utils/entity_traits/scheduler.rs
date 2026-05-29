@@ -49,7 +49,7 @@ pub trait SchedulerOperations {
         &self,
         context: &EntityContext<C>,
         account: AccountIndex,
-    ) -> Vec<TokenAccountInfo>
+    ) -> Result<Vec<TokenAccountInfo>, QueryTokenInfoError>
     where
         EntityContext<C>: Clone;
 
