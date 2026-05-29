@@ -47,7 +47,7 @@ pub trait ReadTokenKeyValueState {
     /// Get an iterator over key-value pairs that share the given prefix.
     fn iter_token_state_prefix(
         &self,
-        prefix: &TokenStateKey,
+        prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)>;
 }
 
@@ -62,10 +62,10 @@ where
 
     fn iter_token_state_prefix(
         &self,
-        prefix: &TokenStateKey,
+        prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -80,10 +80,10 @@ where
 
     fn iter_token_state_prefix(
         &self,
-        prefix: &TokenStateKey,
+        prefix: TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> {
         self.block_state
-            .iter_token_state_prefix(self.token_module_state, prefix)
+            .iter_token_state_prefix(self.token_module_state, &prefix)
     }
 }
 
@@ -355,7 +355,7 @@ pub fn get_token_authorizations<BSQ: BlockStateQuery>(
     let mut update_metadata = TokenRoleAuthorizations::default();
 
     for (key, roles) in
-        context.iter_token_state_prefix(&TokenStateKey(ACCOUNT_ROLES_STATE_PREFIX.into()))
+        context.iter_token_state_prefix(TokenStateKey(ACCOUNT_ROLES_STATE_PREFIX.into()))
     {
         let account_index_bytes =
             key.0
@@ -480,12 +480,13 @@ pub fn get_locked_balance_for(
 pub fn get_locked_balances_for_account(
     context: &impl ReadTokenKeyValueState,
     account: AccountIndex,
-) -> Result<Vec<(LockId, RawTokenAmount)>, TokenStateInvariantError> {
+) -> impl Iterator<Item = Result<(LockId, RawTokenAmount), TokenStateInvariantError>> {
     let prefix = account_state_key(account, ACCOUNT_STATE_KEY_QUANTA);
+    let prefix_bytes = prefix.0.clone();
     context
-        .iter_token_state_prefix(&prefix)
-        .map(|(key, value)| {
-            let Some(lock_bytes) = key.0.strip_prefix::<[u8]>(prefix.0.as_ref()) else {
+        .iter_token_state_prefix(prefix)
+        .map(move |(key, value)| {
+            let Some(lock_bytes) = key.0.strip_prefix::<[u8]>(prefix_bytes.as_ref()) else {
                 return Err(TokenStateInvariantError(
                     "Iterator over account quanta state produced invalid key".to_string(),
                 ));
@@ -496,7 +497,6 @@ pub fn get_locked_balances_for_account(
             let amount = decode_locked_balance(value)?;
             Ok((lock, amount))
         })
-        .collect()
 }
 
 fn decode_locked_balance(

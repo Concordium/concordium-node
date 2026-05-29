@@ -110,9 +110,8 @@ fn query_token_module_account_state_impl<BSQ: BlockStateQuery>(
 
     let mut total_locked = 0u64;
     let mut locks = Vec::new();
-    for (lock, locked_balance) in
-        key_value_state::get_locked_balances_for_account(context, account)?
-    {
+    for lock_balance in key_value_state::get_locked_balances_for_account(context, account) {
+        let (lock, locked_balance) = lock_balance?;
         if locked_balance == RawTokenAmount(0) {
             continue;
         }
