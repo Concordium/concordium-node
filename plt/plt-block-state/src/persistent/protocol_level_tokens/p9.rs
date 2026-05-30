@@ -1,4 +1,4 @@
-use crate::block_state_interface::BlockStateResult;
+use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,

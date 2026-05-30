@@ -1,16 +1,10 @@
-use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
-    TokenNotFoundByIdError,
-};
-use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::block_state::Accounts;
+use crate::entity::block_state::TokenNotFoundByIdError;
 use crate::entity::protocol_level_tokens::p9::TokenP9;
 use crate::entity::{EntityContext, EntityContextTypes, protocol_level_tokens};
-use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::external::ExternalBlockStateOperations;
+use crate::failure::BlockStateResult;
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
-use concordium_base::base::AccountIndex;
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 
 /// P9 block state.
@@ -81,7 +75,15 @@ impl BlockStateP9 {
         context: &EntityContext<C>,
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenP9> {
-        protocol_level_tokens::p9::token_by_index(context, &self.persistent.tokens, token_index)
+        let token_base = protocol_level_tokens::p9::token_by_index(
+            context,
+            &self.persistent.tokens,
+            token_index,
+        )?;
+
+        Ok(TokenP9 {
+            token_p9_base: token_base,
+        })
     }
 
     /// Update the token in the block state. Any modifications
@@ -91,7 +93,11 @@ impl BlockStateP9 {
         context: &EntityContext<C>,
         token: TokenP9,
     ) -> BlockStateResult<()> {
-        protocol_level_tokens::p9::update_token(context, &mut self.persistent.tokens, token)
+        protocol_level_tokens::p9::update_token(
+            context,
+            &mut self.persistent.tokens,
+            token.token_p9_base,
+        )
     }
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
@@ -102,33 +108,5 @@ impl BlockStateP9 {
         context: &mut EntityContext<C>,
     ) {
         context.external.increment_plt_update_sequence_number()
-    }
-}
-
-impl Accounts for BlockStateP9 {
-    fn account_by_address<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        address: &AccountAddress,
-    ) -> Result<Account, AccountNotFoundByAddressError> {
-        let account_index = context.external.account_index_by_account_address(address)?;
-        Ok(Account::from_existing_account(account_index))
-    }
-
-    fn account_by_index<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        account_index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
-        let canonical_account_address = context
-            .external
-            .account_canonical_address_by_account_index(account_index)?;
-
-        let account = Account::from_existing_account(account_index);
-
-        Ok(AccountWithCanonicalAddress {
-            account,
-            canonical_account_address,
-        })
     }
 }

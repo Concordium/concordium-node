@@ -5,7 +5,7 @@
 //! The module also defines the traits [`Loadable`] and [`Storable`] that block state components
 //! must implement to be storable in the blob store.
 
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::utils::Cow;
 use concordium_base::common;
 use concordium_base::common::{Buffer, Deserial, Get, Put, Serial, Serialize};

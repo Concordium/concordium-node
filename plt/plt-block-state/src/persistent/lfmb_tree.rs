@@ -2,7 +2,7 @@
 //!
 //! See [`LfmbTree`].
 
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, ParseResultExt, Storable,

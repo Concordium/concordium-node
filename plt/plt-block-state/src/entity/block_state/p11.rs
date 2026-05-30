@@ -1,21 +1,15 @@
-use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateResult,
-    LockNotFoundByIdError, TokenNotFoundByIdError,
-};
-use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::block_state::Accounts;
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use crate::entity::protocol_level_locks::p11::LockP11;
 use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{
     EntityContext, EntityContextTypes, protocol_level_locks, protocol_level_tokens,
 };
-use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
+use crate::external::ExternalBlockStateOperations;
+use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
-use concordium_base::base::AccountIndex;
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 
@@ -98,13 +92,15 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         token_index: TokenIndex,
     ) -> BlockStateResult<TokenP11> {
-        let token_p9 = protocol_level_tokens::p9::token_by_index(
+        let token_base = protocol_level_tokens::p9::token_by_index(
             context,
             &*self.persistent.tokens.value(&context.loader)?,
             token_index,
         )?;
 
-        Ok(TokenP11 { token_p9 })
+        Ok(TokenP11 {
+            token_p9_base: token_base,
+        })
     }
 
     /// Update the token in the block state. Any modifications
@@ -115,7 +111,7 @@ impl BlockStateP11 {
         token: TokenP11,
     ) -> BlockStateResult<()> {
         let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
-        protocol_level_tokens::p9::update_token(context, &mut new_tokens, token.token_p9)?;
+        protocol_level_tokens::p9::update_token(context, &mut new_tokens, token.token_p9_base)?;
         self.persistent.tokens = HashedCacheableRef::new(new_tokens);
 
         Ok(())
@@ -217,33 +213,5 @@ impl BlockStateP11 {
         self.persistent.locks = HashedCacheableRef::new(new_locks);
 
         Ok(())
-    }
-}
-
-impl Accounts for BlockStateP11 {
-    fn account_by_address<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        address: &AccountAddress,
-    ) -> Result<Account, AccountNotFoundByAddressError> {
-        let account_index = context.external.account_index_by_account_address(address)?;
-        Ok(Account::from_existing_account(account_index))
-    }
-
-    fn account_by_index<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        account_index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
-        let canonical_account_address = context
-            .external
-            .account_canonical_address_by_account_index(account_index)?;
-
-        let account = Account::from_existing_account(account_index);
-
-        Ok(AccountWithCanonicalAddress {
-            account,
-            canonical_account_address,
-        })
     }
 }

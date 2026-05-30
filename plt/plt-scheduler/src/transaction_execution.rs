@@ -2,6 +2,7 @@
 
 use concordium_base::base::{Energy, Nonce};
 use concordium_base::contracts_common::{AccountAddress, Timestamp};
+use plt_block_state::entity::accounts::Account;
 
 /// Transaction execution ran out of energy.
 #[derive(Debug, thiserror::Error)]
@@ -23,7 +24,7 @@ pub struct TransactionContext {
 }
 
 /// Tracks the energy remaining and some context during the execution.
-pub struct TransactionExecution<Account> {
+pub struct TransactionExecution {
     /// Limit for how much energy the execution can use. An [`OutOfEnergyError`] error is
     /// returned if the limit is reached.
     energy_limit: Energy,
@@ -43,7 +44,7 @@ pub struct TransactionExecution<Account> {
     locks_created: u64,
 }
 
-impl<Account> TransactionExecution<Account> {
+impl TransactionExecution {
     /// Construct new transaction execution context.
     pub fn new(transaction_context: TransactionContext, sender_account: Account) -> Self {
         Self {

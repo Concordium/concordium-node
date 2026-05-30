@@ -1,6 +1,6 @@
 //! Definition of the [`Hashable`] trait that allows hashing block state components.
 
-use crate::block_state_interface::BlockStateResult;
+use crate::failure::BlockStateResult;
 use crate::persistent::blob_store::{BlobStoreLoad, StoreSerialized};
 use concordium_base::common::{Put, Serial};
 use concordium_base::hashes::Hash;

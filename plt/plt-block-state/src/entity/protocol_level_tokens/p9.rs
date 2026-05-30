@@ -1,10 +1,10 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::{
     STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST, STATE_KEY_GOVERNANCE_ACCOUNT,
     STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME, STATE_KEY_PAUSED,
 };
 use crate::entity::{EntityContext, EntityContextTypes};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_tokens::p9::{
@@ -63,7 +63,7 @@ pub(crate) fn create_token<C: EntityContextTypes>(
 pub(crate) fn update_token<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &mut PersistentTokensP9,
-    mut token: TokenP9,
+    mut token: TokenP9Base,
 ) -> BlockStateResult<()> {
     if token.mutable_key_value_state.is_dirty() {
         token.persistent.key_value_state =
@@ -87,7 +87,7 @@ pub(crate) fn token_by_index<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &PersistentTokensP9,
     token_index: TokenIndex,
-) -> BlockStateResult<TokenP9> {
+) -> BlockStateResult<TokenP9Base> {
     let persistent_token = persistent_tokens
         .tokens
         .lookup_value(&context.loader, token_index)?
@@ -101,7 +101,7 @@ pub(crate) fn token_by_index<C: EntityContextTypes>(
         .value(&context.loader)?
         .thaw();
 
-    Ok(TokenP9 {
+    Ok(TokenP9Base {
         token_index,
         persistent: persistent_token,
         mutable_key_value_state,
@@ -120,9 +120,17 @@ pub(crate) fn token_index_by_id(
         .copied()
 }
 
-/// Representation of protocol-level token on P9 and later protocols with compatible model.
+/// Representation of protocol-level token on P9 and P10.
 #[derive(Debug)]
 pub struct TokenP9 {
+    /// Base P9 token representation
+    pub token_p9_base: TokenP9Base,
+}
+
+/// Base type for protocol-level token on P9 and later protocols with compatible model.
+/// Protocol-specific token types (P9 and P11 currently) uses this type via composition
+#[derive(Debug)]
+pub struct TokenP9Base {
     /// Token index
     pub(crate) token_index: TokenIndex,
     /// Persistent model of the protoco-level token.
@@ -131,7 +139,7 @@ pub struct TokenP9 {
     pub(crate) mutable_key_value_state: smart_contract_trie::MutableState,
 }
 
-impl TokenP9 {
+impl TokenP9Base {
     /// Get the index of the token.
     pub fn token_index(&self) -> TokenIndex {
         self.token_index
@@ -307,12 +315,12 @@ impl TokenP9 {
     pub fn set_token_name<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        name: String,
+        name: &str,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
             &context.loader,
             &state_keys::module_state_key(STATE_KEY_NAME),
-            name.into(),
+            name.as_bytes().to_vec(),
         )
     }
 

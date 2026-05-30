@@ -1,19 +1,18 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    locks::lock_controller::LockController, queries::QueryLockError,
-    token_context::TokenQueryContext, token_module,
+    locks::lock_controller::LockController, protocol_level_tokens::token_module,
+    queries::QueryLockError,
 };
 use concordium_base::{
     base::AccountIndex,
     protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
+use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_block_state::entity::protocol_level_locks::p11::LockP11;
+use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
-use plt_block_state::{
-    block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery},
-    entity::protocol_level_locks::p11::LockP11,
-};
 
 /// Get the list of recipient accounts for a lock configuration, resolving
 /// [`AccountIndex`]es to [`CborHolderAccount`]s.
@@ -68,16 +67,16 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
     for (account_index, token) in bsq.lock_balances(lock) {
         let token_configuration = bsq.token_configuration(&token);
-        let token_module_state = bsq.mutable_token_key_value_state(&token);
-        let context = TokenQueryContext {
-            block_state: bsq,
-            token_module_state: &token_module_state,
-        };
 
         // for each locked balance record for the lock, get the locked token amount recorded in the
         // account state of the token.
-        let raw_balance =
-            token_module::query_locked_balance(&context, account_index, lock.lock_id())?;
+        let raw_balance = token_module::query_locked_balance(
+            bsq.context(),
+            &bsq.token_p11(&token),
+            account_index,
+            lock.lock_id(),
+        )
+        .map_err(|err| QueryLockError::StateInvariantViolation(err.to_string()))?;
         let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
         funds_by_account
             .entry(account_index)

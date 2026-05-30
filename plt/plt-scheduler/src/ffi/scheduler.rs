@@ -11,9 +11,6 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::{
-    ExecutionTimeBlockStateP9, ExecutionTimeBlockStateP10, ExecutionTimeBlockStateP11,
-};
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
@@ -29,9 +26,10 @@ use plt_block_state::ffi::block_state_callbacks::{
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
+use std::marker::PhantomData;
 
 /// Context with no external block state (will panic if accessed).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FfiSchedulerBlockStateTypes;
 
 impl EntityContextTypes for FfiSchedulerBlockStateTypes {
@@ -148,8 +146,9 @@ extern "C" fn ffi_execute_transaction(
             update_token_account_balance_ptr: update_token_account_balance_callback,
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+            _not_send_sync: PhantomData,
         };
-        let context = FfiSchedulerEntityContext {
+        let mut context = FfiSchedulerEntityContext {
             external,
             loader: load_callback,
         };
@@ -177,57 +176,48 @@ extern "C" fn ffi_execute_transaction(
         };
         let (result, new_block_state) = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
-                let block_state = BlockStateP9 {
+                let mut block_state = BlockStateP9 {
                     persistent: persistent.clone(),
                 };
-                let mut exec_block_state = ExecutionTimeBlockStateP9 {
-                    block_state,
-                    context,
-                };
                 (
-                    scheduler::execute_transaction(
+                    scheduler::p9::execute_transaction(
+                        &mut context,
+                        &mut block_state,
                         transaction_context,
                         Account::from_existing_account(sender_account_index),
-                        &mut exec_block_state,
                         payload,
                     ),
-                    PersistentBlockState::P9(exec_block_state.block_state.persistent),
+                    PersistentBlockState::P9(block_state.persistent),
                 )
             }
             PersistentBlockState::P10(persistent) => {
-                let block_state = BlockStateP10 {
+                let mut block_state = BlockStateP10 {
                     persistent: persistent.clone(),
                 };
-                let mut exec_block_state = ExecutionTimeBlockStateP10 {
-                    block_state,
-                    context,
-                };
                 (
-                    scheduler::execute_transaction(
+                    scheduler::p9::execute_transaction(
+                        &mut context,
+                        &mut block_state,
                         transaction_context,
                         Account::from_existing_account(sender_account_index),
-                        &mut exec_block_state,
                         payload,
                     ),
-                    PersistentBlockState::P10(exec_block_state.block_state.persistent),
+                    PersistentBlockState::P10(block_state.persistent),
                 )
             }
             PersistentBlockState::P11(persistent) => {
-                let block_state = BlockStateP11 {
+                let mut block_state = BlockStateP11 {
                     persistent: persistent.clone(),
                 };
-                let mut exec_block_state = ExecutionTimeBlockStateP11 {
-                    block_state,
-                    context,
-                };
                 (
-                    scheduler::execute_transaction(
+                    scheduler::p11::execute_transaction(
+                        &mut context,
+                        &mut block_state,
                         transaction_context,
                         Account::from_existing_account(sender_account_index),
-                        &mut exec_block_state,
                         payload,
                     ),
-                    PersistentBlockState::P11(exec_block_state.block_state.persistent),
+                    PersistentBlockState::P11(block_state.persistent),
                 )
             }
         };
@@ -343,8 +333,9 @@ extern "C" fn ffi_execute_chain_update(
             update_token_account_balance_ptr: update_token_account_balance_callback,
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+            _not_send_sync: PhantomData,
         };
-        let context = FfiSchedulerEntityContext {
+        let mut context = FfiSchedulerEntityContext {
             external,
             loader: load_callback,
         };
@@ -353,42 +344,30 @@ extern "C" fn ffi_execute_chain_update(
             .expect("Failed decoding chain update payload");
         let (result, new_block_state) = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
-                let block_state = BlockStateP9 {
+                let mut block_state = BlockStateP9 {
                     persistent: persistent.clone(),
                 };
-                let mut exec_block_state = ExecutionTimeBlockStateP9 {
-                    block_state,
-                    context,
-                };
                 (
-                    scheduler::execute_chain_update(&mut exec_block_state, payload),
-                    PersistentBlockState::P9(exec_block_state.block_state.persistent),
+                    scheduler::p9::execute_chain_update(&mut context, &mut block_state, payload),
+                    PersistentBlockState::P9(block_state.persistent),
                 )
             }
             PersistentBlockState::P10(persistent) => {
-                let block_state = BlockStateP10 {
+                let mut block_state = BlockStateP10 {
                     persistent: persistent.clone(),
                 };
-                let mut exec_block_state = ExecutionTimeBlockStateP10 {
-                    block_state,
-                    context,
-                };
                 (
-                    scheduler::execute_chain_update(&mut exec_block_state, payload),
-                    PersistentBlockState::P10(exec_block_state.block_state.persistent),
+                    scheduler::p9::execute_chain_update(&mut context, &mut block_state, payload),
+                    PersistentBlockState::P10(block_state.persistent),
                 )
             }
             PersistentBlockState::P11(persistent) => {
-                let block_state = BlockStateP11 {
+                let mut block_state = BlockStateP11 {
                     persistent: persistent.clone(),
                 };
-                let mut exec_block_state = ExecutionTimeBlockStateP11 {
-                    block_state,
-                    context,
-                };
                 (
-                    scheduler::execute_chain_update(&mut exec_block_state, payload),
-                    PersistentBlockState::P11(exec_block_state.block_state.persistent),
+                    scheduler::p11::execute_chain_update(&mut context, &mut block_state, payload),
+                    PersistentBlockState::P11(block_state.persistent),
                 )
             }
         };

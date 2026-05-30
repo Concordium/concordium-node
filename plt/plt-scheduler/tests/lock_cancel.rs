@@ -14,8 +14,8 @@ use concordium_base::{
     },
     transactions::Payload,
 };
-use plt_block_state::block_state_interface::LockNotFoundByIdError;
-use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
@@ -227,8 +227,8 @@ fn test_cancel_with_balances() {
         2,
         Some(RawTokenAmount(10000)),
     );
-    let plt_x_gov_acct_address = block_state
-        .account_by_index(&context, plt_x_gov_acct.account_index())
+    let plt_x_gov_acct_address = context
+        .account_by_index(plt_x_gov_acct.account_index())
         .unwrap()
         .canonical_account_address;
     let plt_y: TokenId = "pltY".parse().unwrap();
@@ -240,8 +240,8 @@ fn test_cancel_with_balances() {
         6,
         Some(RawTokenAmount(10000000)),
     );
-    let plt_y_gov_acct_address = block_state
-        .account_by_index(&context, plt_y_gov_acct.account_index())
+    let plt_y_gov_acct_address = context
+        .account_by_index(plt_y_gov_acct.account_index())
         .unwrap()
         .canonical_account_address;
 

@@ -1,5 +1,5 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
 use crate::entity::{EntityContext, EntityContextTypes};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::protocol_level_locks::p11::{
     LockConfiguration, PersistentLockP11, PersistentLocksP11,
 };

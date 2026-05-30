@@ -6,7 +6,7 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
 use plt_block_state::entity::EntityContext;
-use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
@@ -27,13 +27,13 @@ pub fn create_lock(
 ) {
     use concordium_base::protocol_level_locks::*;
     use concordium_base::protocol_level_tokens::meta_operations::*;
-    let sender = block_state
-        .account_by_index(context, lock_id.account_index())
+    let sender = context
+        .account_by_index(lock_id.account_index())
         .expect("sender account must exist");
     let resolve_account = |index: &AccountIndex| {
         CborHolderAccount::from(
-            block_state
-                .account_by_index(context, *index)
+            context
+                .account_by_index(*index)
                 .unwrap_or_else(|_| panic!("account index {} does not exist", *index))
                 .canonical_account_address,
         )
@@ -99,7 +99,7 @@ pub fn lock_balance(
         .token_by_id(context, token_id)
         .unwrap()
         .expect("token must exist");
-    let token_index = token.token_p9.token_index();
+    let token_index = token.token_p9_base.token_index();
 
     // Register the (account, token) pair in the lock state
     let mut lock = block_state
@@ -115,7 +115,7 @@ pub fn lock_balance(
         .unwrap()
         .expect("token must exist");
     token
-        .set_locked_balance_for(context, funder_account, lock_id, amount)
+        .set_locked_balance_for_account(context, funder_account, lock_id, amount)
         .unwrap();
     block_state.update_token(context, token).unwrap();
 }

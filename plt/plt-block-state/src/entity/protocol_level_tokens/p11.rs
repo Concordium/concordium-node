@@ -1,22 +1,19 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
-use crate::entity::block_state::Accounts;
-use crate::entity::protocol_level_tokens::p9::TokenP9;
+use crate::entity::protocol_level_tokens::p9::TokenP9Base;
 use crate::entity::protocol_level_tokens::state_keys;
 use crate::entity::protocol_level_tokens::state_keys::ACCOUNT_ROLES_STATE_PREFIX;
 use crate::entity::{EntityContext, EntityContextTypes};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::{
-    TokenAdminRole, TokenAuthorizations, TokenRoleAuthorizations,
-};
+use concordium_base::protocol_level_tokens::TokenAdminRole;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-/// Representation of protocol-level token on P11 and later protocols with compatible model.
+/// Representation of protocol-level token on P11.
 #[derive(Debug)]
 pub struct TokenP11 {
-    /// P9 token representation
-    pub token_p9: TokenP9,
+    /// Base P9 token representation
+    pub token_p9_base: TokenP9Base,
 }
 
 impl TokenP11 {
@@ -27,7 +24,7 @@ impl TokenP11 {
         account: AccountIndex,
     ) -> BlockStateResult<Roles> {
         Roles::try_from_state_value(
-            self.token_p9
+            self.token_p9_base
                 .mutable_key_value_state
                 .lookup_value(
                     &context.loader,
@@ -51,13 +48,13 @@ impl TokenP11 {
         roles: Roles,
     ) -> BlockStateResult<()> {
         if let Some(value) = roles.into_state_value() {
-            self.token_p9.mutable_key_value_state.insert_value(
+            self.token_p9_base.mutable_key_value_state.insert_value(
                 &context.loader,
                 &state_keys::account_roles_state_key(account),
                 value,
             )
         } else {
-            self.token_p9.mutable_key_value_state.delete_value(
+            self.token_p9_base.mutable_key_value_state.delete_value(
                 &context.loader,
                 &state_keys::account_roles_state_key(account),
             )
@@ -93,13 +90,13 @@ impl TokenP11 {
     }
 
     /// Get the locked balance for the given account and lock.
-    pub fn get_locked_balance_for<C: EntityContextTypes>(
+    pub fn get_locked_balance_for_account<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
         lock_id: &LockId,
     ) -> BlockStateResult<RawTokenAmount> {
-        let Some(value) = self.token_p9.mutable_key_value_state.lookup_value(
+        let Some(value) = self.token_p9_base.mutable_key_value_state.lookup_value(
             &context.loader,
             &state_keys::account_quanta_state_key(account_index, lock_id),
         ) else {
@@ -114,7 +111,7 @@ impl TokenP11 {
     }
 
     /// Set the locked balance for the given account and lock.
-    pub fn set_locked_balance_for<C: EntityContextTypes>(
+    pub fn set_locked_balance_for_account<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
@@ -122,12 +119,12 @@ impl TokenP11 {
         amount: RawTokenAmount,
     ) -> BlockStateResult<()> {
         if amount == RawTokenAmount(0) {
-            self.token_p9.mutable_key_value_state.delete_value(
+            self.token_p9_base.mutable_key_value_state.delete_value(
                 &context.loader,
                 &state_keys::account_quanta_state_key(account_index, lock_id),
             )?;
         } else {
-            self.token_p9.mutable_key_value_state.insert_value(
+            self.token_p9_base.mutable_key_value_state.insert_value(
                 &context.loader,
                 &state_keys::account_quanta_state_key(account_index, lock_id),
                 common::to_bytes(&amount),
@@ -136,97 +133,77 @@ impl TokenP11 {
         Ok(())
     }
 
-    // todo ar move to scheduler with accounts trait
-    /// Get authorization roles and assigned accounts for the token.
-    pub fn get_token_authorizations<C: EntityContextTypes>(
+    /// Get the locked balances recorded in token-module account state for the given
+    /// account.
+    pub fn get_locked_balances_for_account<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-        accounts: &impl Accounts,
-    ) -> BlockStateResult<TokenAuthorizations> {
-        let mut update_admin_roles = TokenRoleAuthorizations::default();
-        let mut mint = TokenRoleAuthorizations::default();
-        let mut burn = TokenRoleAuthorizations::default();
-        let mut update_allow_list = TokenRoleAuthorizations::default();
-        let mut update_deny_list = TokenRoleAuthorizations::default();
-        let mut pause = TokenRoleAuthorizations::default();
-        let mut update_metadata = TokenRoleAuthorizations::default();
+        account: AccountIndex,
+    ) -> BlockStateResult<Vec<(LockId, RawTokenAmount)>> {
+        let prefix = state_keys::account_state_key(account, state_keys::ACCOUNT_STATE_KEY_QUANTA);
+        self.token_p9_base
+            .mutable_key_value_state
+            .iter_prefix(&context.loader, &prefix)?
+            .map(move |(key, value)| {
+                let Some(lock_bytes) = key.strip_prefix(prefix.as_slice()) else {
+                    return Err(BlockStateFailure::Invariant(
+                        "Iterator over account quanta state produced invalid key".to_string(),
+                    ));
+                };
+                let lock = common::from_bytes_complete(lock_bytes).map_err(|err| {
+                    BlockStateFailure::Invariant(format!(
+                        "Stored lock id cannot be decoded: {}",
+                        err
+                    ))
+                })?;
+                let amount = common::from_bytes_complete(value).map_err(|err| {
+                    BlockStateFailure::BlobStoreDecode(format!(
+                        "Stored locked balance cannot be decoded: {}",
+                        err
+                    ))
+                })?;
 
-        for (key, roles) in self
-            .token_p9
+                Ok((lock, amount))
+            })
+            .collect()
+    }
+
+    /// Iterate all authorization roles assigned for the token, together
+    /// with the account they are assigned to.
+    pub fn all_roles<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<Vec<(AccountIndex, Roles)>> {
+        self.token_p9_base
             .mutable_key_value_state
             .iter_prefix(&context.loader, &ACCOUNT_ROLES_STATE_PREFIX)?
-        {
-            let account_index_bytes =
-                key.strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
+            .map(|(key, value)| {
+                let account_index_bytes = key
+                    .strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
                     .ok_or_else(|| {
                         BlockStateFailure::Invariant(
                             "Iterator over account roles state produced invalid key".to_string(),
                         )
                     })?;
-            let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
-                .map_err(|err| {
+                let account_index: AccountIndex = common::from_bytes_complete(account_index_bytes)
+                    .map_err(|err| {
+                        BlockStateFailure::Invariant(format!(
+                            "Stored account index in authorizations cannot be decoded: {}",
+                            err
+                        ))
+                    })?;
+                let roles = Roles::try_from_state_value(Some(&value)).map_err(|err| {
                     BlockStateFailure::Invariant(format!(
-                        "Stored account index in authorizations cannot be decoded: {}",
+                        "Stored account authorization roles cannot be decoded: {}",
                         err
                     ))
                 })?;
-            let account = accounts
-                .account_by_index(context, account_index)
-                .map_err(|err| {
-                    BlockStateFailure::Invariant(format!(
-                        "Stored account index in authorizations cannot be found: {}",
-                        err
-                    ))
-                })?
-                .canonical_account_address;
-            let roles = Roles::try_from_state_value(Some(&roles)).map_err(|err| {
-                BlockStateFailure::Invariant(format!(
-                    "Stored account authorization roles cannot be decoded: {}",
-                    err
-                ))
-            })?;
-            for role in roles.iter_assigned() {
-                match role {
-                    TokenAdminRole::UpdateAdminRoles => {
-                        update_admin_roles.accounts.push(account.into())
-                    }
-                    TokenAdminRole::Mint => mint.accounts.push(account.into()),
-                    TokenAdminRole::Burn => burn.accounts.push(account.into()),
-                    TokenAdminRole::UpdateAllowList => {
-                        update_allow_list.accounts.push(account.into())
-                    }
-                    TokenAdminRole::UpdateDenyList => {
-                        update_deny_list.accounts.push(account.into())
-                    }
-                    TokenAdminRole::Pause => pause.accounts.push(account.into()),
-                    TokenAdminRole::UpdateMetadata => update_metadata.accounts.push(account.into()),
-                }
-            }
-        }
-        Ok(TokenAuthorizations {
-            update_admin_roles: Some(update_admin_roles),
-            mint: self.token_p9.is_mintable(context).then_some(mint),
-            burn: self.token_p9.is_burnable(context).then_some(burn),
-            update_allow_list: self
-                .token_p9
-                .has_allow_list(context)
-                .then_some(update_allow_list),
-            update_deny_list: self
-                .token_p9
-                .has_deny_list(context)
-                .then_some(update_deny_list),
-            pause: Some(pause),
-            update_metadata: Some(update_metadata),
-        })
+
+                Ok((account_index, roles))
+            })
+            .collect()
     }
 }
-
-/// List roles which are unaffected by which features are enabled.
-pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
-    TokenAdminRole::UpdateAdminRoles,
-    TokenAdminRole::Pause,
-    TokenAdminRole::UpdateMetadata,
-];
 
 /// List all roles.
 const ALL_ROLES: &[TokenAdminRole] = &[

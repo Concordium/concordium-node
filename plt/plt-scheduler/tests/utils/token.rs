@@ -13,8 +13,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::EntityContext;
-use plt_block_state::entity::accounts::Account;
-use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
@@ -107,6 +106,7 @@ pub fn create_and_init_token_p9(
         .token_by_id(context, &token_id)
         .unwrap()
         .unwrap()
+        .token_p9_base
         .token_index();
 
     (gov_account, token_index)
@@ -154,7 +154,7 @@ pub fn create_and_init_token_p11(
         .token_by_id(context, &token_id)
         .unwrap()
         .unwrap()
-        .token_p9
+        .token_p9_base
         .token_index();
 
     (gov_account, token_index)
@@ -173,7 +173,7 @@ pub fn increment_account_balance_p11(
         .token_by_id(context, token_id)
         .unwrap()
         .expect("created token");
-    let token_configuration = token.token_p9.token_configuration(context).unwrap();
+    let token_configuration = token.token_p9_base.token_configuration(context).unwrap();
     let operations = vec![
         TokenOperation::Mint(TokenSupplyUpdateDetails {
             amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
@@ -196,16 +196,15 @@ pub fn increment_account_balance_p11(
         .unwrap();
     let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
-    let gov_account = block_state
-        .account_by_address(
-            context,
-            &token_module_state
-                .governance_account
-                .as_ref()
-                .unwrap()
-                .address,
-        )
-        .unwrap();
+    let gov_account = EntityContext::account_by_address(
+        context,
+        &token_module_state
+            .governance_account
+            .as_ref()
+            .unwrap()
+            .address,
+    )
+    .unwrap();
 
     let outcome = block_state
         .execute_transaction(

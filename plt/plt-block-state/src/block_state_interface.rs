@@ -1,6 +1,12 @@
 use crate::entity::accounts::AccountWithCanonicalAddress;
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use crate::entity::protocol_level_locks::p11::LockP11;
-use crate::external::TokenAccountState;
+use crate::entity::protocol_level_tokens::p11::TokenP11;
+use crate::entity::{EntityContext, EntityContextTypes};
+use crate::external::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
+    TokenAccountState,
+};
 use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
@@ -9,65 +15,7 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-/// Change in [`RawTokenAmount`].
-///
-/// Represented as either add and subtract instead of a signed value, in order
-/// to be able to represent the full range of possible deltas.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum RawTokenAmountDelta {
-    /// Add the token amount
-    Add(RawTokenAmount),
-    /// Subtract the token amount
-    Subtract(RawTokenAmount),
-}
-
-/// Account with given id does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Token with id {0} does not exist")]
-pub struct TokenNotFoundByIdError(pub TokenId);
-
-/// Lock with given id does not exist
-#[derive(Debug)]
-pub struct LockNotFoundByIdError(pub LockId);
-
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
-
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
-
-/// Unrecoverable failure accessing the block state. This is generally an error that
-/// should never happen and is unrecoverable.
-///
-/// If returned when **applying a block item to the block state**,
-/// it may leave the block state in an indeterminate state. E.g. can parts of the effects
-/// of processing the block item be applied, an others not. Hence, the resulting block
-/// state should not be used.
-///
-/// If returned when **querying the block state**, the query itself fails,
-/// but the block state is still in a valid state.
-#[derive(Debug, thiserror::Error)]
-pub enum BlockStateFailure {
-    /// An error happened when decoding a block state value from the blob store.
-    #[error("Error decoding state from blob store: {0}")]
-    BlobStoreDecode(String),
-    /// An invariant that must be true is broken. The invariant can either be in the
-    /// stored block state or a runtime logical invariant related to the in-memory block state.
-    #[error("State invariant broken: {0}")]
-    Invariant(String),
-    /// When looking up a value with in an owned
-    /// [blob reference](super::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef),
-    /// a borrowed value was returned. This should generally never happen in they way we maintain
-    /// blob references.
-    #[error("Borrowed value found inside of owned value: {0}")]
-    CowJoin(&'static str),
-}
-
-pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
+// todo delete as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 
 /// Key in the key-value state.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -90,6 +38,11 @@ pub trait BlockStateQuery {
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
+
+    type EntityContextTypes: EntityContextTypes;
+
+    /// Get entity context.
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes>;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
@@ -121,6 +74,9 @@ pub trait BlockStateQuery {
     ///
     /// - `token` The token to get the config for.
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration;
+
+    /// Get token P11 entity.
+    fn token_p11(&self, token: &Self::Token) -> TokenP11;
 
     /// Get the circulating supply of a protocol-level token.
     ///
@@ -374,8 +330,3 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///   `s.lock_by_id(lock_id).expect("lock exists")`.
     fn add_lock_balance_ref(&mut self, lock: &LockId, account: &Self::Account, token: &Self::Token);
 }
-
-/// The computation resulted in overflow (negative or above maximum value).
-#[derive(Debug, thiserror::Error)]
-#[error("Token amount overflow")]
-pub struct OverflowError;
