@@ -34,7 +34,7 @@ fn test_create_plt() {
     let read_configuration = block_state
         .token_by_index(&context, token_index)
         .unwrap()
-        .token_p9
+        .token_p9_base
         .token_configuration(&context)
         .unwrap();
     assert_eq!(read_configuration, configuration);
@@ -99,7 +99,7 @@ fn test_token_by_id() {
         .token_by_id(&context, &token_id1)
         .unwrap()
         .expect("token should exist");
-    assert_eq!(token_by_id.token_p9.token_index(), token_index);
+    assert_eq!(token_by_id.token_p9_base.token_index(), token_index);
 
     // Get token by non-canonical id
     let non_canonical_token_id1: TokenId = "TOKEN1".parse().unwrap();
@@ -107,7 +107,7 @@ fn test_token_by_id() {
         .token_by_id(&context, &non_canonical_token_id1)
         .unwrap()
         .expect("token should exist");
-    assert_eq!(token_index_by_id.token_p9.token_index(), token_index);
+    assert_eq!(token_index_by_id.token_p9_base.token_index(), token_index);
 
     // Get non-existing token by id
     let token_id2 = "token2".parse().unwrap();
@@ -146,11 +146,18 @@ fn test_token_properties() {
         token.get_account_roles(&context, account_index1).unwrap(),
         Roles::none()
     );
+    assert_eq!(token.all_roles(&context).unwrap(), vec![]);
     assert_eq!(
         token
-            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(0)
+    );
+    assert_eq!(
+        token
+            .get_locked_balances_for_account(&context, account_index1)
+            .unwrap(),
+        vec![]
     );
 
     // Set values
@@ -162,7 +169,7 @@ fn test_token_properties() {
         )
         .unwrap();
     token
-        .set_locked_balance_for(&context, account_index1, &lock_id, RawTokenAmount(100))
+        .set_locked_balance_for_account(&context, account_index1, &lock_id, RawTokenAmount(100))
         .unwrap();
 
     // Update token
@@ -178,10 +185,20 @@ fn test_token_properties() {
         expected_roles
     );
     assert_eq!(
+        token.all_roles(&context).unwrap(),
+        vec![(account_index1, expected_roles)]
+    );
+    assert_eq!(
         token
-            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(100)
+    );
+    assert_eq!(
+        token
+            .get_locked_balances_for_account(&context, account_index1)
+            .unwrap(),
+        vec![(lock_id.clone(), RawTokenAmount(100))]
     );
 
     // Update values
@@ -189,7 +206,7 @@ fn test_token_properties() {
         .revoke_account_roles(&context, account_index1, &[TokenAdminRole::Mint])
         .unwrap();
     token
-        .set_locked_balance_for(&context, account_index1, &lock_id, RawTokenAmount(0))
+        .set_locked_balance_for_account(&context, account_index1, &lock_id, RawTokenAmount(0))
         .unwrap();
 
     // Update token
@@ -204,10 +221,20 @@ fn test_token_properties() {
         expected_roles
     );
     assert_eq!(
+        token.all_roles(&context).unwrap(),
+        vec![(account_index1, expected_roles)]
+    );
+    assert_eq!(
         token
-            .get_locked_balance_for(&context, account_index1, &lock_id)
+            .get_locked_balance_for_account(&context, account_index1, &lock_id)
             .unwrap(),
         RawTokenAmount(0)
+    );
+    assert_eq!(
+        token
+            .get_locked_balances_for_account(&context, account_index1)
+            .unwrap(),
+        vec![]
     );
 }
 

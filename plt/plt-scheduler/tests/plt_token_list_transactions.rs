@@ -39,6 +39,7 @@ fn test_allow_list_updates() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 
@@ -62,7 +63,9 @@ fn test_allow_list_updates() {
         let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(add_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
+    let infos = block_state
+        .query_token_account_infos(&context, target_account.account_index())
+        .unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(true));
@@ -84,7 +87,9 @@ fn test_allow_list_updates() {
         let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(remove_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
+    let infos = block_state
+        .query_token_account_infos(&context, target_account.account_index())
+        .unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(false));
@@ -111,6 +116,7 @@ fn test_deny_list_updates() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 
@@ -134,7 +140,9 @@ fn test_deny_list_updates() {
         let add_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(add_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
+    let infos = block_state
+        .query_token_account_infos(&context, target_account.account_index())
+        .unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, None);
@@ -156,7 +164,9 @@ fn test_deny_list_updates() {
         let remove_event: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
         assert_eq!(remove_event.target, CborHolderAccount::from(target_addr));
     });
-    let infos = block_state.query_token_account_infos(&context, target_account.account_index());
+    let infos = block_state
+        .query_token_account_infos(&context, target_account.account_index())
+        .unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, None);
@@ -221,6 +231,7 @@ fn test_add_allow_list_reject_non_governance() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -282,6 +293,7 @@ fn test_remove_allow_list_reject_non_governance() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -343,6 +355,7 @@ fn test_add_deny_list_reject_non_governance() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -404,6 +417,7 @@ fn test_remove_deny_list_reject_non_governance() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -427,6 +441,7 @@ fn test_add_allow_list_touches_account() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 
@@ -446,6 +461,7 @@ fn test_add_allow_list_touches_account() {
     assert!(
         !block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -469,6 +485,7 @@ fn test_remove_allow_list_touches_account() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 
@@ -488,6 +505,7 @@ fn test_remove_allow_list_touches_account() {
     assert!(
         !block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -511,6 +529,7 @@ fn test_add_deny_list_touches_account() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 
@@ -530,6 +549,7 @@ fn test_add_deny_list_touches_account() {
     assert!(
         !block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -553,6 +573,7 @@ fn test_remove_deny_list_touches_account() {
     assert!(
         block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 
@@ -572,6 +593,7 @@ fn test_remove_deny_list_touches_account() {
     assert!(
         !block_state
             .query_token_account_infos(&context, target_account.account_index())
+            .unwrap()
             .is_empty()
     );
 }
@@ -1146,7 +1168,9 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let infos = block_state.query_token_account_infos(&context, gov_account.account_index());
+    let infos = block_state
+        .query_token_account_infos(&context, gov_account.account_index())
+        .unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.deny_list, Some(true));
@@ -1214,7 +1238,9 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
-    let infos = block_state.query_token_account_infos(&context, gov_account.account_index());
+    let infos = block_state
+        .query_token_account_infos(&context, gov_account.account_index())
+        .unwrap();
     let module_state = infos[0].account_state.module_state.as_ref().unwrap();
     let state: TokenModuleAccountState = cbor::cbor_decode(module_state).unwrap();
     assert_eq!(state.allow_list, Some(true));

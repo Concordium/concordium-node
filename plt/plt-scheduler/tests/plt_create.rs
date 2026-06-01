@@ -69,7 +69,7 @@ fn test_plt_create() {
         .expect("created token");
     assert_eq!(
         token
-            .token_p9
+            .token_p9_base
             .token_configuration(&context)
             .unwrap()
             .token_id,
@@ -77,7 +77,7 @@ fn test_plt_create() {
     );
     assert_eq!(
         token
-            .token_p9
+            .token_p9_base
             .token_configuration(&context)
             .unwrap()
             .decimals,
@@ -85,7 +85,7 @@ fn test_plt_create() {
     );
     assert_eq!(
         token
-            .token_p9
+            .token_p9_base
             .token_configuration(&context)
             .unwrap()
             .module_ref,
@@ -93,9 +93,12 @@ fn test_plt_create() {
     );
 
     // Assert circulating supply and governance account balance
-    assert_eq!(token.token_p9.token_circulating_supply(), RawTokenAmount(0));
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        token.token_p9_base.token_circulating_supply(),
+        RawTokenAmount(0)
+    );
+    assert_eq!(
+        gov_account.account_token_balance(&context, token.token_p9_base.token_index()),
         RawTokenAmount(0)
     );
 
@@ -155,11 +158,11 @@ fn test_plt_create_with_minting() {
         .unwrap()
         .expect("created token");
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(5000)
     );
     assert_eq!(
-        gov_account.account_token_balance(&context, token.token_p9.token_index()),
+        gov_account.account_token_balance(&context, token.token_p9_base.token_index()),
         RawTokenAmount(5000)
     );
 

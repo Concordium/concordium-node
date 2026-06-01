@@ -4,7 +4,7 @@
 //! and the specific definitions of the blob store traits. Hence, this adapter is needed to use
 //! the smart contract trie in the Rust block state.
 
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
 };
@@ -150,14 +150,14 @@ impl MutableState {
     ) -> BlockStateResult<impl Iterator<Item = (Vec<u8>, Vec<u8>)> + use<'a, L>> {
         let mut loader_adapter = LoaderAdapter(loader);
         let mut mutable_state = self.lock();
-        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
+        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock().clone();
         let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
             BlockStateFailure::Invariant(format!("Error iterating values in MutableTrie: {}", err))
         })?;
 
         Ok(PrefixIterator {
             loader,
-            trie: trie.clone(),
+            trie,
             trie_iter,
         })
     }

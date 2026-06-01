@@ -4,7 +4,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
 };
-use plt_block_state::block_state_interface::{AccountNotFoundByIndexError, BlockStateQuery};
+use plt_block_state::block_state_interface::BlockStateQuery;
+use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerConfig, LockControllerSimpleV0,
 };

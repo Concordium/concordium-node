@@ -1,15 +1,16 @@
-use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
+use crate::external::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateOperations,
+    ExternalBlockStateQuery, OverflowError, RawTokenAmountDelta, TokenAccountState,
 };
-use crate::external::{ExternalBlockStateOperations, ExternalBlockStateQuery, TokenAccountState};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use std::marker::PhantomData;
 
 /// Callbacks for block state queries.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternalBlockStateQueryCallbacks {
     /// External function for reading the token balance for an account.
     pub read_token_account_balance_ptr: ReadTokenAccountBalanceCallback,
@@ -22,7 +23,7 @@ pub struct ExternalBlockStateQueryCallbacks {
 }
 
 /// Callbacks for block state operations.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternalBlockStateOperationCallbacks {
     /// Callbacks for block state queries.
     pub queries: ExternalBlockStateQueryCallbacks,
@@ -32,6 +33,8 @@ pub struct ExternalBlockStateOperationCallbacks {
     pub touch_token_account_ptr: TouchTokenAccountCallback,
     /// External function for incrementing the PLT update sequence number.
     pub increment_plt_update_sequence_number_ptr: IncrementPltUpdateSequenceNumberCallback,
+    // The callbacks are not thread safe, hence we mark them as not Send nor Sync by using PhantomData<*const ()>
+    pub _not_send_sync: PhantomData<*const ()>,
 }
 
 impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {

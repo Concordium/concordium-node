@@ -3,6 +3,7 @@
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
+use concordium_base::protocol_level_tokens::CborMemo;
 use concordium_base::{
     base::Energy,
     common::cbor,
@@ -13,8 +14,8 @@ use concordium_base::{
     },
     transactions::Payload,
 };
-use plt_block_state::block_state_interface::LockNotFoundByIdError;
-use plt_block_state::entity::block_state::Accounts;
+use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
@@ -226,8 +227,8 @@ fn test_cancel_with_balances() {
         2,
         Some(RawTokenAmount(10000)),
     );
-    let plt_x_gov_acct_address = block_state
-        .account_by_index(&context, plt_x_gov_acct.account_index())
+    let plt_x_gov_acct_address = context
+        .account_by_index(plt_x_gov_acct.account_index())
         .unwrap()
         .canonical_account_address;
     let plt_y: TokenId = "pltY".parse().unwrap();
@@ -239,8 +240,8 @@ fn test_cancel_with_balances() {
         6,
         Some(RawTokenAmount(10000000)),
     );
-    let plt_y_gov_acct_address = block_state
-        .account_by_index(&context, plt_y_gov_acct.account_index())
+    let plt_y_gov_acct_address = context
+        .account_by_index(plt_y_gov_acct.account_index())
         .unwrap()
         .canonical_account_address;
 
@@ -297,9 +298,13 @@ fn test_cancel_with_balances() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
     };
+    let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let payload = Payload::MetaUpdate {
         payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
+            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                lock_id.clone(),
+                Some(memo.clone()),
+            )])),
         },
     };
     let summary = block_state
@@ -314,6 +319,7 @@ fn test_cancel_with_balances() {
             assert_eq!(transfer.to, TokenHolder::Account(plt_x_gov_acct_address));
             assert_eq!(transfer.from_lock.as_ref(), Some(&lock_id));
             assert_eq!(transfer.to_lock, None);
+            assert_eq!(transfer.memo, Some(memo.clone().into()));
         });
         assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
             assert_eq!(transfer.token_id, plt_y);
@@ -322,6 +328,7 @@ fn test_cancel_with_balances() {
             assert_eq!(transfer.to, TokenHolder::Account(plt_y_gov_acct_address));
             assert_eq!(transfer.from_lock.as_ref(), Some(&lock_id));
             assert_eq!(transfer.to_lock, None);
+            assert_eq!(transfer.memo, Some(memo.into()));
         });
         assert_matches!(&events[2], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {
             assert_eq!(event_lock_id, &lock_id);
@@ -329,5 +336,41 @@ fn test_cancel_with_balances() {
     });
     assert_matches!(block_state.lock_by_id(&context, &lock_id), Ok(Err(LockNotFoundByIdError(absent_id))) => {
         assert_eq!(absent_id, lock_id);
+    });
+}
+
+/// Test cancelling a non-existent lock.
+#[test]
+fn test_cancel_nonexistent() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let account_index_1 = context.external.create_account().account_index();
+
+    let transaction_context = plt_scheduler::TransactionContext {
+        energy_limit: Energy::from(u64::MAX),
+        sender_account_address: context.external.account_canonical_address(account_index_1),
+        transaction_sequence_number: 1.into(),
+        block_timestamp: 0.into(),
+    };
+    let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
+    let lock_id = LockId {
+        account_index: account_index_1.into(),
+        sequence_number: 999,
+        creation_order: 0,
+    };
+    let payload = Payload::MetaUpdate {
+        payload: MetaUpdatePayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                lock_id.clone(),
+                Some(memo.clone()),
+            )])),
+        },
+    };
+    let summary = block_state
+        .execute_transaction(&mut context, transaction_context, account_index_1, payload)
+        .unwrap();
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(TransactionRejectReason::NonExistentLockId(rejected_lock_id)) => {
+        assert_eq!(rejected_lock_id, lock_id);
     });
 }

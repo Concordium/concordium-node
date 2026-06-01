@@ -1,7 +1,8 @@
-/// Representation of an immutable, cacheable and lazily hashed value of type `V`.
-///
-/// See [`HashedCacheableRef`].
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+//! Representation of an immutable, cacheable and lazily hashed value of type `V`.
+//!
+//! See [`HashedCacheableRef`].
+
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, ParseResultExt, Storable,

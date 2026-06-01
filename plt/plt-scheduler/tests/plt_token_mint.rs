@@ -392,7 +392,7 @@ fn test_mint_overflow() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        token.token_p9.token_circulating_supply(),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(1000)
     );
 }

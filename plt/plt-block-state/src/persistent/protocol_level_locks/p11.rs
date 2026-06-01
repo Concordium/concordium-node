@@ -1,4 +1,4 @@
-use crate::block_state_interface::{BlockStateFailure, BlockStateResult};
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
 };

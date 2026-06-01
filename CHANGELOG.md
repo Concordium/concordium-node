@@ -4,6 +4,7 @@
 
 - Add support for the following "meta update" operations:
   - `lockCancel`: cancel a PLT Lock, releasing all funds to their owners.
+- Populate the protocol-level token account `module_state` returned by `GetAccountInfo` with available balance and lock details.
 
 ## 11.2.0 (Devnet)
 

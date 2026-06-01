@@ -1,29 +1,15 @@
-use crate::block_state_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
-use crate::entity::{EntityContext, EntityContextTypes};
-use concordium_base::base::AccountIndex;
-use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::TokenId;
 
 pub mod p10;
 pub mod p11;
 pub mod p9;
 
-// move to scheduler
+/// Account with given id does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Token with id {0} does not exist")]
+pub struct TokenNotFoundByIdError(pub TokenId);
 
-/// Trait that defines block state operations related to accounts.
-pub trait Accounts {
-    /// Lookup the account using an account address.
-    fn account_by_address<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        address: &AccountAddress,
-    ) -> Result<Account, AccountNotFoundByAddressError>;
-
-    /// Lookup the account using an account index. Returns both the opaque account
-    /// representation and the account canonical address.
-    fn account_by_index<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-        account_index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
-}
+/// Lock with given id does not exist
+#[derive(Debug)]
+pub struct LockNotFoundByIdError(pub LockId);
