@@ -620,7 +620,7 @@ migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
 migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBakers (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV0 heb) -> do
-        blockCounts <- bakersFromEpochBlocks (hebBlocks heb)
+        blockCounts <- lift $ bakersFromEpochBlocks (hebBlocks heb)
         (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewardsP1 curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
         return (BlockRewardDetailsV1 newRef)
 migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
