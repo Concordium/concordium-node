@@ -54,18 +54,17 @@ fn test_cancel_by_canceller() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account_index_2,
             roles: vec![LockControllerSimpleV0Capability::Cancel],
         }],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
@@ -114,18 +113,17 @@ fn test_cancel_unauthorized() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account_index_1,
             roles: vec![LockControllerSimpleV0Capability::Cancel],
         }],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let sender_addr = context.external.account_canonical_address(account_index_2);
     let transaction_context = plt_scheduler::TransactionContext {
@@ -173,18 +171,17 @@ fn test_cancel_after_expiry() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account_index_2,
             roles: vec![LockControllerSimpleV0Capability::Cancel],
         }],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
@@ -250,12 +247,9 @@ fn test_cancel_with_balances() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![
             LockControllerSimpleV0Grant {
                 account: account_index_2,
                 roles: vec![LockControllerSimpleV0Capability::Cancel],
@@ -272,9 +266,11 @@ fn test_cancel_with_balances() {
                 ],
             },
         ],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
         &mut context,
         &mut block_state,

@@ -182,18 +182,17 @@ fn test_query_token_account_info_available_with_locked_balance() {
         sequence_number: 1,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
         &mut context,
         &mut block_state,
@@ -255,35 +254,33 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         sequence_number: 1,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id1,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config1 = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id1, lock_config1);
     let lock_id2 = LockId {
         account_index: account.account_index().into(),
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id2,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config2 = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id2, lock_config2);
     utils::lock_balance(
         &mut context,
         &mut block_state,
@@ -354,18 +351,17 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
         sequence_number: 1,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
         &mut context,
         &mut block_state,

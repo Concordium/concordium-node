@@ -22,7 +22,9 @@ use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::{OverflowError, RawTokenAmountDelta};
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
-use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
+use plt_block_state::persistent::protocol_level_locks::p11::{
+    LockConfiguration, LockControllerConfig,
+};
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{self, BlockItemEvent, TokenTransferEvent};
 use plt_scheduler_types::types::reject_reasons::{
@@ -230,11 +232,18 @@ where
             let token_index = token.token_p9_base.token_index();
             block_state.update_token(context, token)?;
 
-            if old_locked == raw_amount && old_locked > RawTokenAmount(0) {
-                let removed = lock.remove_lock_balance_ref(source.account_index(), token_index);
-                if removed {
-                    block_state.update_lock(context, lock)?;
-                }
+            let mut destroy_lock = false;
+            if old_locked != raw_amount || old_locked == RawTokenAmount(0) {
+                // No lock balance ref is removed unless the full remaining locked amount is sent.
+            } else if !lock.remove_lock_balance_ref(source.account_index(), token_index) {
+                // Nothing to update if there was no corresponding lock balance ref.
+            } else if lock.lock_balance_refs().is_empty()
+                && !lock_configuration_keeps_alive(&lock_configuration)
+            {
+                block_state.delete_lock(context, lock.lock_id())?;
+                destroy_lock = true;
+            } else {
+                block_state.update_lock(context, lock)?;
             }
 
             let memo = meta_lock_send_details.memo.map(transactions::Memo::from);
@@ -244,9 +253,14 @@ where
                 to: TokenHolder::Account(recipient_address),
                 amount: TokenAmount::from_raw(raw_amount.0, token_configuration.decimals),
                 memo,
-                from_lock: Some(meta_lock_send_details.lock),
+                from_lock: Some(meta_lock_send_details.lock.clone()),
                 to_lock: None,
             }));
+            if destroy_lock {
+                events.push(BlockItemEvent::LockDestroyed(events::LockDestroyEvent {
+                    lock_id: meta_lock_send_details.lock,
+                }));
+            }
         }
         LockOperation::Return(meta_lock_return_details) => {
             // TODO: (COR-2306) charge.
@@ -317,11 +331,18 @@ where
             let token_index = token.token_p9_base.token_index();
             block_state.update_token(context, token)?;
 
-            if old_locked == raw_amount && old_locked > RawTokenAmount(0) {
-                let removed = lock.remove_lock_balance_ref(source.account_index(), token_index);
-                if removed {
-                    block_state.update_lock(context, lock)?;
-                }
+            let mut destroy_lock = false;
+            if old_locked != raw_amount || old_locked == RawTokenAmount(0) {
+                // No lock balance ref is removed unless the full remaining locked amount is sent.
+            } else if !lock.remove_lock_balance_ref(source.account_index(), token_index) {
+                // Nothing to update if there was no corresponding lock balance ref.
+            } else if lock.lock_balance_refs().is_empty()
+                && !lock_configuration_keeps_alive(&lock_configuration)
+            {
+                block_state.delete_lock(context, lock.lock_id())?;
+                destroy_lock = true;
+            } else {
+                block_state.update_lock(context, lock)?;
             }
 
             let memo = meta_lock_return_details.memo.map(transactions::Memo::from);
@@ -331,9 +352,14 @@ where
                 to: TokenHolder::Account(source_address),
                 amount: TokenAmount::from_raw(raw_amount.0, token_configuration.decimals),
                 memo,
-                from_lock: Some(meta_lock_return_details.lock),
+                from_lock: Some(meta_lock_return_details.lock.clone()),
                 to_lock: None,
             }));
+            if destroy_lock {
+                events.push(BlockItemEvent::LockDestroyed(events::LockDestroyEvent {
+                    lock_id: meta_lock_return_details.lock,
+                }));
+            }
         }
         LockOperation::Create(meta_lock_create_details) => {
             let bsq = ExecutionTimeBlockStateP11 {
@@ -423,6 +449,12 @@ where
         }
     }
     Ok(())
+}
+
+fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
+    match configuration.controller() {
+        LockControllerConfig::SimpleV0(controller) => controller.keep_alive,
+    }
 }
 
 fn get_available_balance<C: EntityContextTypes>(

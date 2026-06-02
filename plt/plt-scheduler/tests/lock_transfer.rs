@@ -17,7 +17,8 @@ use concordium_base::transactions::Payload;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_scheduler_types::types::events::{BlockItemEvent, TokenTransferEvent};
+use plt_scheduler::queries::QueryLockError;
+use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent, TokenTransferEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
@@ -101,18 +102,17 @@ fn test_lock_fund_updates_account_and_lock_state() {
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: sender.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let outcome = execute_meta_update!(
         &mut context,
@@ -199,21 +199,20 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: sender.account_index(),
             roles: vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let sender_addr = context
         .external
@@ -296,7 +295,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
 }
 
 #[test]
-fn test_lock_return_removes_empty_lock_balance_reference() {
+fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -320,21 +319,128 @@ fn test_lock_return_removes_empty_lock_balance_reference() {
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: sender.account_index(),
             roles: vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Return,
             ],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
+    execute_meta_update!(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        0,
+        vec![lock_fund(
+            token_id.clone(),
+            lock_id.clone(),
+            TokenAmount::from_raw(250, 4),
+            None,
+        )],
     );
+
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let outcome = execute_meta_update!(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        0,
+        vec![lock_return(
+            token_id.clone(),
+            lock_id.clone(),
+            sender_addr,
+            TokenAmount::from_raw(250, 4),
+            None,
+        )],
+    );
+    let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
+
+    assert_eq!(events.len(), 2);
+    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(TokenTransferEvent {
+        token_id: event_token_id,
+        from,
+        to,
+        amount,
+        from_lock,
+        to_lock,
+        ..
+    }) => {
+        assert_eq!(event_token_id, &token_id);
+        assert_eq!(from, &TokenHolder::Account(sender_addr));
+        assert_eq!(to, &TokenHolder::Account(sender_addr));
+        assert_eq!(amount.amount, RawTokenAmount(250));
+        assert_eq!(amount.decimals, 4);
+        assert_eq!(from_lock, &Some(lock_id.clone()));
+        assert_eq!(to_lock, &None);
+    });
+    assert_matches!(&events[1], BlockItemEvent::LockDestroyed(LockDestroyEvent { lock_id: event_lock_id }) => {
+        assert_eq!(event_lock_id, &lock_id);
+    });
+
+    let sender_info =
+        token_account_info!(&context, &block_state, sender.account_index(), &token_id);
+    assert_eq!(
+        sender_info.account_state.balance.amount,
+        RawTokenAmount(1000)
+    );
+    let sender_state = token_module_account_state!(&sender_info);
+    assert!(sender_state.available.is_none());
+    assert!(sender_state.locks.is_empty());
+
+    assert_matches!(
+        block_state.query_lock_info(&context, &lock_id),
+        Err(QueryLockError::LockDoesNotExist)
+    );
+}
+
+#[test]
+fn test_lock_return_keeps_empty_lock_when_keep_alive_is_true() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let sender = context.external.create_account();
+    let recipient = context.external.create_account();
+    let token_id: TokenId = "pltX".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(1000),
+    );
+
+    let lock_id = LockId::new(sender.account_index(), 7u64, 0);
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
+            account: sender.account_index(),
+            roles: vec![
+                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Return,
+            ],
+        }],
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: true,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     execute_meta_update!(
         &mut context,
         &mut block_state,
@@ -367,33 +473,7 @@ fn test_lock_return_removes_empty_lock_balance_reference() {
     let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(TokenTransferEvent {
-        token_id: event_token_id,
-        from,
-        to,
-        amount,
-        from_lock,
-        to_lock,
-        ..
-    }) => {
-        assert_eq!(event_token_id, &token_id);
-        assert_eq!(from, &TokenHolder::Account(sender_addr));
-        assert_eq!(to, &TokenHolder::Account(sender_addr));
-        assert_eq!(amount.amount, RawTokenAmount(250));
-        assert_eq!(amount.decimals, 4);
-        assert_eq!(from_lock, &Some(lock_id.clone()));
-        assert_eq!(to_lock, &None);
-    });
-
-    let sender_info =
-        token_account_info!(&context, &block_state, sender.account_index(), &token_id);
-    assert_eq!(
-        sender_info.account_state.balance.amount,
-        RawTokenAmount(1000)
-    );
-    let sender_state = token_module_account_state!(&sender_info);
-    assert!(sender_state.available.is_none());
-    assert!(sender_state.locks.is_empty());
+    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(..));
 
     let lock_info: LockInfo = cbor::cbor_decode(
         block_state
@@ -430,18 +510,17 @@ fn test_lock_transfer_rejects_unauthorized_operations() {
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: owner.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let other_addr = context
         .external
@@ -543,21 +622,20 @@ fn test_lock_send_rejects_non_recipient() {
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: owner.account_index(),
             roles: vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     execute_meta_update!(
         &mut context,
         &mut block_state,
@@ -622,12 +700,9 @@ fn test_lock_operations_reject_after_expiry() {
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: owner.account_index(),
             roles: vec![
                 LockControllerSimpleV0Capability::Fund,
@@ -635,9 +710,11 @@ fn test_lock_operations_reject_after_expiry() {
                 LockControllerSimpleV0Capability::Return,
             ],
         }],
-        vec![token_id.clone()],
-        10,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 10,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let outcome = execute_meta_update!(
         &mut context,
