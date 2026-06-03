@@ -245,7 +245,13 @@ fn test_create_lock() {
     let mut block_state = BlockStateP11::default();
 
     // Create lock
+    let lock_id = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
     let configuration = LockConfiguration::new(
+        lock_id.clone(),
         vec![AccountIndex::from(1), AccountIndex::from(2)],
         TransactionTime::from(100u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -262,14 +268,8 @@ fn test_create_lock() {
         }),
     );
 
-    let lock_id = LockId {
-        account_index: 1,
-        sequence_number: 1,
-        creation_order: 0,
-    };
-
     block_state
-        .create_lock(&context, lock_id.clone(), configuration.clone())
+        .create_lock(&context, configuration.clone())
         .unwrap();
 
     // Read configuration
@@ -277,7 +277,9 @@ fn test_create_lock() {
         .lock_by_id(&context, &lock_id)
         .unwrap()
         .unwrap()
-        .lock_configuration(&context);
+        .lock_configuration(&context)
+        .unwrap()
+        .into_owned();
     assert_eq!(read_configuration, configuration);
 }
 
@@ -288,7 +290,13 @@ fn test_lock_by_id() {
     let mut block_state = BlockStateP11::default();
 
     // Create lock
+    let lock_id = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
     let configuration = LockConfiguration::new(
+        lock_id.clone(),
         vec![],
         TransactionTime::from(0u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -299,22 +307,17 @@ fn test_lock_by_id() {
         }),
     );
 
-    let lock_id = LockId {
-        account_index: 1,
-        sequence_number: 1,
-        creation_order: 0,
-    };
-
-    block_state
-        .create_lock(&context, lock_id.clone(), configuration.clone())
-        .unwrap();
+    block_state.create_lock(&context, configuration).unwrap();
 
     // Get lock by id
     let lock = block_state
         .lock_by_id(&context, &lock_id)
         .unwrap()
         .expect("lock should exist");
-    assert_eq!(lock.lock_id(), &lock_id);
+    assert_eq!(
+        lock.lock_configuration(&context).unwrap().lock_id(),
+        &lock_id
+    );
 
     // Get non-existing lock by id
     let non_existing_lock_id = LockId {
@@ -336,7 +339,13 @@ fn test_lock_balance_refs() {
     let mut block_state = BlockStateP11::default();
 
     // Create lock
+    let lock_id = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
     let configuration = LockConfiguration::new(
+        lock_id.clone(),
         vec![],
         TransactionTime::from(0u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -347,15 +356,7 @@ fn test_lock_balance_refs() {
         }),
     );
 
-    let lock_id = LockId {
-        account_index: 1,
-        sequence_number: 1,
-        creation_order: 0,
-    };
-
-    block_state
-        .create_lock(&context, lock_id.clone(), configuration.clone())
-        .unwrap();
+    block_state.create_lock(&context, configuration).unwrap();
     let mut lock = block_state
         .lock_by_id(&context, &lock_id)
         .unwrap()
@@ -396,7 +397,13 @@ fn test_lock_list() {
     assert_eq!(locks, vec![]);
 
     // Create locks
-    let configuration = LockConfiguration::new(
+    let lock_id_a = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
+    let configuration_a = LockConfiguration::new(
+        lock_id_a.clone(),
         vec![],
         TransactionTime::from(0u64),
         LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -407,24 +414,27 @@ fn test_lock_list() {
         }),
     );
 
-    let lock_id_a = LockId {
-        account_index: 1,
-        sequence_number: 1,
-        creation_order: 0,
-    };
     let lock_id_b = LockId {
         account_index: 2,
         sequence_number: 7,
         creation_order: 0,
     };
-    block_state
-        .create_lock(&context, lock_id_a.clone(), configuration.clone())
-        .unwrap();
-    block_state
-        .create_lock(&context, lock_id_b.clone(), configuration)
-        .unwrap();
+    let configuration_b = LockConfiguration::new(
+        lock_id_b.clone(),
+        vec![],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+            grants: Vec::new(),
+            tokens: Vec::new(),
+            keep_alive: false,
+            memo: None,
+        }),
+    );
+    block_state.create_lock(&context, configuration_a).unwrap();
+    block_state.create_lock(&context, configuration_b).unwrap();
 
-    // Read lock list
-    let locks = block_state.lock_list(&context).unwrap();
+    // Read lock list and sort for a stable comparison (lock_list order is not guaranteed).
+    let mut locks = block_state.lock_list(&context).unwrap();
+    locks.sort();
     assert_eq!(locks, vec![lock_id_a, lock_id_b]);
 }
