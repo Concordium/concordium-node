@@ -1,8 +1,12 @@
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::meta_operations::{
+    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
+};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
 use plt_block_state::entity::EntityContext;

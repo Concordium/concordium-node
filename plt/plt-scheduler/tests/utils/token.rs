@@ -4,6 +4,9 @@ use super::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
+use concordium_base::protocol_level_tokens::meta_operations::{
+    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
+};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
     TokenModuleInitializationParameters, TokenModuleRejectReason, TokenModuleRejectReasonType,
@@ -290,6 +293,31 @@ pub fn execute_token_operations(
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
+}
+
+/// Execute meta-update operations as the given sender account. Returns the block item events on
+/// success, panics if the transaction fails.
+pub fn execute_meta_operations(
+    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    block_state: &mut impl SchedulerOperations,
+    sender: AccountIndex,
+    operations: Vec<MetaUpdateOperation>,
+) -> Vec<plt_scheduler_types::types::events::BlockItemEvent> {
+    let payload = Payload::MetaUpdate {
+        payload: MetaUpdatePayload {
+            operations: RawCbor::from(cbor::cbor_encode(&MetaUpdateOperations { operations })),
+        },
+    };
+    let sender_addr = context.external.account_canonical_address(sender);
+    let result = block_state
+        .execute_transaction(
+            context,
+            crate::utils::simple_transaction_context(sender_addr),
+            sender,
+            payload,
+        )
+        .expect("transaction internal error");
+    assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events)
 }
 
 fn decode_token_module_reject_reason(
