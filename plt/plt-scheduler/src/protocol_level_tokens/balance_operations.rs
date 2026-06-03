@@ -228,6 +228,7 @@ pub fn transfer<C: EntityContextTypes>(
 /// # Errors
 ///
 /// - [`InsufficientBalanceError`] The account has insufficient available balance.
+#[allow(clippy::too_many_arguments)]
 pub fn lock_amount<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
@@ -374,6 +375,7 @@ pub fn send_locked_amount<C: EntityContextTypes>(
 /// # Errors
 ///
 /// - [`InsufficientBalanceError`] The account has insufficient locked balance.
+#[allow(clippy::too_many_arguments)]
 pub fn return_locked_amount<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,

@@ -1,4 +1,5 @@
-//! Scheduler implementation for protocol-level lock operations.
+//! Scheduler implementation for protocol-level token updates. This module implements execution
+//! of transactions related to protocol-level tokens.
 
 use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
@@ -536,18 +537,17 @@ fn check_token_transfer_restrictions<C: EntityContextTypes>(
                 "sender not in allow list",
             ));
         }
-        if let Some((recipient_account, recipient_addr)) = recipient {
-            if !token
+        if let Some((recipient_account, recipient_addr)) = recipient
+            && !token
                 .token_p9_base
                 .get_allow_list_for(context, recipient_account.account_index())
-            {
-                return Err(token_operation_not_permitted_reject_reason(
-                    operation_index,
-                    token_configuration,
-                    Some(recipient_addr),
-                    "recipient not in allow list",
-                ));
-            }
+        {
+            return Err(token_operation_not_permitted_reject_reason(
+                operation_index,
+                token_configuration,
+                Some(recipient_addr),
+                "recipient not in allow list",
+            ));
         }
     }
 
@@ -563,18 +563,17 @@ fn check_token_transfer_restrictions<C: EntityContextTypes>(
                 "sender in deny list",
             ));
         }
-        if let Some((recipient_account, recipient_addr)) = recipient {
-            if token
+        if let Some((recipient_account, recipient_addr)) = recipient
+            && token
                 .token_p9_base
                 .get_deny_list_for(context, recipient_account.account_index())
-            {
-                return Err(token_operation_not_permitted_reject_reason(
-                    operation_index,
-                    token_configuration,
-                    Some(recipient_addr),
-                    "recipient in deny list",
-                ));
-            }
+        {
+            return Err(token_operation_not_permitted_reject_reason(
+                operation_index,
+                token_configuration,
+                Some(recipient_addr),
+                "recipient in deny list",
+            ));
         }
     }
 
