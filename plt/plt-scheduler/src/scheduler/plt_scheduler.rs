@@ -6,21 +6,20 @@ use crate::locks::{get_lock_config, lock_controller};
 use crate::protocol_level_tokens::balance_operations;
 use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
 use crate::protocol_level_tokens::token_module::{
-    TransferConstraintError, ValidatedAccounts, check_transfer_constraints,
+    TokenUpdateError, check_transfer_constraints, token_update_error_internal_to_external,
 };
 use crate::scheduler::TransactionFailure;
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor::{self};
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaLockCancelDetails, MetaLockCreateDetails, MetaLockFundDetails,
     MetaLockReturnDetails, MetaLockSendDetails,
 };
 use concordium_base::protocol_level_tokens::{
-    DeserializationFailureRejectReason, OperationNotPermittedRejectReason, RawCbor,
-    TokenAmount as BaseTokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
+    DeserializationFailureRejectReason, RawCbor, TokenAmount as BaseTokenAmount,
+    TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
 };
 use concordium_base::transactions;
 use plt_block_state::block_state::ExecutionTimeBlockStateP11;
@@ -194,49 +193,35 @@ where
     }
 
     let source_address = details.source.address;
-    let source = context.account_by_address(&source_address);
+    let source = context
+        .account_by_address(&source_address)
+        .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
     let recipient_address = details.recipient.address;
-    let recipient = context.account_by_address(&recipient_address);
+    let recipient = context
+        .account_by_address(&recipient_address)
+        .map_err(|_| TransactionRejectReason::InvalidAccountReference(recipient_address))?;
 
     let mut token = block_state.token_by_id(context, &details.token)?.map_err(
         |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
     )?;
     let token_configuration = token.token_p9_base.token_configuration(context)?;
 
-    let ValidatedAccounts {
-        sender: source,
-        receiver: recipient,
-    } = check_transfer_constraints(context, &token.token_p9_base, source, recipient).map_err(
-        |err| match err {
-            TransferConstraintError::Paused => token_operation_not_permitted_reject_reason(
-                operation_index,
-                &token_configuration,
-                None,
-                "token operation transfer is paused",
-            ),
-            TransferConstraintError::SenderNotAllowed { reason } => {
-                token_operation_not_permitted_reject_reason(
-                    operation_index,
-                    &token_configuration,
-                    Some(source_address),
-                    reason,
-                )
-            }
-            TransferConstraintError::RecipientNotAllowed { reason } => {
-                token_operation_not_permitted_reject_reason(
-                    operation_index,
-                    &token_configuration,
-                    Some(recipient_address),
-                    reason,
-                )
-            }
-            TransferConstraintError::AccountNotFound(account_not_found_by_address_error) => {
-                TransactionRejectReason::InvalidAccountReference(
-                    account_not_found_by_address_error.0,
-                )
-            }
-        },
-    )?;
+    if let Err(err) = check_transfer_constraints(
+        context,
+        &token.token_p9_base,
+        &source,
+        source_address,
+        &recipient,
+        recipient_address,
+    ) {
+        let err = token_update_error_internal_to_external(
+            &token_configuration,
+            operation_index,
+            "transfer",
+            err,
+        )?;
+        return Err(token_update_error_reject_reason(&token_configuration, err));
+    }
 
     if !lock_configuration.is_recipient(&recipient.account_index()) {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
@@ -549,25 +534,22 @@ fn token_deserialization_failure_reject_reason(
     })
 }
 
-fn token_operation_not_permitted_reject_reason(
-    operation_index: usize,
+fn token_update_error_reject_reason(
     token_configuration: &TokenConfiguration,
-    address: Option<AccountAddress>,
-    reason: &'static str,
-) -> TransactionRejectReason {
-    let (reason_type, details) =
-        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: operation_index as u64,
-            address: address.map(Into::into),
-            reason: reason.to_string().into(),
-        })
-        .encode_reject_reason();
-
-    TransactionRejectReason::TokenUpdateTransactionFailed(EncodedTokenModuleRejectReason {
-        token_id: token_configuration.token_id.clone(),
-        reason_type: reason_type.to_type_discriminator(),
-        details: Some(details),
-    })
+    err: TokenUpdateError,
+) -> TransactionFailure {
+    match err {
+        TokenUpdateError::OutOfEnergy(_) => TransactionRejectReason::OutOfEnergy.into(),
+        TokenUpdateError::TokenModuleReject(reject_reason) => {
+            let (reason_type, details) = reject_reason.encode_reject_reason();
+            TransactionRejectReason::TokenUpdateTransactionFailed(EncodedTokenModuleRejectReason {
+                token_id: token_configuration.token_id.clone(),
+                reason_type: reason_type.to_type_discriminator(),
+                details: Some(details),
+            })
+            .into()
+        }
+    }
 }
 
 fn token_balance_insufficient_reject_reason(
