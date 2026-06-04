@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 11.2.1 (Devnet)
+
 - Add support for the following "meta update" operations:
   - `lockFund`: move protocol-level tokens from an account's available balance into a PLT Lock.
   - `lockSend`: move protocol-level tokens from a PLT Lock to a recipient account's available balance.
