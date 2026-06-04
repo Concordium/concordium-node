@@ -17,7 +17,7 @@ use concordium_base::protocol_level_tokens::{
     UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
-use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
@@ -213,7 +213,7 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
 /// Internal variant of `TokenUpdateError` where the reject reason is
 /// not encoded as CBOR
 #[derive(Debug, thiserror::Error)]
-enum TokenUpdateErrorInternal {
+pub(crate) enum TokenUpdateErrorInternal {
     #[error("The given account does not exist: {0}")]
     AccountDoesNotExist(#[from] AccountNotFoundByAddressError),
     #[error("The token amount has wrong number of decimals: {0}")]
@@ -391,6 +391,90 @@ fn check_authorized<C: EntityContextTypes>(
     Ok(())
 }
 
+/// Resolved and validated sender and receiver accounts, returned by
+/// [`check_transfer_constraints`] on success.
+pub(crate) struct ValidatedAccounts {
+    /// The resolved sender account.
+    pub sender: Account,
+    /// The resolved receiver account.
+    pub receiver: Account,
+}
+
+/// Reasons why a token transfer is not permitted according to the token module
+/// state. Returned by [`check_transfer_constraints`] when a constraint is
+/// violated.
+pub(crate) enum TransferConstraintError {
+    /// The token is currently paused; no balance-affecting operations are
+    /// allowed.
+    Paused,
+    /// The sender account is not permitted to send (not in the allow list, or
+    /// in the deny list). The `reason` string is a human-readable explanation.
+    SenderNotAllowed { reason: &'static str },
+    /// The recipient account is not permitted to receive (not in the allow
+    /// list, or in the deny list). The `reason` string is a human-readable
+    /// explanation.
+    RecipientNotAllowed { reason: &'static str },
+    /// One of the account addresses could not be resolved in the block state.
+    AccountNotFound(AccountNotFoundByAddressError),
+}
+
+/// Validate that a token transfer between `sender` and `receiver` is permitted
+/// by the token module's current state.
+///
+/// Checks, in order:
+/// 1. The token is not paused.
+/// 2. Both accounts can be resolved (the `Result` arguments allow the caller
+///    to forward lookup errors here rather than handling them separately).
+/// 3. If the token has an allow list, both accounts must be on it.
+/// 4. If the token has a deny list, neither account may be on it.
+///
+/// On success, the resolved [`ValidatedAccounts`] are returned so the caller
+/// does not need to look them up again.
+///
+/// # Errors
+///
+/// Returns a [`TransferConstraintError`] describing the first constraint that
+/// is violated.
+pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    token: &TokenP9Base,
+    sender: Result<Account, AccountNotFoundByAddressError>,
+    receiver: Result<Account, AccountNotFoundByAddressError>,
+) -> Result<ValidatedAccounts, TransferConstraintError> {
+    check_not_paused(context, token).map_err(|_| TransferConstraintError::Paused)?;
+
+    let sender = sender.map_err(TransferConstraintError::AccountNotFound)?;
+    let receiver = receiver.map_err(TransferConstraintError::AccountNotFound)?;
+
+    if token.has_allow_list(context) {
+        if !token.get_allow_list_for(context, sender.account_index()) {
+            return Err(TransferConstraintError::SenderNotAllowed {
+                reason: "sender not in allow list",
+            });
+        }
+        if !token.get_allow_list_for(context, receiver.account_index()) {
+            return Err(TransferConstraintError::RecipientNotAllowed {
+                reason: "recipient not in allow list",
+            });
+        }
+    }
+
+    if token.has_deny_list(context) {
+        if token.get_deny_list_for(context, sender.account_index()) {
+            return Err(TransferConstraintError::SenderNotAllowed {
+                reason: "sender in deny list",
+            });
+        }
+        if token.get_deny_list_for(context, receiver.account_index()) {
+            return Err(TransferConstraintError::RecipientNotAllowed {
+                reason: "recipient in deny list",
+            });
+        }
+    }
+
+    Ok(ValidatedAccounts { sender, receiver })
+}
+
 fn execute_token_transfer<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
@@ -403,51 +487,44 @@ fn execute_token_transfer<C: EntityContextTypes>(
     // preprocessing
     let raw_amount = util::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
 
-    // operation execution
-    check_not_paused(context, token)?;
-
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
-    let receiver = context.account_by_address(&transfer_operation.recipient.address)?;
+    let receiver = context.account_by_address(&transfer_operation.recipient.address);
+    let receiver_address = transfer_operation.recipient.address;
 
-    if token.has_allow_list(context) {
-        if !token.get_allow_list_for(context, sender.account_index()) {
-            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(sender_address),
-                reason: "sender not in allow list",
-            });
-        }
-        if !token.get_allow_list_for(context, receiver.account_index()) {
-            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(transfer_operation.recipient.address),
-                reason: "recipient not in allow list",
-            });
-        }
-    }
-
-    if token.has_deny_list(context) {
-        if token.get_deny_list_for(context, sender.account_index()) {
-            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(sender_address),
-                reason: "sender in deny list",
-            });
-        }
-        if token.get_deny_list_for(context, receiver.account_index()) {
-            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(transfer_operation.recipient.address),
-                reason: "recipient in deny list",
-            });
-        }
-    }
+    let ValidatedAccounts { sender, receiver } =
+        match check_transfer_constraints(context, token, Ok(sender.clone()), receiver) {
+            Ok(accs) => accs,
+            Err(err) => {
+                return Err(match err {
+                    TransferConstraintError::Paused => TokenUpdateErrorInternal::Paused,
+                    TransferConstraintError::AccountNotFound(inner) => {
+                        TokenUpdateErrorInternal::AccountDoesNotExist(inner)
+                    }
+                    TransferConstraintError::SenderNotAllowed { reason } => {
+                        TokenUpdateErrorInternal::OperationNotPermitted {
+                            account_address: Some(sender_address),
+                            reason,
+                        }
+                    }
+                    TransferConstraintError::RecipientNotAllowed { reason } => {
+                        TokenUpdateErrorInternal::OperationNotPermitted {
+                            account_address: Some(receiver_address),
+                            reason,
+                        }
+                    }
+                });
+            }
+        };
 
     balance_operations::transfer(
         context,
         events,
         token,
-        sender,
+        &sender,
         sender_address,
         &receiver,
-        transfer_operation.recipient.address,
+        receiver_address,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
     )??;
