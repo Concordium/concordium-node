@@ -391,18 +391,50 @@ fn check_authorized<C: EntityContextTypes>(
     Ok(())
 }
 
+/// Resolved and validated sender and receiver accounts, returned by
+/// [`check_transfer_constraints`] on success.
 pub(crate) struct ValidatedAccounts {
+    /// The resolved sender account.
     pub sender: Account,
+    /// The resolved receiver account.
     pub receiver: Account,
 }
 
+/// Reasons why a token transfer is not permitted according to the token module
+/// state. Returned by [`check_transfer_constraints`] when a constraint is
+/// violated.
 pub(crate) enum TransferConstraintError {
+    /// The token is currently paused; no balance-affecting operations are
+    /// allowed.
     Paused,
+    /// The sender account is not permitted to send (not in the allow list, or
+    /// in the deny list). The `reason` string is a human-readable explanation.
     SenderNotAllowed { reason: &'static str },
+    /// The recipient account is not permitted to receive (not in the allow
+    /// list, or in the deny list). The `reason` string is a human-readable
+    /// explanation.
     RecipientNotAllowed { reason: &'static str },
+    /// One of the account addresses could not be resolved in the block state.
     AccountNotFound(AccountNotFoundByAddressError),
 }
 
+/// Validate that a token transfer between `sender` and `receiver` is permitted
+/// by the token module's current state.
+///
+/// Checks, in order:
+/// 1. The token is not paused.
+/// 2. Both accounts can be resolved (the `Result` arguments allow the caller
+///    to forward lookup errors here rather than handling them separately).
+/// 3. If the token has an allow list, both accounts must be on it.
+/// 4. If the token has a deny list, neither account may be on it.
+///
+/// On success, the resolved [`ValidatedAccounts`] are returned so the caller
+/// does not need to look them up again.
+///
+/// # Errors
+///
+/// Returns a [`TransferConstraintError`] describing the first constraint that
+/// is violated.
 pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
     context: &EntityContext<C>,
     token: &TokenP9Base,
