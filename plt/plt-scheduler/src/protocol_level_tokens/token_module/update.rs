@@ -23,6 +23,7 @@ use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
@@ -116,7 +117,49 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
         Err(int_err) => int_err,
     };
 
-    Ok(Err(match int_err {
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
+    token_update_error_internal_to_external(
+        &token_configuration,
+        index,
+        operation_name(operation),
+        int_err,
+    )
+    .map(Err)
+}
+
+/// Translate an internal token update error into the externally visible token
+/// update error.
+///
+/// # Arguments
+///
+/// - `token_configuration`: the token configuration used to format amounts and
+///   identify the token in reject details.
+/// - `index`: the operation index in the transaction.
+/// - `operation_type`: the token operation type used in reject messages.
+/// - `err`: the internal error to translate.
+///
+/// # Errors
+///
+/// Returns a [`BlockStateFailure`] when `err` represents an unrecoverable block
+/// state failure.
+///
+/// # Examples
+///
+/// ```ignore
+/// let external = token_update_error_internal_to_external(
+///     &token_configuration,
+///     0,
+///     "transfer",
+///     TokenUpdateErrorInternal::Paused,
+/// )?;
+/// ```
+pub(crate) fn token_update_error_internal_to_external(
+    token_configuration: &TokenConfiguration,
+    index: usize,
+    operation_type: &'static str,
+    err: TokenUpdateErrorInternal,
+) -> BlockStateResult<TokenUpdateError> {
+    Ok(match err {
         TokenUpdateErrorInternal::AccountDoesNotExist(err) => TokenUpdateError::TokenModuleReject(
             TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
                 index: index as u64,
@@ -131,40 +174,31 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             ))
         }
         TokenUpdateErrorInternal::InsufficientBalance(err) => {
-            let token_configuration = token.token_p9_base().token_configuration(context)?;
-
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
                 TokenBalanceInsufficientRejectReason {
                     index: index as u64,
-                    available_balance: util::to_token_amount(&token_configuration, err.available),
-                    required_balance: util::to_token_amount(&token_configuration, err.required),
+                    available_balance: util::to_token_amount(token_configuration, err.available),
+                    required_balance: util::to_token_amount(token_configuration, err.required),
                 },
             ))
         }
-        TokenUpdateErrorInternal::MintWouldOverflow(err) => {
-            let token_configuration = token.token_p9_base().token_configuration(context)?;
-
-            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::MintWouldOverflow(
-                MintWouldOverflowRejectReason {
-                    index: index as u64,
-                    requested_amount: util::to_token_amount(
-                        &token_configuration,
-                        err.requested_amount,
-                    ),
-                    current_supply: util::to_token_amount(&token_configuration, err.current_supply),
-                    max_representable_amount: util::to_token_amount(
-                        &token_configuration,
-                        err.max_representable_amount,
-                    ),
-                },
-            ))
-        }
+        TokenUpdateErrorInternal::MintWouldOverflow(err) => TokenUpdateError::TokenModuleReject(
+            TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
+                index: index as u64,
+                requested_amount: util::to_token_amount(token_configuration, err.requested_amount),
+                current_supply: util::to_token_amount(token_configuration, err.current_supply),
+                max_representable_amount: util::to_token_amount(
+                    token_configuration,
+                    err.max_representable_amount,
+                ),
+            }),
+        ),
         TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
         TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
             TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
                 index: index as u64,
                 address: None,
-                reason: format!("token operation {} is paused", operation_name(operation))
+                reason: format!("token operation {operation_type} is paused")
                     .to_string()
                     .into(),
             }),
@@ -183,14 +217,13 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::UnsupportedOperation(
                 UnsupportedOperationRejectReason {
                     index: index as u64,
-                    operation_type: operation_name(operation).to_string(),
+                    operation_type: operation_type.to_string(),
                     reason: reason.to_string().into(),
                 },
             ))
         }
-
         TokenUpdateErrorInternal::BlockStateFailure(err) => return Err(err),
-    }))
+    })
 }
 
 fn operation_name(operation: &TokenOperation) -> &'static str {
@@ -391,69 +424,38 @@ fn check_authorized<C: EntityContextTypes>(
     Ok(())
 }
 
-/// Resolved and validated sender and receiver accounts, returned by
-/// [`check_transfer_constraints`] on success.
-pub(crate) struct ValidatedAccounts {
-    /// The resolved sender account.
-    pub sender: Account,
-    /// The resolved receiver account.
-    pub receiver: Account,
-}
-
-/// Reasons why a token transfer is not permitted according to the token module
-/// state. Returned by [`check_transfer_constraints`] when a constraint is
-/// violated.
-pub(crate) enum TransferConstraintError {
-    /// The token is currently paused; no balance-affecting operations are
-    /// allowed.
-    Paused,
-    /// The sender account is not permitted to send (not in the allow list, or
-    /// in the deny list). The `reason` string is a human-readable explanation.
-    SenderNotAllowed { reason: &'static str },
-    /// The recipient account is not permitted to receive (not in the allow
-    /// list, or in the deny list). The `reason` string is a human-readable
-    /// explanation.
-    RecipientNotAllowed { reason: &'static str },
-    /// One of the account addresses could not be resolved in the block state.
-    AccountNotFound(AccountNotFoundByAddressError),
-}
-
 /// Validate that a token transfer between `sender` and `receiver` is permitted
 /// by the token module's current state.
 ///
-/// Checks, in order:
-/// 1. The token is not paused.
-/// 2. Both accounts can be resolved (the `Result` arguments allow the caller
-///    to forward lookup errors here rather than handling them separately).
-/// 3. If the token has an allow list, both accounts must be on it.
-/// 4. If the token has a deny list, neither account may be on it.
-///
-/// On success, the resolved [`ValidatedAccounts`] are returned so the caller
-/// does not need to look them up again.
+/// This checks that the token is not paused, that both accounts satisfy an
+/// allow list if one is configured, and that neither account is on a configured
+/// deny list.
 ///
 /// # Errors
 ///
-/// Returns a [`TransferConstraintError`] describing the first constraint that
-/// is violated.
+/// Returns [`TokenUpdateErrorInternal::Paused`] if the token is paused, or
+/// [`TokenUpdateErrorInternal::OperationNotPermitted`] if either account is not
+/// permitted to participate in the transfer.
 pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
     context: &EntityContext<C>,
     token: &TokenP9Base,
-    sender: Result<Account, AccountNotFoundByAddressError>,
-    receiver: Result<Account, AccountNotFoundByAddressError>,
-) -> Result<ValidatedAccounts, TransferConstraintError> {
-    check_not_paused(context, token).map_err(|_| TransferConstraintError::Paused)?;
-
-    let sender = sender.map_err(TransferConstraintError::AccountNotFound)?;
-    let receiver = receiver.map_err(TransferConstraintError::AccountNotFound)?;
+    sender: &Account,
+    sender_address: AccountAddress,
+    receiver: &Account,
+    receiver_address: AccountAddress,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_not_paused(context, token)?;
 
     if token.has_allow_list(context) {
         if !token.get_allow_list_for(context, sender.account_index()) {
-            return Err(TransferConstraintError::SenderNotAllowed {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(sender_address),
                 reason: "sender not in allow list",
             });
         }
         if !token.get_allow_list_for(context, receiver.account_index()) {
-            return Err(TransferConstraintError::RecipientNotAllowed {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(receiver_address),
                 reason: "recipient not in allow list",
             });
         }
@@ -461,18 +463,20 @@ pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
 
     if token.has_deny_list(context) {
         if token.get_deny_list_for(context, sender.account_index()) {
-            return Err(TransferConstraintError::SenderNotAllowed {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(sender_address),
                 reason: "sender in deny list",
             });
         }
         if token.get_deny_list_for(context, receiver.account_index()) {
-            return Err(TransferConstraintError::RecipientNotAllowed {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(receiver_address),
                 reason: "recipient in deny list",
             });
         }
     }
 
-    Ok(ValidatedAccounts { sender, receiver })
+    Ok(())
 }
 
 fn execute_token_transfer<C: EntityContextTypes>(
@@ -489,39 +493,23 @@ fn execute_token_transfer<C: EntityContextTypes>(
 
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
-    let receiver = context.account_by_address(&transfer_operation.recipient.address);
     let receiver_address = transfer_operation.recipient.address;
+    let receiver = context.account_by_address(&receiver_address)?;
 
-    let ValidatedAccounts { sender, receiver } =
-        match check_transfer_constraints(context, token, Ok(sender.clone()), receiver) {
-            Ok(accs) => accs,
-            Err(err) => {
-                return Err(match err {
-                    TransferConstraintError::Paused => TokenUpdateErrorInternal::Paused,
-                    TransferConstraintError::AccountNotFound(inner) => {
-                        TokenUpdateErrorInternal::AccountDoesNotExist(inner)
-                    }
-                    TransferConstraintError::SenderNotAllowed { reason } => {
-                        TokenUpdateErrorInternal::OperationNotPermitted {
-                            account_address: Some(sender_address),
-                            reason,
-                        }
-                    }
-                    TransferConstraintError::RecipientNotAllowed { reason } => {
-                        TokenUpdateErrorInternal::OperationNotPermitted {
-                            account_address: Some(receiver_address),
-                            reason,
-                        }
-                    }
-                });
-            }
-        };
+    check_transfer_constraints(
+        context,
+        token,
+        sender,
+        sender_address,
+        &receiver,
+        receiver_address,
+    )?;
 
     balance_operations::transfer(
         context,
         events,
         token,
-        &sender,
+        sender,
         sender_address,
         &receiver,
         receiver_address,
