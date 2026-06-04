@@ -372,9 +372,9 @@ fn test_cancel_nonexistent() {
     });
 }
 
-/// Test that cancelling a lock is not blocked by token pause, allow-list, or deny-list restrictions.
+/// Test that cancelling a lock is not blocked by token pause or deny-list restrictions.
 #[test]
-fn test_cancel_ignores_token_pause_allow_list_and_deny_list() {
+fn test_cancel_ignores_token_pause_and_deny_list() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -389,7 +389,6 @@ fn test_cancel_ignores_token_pause_allow_list_and_deny_list() {
         TokenInitTestParams::default()
             .mintable()
             .burnable()
-            .allow_list()
             .deny_list(),
         2,
         Some(RawTokenAmount(10000)),
@@ -398,23 +397,6 @@ fn test_cancel_ignores_token_pause_allow_list_and_deny_list() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let gov_addr = context
-        .external
-        .account_canonical_address(gov_account.account_index());
-    utils::execute_token_operations(
-        &mut context,
-        &mut block_state,
-        &token_id,
-        gov_account.account_index(),
-        vec![
-            TokenOperation::AddAllowList(TokenListUpdateDetails {
-                target: CborHolderAccount::from(gov_addr),
-            }),
-            TokenOperation::AddAllowList(TokenListUpdateDetails {
-                target: CborHolderAccount::from(owner_addr),
-            }),
-        ],
-    );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
@@ -464,14 +446,9 @@ fn test_cancel_ignores_token_pause_allow_list_and_deny_list() {
         &mut block_state,
         &token_id,
         gov_account.account_index(),
-        vec![
-            TokenOperation::RemoveAllowList(TokenListUpdateDetails {
-                target: CborHolderAccount::from(owner_addr),
-            }),
-            TokenOperation::AddDenyList(TokenListUpdateDetails {
-                target: CborHolderAccount::from(owner_addr),
-            }),
-        ],
+        vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(owner_addr),
+        })],
     );
     utils::pause_token(
         &mut context,

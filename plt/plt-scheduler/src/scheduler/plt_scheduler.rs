@@ -5,6 +5,9 @@ use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
 use crate::protocol_level_tokens::balance_operations;
 use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
+use crate::protocol_level_tokens::token_module::{
+    TransferConstraintError, ValidatedAccounts, check_transfer_constraints,
+};
 use crate::scheduler::TransactionFailure;
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::base::AccountIndex;
@@ -21,10 +24,9 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions;
 use plt_block_state::block_state::ExecutionTimeBlockStateP11;
-use plt_block_state::entity::accounts::{Account, Accounts};
+use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateFailure;
 use plt_block_state::persistent::protocol_level_locks::p11::{
@@ -124,19 +126,6 @@ where
     let token_configuration = token.token_p9_base.token_configuration(context)?;
     let raw_amount = parse_raw_amount(&token_configuration, details.amount, operation_index)?;
 
-    let sender = (
-        transaction_execution.sender_account(),
-        transaction_execution.sender_account_address(),
-    );
-    check_token_transfer_restrictions(
-        context,
-        &token,
-        operation_index,
-        &token_configuration,
-        sender,
-        None,
-    )?;
-
     let memo = details.memo.map(transactions::Memo::from);
     let is_new_holder = match balance_operations::lock_amount(
         context,
@@ -201,13 +190,49 @@ where
     }
 
     let source_address = details.source.address;
-    let source = context
-        .account_by_address(&source_address)
-        .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
+    let source = context.account_by_address(&source_address);
     let recipient_address = details.recipient.address;
-    let recipient = context
-        .account_by_address(&recipient_address)
-        .map_err(|_| TransactionRejectReason::InvalidAccountReference(recipient_address))?;
+    let recipient = context.account_by_address(&recipient_address);
+
+    let mut token = block_state.token_by_id(context, &details.token)?.map_err(
+        |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
+    )?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
+
+    let ValidatedAccounts {
+        sender: source,
+        receiver: recipient,
+    } = check_transfer_constraints(context, &token.token_p9_base, source, recipient).map_err(
+        |err| match err {
+            TransferConstraintError::Paused => token_operation_not_permitted_reject_reason(
+                operation_index,
+                &token_configuration,
+                None,
+                "token operation transfer is paused",
+            ),
+            TransferConstraintError::SenderNotAllowed { reason } => {
+                token_operation_not_permitted_reject_reason(
+                    operation_index,
+                    &token_configuration,
+                    Some(source_address),
+                    reason,
+                )
+            }
+            TransferConstraintError::RecipientNotAllowed { reason } => {
+                token_operation_not_permitted_reject_reason(
+                    operation_index,
+                    &token_configuration,
+                    Some(recipient_address),
+                    reason,
+                )
+            }
+            TransferConstraintError::AccountNotFound(account_not_found_by_address_error) => {
+                TransactionRejectReason::InvalidAccountReference(
+                    account_not_found_by_address_error.0,
+                )
+            }
+        },
+    )?;
 
     if !lock_configuration.is_recipient(&recipient.account_index()) {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
@@ -224,21 +249,7 @@ where
         &lock_controller::LockOperation::Send(details.clone()),
     )?;
 
-    let mut token = block_state.token_by_id(context, &details.token)?.map_err(
-        |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
-    )?;
-    let token_configuration = token.token_p9_base.token_configuration(context)?;
     let raw_amount = parse_raw_amount(&token_configuration, details.amount, operation_index)?;
-
-    let sender = (&source, source_address);
-    check_token_transfer_restrictions(
-        context,
-        &token,
-        operation_index,
-        &token_configuration,
-        sender,
-        Some((&recipient, recipient_address)),
-    )?;
 
     let memo = details.memo.map(transactions::Memo::from);
     let remaining_locked = balance_operations::send_locked_amount(
@@ -321,16 +332,6 @@ where
     )?;
     let token_configuration = token.token_p9_base.token_configuration(context)?;
     let raw_amount = parse_raw_amount(&token_configuration, details.amount, operation_index)?;
-
-    let sender = (&source, source_address);
-    check_token_transfer_restrictions(
-        context,
-        &token,
-        operation_index,
-        &token_configuration,
-        sender,
-        None,
-    )?;
 
     let memo = details.memo.map(transactions::Memo::from);
     let remaining_locked = balance_operations::return_locked_amount(
@@ -500,84 +501,6 @@ fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
     match configuration.controller() {
         LockControllerConfig::SimpleV0(controller) => controller.keep_alive,
     }
-}
-
-/// Check token-level transfer restrictions (pause, allow list, deny list) for a lock transfer
-/// operation.
-///
-/// `sender` and `sender_address` are the source of the locked funds being moved.
-/// `recipient` is `Some` only for `lockSend` where funds are delivered to a different account;
-/// for `lockFund` and `lockReturn` pass `None`.
-fn check_token_transfer_restrictions<C: EntityContextTypes>(
-    context: &EntityContext<C>,
-    token: &TokenP11,
-    operation_index: usize,
-    token_configuration: &TokenConfiguration,
-    sender: (&Account, AccountAddress),
-    recipient: Option<(&Account, AccountAddress)>,
-) -> Result<(), TransactionRejectReason> {
-    if token.token_p9_base.is_paused(context) {
-        return Err(token_operation_not_permitted_reject_reason(
-            operation_index,
-            token_configuration,
-            None,
-            "token operation transfer is paused",
-        ));
-    }
-
-    if token.token_p9_base.has_allow_list(context) {
-        if !token
-            .token_p9_base
-            .get_allow_list_for(context, sender.0.account_index())
-        {
-            return Err(token_operation_not_permitted_reject_reason(
-                operation_index,
-                token_configuration,
-                Some(sender.1),
-                "sender not in allow list",
-            ));
-        }
-        if let Some((recipient_account, recipient_addr)) = recipient
-            && !token
-                .token_p9_base
-                .get_allow_list_for(context, recipient_account.account_index())
-        {
-            return Err(token_operation_not_permitted_reject_reason(
-                operation_index,
-                token_configuration,
-                Some(recipient_addr),
-                "recipient not in allow list",
-            ));
-        }
-    }
-
-    if token.token_p9_base.has_deny_list(context) {
-        if token
-            .token_p9_base
-            .get_deny_list_for(context, sender.0.account_index())
-        {
-            return Err(token_operation_not_permitted_reject_reason(
-                operation_index,
-                token_configuration,
-                Some(sender.1),
-                "sender in deny list",
-            ));
-        }
-        if let Some((recipient_account, recipient_addr)) = recipient
-            && token
-                .token_p9_base
-                .get_deny_list_for(context, recipient_account.account_index())
-        {
-            return Err(token_operation_not_permitted_reject_reason(
-                operation_index,
-                token_configuration,
-                Some(recipient_addr),
-                "recipient in deny list",
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 fn parse_raw_amount(
