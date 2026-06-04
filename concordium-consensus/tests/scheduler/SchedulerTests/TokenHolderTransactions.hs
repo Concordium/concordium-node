@@ -769,20 +769,20 @@ testTransfer _ = property (ioProperty . theTest)
                                     -- The full supplied energy will be used in the case of an
                                     -- out-of-energy failure.
                                     postCheck False
+                                | tcRecvInvalid -> do
+                                    assertTokenReject
+                                        CBOR.AddressNotFound
+                                            { trrOperationIndex = 0,
+                                              trrAddress = CBOR.accountTokenHolder actualRecipientAddress
+                                            }
+                                        result
+                                    postCheck False
                                 | tcPaused -> do
                                     assertTokenReject
                                         CBOR.OperationNotPermitted
                                             { trrOperationIndex = 0,
                                               trrAddressNotPermitted = Nothing,
                                               trrReason = Just "token operation transfer is paused"
-                                            }
-                                        result
-                                    postCheck False
-                                | tcRecvInvalid -> do
-                                    assertTokenReject
-                                        CBOR.AddressNotFound
-                                            { trrOperationIndex = 0,
-                                              trrAddress = CBOR.accountTokenHolder actualRecipientAddress
                                             }
                                         result
                                     postCheck False
