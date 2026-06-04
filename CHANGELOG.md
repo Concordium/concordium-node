@@ -3,6 +3,9 @@
 ## Unreleased changes
 
 - Add support for the following "meta update" operations:
+  - `lockFund`: move protocol-level tokens from an account's available balance into a PLT Lock.
+  - `lockSend`: move protocol-level tokens from a PLT Lock to a recipient account's available balance.
+  - `lockReturn`: release protocol-level tokens from a PLT Lock back to the owner's available balance.
   - `lockCancel`: cancel a PLT Lock, releasing all funds to their owners.
 - Populate the protocol-level token account `module_state` returned by `GetAccountInfo` with available balance and lock details.
 

@@ -214,6 +214,207 @@ pub fn transfer<C: EntityContextTypes>(
     Ok(Ok(()))
 }
 
+/// Move `amount` of tokens from an account's available balance into the control of a lock.
+/// The tokens remain on the account but become locked.
+///
+/// Returns `true` if the account had no locked balance for this lock before — i.e. a new
+/// `(account, lock)` balance relationship was created — and `false` if the account already
+/// held a non-zero locked balance for the lock.
+///
+/// # Events
+///
+/// Produces a [`TokenTransferEvent`] with `to_lock` set to the lock id.
+///
+/// # Errors
+///
+/// - [`InsufficientBalanceError`] The account has insufficient available balance.
+#[allow(clippy::too_many_arguments)]
+pub fn lock_amount<C: EntityContextTypes>(
+    context: &mut EntityContext<C>,
+    events: &mut impl Extend<BlockItemEvent>,
+    token: &mut TokenP11,
+    account: &Account,
+    account_address: AccountAddress,
+    lock_id: &LockId,
+    amount: RawTokenAmount,
+    memo: Option<Memo>,
+) -> BlockStateResult<Result<bool, InsufficientBalanceError>> {
+    // Compute available = total - sum(all locked balances).
+    let total = account.account_token_balance(context, token.token_p9_base.token_index());
+    let mut total_locked = RawTokenAmount(0);
+    for (_, locked_balance) in token
+        .get_locked_balances_for_account(context, account.account_index())?
+        .into_iter()
+    {
+        total_locked = total_locked.checked_add(locked_balance).ok_or_else(|| {
+            BlockStateFailure::Invariant("Total locked token balance overflow".to_string())
+        })?;
+    }
+    let available = total.checked_sub(total_locked).ok_or_else(|| {
+        BlockStateFailure::Invariant(
+            "Total locked token balance exceeds account token balance".to_string(),
+        )
+    })?;
+    if amount > available {
+        return Ok(Err(InsufficientBalanceError {
+            available,
+            required: amount,
+        }));
+    }
+
+    let old_locked =
+        token.get_locked_balance_for_account(context, account.account_index(), lock_id)?;
+    let new_locked = old_locked.checked_add(amount).ok_or_else(|| {
+        BlockStateFailure::Invariant("Locked balance overflow at fund".to_string())
+    })?;
+    token.set_locked_balance_for_account(context, account.account_index(), lock_id, new_locked)?;
+
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
+    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+        token_id: token_configuration.token_id,
+        from: TokenHolder::Account(account_address),
+        to: TokenHolder::Account(account_address),
+        amount: TokenAmount {
+            amount,
+            decimals: token_configuration.decimals,
+        },
+        memo,
+        from_lock: None,
+        to_lock: Some(lock_id.clone()),
+    })));
+
+    Ok(Ok(
+        old_locked == RawTokenAmount(0) && new_locked > RawTokenAmount(0)
+    ))
+}
+
+/// Move `amount` of tokens from a lock's control on `source` to `recipient`'s available balance.
+///
+/// Returns the remaining locked balance for `source` after the operation. A return value of
+/// zero indicates the `(source, lock)` balance relationship should be removed by the caller.
+///
+/// # Events
+///
+/// Produces a [`TokenTransferEvent`] with `from_lock` set to the lock id.
+///
+/// # Errors
+///
+/// - [`InsufficientBalanceError`] The source has insufficient locked balance.
+#[allow(clippy::too_many_arguments)]
+pub fn send_locked_amount<C: EntityContextTypes>(
+    context: &mut EntityContext<C>,
+    events: &mut impl Extend<BlockItemEvent>,
+    token: &mut TokenP11,
+    source: &Account,
+    source_address: AccountAddress,
+    recipient: &Account,
+    recipient_address: AccountAddress,
+    lock_id: &LockId,
+    amount: RawTokenAmount,
+    memo: Option<Memo>,
+) -> BlockStateResult<Result<RawTokenAmount, InsufficientBalanceError>> {
+    let old_locked =
+        token.get_locked_balance_for_account(context, source.account_index(), lock_id)?;
+    let new_locked = match old_locked.checked_sub(amount) {
+        Some(new_locked) => new_locked,
+        None => {
+            return Ok(Err(InsufficientBalanceError {
+                available: old_locked,
+                required: amount,
+            }));
+        }
+    };
+    token.set_locked_balance_for_account(context, source.account_index(), lock_id, new_locked)?;
+
+    source
+        .update_token_account_balance(
+            context,
+            token.token_p9_base.token_index(),
+            RawTokenAmountDelta::Subtract(amount),
+        )
+        .map_err(|_err: OverflowError| {
+            BlockStateFailure::Invariant("Transfer source token amount overflow".to_string())
+        })?;
+    recipient
+        .update_token_account_balance(
+            context,
+            token.token_p9_base.token_index(),
+            RawTokenAmountDelta::Add(amount),
+        )
+        .map_err(|_err: OverflowError| {
+            BlockStateFailure::Invariant("Transfer destination token amount overflow".to_string())
+        })?;
+
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
+    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+        token_id: token_configuration.token_id,
+        from: TokenHolder::Account(source_address),
+        to: TokenHolder::Account(recipient_address),
+        amount: TokenAmount {
+            amount,
+            decimals: token_configuration.decimals,
+        },
+        memo,
+        from_lock: Some(lock_id.clone()),
+        to_lock: None,
+    })));
+
+    Ok(Ok(new_locked))
+}
+
+/// Release `amount` from a lock's control back to the owner account's available balance.
+/// The tokens remain on the account but are freed from lock control.
+///
+/// Returns the remaining locked balance for `account` after the operation. A return value of
+/// zero indicates the `(account, lock)` balance relationship should be removed by the caller.
+///
+/// # Events
+///
+/// Produces a [`TokenTransferEvent`] with `from_lock` set to the lock id.
+///
+/// # Errors
+///
+/// - [`InsufficientBalanceError`] The account has insufficient locked balance.
+#[allow(clippy::too_many_arguments)]
+pub fn return_locked_amount<C: EntityContextTypes>(
+    context: &mut EntityContext<C>,
+    events: &mut impl Extend<BlockItemEvent>,
+    token: &mut TokenP11,
+    account_index: AccountIndex,
+    account_address: AccountAddress,
+    lock_id: &LockId,
+    amount: RawTokenAmount,
+    memo: Option<Memo>,
+) -> BlockStateResult<Result<RawTokenAmount, InsufficientBalanceError>> {
+    let old_locked = token.get_locked_balance_for_account(context, account_index, lock_id)?;
+    let new_locked = match old_locked.checked_sub(amount) {
+        Some(new_locked) => new_locked,
+        None => {
+            return Ok(Err(InsufficientBalanceError {
+                available: old_locked,
+                required: amount,
+            }));
+        }
+    };
+    token.set_locked_balance_for_account(context, account_index, lock_id, new_locked)?;
+
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
+    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+        token_id: token_configuration.token_id,
+        from: TokenHolder::Account(account_address),
+        to: TokenHolder::Account(account_address),
+        amount: TokenAmount {
+            amount,
+            decimals: token_configuration.decimals,
+        },
+        memo,
+        from_lock: Some(lock_id.clone()),
+        to_lock: None,
+    })));
+
+    Ok(Ok(new_locked))
+}
+
 /// Unlock the balance of an account associated with a particular lock for
 /// this particular token. This generates a `TokenTransferEvent` to reflect
 /// the change in the locked balance.

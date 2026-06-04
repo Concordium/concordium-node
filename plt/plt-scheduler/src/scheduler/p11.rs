@@ -105,14 +105,14 @@ where
         };
 
     // Execute operations
-    for operation in operations {
+    for (index, operation) in operations.into_iter().enumerate() {
         match MetaUpdateOperationKind::from(operation) {
             MetaUpdateOperationKind::Token(token_id, token_operation) => {
                 match protocol_level_tokens::p11::execute_token_update_operation(
                     context,
                     transaction_execution,
                     block_state,
-                    0,
+                    index,
                     &token_id,
                     token_operation,
                     &mut events,
@@ -128,6 +128,7 @@ where
                     context,
                     transaction_execution,
                     block_state,
+                    index,
                     lock_operation,
                     &mut events,
                 ) {

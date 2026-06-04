@@ -57,18 +57,17 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         sequence_number: 1,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![recipient.account_index()],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
             account: funding_account.account_index(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        vec![token_id.clone()],
-        1_804_806_000,
-    );
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
         &mut context,
         &mut block_state,

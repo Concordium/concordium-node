@@ -4,12 +4,13 @@ use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::CborMemo;
+use concordium_base::protocol_level_tokens::meta_operations::lock_fund;
 use concordium_base::{
     base::Energy,
     common::cbor,
     protocol_level_locks::{LockControllerSimpleV0Capability, LockId},
     protocol_level_tokens::{
-        RawCbor, TokenId,
+        CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenOperation,
         meta_operations::{MetaUpdatePayload, lock_cancel},
     },
     transactions::Payload,
@@ -54,18 +55,17 @@ fn test_cancel_by_canceller() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account_index_2,
             roles: vec![LockControllerSimpleV0Capability::Cancel],
         }],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
@@ -114,18 +114,17 @@ fn test_cancel_unauthorized() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account_index_1,
             roles: vec![LockControllerSimpleV0Capability::Cancel],
         }],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let sender_addr = context.external.account_canonical_address(account_index_2);
     let transaction_context = plt_scheduler::TransactionContext {
@@ -173,18 +172,17 @@ fn test_cancel_after_expiry() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![LockControllerSimpleV0Grant {
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![LockControllerSimpleV0Grant {
             account: account_index_2,
             roles: vec![LockControllerSimpleV0Capability::Cancel],
         }],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
@@ -250,12 +248,9 @@ fn test_cancel_with_balances() {
         sequence_number: 2,
         creation_order: 0,
     };
-    utils::create_lock(
-        &mut context,
-        &mut block_state,
-        &lock_id,
-        vec![account_index_1],
-        vec![
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![account_index_1],
+        grants: vec![
             LockControllerSimpleV0Grant {
                 account: account_index_2,
                 roles: vec![LockControllerSimpleV0Capability::Cancel],
@@ -272,9 +267,11 @@ fn test_cancel_with_balances() {
                 ],
             },
         ],
-        vec![plt_x.clone()],
-        1000,
-    );
+        tokens: vec![plt_x.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
         &mut context,
         &mut block_state,
@@ -372,5 +369,102 @@ fn test_cancel_nonexistent() {
         .unwrap();
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(TransactionRejectReason::NonExistentLockId(rejected_lock_id)) => {
         assert_eq!(rejected_lock_id, lock_id);
+    });
+}
+
+/// Test that cancelling a lock is not blocked by token pause or deny-list restrictions.
+#[test]
+fn test_cancel_ignores_token_pause_and_deny_list() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let owner = context.external.create_account();
+    let canceller = context.external.create_account();
+
+    let token_id: TokenId = "pltX".parse().unwrap();
+    let (gov_account, _token_index) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default()
+            .mintable()
+            .burnable()
+            .deny_list(),
+        2,
+        Some(RawTokenAmount(10000)),
+    );
+
+    let owner_addr = context
+        .external
+        .account_canonical_address(owner.account_index());
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        owner.account_index(),
+        &token_id,
+        RawTokenAmount(500),
+    );
+
+    let lock_id = LockId {
+        account_index: owner.account_index().into(),
+        sequence_number: 2,
+        creation_order: 0,
+    };
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![owner.account_index()],
+        grants: vec![
+            LockControllerSimpleV0Grant {
+                account: owner.account_index(),
+                roles: vec![LockControllerSimpleV0Capability::Fund],
+            },
+            LockControllerSimpleV0Grant {
+                account: canceller.account_index(),
+                roles: vec![LockControllerSimpleV0Capability::Cancel],
+            },
+        ],
+        tokens: vec![token_id.clone()],
+        expiry: 1000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
+
+    let fund_events = utils::execute_meta_operations(
+        &mut context,
+        &mut block_state,
+        owner.account_index(),
+        vec![lock_fund(
+            token_id.clone(),
+            lock_id.clone(),
+            concordium_base::protocol_level_tokens::TokenAmount::from_raw(500, 2),
+            None,
+        )],
+    );
+    assert_eq!(fund_events.len(), 1);
+
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
+        vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
+            target: CborHolderAccount::from(owner_addr),
+        })],
+    );
+    utils::pause_token(
+        &mut context,
+        &mut block_state,
+        &token_id,
+        gov_account.account_index(),
+    );
+
+    let events = utils::execute_meta_operations(
+        &mut context,
+        &mut block_state,
+        canceller.account_index(),
+        vec![lock_cancel(lock_id.clone(), None)],
+    );
+    assert_eq!(events.len(), 2);
+    assert_matches!(&events[1], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {
+        assert_eq!(event_lock_id, &lock_id);
     });
 }

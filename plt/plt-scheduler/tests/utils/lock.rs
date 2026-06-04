@@ -1,8 +1,12 @@
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::meta_operations::{
+    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
+};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
 use plt_block_state::entity::EntityContext;
@@ -12,18 +16,22 @@ use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-/// Create a lock in the block state. The lock controller is hard-coded to the
-/// `SimpleV0` variant (the only one currently exposed) with `keep_alive = false`
-/// and no memo — individual tests may extend this helper if other variants are
-/// needed.
+/// Simple configuration for creating a lock in tests.
+#[derive(Debug, Clone)]
+pub struct CreateLockSimpleConfig {
+    pub recipients: Vec<AccountIndex>,
+    pub grants: Vec<LockControllerSimpleV0Grant>,
+    pub tokens: Vec<TokenId>,
+    pub expiry: u64,
+    pub keep_alive: bool,
+}
+
+/// Create a lock in the block state.
 pub fn create_lock(
     context: &mut EntityContext<StubbedExternalBlockStateTypes>,
     block_state: &mut BlockStateP11,
     lock_id: &LockId,
-    recipients: Vec<AccountIndex>,
-    grants: Vec<LockControllerSimpleV0Grant>,
-    tokens: Vec<TokenId>,
-    expiry: u64,
+    config: CreateLockSimpleConfig,
 ) {
     use concordium_base::protocol_level_locks::*;
     use concordium_base::protocol_level_tokens::meta_operations::*;
@@ -38,8 +46,9 @@ pub fn create_lock(
                 .canonical_account_address,
         )
     };
-    let recipients = recipients.iter().map(resolve_account).collect();
-    let grants = grants
+    let recipients = config.recipients.iter().map(resolve_account).collect();
+    let grants = config
+        .grants
         .iter()
         .map(|grant| LockControllerSimpleV0Grant {
             account: resolve_account(&grant.account),
@@ -49,11 +58,11 @@ pub fn create_lock(
     let operations = MetaUpdateOperations {
         operations: vec![lock_create(LockConfig {
             recipients,
-            expiry: TransactionTime::from(expiry),
+            expiry: TransactionTime::from(config.expiry),
             controller: LockController::SimpleV0(LockControllerSimpleV0 {
                 grants,
-                tokens,
-                keep_alive: false,
+                tokens: config.tokens,
+                keep_alive: config.keep_alive,
                 memo: None,
             }),
         })],

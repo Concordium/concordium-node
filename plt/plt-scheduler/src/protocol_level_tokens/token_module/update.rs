@@ -17,12 +17,13 @@ use concordium_base::protocol_level_tokens::{
     UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
-use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::protocol_level_tokens::p9::TokenP9Base;
 use plt_block_state::entity::protocol_level_tokens::p11::TokenP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
@@ -116,7 +117,49 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
         Err(int_err) => int_err,
     };
 
-    Ok(Err(match int_err {
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
+    token_update_error_internal_to_external(
+        &token_configuration,
+        index,
+        operation_name(operation),
+        int_err,
+    )
+    .map(Err)
+}
+
+/// Translate an internal token update error into the externally visible token
+/// update error.
+///
+/// # Arguments
+///
+/// - `token_configuration`: the token configuration used to format amounts and
+///   identify the token in reject details.
+/// - `index`: the operation index in the transaction.
+/// - `operation_type`: the token operation type used in reject messages.
+/// - `err`: the internal error to translate.
+///
+/// # Errors
+///
+/// Returns a [`BlockStateFailure`] when `err` represents an unrecoverable block
+/// state failure.
+///
+/// # Examples
+///
+/// ```ignore
+/// let external = token_update_error_internal_to_external(
+///     &token_configuration,
+///     0,
+///     "transfer",
+///     TokenUpdateErrorInternal::Paused,
+/// )?;
+/// ```
+pub(crate) fn token_update_error_internal_to_external(
+    token_configuration: &TokenConfiguration,
+    index: usize,
+    operation_type: &'static str,
+    err: TokenUpdateErrorInternal,
+) -> BlockStateResult<TokenUpdateError> {
+    Ok(match err {
         TokenUpdateErrorInternal::AccountDoesNotExist(err) => TokenUpdateError::TokenModuleReject(
             TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
                 index: index as u64,
@@ -131,40 +174,31 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             ))
         }
         TokenUpdateErrorInternal::InsufficientBalance(err) => {
-            let token_configuration = token.token_p9_base().token_configuration(context)?;
-
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
                 TokenBalanceInsufficientRejectReason {
                     index: index as u64,
-                    available_balance: util::to_token_amount(&token_configuration, err.available),
-                    required_balance: util::to_token_amount(&token_configuration, err.required),
+                    available_balance: util::to_token_amount(token_configuration, err.available),
+                    required_balance: util::to_token_amount(token_configuration, err.required),
                 },
             ))
         }
-        TokenUpdateErrorInternal::MintWouldOverflow(err) => {
-            let token_configuration = token.token_p9_base().token_configuration(context)?;
-
-            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::MintWouldOverflow(
-                MintWouldOverflowRejectReason {
-                    index: index as u64,
-                    requested_amount: util::to_token_amount(
-                        &token_configuration,
-                        err.requested_amount,
-                    ),
-                    current_supply: util::to_token_amount(&token_configuration, err.current_supply),
-                    max_representable_amount: util::to_token_amount(
-                        &token_configuration,
-                        err.max_representable_amount,
-                    ),
-                },
-            ))
-        }
+        TokenUpdateErrorInternal::MintWouldOverflow(err) => TokenUpdateError::TokenModuleReject(
+            TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
+                index: index as u64,
+                requested_amount: util::to_token_amount(token_configuration, err.requested_amount),
+                current_supply: util::to_token_amount(token_configuration, err.current_supply),
+                max_representable_amount: util::to_token_amount(
+                    token_configuration,
+                    err.max_representable_amount,
+                ),
+            }),
+        ),
         TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
         TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
             TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
                 index: index as u64,
                 address: None,
-                reason: format!("token operation {} is paused", operation_name(operation))
+                reason: format!("token operation {operation_type} is paused")
                     .to_string()
                     .into(),
             }),
@@ -183,14 +217,13 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::UnsupportedOperation(
                 UnsupportedOperationRejectReason {
                     index: index as u64,
-                    operation_type: operation_name(operation).to_string(),
+                    operation_type: operation_type.to_string(),
                     reason: reason.to_string().into(),
                 },
             ))
         }
-
         TokenUpdateErrorInternal::BlockStateFailure(err) => return Err(err),
-    }))
+    })
 }
 
 fn operation_name(operation: &TokenOperation) -> &'static str {
@@ -213,7 +246,7 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
 /// Internal variant of `TokenUpdateError` where the reject reason is
 /// not encoded as CBOR
 #[derive(Debug, thiserror::Error)]
-enum TokenUpdateErrorInternal {
+pub(crate) enum TokenUpdateErrorInternal {
     #[error("The given account does not exist: {0}")]
     AccountDoesNotExist(#[from] AccountNotFoundByAddressError),
     #[error("The token amount has wrong number of decimals: {0}")]
@@ -391,24 +424,27 @@ fn check_authorized<C: EntityContextTypes>(
     Ok(())
 }
 
-fn execute_token_transfer<C: EntityContextTypes>(
-    transaction_execution: &mut TransactionExecution,
-    context: &mut EntityContext<C>,
-    events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenP9Base,
-    transfer_operation: &TokenTransfer,
+/// Validate that a token transfer between `sender` and `receiver` is permitted
+/// by the token module's current state.
+///
+/// This checks that the token is not paused, that both accounts satisfy an
+/// allow list if one is configured, and that neither account is on a configured
+/// deny list.
+///
+/// # Errors
+///
+/// Returns [`TokenUpdateErrorInternal::Paused`] if the token is paused, or
+/// [`TokenUpdateErrorInternal::OperationNotPermitted`] if either account is not
+/// permitted to participate in the transfer.
+pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    token: &TokenP9Base,
+    sender: &Account,
+    sender_address: AccountAddress,
+    receiver: &Account,
+    receiver_address: AccountAddress,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_configuration(context)?;
-
-    // preprocessing
-    let raw_amount = util::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
-
-    // operation execution
     check_not_paused(context, token)?;
-
-    let sender = transaction_execution.sender_account();
-    let sender_address = transaction_execution.sender_account_address();
-    let receiver = context.account_by_address(&transfer_operation.recipient.address)?;
 
     if token.has_allow_list(context) {
         if !token.get_allow_list_for(context, sender.account_index()) {
@@ -419,7 +455,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
         }
         if !token.get_allow_list_for(context, receiver.account_index()) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(transfer_operation.recipient.address),
+                account_address: Some(receiver_address),
                 reason: "recipient not in allow list",
             });
         }
@@ -434,11 +470,40 @@ fn execute_token_transfer<C: EntityContextTypes>(
         }
         if token.get_deny_list_for(context, receiver.account_index()) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
-                account_address: Some(transfer_operation.recipient.address),
+                account_address: Some(receiver_address),
                 reason: "recipient in deny list",
             });
         }
     }
+
+    Ok(())
+}
+
+fn execute_token_transfer<C: EntityContextTypes>(
+    transaction_execution: &mut TransactionExecution,
+    context: &mut EntityContext<C>,
+    events: &mut impl Extend<BlockItemEvent>,
+    token: &mut TokenP9Base,
+    transfer_operation: &TokenTransfer,
+) -> Result<(), TokenUpdateErrorInternal> {
+    let token_configuration = token.token_configuration(context)?;
+
+    // preprocessing
+    let raw_amount = util::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
+
+    let sender = transaction_execution.sender_account();
+    let sender_address = transaction_execution.sender_account_address();
+    let receiver_address = transfer_operation.recipient.address;
+    let receiver = context.account_by_address(&receiver_address)?;
+
+    check_transfer_constraints(
+        context,
+        token,
+        sender,
+        sender_address,
+        &receiver,
+        receiver_address,
+    )?;
 
     balance_operations::transfer(
         context,
@@ -447,7 +512,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
         sender,
         sender_address,
         &receiver,
-        transfer_operation.recipient.address,
+        receiver_address,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
     )??;

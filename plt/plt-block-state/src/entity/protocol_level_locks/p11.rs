@@ -120,4 +120,26 @@ impl LockP11 {
             .locked_balances
             .insert((account_index, token_index));
     }
+
+    /// Stop tracking that the lock holds a balance for the given account and token.
+    /// This removes the account/token pair from the lock state, so it will no longer be
+    /// returned by [`Self::lock_balance_refs`].
+    ///
+    /// # Arguments
+    ///
+    /// - `account_index` The index of the account whose locked balance is no longer tracked.
+    /// - `token_index` Index of the token whose locked balance is no longer tracked.
+    ///
+    /// # Returns
+    /// `true` if the account/token pair was previously tracked and has been removed,
+    /// `false` if the account/token pair was not previously tracked.
+    pub fn remove_lock_balance_ref(
+        &mut self,
+        account_index: AccountIndex,
+        token_index: TokenIndex,
+    ) -> bool {
+        self.persistent
+            .locked_balances
+            .remove(&(account_index, token_index))
+    }
 }
