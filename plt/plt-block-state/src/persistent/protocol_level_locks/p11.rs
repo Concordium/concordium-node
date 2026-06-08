@@ -4,6 +4,7 @@ use crate::persistent::blob_store::{
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
+use crate::persistent::migration::Migrate;
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
@@ -164,6 +165,21 @@ pub struct LockControllerSimpleV0Grant {
     /// The capabilities granted to the account.
     #[size_length = 1]
     pub roles: Vec<LockControllerSimpleV0Capability>,
+}
+
+impl Migrate for PersistentLocksP11 {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_locks = self.locks.migrate(from_loader, to_storer)?;
+
+        Ok(Self { locks: new_locks })
+    }
 }
 
 #[cfg(test)]

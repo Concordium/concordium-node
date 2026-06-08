@@ -170,25 +170,44 @@ impl Hashable for PersistentTokenP9 {
     }
 }
 
-// todo ar
-// impl Migrate for PersistentTokensP9 {
-//     fn migrate(
-//         &self,
-//         from_loader: &impl BlobStoreLoad,
-//         to_storer: &mut impl BlobStoreStore,
-//     ) -> BlockStateResult<Self>
-//     where
-//         Self: Sized,
-//     {
-//         let new_tokens = self.tokens.migrate(from_loader, to_storer)?;
-//         let new_token_id_map = self.token_id_map.clone();
-//
-//         Ok(Self {
-//             tokens: new_tokens,
-//             token_id_map: new_token_id_map,
-//         })
-//     }
-// }
+impl Migrate for PersistentTokenP9 {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_configuration = self.configuration.migrate(from_loader, to_storer)?;
+        let new_key_value_state = self.key_value_state.migrate(from_loader, to_storer)?;
+
+        Ok(Self {
+            configuration: new_configuration,
+            circulating_supply: self.circulating_supply,
+            key_value_state: new_key_value_state,
+        })
+    }
+}
+
+impl Migrate for PersistentTokensP9 {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.tokens.migrate(from_loader, to_storer)?;
+        let new_token_id_map = self.token_id_map.clone();
+
+        Ok(Self {
+            tokens: new_tokens,
+            token_id_map: new_token_id_map,
+        })
+    }
+}
 
 #[cfg(test)]
 mod test {
