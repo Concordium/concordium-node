@@ -7,6 +7,7 @@ use crate::persistent::block_state::p10::PersistentBlockStateP10;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
+use crate::persistent::migration::Migrate;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
@@ -77,12 +78,26 @@ impl PersistentBlockState {
     /// - `to_protocol_version` Protocol version for the block state to migrate to.
     pub fn migrate(
         &self,
-        _from_loader: impl BlobStoreLoad,
-        _to_storer: impl BlobStoreStore,
-        _to_protocol_version: ProtocolVersion,
-    ) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-91/implement-migration-of-rust-block-state-and-block-state-types
-        todo!()
+        from_loader: impl BlobStoreLoad,
+        mut to_storer: impl BlobStoreStore,
+        to_protocol_version: ProtocolVersion,
+    ) -> BlockStateResult<Self> {
+        match self {
+            PersistentBlockState::P9(block_state) => {
+                let new_block_state = block_state.migrate(&from_loader, &mut to_storer)?;
+                assert_eq!(to_protocol_version, ProtocolVersion::P10);
+                Ok(Self::P10(new_block_state))
+            }
+            PersistentBlockState::P10(block_state) => {
+                let new_block_state = block_state.migrate(&from_loader, &mut to_storer)?;
+                assert_eq!(to_protocol_version, ProtocolVersion::P11);
+                Ok(Self::P11(new_block_state))
+            }
+            PersistentBlockState::P11(_) => Err(BlockStateFailure::Invariant(
+                "migration of P11 block state not implemented".to_string(),
+            )),
+        }
+        // todo ar trigger store here at top level?
     }
 }
 

@@ -67,14 +67,14 @@ impl Migrate<PersistentBlockStateP11> for PersistentBlockStateP10 {
         Self: Sized,
     {
         let new_tokens = HashedCacheableRef::new(self.tokens.migrate(from_loader, to_storer)?);
-        // new_tokens.g
+        todo!() // todo ar
 
-        let locks = HashedCacheableRef::new(PersistentLocksP11::default());
-
-        Ok(PersistentBlockStateP11 {
-            tokens: new_tokens,
-            locks,
-        })
+        // let locks = HashedCacheableRef::new(PersistentLocksP11::default());
+        //
+        // Ok(PersistentBlockStateP11 {
+        //     tokens: new_tokens,
+        //     locks,
+        // })
     }
 }
 
