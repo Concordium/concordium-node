@@ -170,7 +170,7 @@ impl Hashable for PersistentTokenP9 {
     }
 }
 
-impl Migrate for PersistentTokenP9 {
+impl Migrate<PersistentTokenP9> for PersistentTokenP9 {
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,
@@ -190,7 +190,7 @@ impl Migrate for PersistentTokenP9 {
     }
 }
 
-impl Migrate for PersistentTokensP9 {
+impl Migrate<PersistentTokensP9> for PersistentTokensP9 {
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,

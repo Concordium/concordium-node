@@ -75,7 +75,7 @@ impl PersistentState {
     }
 }
 
-impl Migrate for PersistentState {
+impl Migrate<PersistentState> for PersistentState {
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,

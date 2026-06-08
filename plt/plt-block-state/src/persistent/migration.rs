@@ -12,14 +12,12 @@ use concordium_base::common::Serial;
 /// * Recursively store all [blob references](super::blob_reference) into the new blob store
 ///   of we migrate to (the blob store of the new protocol version).
 /// * Apply any changes to the representation of the block state value if needed (data model migration).
-///   The type parameter `T` is the type of the resulting value (`T = Self` when there are no
-///   data model migration).
 ///
-/// The para
+/// The type parameter `T` is the type of the resulting value.
 ///
 /// Since each protocol version has its own blob store, migration is always needed at
 /// protocol update, even if the block state value has no data model changes.
-pub trait Migrate<T = Self> {
+pub trait Migrate<T> {
     /// Migrate the value from the blob store it is currently stored in
     /// (`from_loader`), to the new blob store for the next protocol version (`to_storer`).
     /// Migration must:
@@ -48,12 +46,12 @@ pub trait Migrate<T = Self> {
         Self: Sized;
 }
 
-impl<T: Serial + Clone> Migrate for StoreSerialized<T> {
+impl<T: Serial + Clone> Migrate<StoreSerialized<T>> for StoreSerialized<T> {
     fn migrate(
         &self,
         _from_loader: &impl BlobStoreLoad,
         _to_storer: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<Self> {
+    ) -> BlockStateResult<StoreSerialized<T>> {
         Ok(self.clone())
     }
 }

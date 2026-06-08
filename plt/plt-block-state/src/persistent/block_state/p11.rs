@@ -1,9 +1,11 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::persistent::block_state::p10::PersistentBlockStateP10;
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
+use crate::persistent::migration::Migrate;
 use crate::persistent::protocol_level_locks::p11::PersistentLocksP11;
 use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
 use concordium_base::common::Buffer;
@@ -52,6 +54,27 @@ impl Hashable for PersistentBlockStateP11 {
         let locks = self.locks.hash(loader)?;
 
         Ok(hash::hash_of_hashes(tokens, locks))
+    }
+}
+
+impl Migrate<PersistentBlockStateP11> for PersistentBlockStateP10 {
+    fn migrate(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<PersistentBlockStateP11>
+    where
+        Self: Sized,
+    {
+        let new_tokens = HashedCacheableRef::new(self.tokens.migrate(from_loader, to_storer)?);
+        // new_tokens.g
+
+        let locks = HashedCacheableRef::new(PersistentLocksP11::default());
+
+        Ok(PersistentBlockStateP11 {
+            tokens: new_tokens,
+            locks,
+        })
     }
 }
 
