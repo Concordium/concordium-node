@@ -81,7 +81,13 @@ mod test {
         let mut block_state = BlockStateP11::default();
 
         // Create locks
+        let lock_id1 = LockId {
+            account_index: 1,
+            sequence_number: 1,
+            creation_order: 0,
+        };
         let configuration1 = LockConfiguration::new(
+            lock_id1.clone(),
             vec![AccountIndex::from(1), AccountIndex::from(2)],
             TransactionTime::from(100u64),
             LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -97,13 +103,9 @@ mod test {
                 memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             }),
         );
-        let lock_id1 = LockId {
-            account_index: 1,
-            sequence_number: 1,
-            creation_order: 0,
-        };
+
         block_state
-            .create_lock(&context, lock_id1.clone(), configuration1.clone())
+            .create_lock(&context, configuration1.clone())
             .unwrap();
         let mut lock1 = block_state
             .lock_by_id(&context, &lock_id1)
@@ -118,6 +120,7 @@ mod test {
             creation_order: 0,
         };
         let configuration2 = LockConfiguration::new(
+            lock_id2.clone(),
             vec![],
             TransactionTime::from(0u64),
             LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -128,8 +131,29 @@ mod test {
             }),
         );
         block_state
-            .create_lock(&context, lock_id2.clone(), configuration2.clone())
+            .create_lock(&context, configuration2.clone())
             .unwrap();
+
+        // Create a third lock and then delete it
+        let lock_id3 = LockId {
+            account_index: 3,
+            sequence_number: 1,
+            creation_order: 0,
+        };
+        let configuration3 = LockConfiguration::new(
+            lock_id3.clone(),
+            vec![],
+            TransactionTime::from(0u64),
+            LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+                grants: Vec::new(),
+                tokens: Vec::new(),
+                keep_alive: false,
+                memo: None,
+            }),
+        );
+        block_state.create_lock(&context, configuration3).unwrap();
+        let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
+        assert!(was_deleted, "lock3 should be deleted");
 
         // Store and load block state
         let blob_ref = blob_store::store_to_store(&mut context.loader, block_state.persistent);
@@ -137,6 +161,12 @@ mod test {
 
         // Assert loaded state
         assert_eq!(block_state.lock_list(&context).unwrap().len(), 2);
+
+        // Assert the deleted lock is absent
+        block_state
+            .lock_by_id(&context, &lock_id3)
+            .unwrap()
+            .expect_err("lock3 should not exist after deletion and reload");
         let lock1 = block_state
             .lock_by_id(&context, &lock_id1)
             .unwrap()
@@ -148,13 +178,19 @@ mod test {
                 (AccountIndex::from(1), TokenIndex(1))
             ]
         );
-        assert_eq!(lock1.lock_configuration(&context), configuration1);
+        assert_eq!(
+            lock1.lock_configuration(&context).unwrap().into_owned(),
+            configuration1
+        );
         let lock2 = block_state
             .lock_by_id(&context, &lock_id2)
             .unwrap()
             .unwrap();
         assert_eq!(lock2.lock_balance_refs(), vec![]);
-        assert_eq!(lock2.lock_configuration(&context), configuration2);
+        assert_eq!(
+            lock2.lock_configuration(&context).unwrap().into_owned(),
+            configuration2
+        );
     }
 
     /// Assert that hash and stored bytes of an empty block state matches snapshot.
@@ -168,7 +204,7 @@ mod test {
         let hash = persistent_block_state.hash(&context.loader).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "984855a88cabec51de8e854465656e6e5151843bffe8ae219b04e987b663e601"
+            "db35d91962f8f0315adb99d687d65c796ac67f2956b02e80fb667589f64efcb5"
         );
 
         // Assert storage
@@ -219,7 +255,13 @@ mod test {
         let _token2 = block_state.create_token(&context, configuration2.clone());
 
         // Create locks
+        let lock_id1 = LockId {
+            account_index: 1,
+            sequence_number: 1,
+            creation_order: 0,
+        };
         let configuration1 = LockConfiguration::new(
+            lock_id1.clone(),
             vec![AccountIndex::from(1), AccountIndex::from(2)],
             TransactionTime::from(100u64),
             LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -235,14 +277,7 @@ mod test {
                 memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             }),
         );
-        let lock_id1 = LockId {
-            account_index: 1,
-            sequence_number: 1,
-            creation_order: 0,
-        };
-        block_state
-            .create_lock(&context, lock_id1.clone(), configuration1)
-            .unwrap();
+        block_state.create_lock(&context, configuration1).unwrap();
         let mut lock1 = block_state
             .lock_by_id(&context, &lock_id1)
             .unwrap()
@@ -256,6 +291,7 @@ mod test {
             creation_order: 0,
         };
         let configuration2 = LockConfiguration::new(
+            lock_id2.clone(),
             vec![],
             TransactionTime::from(0u64),
             LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -265,22 +301,20 @@ mod test {
                 memo: None,
             }),
         );
-        block_state
-            .create_lock(&context, lock_id2.clone(), configuration2)
-            .unwrap();
+        block_state.create_lock(&context, configuration2).unwrap();
 
         // Assert hash
         let hash = block_state.persistent.hash(&context.loader).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "520022f22e5c63de1f3dd4e8aac8fcd72a35d1dcba3e0b5dec132650ccb0be3b"
+            "d4c2f4dae46bab4c1eb62d4dfa57a9fd998778adf4c74e1fdf94957eda559922"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.loader, &block_state.persistent);
         assert_eq!(
             hex::encode(context.loader.0),
-            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f2000000000000015500000000000000bc00000000000000020000000000000001000000000000000100000000000000000000000000000002000000000000000000000000000000000000000000000001000000000000000100020000000000000001000000000000000200000000000000640000010000000000000001020300000208746f6b656e69643108746f6b656e696432010100000200010000000000000002000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000166000000000000018f"
+            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000005b00000000000000010000000000000001000000000000000000020000000000000001000000000000000200000000000000640000010000000000000001020300000208746f6b656e69643108746f6b656e6964320101000002000100000000000000310100000000000000020000000000000000000000000000000000000000000000010000000000000001000000000000018f00000000000000090000000000000001f2000000000000002900000000000000020000000000000007000000000000000000000000000000000000000000000000000000000000000011010000000000000000000000000000023c000000000000000900000000000000026d00000000000000210000000000000002010000000000000000000000000000022b0000000000000286000000000000001000000000000001660000000000000297"
         );
     }
 }

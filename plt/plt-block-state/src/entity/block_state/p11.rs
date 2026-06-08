@@ -137,19 +137,18 @@ impl BlockStateP11 {
     pub fn create_lock<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        lock_id: LockId,
         configuration: LockConfiguration,
     ) -> BlockStateResult<()> {
         let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
-        protocol_level_locks::p11::create_lock(context, &mut new_locks, lock_id, configuration)?;
+        protocol_level_locks::p11::create_lock(context, &mut new_locks, configuration)?;
 
         self.persistent.locks = HashedCacheableRef::new(new_locks);
 
         Ok(())
     }
 
-    /// Delete the lock with the given [`LockId`] if it exists. Returns the
-    /// deleted lock if it existed, or `None` if it did not exist.
+    /// Delete the lock with the given [`LockId`] if it exists. Returns `true` if it existed, or
+    /// `false` if it did not exist.
     ///
     /// # Arguments
     /// - `lock_id` The ID of the PLT lock to delete.
@@ -157,15 +156,14 @@ impl BlockStateP11 {
         &mut self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> BlockStateResult<Option<LockP11>> {
+    ) -> BlockStateResult<bool> {
         let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
         let existing = protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
-        if existing.is_some() {
+        if existing {
             // We only need to update the locks if a lock was actually deleted,
             // otherwise we would be unnecessarily updating the block state.
             self.persistent.locks = HashedCacheableRef::new(new_locks);
         }
-
         Ok(existing)
     }
 
@@ -179,6 +177,7 @@ impl BlockStateP11 {
             context,
             &*self.persistent.locks.value(&context.loader)?,
         )
+        .cloned()
         .collect())
     }
 

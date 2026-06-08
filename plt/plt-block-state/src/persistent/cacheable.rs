@@ -22,3 +22,12 @@ impl<T: Deserial> Cacheable for StoreSerialized<T> {
         Ok(())
     }
 }
+
+impl<T: Cacheable> Cacheable for Option<T> {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        match self {
+            Some(inner) => inner.cache_reference_values(loader),
+            None => Ok(()),
+        }
+    }
+}
