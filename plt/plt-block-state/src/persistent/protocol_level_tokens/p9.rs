@@ -14,6 +14,7 @@ use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
+use crate::persistent::migration::Migrate;
 
 /// Index of the protocol-level token in the block state map of tokens.
 ///
@@ -168,6 +169,26 @@ impl Hashable for PersistentTokenP9 {
         Ok(hash::hash_of_hashes(config, state))
     }
 }
+
+// todo ar
+// impl Migrate for PersistentTokensP9 {
+//     fn migrate(
+//         &self,
+//         from_loader: &impl BlobStoreLoad,
+//         to_storer: &mut impl BlobStoreStore,
+//     ) -> BlockStateResult<Self>
+//     where
+//         Self: Sized,
+//     {
+//         let new_tokens = self.tokens.migrate(from_loader, to_storer)?;
+//         let new_token_id_map = self.token_id_map.clone();
+//
+//         Ok(Self {
+//             tokens: new_tokens,
+//             token_id_map: new_token_id_map,
+//         })
+//     }
+// }
 
 #[cfg(test)]
 mod test {
