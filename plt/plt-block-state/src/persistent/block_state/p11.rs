@@ -134,12 +134,39 @@ mod test {
             .create_lock(&context, configuration2.clone())
             .unwrap();
 
+        // Create a third lock and then delete it
+        let lock_id3 = LockId {
+            account_index: 3,
+            sequence_number: 1,
+            creation_order: 0,
+        };
+        let configuration3 = LockConfiguration::new(
+            lock_id3.clone(),
+            vec![],
+            TransactionTime::from(0u64),
+            LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+                grants: Vec::new(),
+                tokens: Vec::new(),
+                keep_alive: false,
+                memo: None,
+            }),
+        );
+        block_state.create_lock(&context, configuration3).unwrap();
+        let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
+        assert!(was_deleted, "lock3 should be deleted");
+
         // Store and load block state
         let blob_ref = blob_store::store_to_store(&mut context.loader, block_state.persistent);
         let block_state = entity_test_stub::load_block_state_p11(&context, blob_ref);
 
         // Assert loaded state
         assert_eq!(block_state.lock_list(&context).unwrap().len(), 2);
+
+        // Assert the deleted lock is absent
+        block_state
+            .lock_by_id(&context, &lock_id3)
+            .unwrap()
+            .expect_err("lock3 should not exist after deletion and reload");
         let lock1 = block_state
             .lock_by_id(&context, &lock_id1)
             .unwrap()

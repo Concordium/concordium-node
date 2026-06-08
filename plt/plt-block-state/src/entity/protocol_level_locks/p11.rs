@@ -136,7 +136,7 @@ impl LockP11 {
     /// hold a non-zero locked balance. The corresponding amount is tracked in the
     /// token module state.
     pub fn lock_balance_refs(&self) -> Vec<(AccountIndex, TokenIndex)> {
-        self.persistent.locked_balances.iter().cloned().collect()
+        self.persistent.locked_balances.0.iter().cloned().collect()
     }
 
     /// Track that the lock holds a balance for the given account and token.
@@ -151,6 +151,7 @@ impl LockP11 {
     pub fn add_lock_balance_ref(&mut self, account_index: AccountIndex, token_index: TokenIndex) {
         self.persistent
             .locked_balances
+            .0
             .insert((account_index, token_index));
     }
 
@@ -173,6 +174,7 @@ impl LockP11 {
     ) -> bool {
         self.persistent
             .locked_balances
+            .0
             .remove(&(account_index, token_index))
     }
 }

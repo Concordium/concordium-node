@@ -139,8 +139,10 @@ impl Hashable for Option<PersistentLockP11> {
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone)]
 pub struct PersistentLockP11 {
-    /// Contains references to the tokens with balances locked within this lock
-    pub locked_balances: BTreeSet<(AccountIndex, TokenIndex)>,
+    /// Contains references to the tokens with balances locked within this lock.
+    ///
+    /// Note the entire collection will be written to disk every time this struct is written to disk.
+    pub locked_balances: StoreSerialized<BTreeSet<(AccountIndex, TokenIndex)>>,
     /// The configuration parameters for the lock.
     pub configuration: HashedCacheableRef<StoreSerialized<LockConfiguration>>,
 }
@@ -150,8 +152,8 @@ impl Loadable for PersistentLockP11 {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> Result<Self, BlockStateFailure> {
-        let locked_balances = buffer.get().map_parse_err_to_block_state_err()?;
-        let configuration = Loadable::load_from_buffer(buffer, loader)?;
+        let locked_balances = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let configuration = Loadable::load_from_buffer(&mut buffer, loader)?;
         Ok(Self {
             locked_balances,
             configuration,
@@ -161,8 +163,8 @@ impl Loadable for PersistentLockP11 {
 
 impl Storable for PersistentLockP11 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        buffer.put(&self.locked_balances);
-        self.configuration.store_to_buffer(buffer, storer);
+        self.locked_balances.store_to_buffer(&mut buffer, storer);
+        self.configuration.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -174,7 +176,7 @@ impl Cacheable for PersistentLockP11 {
 
 impl Hashable for PersistentLockP11 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        let locked_balances = hash::hash_of_serialization(&self.locked_balances);
+        let locked_balances = self.locked_balances.hash(loader)?;
         let configuration = self.configuration.hash(loader)?;
         Ok(hash::hash_of_hashes(locked_balances, configuration))
     }

@@ -386,6 +386,59 @@ fn test_lock_balance_refs() {
     );
 }
 
+/// Test creating a lock then deleting it.
+#[test]
+fn test_create_and_delete_lock() {
+    let context = entity_test_stub::new_no_external_context();
+    let mut block_state = BlockStateP11::default();
+
+    // Create lock
+    let lock_id = LockId {
+        account_index: 1,
+        sequence_number: 1,
+        creation_order: 0,
+    };
+    let configuration = LockConfiguration::new(
+        lock_id.clone(),
+        vec![],
+        TransactionTime::from(0u64),
+        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+            grants: Vec::new(),
+            tokens: Vec::new(),
+            keep_alive: false,
+            memo: None,
+        }),
+    );
+
+    block_state.create_lock(&context, configuration).unwrap();
+
+    // Verify lock exists
+    block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .expect("lock should exist after creation");
+
+    // Delete lock
+    let was_deleted = block_state.delete_lock(&context, &lock_id).unwrap();
+    assert!(
+        was_deleted,
+        "delete_lock should return true for an existing lock"
+    );
+
+    // Verify lock no longer exists
+    block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .expect_err("lock should not exist after deletion");
+
+    // Deleting again should return false
+    let was_deleted_again = block_state.delete_lock(&context, &lock_id).unwrap();
+    assert!(
+        !was_deleted_again,
+        "delete_lock should return false for a non-existing lock"
+    );
+}
+
 /// Test getting list of locks. Mirrors `test_plt_list` for the lock side of the block state.
 #[test]
 fn test_lock_list() {
