@@ -1,7 +1,7 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreStore, Loadable, ParseResultExt, Storable, StoreSerialized,
+    BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::{self, Hashable};
@@ -9,7 +9,7 @@ use crate::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Get, Put, Serialize};
+use concordium_base::common::{Buffer, Serialize};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, TokenId};
@@ -86,53 +86,6 @@ impl Cacheable for PersistentLocksP11 {
 impl Hashable for PersistentLocksP11 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         self.locks.hash(loader)
-    }
-}
-
-impl Loadable for Option<PersistentLockP11> {
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-    ) -> Result<Self, BlockStateFailure> {
-        let tag: u8 = buffer.get().map_parse_err_to_block_state_err()?;
-        match tag {
-            0 => Ok(None),
-            1 => Ok(Some(Loadable::load_from_buffer(buffer, loader)?)),
-            _ => Err(BlockStateFailure::BlobStoreDecode(format!(
-                "Invalid persistent lock tag: {tag}"
-            ))),
-        }
-    }
-}
-
-impl Storable for Option<PersistentLockP11> {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        match self {
-            None => buffer.put(0u8),
-            Some(lock) => {
-                buffer.put(1u8);
-                lock.store_to_buffer(buffer, storer)
-            }
-        }
-    }
-}
-
-impl Cacheable for Option<PersistentLockP11> {
-    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        match self {
-            Some(lock) => lock.cache_reference_values(loader),
-            None => Ok(()),
-        }
-    }
-}
-
-impl Hashable for Option<PersistentLockP11> {
-    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        let hash = match self {
-            None => hash::hash_of_serialization(0u8),
-            Some(lock) => hash::hash_of_serialization((1u8, lock.hash(loader)?)),
-        };
-        Ok(hash)
     }
 }
 
