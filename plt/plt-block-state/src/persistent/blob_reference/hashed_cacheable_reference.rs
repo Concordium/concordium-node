@@ -9,12 +9,12 @@ use crate::persistent::blob_store::{
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
+use crate::persistent::migration::Migrate;
 use crate::utils::Cow;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
-use crate::persistent::migration::Migrate;
 
 /// Representation of an immutable, cachable and lazily hashed value of type `V`.
 /// The represented value is immutable in the sense that the value itself does not change,
@@ -300,17 +300,19 @@ impl<V: Hashable + Loadable> Hashable for HashedCacheableRef<V> {
     }
 }
 
-impl<V: Migrate + Storable + Loadable> Migrate for HashedCacheableRef<V> {
+impl<V: Migrate<V2> + Loadable, V2: Storable> Migrate<HashedCacheableRef<V2>>
+    for HashedCacheableRef<V>
+{
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,
         to_storer: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<Self>
+    ) -> BlockStateResult<HashedCacheableRef<V2>>
     where
         Self: Sized,
     {
         let migrated_value = self.value(from_loader)?.migrate(from_loader, to_storer)?;
-        let new_hcr = Self::new(migrated_value);
+        let new_hcr = HashedCacheableRef::new(migrated_value);
         new_hcr.inner.repr.get_reference_or_store(to_storer);
         Ok(new_hcr)
     }
@@ -597,8 +599,6 @@ mod tests {
     /// Test store, load and cache a reference with a nested reference.
     #[test]
     fn test_nested_reference_store_load_and_cache() {
-
-
         let mut store = BlobStoreStub::default();
         let val1 = HashedCacheableRef::new(HashedCacheableRef::new(StoreSerialized(1u64)));
 

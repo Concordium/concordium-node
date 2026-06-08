@@ -6,6 +6,7 @@ use crate::persistent::blob_store::{
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
 use crate::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
+use crate::persistent::migration::Migrate;
 use crate::persistent::protocol_level_tokens::NormalizedTokenId;
 use crate::persistent::{hash, protocol_level_tokens, smart_contract_trie};
 use crate::utils::Cow;
@@ -14,7 +15,6 @@ use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::io::Read;
-use crate::persistent::migration::Migrate;
 
 /// Index of the protocol-level token in the block state map of tokens.
 ///

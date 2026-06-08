@@ -10,12 +10,12 @@ use crate::persistent::blob_store::{
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
+use crate::persistent::migration::Migrate;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
 use std::io::Read;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use crate::persistent::migration::Migrate;
 
 /// Immutable (persistent) trie. The internal structure may be changed via interior mutability,
 /// but the entries in the trie never change. This is the frozen/persistent dual to [`MutableState`].

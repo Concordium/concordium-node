@@ -10,6 +10,7 @@ use crate::persistent::blob_store::{
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
+use crate::persistent::migration::Migrate;
 use crate::utils::Cow;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
@@ -19,7 +20,6 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
 use std::{iter, vec};
-use crate::persistent::migration::Migrate;
 
 /// Representation of an immutable, left-full merkle binary (LFMB) tree with values of type `V`.
 /// The represented tree is immutable in the sense that the tree and its values does not change,
@@ -915,13 +915,12 @@ impl<V: Cacheable + Loadable> Cacheable for Subtree<V> {
     }
 }
 
-
-impl<K, V: Migrate + Storable + Loadable> Migrate for LfmbTree<K, V> {
+impl<K, V: Migrate<V2> + Loadable, V2: Storable> Migrate<LfmbTree<K, V2>> for LfmbTree<K, V> {
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,
         to_storer: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<Self>
+    ) -> BlockStateResult<LfmbTree<K, V2>>
     where
         Self: Sized,
     {
@@ -932,19 +931,19 @@ impl<K, V: Migrate + Storable + Loadable> Migrate for LfmbTree<K, V> {
             }
         };
 
-        Ok(Self {
+        Ok(LfmbTree {
             inner: new_inner,
             _key_type: PhantomData,
         })
     }
 }
 
-impl<V: Migrate + Storable + Loadable> Migrate for Subtree<V> {
+impl<V: Migrate<V2> + Loadable, V2: Storable> Migrate<Subtree<V2>> for Subtree<V> {
     fn migrate(
         &self,
         from_loader: &impl BlobStoreLoad,
         to_storer: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<Self>
+    ) -> BlockStateResult<Subtree<V2>>
     where
         Self: Sized,
     {
@@ -1237,7 +1236,13 @@ mod tests {
             let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
 
             // Assert loaded tree is equal to the tree we started with
-            assert_trees_eq(&store, &store, &tree1, &tree2, format!("loaded tree of size {}", i));
+            assert_trees_eq(
+                &store,
+                &store,
+                &tree1,
+                &tree2,
+                format!("loaded tree of size {}", i),
+            );
         }
     }
 
@@ -1293,7 +1298,13 @@ mod tests {
             tree2.cache_reference_values(&store).expect("cache");
 
             // Assert cached tree is identical to the tree with started with
-            assert_trees_eq(&store, &store, &tree1, &tree2, format!("cached tree of size {}", i));
+            assert_trees_eq(
+                &store,
+                &store,
+                &tree1,
+                &tree2,
+                format!("cached tree of size {}", i),
+            );
 
             // Assert that when caching again or looking up entries, we don't need to read from the blob store again.
             // We assert that by using UnreachableBlobStore.
