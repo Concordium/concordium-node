@@ -34,7 +34,7 @@ pub fn migrate_from_p10_to_p11(
             },
         };
 
-        // todo ar set rules
+        // todo ar set roles
 
         if new_token.token_p9_base.mutable_key_value_state.is_dirty() {
             new_token.token_p9_base.persistent.key_value_state = HashedCacheableRef::new(
@@ -50,10 +50,11 @@ pub fn migrate_from_p10_to_p11(
             .persistent
             .move_blob_store(from_loader, to_storer)?;
 
-        new_tokens.insert_value(&UnreachableBlobStore, moved_persistent_token)?;
+        let new_token_index = new_tokens.insert_value(&UnreachableBlobStore, moved_persistent_token)?;
+        // todo ar check equal to old
     }
 
-    // todo ar LfmbTree collect impl?
+
 
     persistent_tokens.tokens = new_tokens;
 
