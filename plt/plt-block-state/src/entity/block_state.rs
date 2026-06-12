@@ -1,6 +1,7 @@
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 
+pub mod migration;
 pub mod p10;
 pub mod p11;
 pub mod p9;
