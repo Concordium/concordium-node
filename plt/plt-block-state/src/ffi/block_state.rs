@@ -238,7 +238,7 @@ extern "C" fn ffi_store_plt_block_state(
 #[unsafe(no_mangle)]
 extern "C" fn ffi_migrate_plt_block_state(
     from_load_callback: LoadCallback,
-    to_store_callback: StoreCallback,
+    mut to_store_callback: StoreCallback,
     to_protocol_version: u64,
     new_block_state_out: *mut *mut PersistentBlockState,
     block_state: *const PersistentBlockState,
@@ -253,7 +253,11 @@ extern "C" fn ffi_migrate_plt_block_state(
         let to_protocol_version =
             ProtocolVersion::try_from(to_protocol_version).expect("Unknown protocol version");
         let new_block_state = from_block_state
-            .migrate(from_load_callback, to_store_callback, to_protocol_version)
+            .migrate(
+                &from_load_callback,
+                &mut to_store_callback,
+                to_protocol_version,
+            )
             .expect("Migrate block state");
 
         unsafe {

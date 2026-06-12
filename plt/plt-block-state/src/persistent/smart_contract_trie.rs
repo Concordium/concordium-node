@@ -6,11 +6,10 @@
 
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
+    BlobStoreLoad, BlobStoreLocation, BlobStoreMovable, BlobStoreStore, Loadable, Storable,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
-use crate::persistent::migration::Migrate;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use concordium_smart_contract_engine::v1::trie;
@@ -75,8 +74,8 @@ impl PersistentState {
     }
 }
 
-impl Migrate<PersistentState> for PersistentState {
-    fn migrate(
+impl BlobStoreMovable for PersistentState {
+    fn move_blob_store(
         &self,
         from_loader: &impl BlobStoreLoad,
         to_storer: &mut impl BlobStoreStore,
@@ -305,9 +304,9 @@ impl Hashable for PersistentState {
 #[cfg(test)]
 mod test {
     use crate::persistent::blob_store;
+    use crate::persistent::blob_store::BlobStoreMovable;
     use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
     use crate::persistent::cacheable::Cacheable;
-    use crate::persistent::migration::Migrate;
     use crate::persistent::smart_contract_trie::PersistentState;
 
     #[test]
@@ -493,7 +492,7 @@ mod test {
     }
 
     #[test]
-    fn test_migrate() {
+    fn test_move_blob_store() {
         let mut from_store = BlobStoreStub::default();
         let mut to_store = BlobStoreStub::default();
 
@@ -509,8 +508,8 @@ mod test {
         let state = mutable_state.freeze(&from_store);
         blob_store::store_to_store(&mut from_store, &state);
 
-        // Migrate trie to new store
-        let new_state = state.migrate(&from_store, &mut to_store).unwrap();
+        // Move trie to new store
+        let new_state = state.move_blob_store(&from_store, &mut to_store).unwrap();
         let new_blob_loc = blob_store::store_to_store(&mut to_store, &state);
         drop(state);
 
@@ -519,7 +518,7 @@ mod test {
         assert_eq!(new_state.lookup_value(&to_store, &[0, 2]), Some(vec![2, 2]));
         drop(new_state);
 
-        // Load migrate state from destination store
+        // Load moved state from destination store
         let new_state2: PersistentState =
             blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
 

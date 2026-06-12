@@ -1,5 +1,7 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
-use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::persistent::blob_store::{
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, Storable,
+};
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
 use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
@@ -41,6 +43,21 @@ impl Cacheable for PersistentBlockStateP9 {
 impl Hashable for PersistentBlockStateP9 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         self.tokens.hash(loader)
+    }
+}
+
+impl BlobStoreMovable for PersistentBlockStateP9 {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.tokens.move_blob_store(from_loader, to_storer)?;
+
+        Ok(PersistentBlockStateP9 { tokens: new_tokens })
     }
 }
 

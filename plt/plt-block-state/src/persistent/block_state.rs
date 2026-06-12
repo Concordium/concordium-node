@@ -1,19 +1,19 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
+    BlobStoreLoad, BlobStoreLocation, BlobStoreMovable, BlobStoreStore, Loadable, Storable,
 };
 use crate::persistent::block_state::p9::PersistentBlockStateP9;
 use crate::persistent::block_state::p10::PersistentBlockStateP10;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
-use crate::persistent::migration::Migrate;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 use std::any;
 use std::io::Read;
 
+mod migration;
 pub mod p10;
 pub mod p11;
 pub mod p9;
@@ -78,20 +78,25 @@ impl PersistentBlockState {
     /// - `to_protocol_version` Protocol version for the block state to migrate to.
     pub fn migrate(
         &self,
-        from_loader: impl BlobStoreLoad,
-        mut to_storer: impl BlobStoreStore,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
         to_protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
         match self {
-            PersistentBlockState::P9(block_state) => {
-                let new_block_state = block_state.migrate(&from_loader, &mut to_storer)?;
+            PersistentBlockState::P9(persistent_block_state) => {
+                // There are no changes between P9 and P10, so we just move the
+                // block state to the new blob store.
+                let new_block_state =
+                    persistent_block_state.move_blob_store(from_loader, to_storer)?;
                 assert_eq!(to_protocol_version, ProtocolVersion::P10);
                 Ok(Self::P10(new_block_state))
             }
-            PersistentBlockState::P10(block_state) => {
-                let new_block_state = block_state.migrate(&from_loader, &mut to_storer)?;
-                assert_eq!(to_protocol_version, ProtocolVersion::P11);
-                Ok(Self::P11(new_block_state))
+            PersistentBlockState::P10(persistent_block_state) => {
+                todo!() // todo ar
+                // let block_state = BlockStateP10 { persistent: persistent_block_state };
+                // let new_block_state = block_state.move_blob_store(&from_loader, &mut to_storer)?;
+                // assert_eq!(to_protocol_version, ProtocolVersion::P11);
+                // Ok(Self::P11(new_block_state))
             }
             PersistentBlockState::P11(_) => Err(BlockStateFailure::Invariant(
                 "migration of P11 block state not implemented".to_string(),

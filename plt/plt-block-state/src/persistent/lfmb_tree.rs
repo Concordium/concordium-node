@@ -5,12 +5,11 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreStore, Loadable, ParseResultExt, Storable,
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, ParseResultExt, Storable,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
-use crate::persistent::migration::Migrate;
 use crate::utils::Cow;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
@@ -915,19 +914,19 @@ impl<V: Cacheable + Loadable> Cacheable for Subtree<V> {
     }
 }
 
-impl<K, V: Migrate<V2> + Loadable, V2: Storable> Migrate<LfmbTree<K, V2>> for LfmbTree<K, V> {
-    fn migrate(
+impl<K, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for LfmbTree<K, V> {
+    fn move_blob_store(
         &self,
         from_loader: &impl BlobStoreLoad,
         to_storer: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<LfmbTree<K, V2>>
+    ) -> BlockStateResult<Self>
     where
         Self: Sized,
     {
         let new_inner = match &self.inner {
             LfmbTreeInner::Empty => LfmbTreeInner::Empty,
             LfmbTreeInner::NonEmpty(size, subtree) => {
-                LfmbTreeInner::NonEmpty(*size, subtree.migrate(from_loader, to_storer)?)
+                LfmbTreeInner::NonEmpty(*size, subtree.move_blob_store(from_loader, to_storer)?)
             }
         };
 
@@ -938,23 +937,23 @@ impl<K, V: Migrate<V2> + Loadable, V2: Storable> Migrate<LfmbTree<K, V2>> for Lf
     }
 }
 
-impl<V: Migrate<V2> + Loadable, V2: Storable> Migrate<Subtree<V2>> for Subtree<V> {
-    fn migrate(
+impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Subtree<V> {
+    fn move_blob_store(
         &self,
         from_loader: &impl BlobStoreLoad,
         to_storer: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<Subtree<V2>>
+    ) -> BlockStateResult<Self>
     where
         Self: Sized,
     {
         Ok(match self {
             Subtree::Leaf(value_ref) => {
-                let new_value_ref = value_ref.migrate(from_loader, to_storer)?;
+                let new_value_ref = value_ref.move_blob_store(from_loader, to_storer)?;
                 Subtree::Leaf(new_value_ref)
             }
             Subtree::Node(height, left_ref, right_ref) => {
-                let new_left_ref = left_ref.migrate(from_loader, to_storer)?;
-                let new_right_ref = right_ref.migrate(from_loader, to_storer)?;
+                let new_left_ref = left_ref.move_blob_store(from_loader, to_storer)?;
+                let new_right_ref = right_ref.move_blob_store(from_loader, to_storer)?;
                 Subtree::Node(*height, new_left_ref, new_right_ref)
             }
         })
@@ -1246,9 +1245,9 @@ mod tests {
         }
     }
 
-    /// Tests migrating tree into new blob store
+    /// Tests moving tree into new blob store
     #[test]
-    fn prop_test_migrate() {
+    fn prop_test_move_blob_store() {
         for i in 0..100 {
             let mut from_store = BlobStoreStub::default();
             let mut to_store = BlobStoreStub::default();
@@ -1258,7 +1257,7 @@ mod tests {
             blob_store::store_to_store(&mut from_store, &tree);
 
             // Migrate the tree and store it
-            let new_tree = tree.migrate(&from_store, &mut to_store).unwrap();
+            let new_tree = tree.move_blob_store(&from_store, &mut to_store).unwrap();
             let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_tree);
 
             // Assert migrated tree is equal to the tree we started with
