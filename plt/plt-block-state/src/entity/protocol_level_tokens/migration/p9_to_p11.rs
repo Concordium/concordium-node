@@ -50,6 +50,7 @@ pub fn migrate_from_p10_to_p11(
             .persistent
             .move_blob_store(from_loader, to_storer)?;
 
+        // todo ar make UnreachableBlobStore return error instead of panic
         let new_token_index = new_tokens.insert_value(&UnreachableBlobStore, moved_persistent_token)?;
         // todo ar check equal to old
     }
