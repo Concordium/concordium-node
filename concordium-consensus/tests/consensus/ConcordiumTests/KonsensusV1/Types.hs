@@ -435,6 +435,12 @@ propFinalizerListIsInverseOfFinalizerSet =
             fis
             (finalizerSet $ finalizerList fis)
 
+-- | Malformed 'FinalizerSet' serialization where the encoded byte count exceeds the payload.
+truncatedFinalizerSetBytes :: BS.ByteString
+truncatedFinalizerSetBytes = runPut $ do
+    putWord32be 2
+    putWord8 0xff
+
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -454,6 +460,8 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different key" propSignQuorumSignatureMessageDiffKey
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet
+    it "FinalizerSet deserialization rejects a byte count that exceeds the remaining input" $ do
+        (decode truncatedFinalizerSetBytes :: Either String FinalizerSet) `shouldSatisfy` isLeft
     Common.forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
         describe pvString $ do
             it "FinalizationEntry serialization" $ propSerializeFinalizationEntry spv

@@ -239,7 +239,7 @@ computeFinalizationCommitteeHash FinalizationCommittee{..} =
 
 -- | A set of 'FinalizerIndex'es.
 --  This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
---  in the set.
+--  in the set. The internal bit-vector is stored little-endian.
 newtype FinalizerSet = FinalizerSet {theFinalizerSet :: BSS.ShortByteString}
     deriving (Eq)
 
@@ -263,6 +263,8 @@ instance Serialize FinalizerSet where
         unless (BS.null bytes) $
             when (BS.head bytes == 0) $
                 fail "unexpected 0 byte"
+        -- We reverse the byte sequence (wire format is BE, we convert to LE), to ease
+        -- performing bitset operations/lookups on the finalizer set.
         return $! FinalizerSet $! BSS.toShort $! BS.reverse bytes
 
 -- | Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
