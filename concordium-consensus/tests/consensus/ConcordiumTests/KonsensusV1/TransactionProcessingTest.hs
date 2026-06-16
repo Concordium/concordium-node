@@ -619,7 +619,7 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
                           qcRound = 0,
                           qcEpoch = 0,
                           qcAggregateSignature = mempty,
-                          qcSignatories = FinalizerSet 0
+                          qcSignatories = emptyFinalizerSet
                         },
                   ..
                 }

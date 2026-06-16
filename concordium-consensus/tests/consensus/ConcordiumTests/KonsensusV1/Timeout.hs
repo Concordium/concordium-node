@@ -130,7 +130,7 @@ dummyTimeoutMessage' sProtocolVersion fid e qce =
               tsmQCRound = 0,
               tsmQCEpoch = 0
             }
-    quorumCert = QuorumCertificate (genesisHash sProtocolVersion) 0 qce mempty $ FinalizerSet 0
+    quorumCert = QuorumCertificate (genesisHash sProtocolVersion) 0 qce mempty $ emptyFinalizerSet
 
 -- | Generate a timeout message signed by the finalizer index @fid@ from
 --  'bakers' above in epoch @e@ and qc epoch @e@.

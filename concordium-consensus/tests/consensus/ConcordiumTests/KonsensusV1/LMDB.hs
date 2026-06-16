@@ -67,7 +67,7 @@ dummyQC =
           qcRound = 1,
           qcEpoch = 1,
           qcAggregateSignature = QuorumSignature $ Bls.sign "someMessage" dummyBlsSK,
-          qcSignatories = FinalizerSet 0
+          qcSignatories = emptyFinalizerSet
         }
 
 -- | A block signature keypair used to construct a block signature.

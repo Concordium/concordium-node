@@ -81,7 +81,7 @@ dummyCertifiedBlock r =
               qcRound = r,
               qcEpoch = 0,
               qcAggregateSignature = mempty,
-              qcSignatories = FinalizerSet 0
+              qcSignatories = emptyFinalizerSet
             }
 
 -- | Checking that advancing rounds via a quorum certificate results
