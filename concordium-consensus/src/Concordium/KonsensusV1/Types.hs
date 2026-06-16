@@ -239,7 +239,7 @@ computeFinalizationCommitteeHash FinalizationCommittee{..} =
 
 -- | A set of 'FinalizerIndex'es.
 --  This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
---  in the set. The internal bit-vector is stored little-endian.
+--  in the set.
 newtype FinalizerSet = FinalizerSet {theFinalizerSet :: BSS.ShortByteString}
     deriving (Eq)
 
@@ -263,8 +263,6 @@ instance Serialize FinalizerSet where
         unless (BS.null bytes) $
             when (BS.head bytes == 0) $
                 fail "unexpected 0 byte"
-        -- We reverse the byte sequence (wire format is BE, we convert to LE), to ease
-        -- performing bitset operations/lookups on the finalizer set.
         return $! FinalizerSet $! BSS.toShort $! BS.reverse bytes
 
 -- | Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
@@ -284,14 +282,15 @@ emptyFinalizerSet = FinalizerSet BSS.empty
 -- | Add a finalizer to a 'FinalizerSet'.
 addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
 addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) =
-    FinalizerSet $ BSS.pack $ prefix ++ updatedByte : suffix
+    FinalizerSet $ BSS.pack $ case splitAt byteIndex paddedBytes of
+        (prefix, oldByte : suffix) -> prefix ++ setBit oldByte bitIndex : suffix
+        -- This case cannot occur because 'paddedBytes' has length at least @byteIndex + 1@.
+        _ -> paddedBytes
   where
     byteIndex = fromIntegral (i `div` 8)
     bitIndex = fromIntegral (i `mod` 8)
     bytes = BSS.unpack setOfFinalizers
     paddedBytes = bytes ++ replicate (byteIndex + 1 - length bytes) 0
-    (prefix, oldByte : suffix) = splitAt byteIndex paddedBytes
-    updatedByte = setBit oldByte bitIndex
 
 -- | Test whether a given finalizer index is present in a finalizer set.
 memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool

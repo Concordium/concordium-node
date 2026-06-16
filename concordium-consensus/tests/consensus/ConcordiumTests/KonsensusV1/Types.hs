@@ -7,6 +7,7 @@
 module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
+import Data.Either (isLeft)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
@@ -36,7 +37,9 @@ import qualified ConcordiumTests.KonsensusV1.Common as Common
 -- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
 --  the finalizers are (nominally) sampled from.
 genFinalizerSet :: Gen FinalizerSet
-genFinalizerSet = sized $ \s -> FinalizerSet . fromInteger <$> chooseInteger (0, 2 ^ s)
+genFinalizerSet = sized $ \s -> do
+    indices <- listOf $ FinalizerIndex . fromIntegral <$> chooseInt (0, max 0 s)
+    return $ finalizerSet indices
 
 -- | An arbitrarily-chosen 'Bls.SecretKey'.
 someBlsSecretKey :: Bls.SecretKey
@@ -441,6 +444,19 @@ truncatedFinalizerSetBytes = runPut $ do
     putWord32be 2
     putWord8 0xff
 
+-- | Non-canonical 'FinalizerSet' serialization with a leading zero byte.
+nonCanonicalFinalizerSetBytes :: BS.ByteString
+nonCanonicalFinalizerSetBytes = runPut $ do
+    putWord32be 2
+    putWord8 0x00
+    putWord8 0xff
+
+-- | Wire encoding of finalizer set @{0, 1, 3}@.
+encodedFinalizerSet013 :: BS.ByteString
+encodedFinalizerSet013 = runPut $ do
+    putWord32be 1
+    putWord8 0x0b
+
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -460,6 +476,24 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different key" propSignQuorumSignatureMessageDiffKey
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet
+    it "FinalizerSet membership reflects added finalizers" $ do
+        let fs = finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3, FinalizerIndex 9]
+        memberFinalizerSet (FinalizerIndex 0) fs `shouldBe` True
+        memberFinalizerSet (FinalizerIndex 1) fs `shouldBe` True
+        memberFinalizerSet (FinalizerIndex 2) fs `shouldBe` False
+        memberFinalizerSet (FinalizerIndex 3) fs `shouldBe` True
+        memberFinalizerSet (FinalizerIndex 9) fs `shouldBe` True
+    it "FinalizerSet subset checks set inclusion" $ do
+        let fs = finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3, FinalizerIndex 9]
+            subset = finalizerSet [FinalizerIndex 1, FinalizerIndex 9]
+            notSubset = finalizerSet [FinalizerIndex 1, FinalizerIndex 8]
+        subsetFinalizerSet subset fs `shouldBe` True
+        subsetFinalizerSet notSubset fs `shouldBe` False
+    it "FinalizerSet serialization uses canonical big-endian wire encoding" $ do
+        encode (finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3]) `shouldBe` encodedFinalizerSet013
+        decode encodedFinalizerSet013 `shouldBe` Right (finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3])
+    it "FinalizerSet deserialization rejects non-canonical leading zero byte" $ do
+        (decode nonCanonicalFinalizerSetBytes :: Either String FinalizerSet) `shouldSatisfy` isLeft
     it "FinalizerSet deserialization rejects a byte count that exceeds the remaining input" $ do
         (decode truncatedFinalizerSetBytes :: Either String FinalizerSet) `shouldSatisfy` isLeft
     Common.forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
