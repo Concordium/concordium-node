@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 11.2.2 (Devnet)
+
+- Add support for lock configurations with "any" specified for the `recipients` field.
+
 ## 11.2.1 (Devnet)
 
 - Add support for the following "meta update" operations:
