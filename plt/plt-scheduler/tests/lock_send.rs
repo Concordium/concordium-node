@@ -6,13 +6,14 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperations, MetaUpdatePayload, lock_fund, lock_send,
+use concordium_base::protocol_level_locks::{
+    LockConfig, LockController, LockControllerSimpleV0, LockControllerSimpleV0Capability,
+    LockControllerSimpleV0Grant as CborLockControllerSimpleV0Grant, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
     TokenListUpdateDetails, TokenModuleAccountState, TokenModuleRejectReason, TokenOperation,
+    meta_operations::{MetaUpdateOperations, MetaUpdatePayload, lock_create, lock_fund, lock_send},
 };
 use concordium_base::transactions::Payload;
 use plt_block_state::{
@@ -196,6 +197,89 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     assert_eq!(lock_info.funds.len(), 1);
     assert_eq!(lock_info.funds[0].amounts[0].amount.value(), 150);
 }
+#[test]
+fn test_lock_send_allows_any_recipient() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let owner = context.external.create_account();
+    let arbitrary_recipient = context.external.create_account();
+    let token_id: TokenId = "pltX".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        owner.account_index(),
+        &token_id,
+        RawTokenAmount(1000),
+    );
+
+    let owner_addr = context
+        .external
+        .account_canonical_address(owner.account_index());
+    let recipient_addr = context
+        .external
+        .account_canonical_address(arbitrary_recipient.account_index());
+
+    let lock_id = LockId::new(owner.account_index(), 1u64, 0); // 1 matches the seq number given by `execute_meta_update`
+    let operations = vec![
+        lock_create(LockConfig {
+            recipients: LockRecipients::Any,
+            expiry: 1_804_806_000.into(),
+            controller: LockController::SimpleV0(LockControllerSimpleV0 {
+                grants: vec![CborLockControllerSimpleV0Grant {
+                    account: CborHolderAccount::from(owner_addr),
+                    roles: vec![
+                        LockControllerSimpleV0Capability::Fund,
+                        LockControllerSimpleV0Capability::Send,
+                    ],
+                }],
+                tokens: vec![token_id.clone()],
+                keep_alive: false,
+                memo: None,
+            }),
+        }),
+        lock_fund(
+            token_id.clone(),
+            lock_id.clone(),
+            TokenAmount::from_raw(250, 4),
+            None,
+        ),
+        lock_send(
+            token_id.clone(),
+            lock_id.clone(),
+            owner_addr,
+            recipient_addr,
+            TokenAmount::from_raw(100, 4),
+            None,
+        ),
+    ];
+
+    let outcome = execute_meta_update!(
+        &mut context,
+        &mut block_state,
+        owner.account_index(),
+        0,
+        operations,
+    );
+    assert_matches!(outcome, TransactionOutcome::Success(_));
+
+    let lock_info: LockInfo = cbor::cbor_decode(
+        block_state
+            .query_lock_info(&context, &lock_id)
+            .expect("lock info query must succeed"),
+    )
+    .expect("lock info must decode");
+    assert_eq!(lock_info.recipients, LockRecipients::Any);
+}
+
 #[test]
 fn test_lock_send_rejects_non_recipient() {
     let mut context = entity_test_stub::new_stubbed_context();

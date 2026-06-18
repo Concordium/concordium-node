@@ -6,7 +6,9 @@ use crate::{
 };
 use concordium_base::{
     base::AccountIndex,
-    protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
+    protocol_level_locks::{
+        LockAccountFunds, LockConfig, LockInfo, LockRecipients, LockedTokenAmount,
+    },
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
 use plt_block_state::block_state_interface::BlockStateQuery;
@@ -14,19 +16,26 @@ use plt_block_state::entity::protocol_level_locks::p11::LockP11;
 use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
 
-/// Get the list of recipient accounts for a lock configuration, resolving
-/// [`AccountIndex`]es to [`CborHolderAccount`]s.
+/// Get the recipients for a lock configuration, resolving [`AccountIndex`]es
+/// to [`CborHolderAccount`]s unless the block-state sentinel represents an
+/// any-recipient lock.
 fn get_recipients<BSQ: BlockStateQuery>(
     bsq: &BSQ,
     configuration: &LockConfiguration,
-) -> Result<Vec<CborHolderAccount>, AccountNotFoundByIndexError> {
-    configuration
+) -> Result<LockRecipients, AccountNotFoundByIndexError> {
+    if configuration.has_any_recipient() {
+        return Ok(LockRecipients::Any);
+    }
+
+    let recipients = configuration
         .recipients_iter()
         .map(|account_index| {
             let with_addr = bsq.account_by_index(*account_index)?;
             Ok(CborHolderAccount::from(with_addr.canonical_account_address))
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(LockRecipients::Limited(recipients))
 }
 
 /// Get the lock configuration as a CBOR-representable [`LockConfig`] with
