@@ -7,6 +7,7 @@ use crate::protocol_level_tokens::token_module::util;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
 use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::protocol_level_tokens::p11::UNIVERSAL_ROLES;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::BlockStateResult;
@@ -26,13 +27,6 @@ pub enum TokenInitializationError {
     #[error("The initial mint amount is not representable: {0}")]
     MintAmountNotRepresentable(#[from] MintWouldOverflowError),
 }
-
-/// List roles which are unaffected by which features are enabled.
-const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
-    TokenAdminRole::UpdateAdminRoles,
-    TokenAdminRole::Pause,
-    TokenAdminRole::UpdateMetadata,
-];
 
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.

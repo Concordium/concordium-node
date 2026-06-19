@@ -97,23 +97,23 @@ mod test {
         token2.token_p9_base.set_mintable_enabled(&context).unwrap();
         block_state.update_token(&context, token2).unwrap();
 
-        blob_store::store_to_store(&mut context.loader, &block_state.persistent);
+        blob_store::store_to_store(&mut context.store, &block_state.persistent);
         // Migrate the block state
         let mut migrated_context = entity_test_stub::new_stubbed_context();
         migrated_context.external = context.external.clone();
         let migrated_persistent_block_state = PersistentBlockState::P10(block_state.persistent)
             .migrate(
-                &context.loader,
-                &mut migrated_context.loader,
+                &context.store,
+                &mut migrated_context.store,
                 ProtocolVersion::P11,
             )
             .unwrap();
         let blob_ref = blob_store::store_to_store(
-            &mut migrated_context.loader,
+            &mut migrated_context.store,
             &migrated_persistent_block_state,
         );
         let migrated_block_state = BlockStateP11 {
-            persistent: blob_store::load_from_store(&migrated_context.loader, blob_ref).unwrap(),
+            persistent: blob_store::load_from_store(&migrated_context.store, blob_ref).unwrap(),
         };
 
         // Assert on migrated block state

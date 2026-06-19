@@ -34,7 +34,7 @@ pub struct FfiSchedulerBlockStateTypes;
 
 impl EntityContextTypes for FfiSchedulerBlockStateTypes {
     type ExternalBlockState = ExternalBlockStateOperationCallbacks;
-    type Loader = LoadCallback;
+    type Store = LoadCallback;
 }
 
 pub type FfiSchedulerEntityContext = EntityContext<FfiSchedulerBlockStateTypes>;
@@ -150,7 +150,7 @@ extern "C" fn ffi_execute_transaction(
         };
         let mut context = FfiSchedulerEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let sender_account_index = AccountIndex::from(sender_account_index);
         let sender_account_address = {
@@ -337,7 +337,7 @@ extern "C" fn ffi_execute_chain_update(
         };
         let mut context = FfiSchedulerEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
         let payload: UpdatePayload = common::from_bytes_complete(payload_bytes)

@@ -98,12 +98,12 @@ mod test {
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 1], vec![0, 0])
+            .insert_value(&context.store, &[0, 1], vec![0, 0])
             .unwrap();
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 2], vec![1, 1])
+            .insert_value(&context.store, &[0, 2], vec![1, 1])
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
@@ -114,7 +114,7 @@ mod test {
         let _token_index2 = block_state.create_token(&context, configuration2.clone());
 
         // Store and load block state
-        let blob_ref = blob_store::store_to_store(&mut context.loader, block_state.persistent);
+        let blob_ref = blob_store::store_to_store(&mut context.store, block_state.persistent);
         let block_state = entity_test_stub::load_block_state_p9(&context, blob_ref);
 
         // Assert loaded state
@@ -134,12 +134,12 @@ mod test {
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 1]);
+            .lookup_value(&context.store, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 2]);
+            .lookup_value(&context.store, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
         let token2 = block_state
             .token_by_id(&context, &"token2".parse().unwrap())
@@ -163,7 +163,7 @@ mod test {
         let persistent_block_state = PersistentBlockStateP9::default();
 
         // Assert hash
-        let hash = persistent_block_state.hash(&context.loader).expect("hash");
+        let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
             "c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05"
@@ -193,12 +193,12 @@ mod test {
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 1], vec![0, 0])
+            .insert_value(&context.store, &[0, 1], vec![0, 0])
             .unwrap();
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 2], vec![1, 1])
+            .insert_value(&context.store, &[0, 2], vec![1, 1])
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
@@ -209,7 +209,7 @@ mod test {
         let _token2 = block_state.create_token(&context, configuration2.clone());
 
         // Assert hash
-        let hash = block_state.persistent.hash(&context.loader).expect("hash");
+        let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
             "d202e9153fea3fdd22c594be21d471c07e9619abc0baad3faca5c81f0bb1504b"
@@ -223,7 +223,7 @@ mod test {
         let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
         let context = EntityContext::<NoExternalBlockStateTypes> {
             external: UnreachableExternalBlockState,
-            loader: store,
+            store,
         };
 
         // Load block state
@@ -241,7 +241,7 @@ mod test {
 
         let context = EntityContext::<NoExternalBlockStateTypes> {
             external: UnreachableExternalBlockState,
-            loader: store,
+            store,
         };
 
         // Load block state
@@ -269,12 +269,12 @@ mod test {
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 1]);
+            .lookup_value(&context.store, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 2]);
+            .lookup_value(&context.store, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
         let token2 = block_state
             .token_by_id(&context, &"token2".parse().unwrap())

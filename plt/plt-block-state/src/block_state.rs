@@ -23,17 +23,29 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use std::fmt::Debug;
 
 // todo delete as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
-#[derive(Debug)]
 pub struct ExecutionTimeBlockStateP9<C: EntityContextTypes> {
     /// The library block state implementation.
     pub block_state: BlockStateP9,
     /// External function for reading from the blob store.
     pub context: EntityContext<C>,
+}
+
+impl<C: EntityContextTypes> std::fmt::Debug for ExecutionTimeBlockStateP9<C>
+where
+    EntityContext<C>: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionTimeBlockStateP9")
+            .field("block_state", &self.block_state)
+            .field("context", &self.context)
+            .finish()
+    }
 }
 
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
@@ -99,7 +111,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
         token_key_value
-            .lookup_value(&self.context.loader, &key.0)
+            .lookup_value(&self.context.store, &key.0)
             .map(TokenStateValue)
     }
 
@@ -109,7 +121,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
         prefix: &TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
         token_key_value
-            .iter_prefix(&self.context.loader, &prefix.0)
+            .iter_prefix(&self.context.store, &prefix.0)
             .unwrap()
             .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
@@ -122,11 +134,11 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     ) {
         if let Some(value) = value {
             token_key_value_state
-                .insert_value(&self.context.loader, &key.0, value.0)
+                .insert_value(&self.context.store, &key.0, value.0)
                 .unwrap();
         } else {
             token_key_value_state
-                .delete_value(&self.context.loader, &key.0)
+                .delete_value(&self.context.store, &key.0)
                 .unwrap();
         }
     }
@@ -304,12 +316,23 @@ pub type ExecutionTimeBlockStateP10<C> = ExecutionTimeBlockStateP9<C>;
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
-#[derive(Debug)]
 pub struct ExecutionTimeBlockStateP11<C: EntityContextTypes> {
     /// The library block state implementation.
     pub block_state: BlockStateP11,
     /// External function for reading from the blob store.
     pub context: EntityContext<C>,
+}
+
+impl<C: EntityContextTypes> std::fmt::Debug for ExecutionTimeBlockStateP11<C>
+where
+    EntityContext<C>: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionTimeBlockStateP11")
+            .field("block_state", &self.block_state)
+            .field("context", &self.context)
+            .finish()
+    }
 }
 
 impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
@@ -378,7 +401,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
         token_key_value
-            .lookup_value(&self.context.loader, &key.0)
+            .lookup_value(&self.context.store, &key.0)
             .map(TokenStateValue)
     }
 
@@ -388,7 +411,7 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
         prefix: &TokenStateKey,
     ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
         token_key_value
-            .iter_prefix(&self.context.loader, &prefix.0)
+            .iter_prefix(&self.context.store, &prefix.0)
             .unwrap()
             .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
@@ -401,11 +424,11 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
     ) {
         if let Some(value) = value {
             token_key_value_state
-                .insert_value(&self.context.loader, &key.0, value.0)
+                .insert_value(&self.context.store, &key.0, value.0)
                 .unwrap();
         } else {
             token_key_value_state
-                .delete_value(&self.context.loader, &key.0)
+                .delete_value(&self.context.store, &key.0)
                 .unwrap();
         }
     }

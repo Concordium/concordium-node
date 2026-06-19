@@ -65,23 +65,23 @@ mod test {
             decimals: 4,
         };
         let _token_index2 = block_state.create_token(&context, configuration2.clone());
-        blob_store::store_to_store(&mut context.loader, &block_state.persistent);
+        blob_store::store_to_store(&mut context.store, &block_state.persistent);
 
         // Migrate the block state
         let mut migrated_context = entity_test_stub::new_no_external_context();
         let migrated_persistent_block_state = PersistentBlockState::P9(block_state.persistent)
             .migrate(
-                &context.loader,
-                &mut migrated_context.loader,
+                &context.store,
+                &mut migrated_context.store,
                 ProtocolVersion::P10,
             )
             .unwrap();
         let blob_ref = blob_store::store_to_store(
-            &mut migrated_context.loader,
+            &mut migrated_context.store,
             &migrated_persistent_block_state,
         );
         let migrated_block_state = BlockStateP10 {
-            persistent: blob_store::load_from_store(&migrated_context.loader, blob_ref).unwrap(),
+            persistent: blob_store::load_from_store(&migrated_context.store, blob_ref).unwrap(),
         };
 
         // Assert on migrated block state

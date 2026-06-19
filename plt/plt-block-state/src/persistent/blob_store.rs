@@ -25,12 +25,30 @@ pub trait BlobStoreStore {
     fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobStoreLocation;
 }
 
+impl<T: BlobStoreStore> BlobStoreStore for &mut T {
+    fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobStoreLocation {
+        (**self).store_raw(data)
+    }
+}
+
 /// Trait implemented by types that can load data from given locations.
 /// Dual to [`BlobStoreStore`].
 pub trait BlobStoreLoad {
     /// Load the provided value from the given location. The implementation of
     /// this should match [BlobStoreStore::store_raw].
     fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8>;
+}
+
+impl<T: BlobStoreLoad> BlobStoreLoad for &T {
+    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
+        (**self).load_raw(location)
+    }
+}
+
+impl<T: BlobStoreLoad> BlobStoreLoad for &mut T {
+    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
+        (**self).load_raw(location)
+    }
 }
 
 /// A trait implemented by types that can be loaded from a [blob store](BlobStoreLoad).

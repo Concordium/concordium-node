@@ -27,7 +27,7 @@ impl TokenP11 {
             self.token_p9_base
                 .mutable_key_value_state
                 .lookup_value(
-                    &context.loader,
+                    &context.store,
                     &state_keys::account_roles_state_key(account),
                 )
                 .as_deref(),
@@ -49,13 +49,13 @@ impl TokenP11 {
     ) -> BlockStateResult<()> {
         if let Some(value) = roles.into_state_value() {
             self.token_p9_base.mutable_key_value_state.insert_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_roles_state_key(account),
                 value,
             )
         } else {
             self.token_p9_base.mutable_key_value_state.delete_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_roles_state_key(account),
             )
         }
@@ -97,7 +97,7 @@ impl TokenP11 {
         lock_id: &LockId,
     ) -> BlockStateResult<RawTokenAmount> {
         let Some(value) = self.token_p9_base.mutable_key_value_state.lookup_value(
-            &context.loader,
+            &context.store,
             &state_keys::account_quanta_state_key(account_index, lock_id),
         ) else {
             return Ok(RawTokenAmount(0));
@@ -120,12 +120,12 @@ impl TokenP11 {
     ) -> BlockStateResult<()> {
         if amount == RawTokenAmount(0) {
             self.token_p9_base.mutable_key_value_state.delete_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_quanta_state_key(account_index, lock_id),
             )?;
         } else {
             self.token_p9_base.mutable_key_value_state.insert_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_quanta_state_key(account_index, lock_id),
                 common::to_bytes(&amount),
             )?;
@@ -143,7 +143,7 @@ impl TokenP11 {
         let prefix = state_keys::account_state_key(account, state_keys::ACCOUNT_STATE_KEY_QUANTA);
         self.token_p9_base
             .mutable_key_value_state
-            .iter_prefix(&context.loader, &prefix)?
+            .iter_prefix(&context.store, &prefix)?
             .map(move |(key, value)| {
                 let Some(lock_bytes) = key.strip_prefix(prefix.as_slice()) else {
                     return Err(BlockStateFailure::Invariant(
@@ -176,7 +176,7 @@ impl TokenP11 {
     ) -> BlockStateResult<Vec<(AccountIndex, Roles)>> {
         self.token_p9_base
             .mutable_key_value_state
-            .iter_prefix(&context.loader, &ACCOUNT_ROLES_STATE_PREFIX)?
+            .iter_prefix(&context.store, &ACCOUNT_ROLES_STATE_PREFIX)?
             .map(|(key, value)| {
                 let account_index_bytes = key
                     .strip_prefix(&ACCOUNT_ROLES_STATE_PREFIX)
@@ -212,6 +212,13 @@ const ALL_ROLES: &[TokenAdminRole] = &[
     TokenAdminRole::Burn,
     TokenAdminRole::UpdateAllowList,
     TokenAdminRole::UpdateDenyList,
+    TokenAdminRole::Pause,
+    TokenAdminRole::UpdateMetadata,
+];
+
+/// List roles which are unaffected by which features are enabled.
+pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
+    TokenAdminRole::UpdateAdminRoles,
     TokenAdminRole::Pause,
     TokenAdminRole::UpdateMetadata,
 ];

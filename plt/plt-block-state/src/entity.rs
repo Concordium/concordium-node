@@ -11,11 +11,11 @@ pub mod protocol_level_locks;
 pub mod protocol_level_tokens;
 
 /// Types needed to define the [`EntityContext`]
-pub trait EntityContextTypes: Debug {
+pub trait EntityContextTypes {
     /// Type for externally managed block state interactions.
-    type ExternalBlockState: ExternalBlockStateOperations + Debug;
-    /// Type for blob store loader.
-    type Loader: BlobStoreLoad + Debug;
+    type ExternalBlockState: ExternalBlockStateOperations;
+    /// Type for blob store.
+    type Store: BlobStoreLoad;
 }
 
 /// Context needed to call functions on the block state and entities
@@ -25,7 +25,7 @@ pub struct EntityContext<C: EntityContextTypes> {
     /// Externally managed block state
     pub external: C::ExternalBlockState,
     /// Blob store loader.
-    pub loader: C::Loader,
+    pub store: C::Store,
 }
 
 pub mod entity_test_stub {
@@ -45,7 +45,7 @@ pub mod entity_test_stub {
 
     impl EntityContextTypes for NoExternalBlockStateTypes {
         type ExternalBlockState = UnreachableExternalBlockState;
-        type Loader = BlobStoreStub;
+        type Store = BlobStoreStub;
     }
 
     /// Create context with no external block state (will panic if accessed).
@@ -53,7 +53,7 @@ pub mod entity_test_stub {
         let blob_store = BlobStoreStub::default();
         EntityContext {
             external: UnreachableExternalBlockState,
-            loader: blob_store,
+            store: blob_store,
         }
     }
 
@@ -63,7 +63,7 @@ pub mod entity_test_stub {
 
     impl EntityContextTypes for StubbedExternalBlockStateTypes {
         type ExternalBlockState = ExternalBlockStateStub;
-        type Loader = BlobStoreStub;
+        type Store = BlobStoreStub;
     }
 
     /// Create context with no external block state (will panic if accessed).
@@ -71,7 +71,7 @@ pub mod entity_test_stub {
         let blob_store = BlobStoreStub::default();
         EntityContext {
             external: ExternalBlockStateStub::default(),
-            loader: blob_store,
+            store: blob_store,
         }
     }
 
@@ -80,7 +80,7 @@ pub mod entity_test_stub {
         blob_ref: BlobStoreLocation,
     ) -> BlockStateP9 {
         let persistent_block_state: PersistentBlockStateP9 =
-            blob_store::load_from_store(&context.loader, blob_ref).expect("load block state");
+            blob_store::load_from_store(&context.store, blob_ref).expect("load block state");
         BlockStateP9 {
             persistent: persistent_block_state,
         }
@@ -91,7 +91,7 @@ pub mod entity_test_stub {
         blob_ref: BlobStoreLocation,
     ) -> BlockStateP11 {
         let persistent_block_state: PersistentBlockStateP11 =
-            blob_store::load_from_store(&context.loader, blob_ref).expect("load block state");
+            blob_store::load_from_store(&context.store, blob_ref).expect("load block state");
         BlockStateP11 {
             persistent: persistent_block_state,
         }
