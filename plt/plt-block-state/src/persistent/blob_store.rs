@@ -50,6 +50,22 @@ pub trait Loadable: Sized {
     ) -> Result<Self, BlockStateFailure>;
 }
 
+impl<T: Loadable> Loadable for Option<T> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> Result<Self, BlockStateFailure> {
+        let tag: u8 = buffer.get().map_parse_err_to_block_state_err()?;
+        match tag {
+            0 => Ok(None),
+            1 => Ok(Some(Loadable::load_from_buffer(buffer, loader)?)),
+            _ => Err(BlockStateFailure::BlobStoreDecode(format!(
+                "Invalid option tag: {tag}"
+            ))),
+        }
+    }
+}
+
 /// A trait implemented by types that can be stored to a [blob store](BlobStoreStore).
 pub trait Storable {
     /// Store the value in the given `buffer` that will be written to the blob store.
@@ -74,6 +90,17 @@ impl<T: Storable> Storable for &mut T {
     }
 }
 
+impl<T: Storable> Storable for Option<T> {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        match self {
+            None => buffer.put(0u8),
+            Some(inner) => {
+                buffer.put(1u8);
+                inner.store_to_buffer(buffer, storer)
+            }
+        }
+    }
+}
 /// Adapter for types implementing [`Serialize`] that
 /// allows them to be used as block state components.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]

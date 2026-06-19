@@ -161,6 +161,19 @@ pub trait BlockStateQuery {
     ///
     /// If the protocol version does not support protocol-level locks, this will return the empty
     /// list.
+    ///
+    /// # Ordering
+    ///
+    /// The order of the returned lock IDs is **not guaranteed**. Callers must not rely on any
+    /// particular ordering.
+    ///
+    /// # Warning — consensus safety
+    ///
+    /// Do **not** use this iterator directly to drive block-state mutations in the scheduler.
+    /// All nodes must execute transactions in identical order to reach the same state hash;
+    /// iterating in an unspecified order and acting on each element would produce diverging
+    /// state across nodes. Sort the result (or otherwise canonicalise it) before using it
+    /// to determine the sequence of any state-changing operations.
     fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId>;
 
     /// Get the lock associated with a [`LockId`] (if it exists). If the protocol
@@ -298,9 +311,9 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
     ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
     /// - The protocol version of the block state MUST support PLT locks.
-    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration);
+    fn create_lock(&mut self, configuration: LockConfiguration);
 
-    /// Delete a PLT lock with the given Lock ID. Returns the lock if it existed, or `None`
+    /// Delete a PLT lock with the given Lock ID. Returns `true` if it existed, or `false`
     /// if it did not exist.
     ///
     /// # Arguments
@@ -310,7 +323,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// # Preconditions
     ///
     /// This function may panic if the protocol version does not support locks.
-    fn delete_lock(&mut self, lock_id: &LockId) -> Option<LockP11>;
+    fn delete_lock(&mut self, lock_id: &LockId) -> bool;
 
     /// Track that a lock holds a balance for the given account and token.
     ///

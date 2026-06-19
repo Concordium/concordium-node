@@ -271,11 +271,11 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C
         self.block_state.update_token(&self.context, token).unwrap();
     }
 
-    fn create_lock(&mut self, _lock_id: LockId, _configuration: LockConfiguration) {
+    fn create_lock(&mut self, _configuration: LockConfiguration) {
         panic!("no locks on P9")
     }
 
-    fn delete_lock(&mut self, _lock_id: &LockId) -> Option<LockP11> {
+    fn delete_lock(&mut self, _: &LockId) -> bool {
         panic!("no locks on P9")
     }
 
@@ -478,6 +478,8 @@ impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
 
     fn lock_configuration(&self, lock: &LockP11) -> LockConfiguration {
         lock.lock_configuration(&self.context)
+            .expect("lock must contain the configuration")
+            .to_owned()
     }
 
     fn lock_balances(&self, lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
@@ -550,13 +552,13 @@ impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<
         self.block_state.update_token(&self.context, token).unwrap();
     }
 
-    fn create_lock(&mut self, lock_id: LockId, configuration: LockConfiguration) {
+    fn create_lock(&mut self, configuration: LockConfiguration) {
         self.block_state
-            .create_lock(&self.context, lock_id, configuration)
+            .create_lock(&self.context, configuration)
             .unwrap();
     }
 
-    fn delete_lock(&mut self, lock_id: &LockId) -> Option<LockP11> {
+    fn delete_lock(&mut self, lock_id: &LockId) -> bool {
         self.block_state
             .delete_lock(&self.context, lock_id)
             .unwrap()

@@ -104,12 +104,14 @@ where
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
-    let lock_configuration = lock.lock_configuration(context);
+    let lock_configuration = lock.lock_configuration(context)?;
     if lock_configuration
         .expiry()
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
+        return Err(
+            TransactionRejectReason::LockExpired(lock_configuration.lock_id().clone()).into(),
+        );
     }
 
     lock_configuration.controller().validate_operation(
@@ -132,7 +134,7 @@ where
         &mut token,
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
-        lock.lock_id(),
+        lock_configuration.lock_id(),
         raw_amount,
         memo,
     )? {
@@ -180,12 +182,14 @@ where
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
-    let lock_configuration = lock.lock_configuration(context);
+    let lock_configuration = lock.lock_configuration(context)?;
     if lock_configuration
         .expiry()
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
+        return Err(
+            TransactionRejectReason::LockExpired(lock_configuration.lock_id().clone()).into(),
+        );
     }
 
     let source_address = details.source.address;
@@ -221,7 +225,7 @@ where
 
     if !lock_configuration.is_recipient(&recipient.account_index()) {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
-            lock.lock_id().clone(),
+            lock_configuration.lock_id().clone(),
             recipient_address,
         )
         .into());
@@ -245,7 +249,7 @@ where
         source_address,
         &recipient,
         recipient_address,
-        lock.lock_id(),
+        lock_configuration.lock_id(),
         raw_amount,
         memo,
     )?
@@ -261,8 +265,8 @@ where
             context,
             block_state,
             events,
+            lock_configuration_keeps_alive(&lock_configuration),
             lock,
-            &lock_configuration,
             source.account_index(),
             token_index,
             details.lock,
@@ -292,12 +296,14 @@ where
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
-    let lock_configuration = lock.lock_configuration(context);
+    let lock_configuration = lock.lock_configuration(context)?;
     if lock_configuration
         .expiry()
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
+        return Err(
+            TransactionRejectReason::LockExpired(lock_configuration.lock_id().clone()).into(),
+        );
     }
 
     let source_address = details.source.address;
@@ -325,7 +331,7 @@ where
         &mut token,
         source.account_index(),
         source_address,
-        lock.lock_id(),
+        lock_configuration.lock_id(),
         raw_amount,
         memo,
     )?
@@ -341,8 +347,8 @@ where
             context,
             block_state,
             events,
+            lock_configuration_keeps_alive(&lock_configuration),
             lock,
-            &lock_configuration,
             source.account_index(),
             token_index,
             details.lock,
@@ -386,7 +392,8 @@ where
             },
         )
         .collect::<Result<Vec<_>, TransactionRejectReason>>()?;
-    let configuration = LockConfiguration::new(recipients, config.expiry, controller);
+    let configuration =
+        LockConfiguration::new(lock_id.clone(), recipients, config.expiry, controller);
 
     let config = get_lock_config(&bsq, &configuration).map_err(|err| {
         BlockStateFailure::Invariant(format!("Failed to get lock config for created lock: {err}"))
@@ -397,7 +404,7 @@ where
     };
     events.push(BlockItemEvent::LockCreated(event));
 
-    block_state.create_lock(context, lock_id.clone(), configuration)?;
+    block_state.create_lock(context, configuration)?;
     Ok(())
 }
 
@@ -421,7 +428,7 @@ where
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
-    let lock_configuration = lock.lock_configuration(context);
+    let lock_configuration = lock.lock_configuration(context)?;
     let memo: Option<transactions::Memo> = details.memo.clone().map(transactions::Memo::from);
 
     if !lock_configuration
@@ -442,14 +449,14 @@ where
             events,
             &mut token,
             account_index,
-            lock.lock_id(),
+            lock_configuration.lock_id(),
             &memo,
         )?;
         block_state.update_token(context, token)?;
     }
-    block_state.delete_lock(context, lock.lock_id())?;
+    block_state.delete_lock(context, lock_configuration.lock_id())?;
     let event = events::LockDestroyEvent {
-        lock_id: lock.lock_id().clone(),
+        lock_id: lock_configuration.lock_id().clone(),
     };
     events.push(BlockItemEvent::LockDestroyed(event));
     Ok(())
@@ -460,8 +467,8 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &mut BlockStateP11,
     events: &mut Vec<BlockItemEvent>,
+    lock_keeps_alive: bool,
     mut lock: plt_block_state::entity::protocol_level_locks::p11::LockP11,
-    lock_configuration: &LockConfiguration,
     account_index: AccountIndex,
     token_index: plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex,
     lock_id: concordium_base::protocol_level_locks::LockId,
@@ -471,7 +478,7 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
         // controlled by the lock, or there was no balance reference to remove.
         return Ok(());
     }
-    if lock.lock_balance_refs().is_empty() && !lock_configuration_keeps_alive(lock_configuration) {
+    if lock.lock_balance_refs().is_empty() && !lock_keeps_alive {
         block_state.delete_lock(context, &lock_id)?;
         events.push(BlockItemEvent::LockDestroyed(events::LockDestroyEvent {
             lock_id,
