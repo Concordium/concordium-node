@@ -3,20 +3,20 @@ use crate::entity::block_state::p11::BlockStateP11;
 use crate::entity::protocol_level_tokens;
 use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreMovable, BlobStoreStore};
+use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore};
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
 use crate::persistent::protocol_level_locks::p11::PersistentLocksP11;
 
 /// Migrate the P10 block state to P11.
 pub fn migrate_from_p10_to_p11(
     block_state_p10: BlockStateP10,
-    from_loader: &impl BlobStoreLoad,
-    to_storer: &mut impl BlobStoreStore,
+    from_store: &impl BlobStoreLoad,
+    to_store: &mut (impl BlobStoreStore + BlobStoreLoad),
 ) -> BlockStateResult<BlockStateP11> {
-    let new_tokens = protocol_level_tokens::migration::p9_to_p11::migrate_from_p10_to_p11(
+    let new_tokens = protocol_level_tokens::migration::p10_to_p11::migrate_from_p10_to_p11(
         block_state_p10.persistent.tokens,
-        from_loader,
-        to_storer,
+        from_store,
+        to_store,
     )?;
 
     let new_persistent = PersistentBlockStateP11 {
@@ -139,8 +139,8 @@ mod test {
             token1.token_p9_base.token_circulating_supply(),
             RawTokenAmount(100)
         );
-        assert_eq!(token1.token_p9_base.has_deny_list(&migrated_context), true);
-        assert_eq!(token1.token_p9_base.is_burnable(&migrated_context), true);
+        assert!(token1.token_p9_base.has_deny_list(&migrated_context));
+        assert!(token1.token_p9_base.is_burnable(&migrated_context));
         assert_eq!(
             token1
                 .token_p9_base
@@ -170,8 +170,8 @@ mod test {
             token2.token_p9_base.token_circulating_supply(),
             RawTokenAmount(0)
         );
-        assert_eq!(token2.token_p9_base.has_allow_list(&migrated_context), true);
-        assert_eq!(token2.token_p9_base.is_mintable(&migrated_context), true);
+        assert!(token2.token_p9_base.has_allow_list(&migrated_context));
+        assert!(token2.token_p9_base.is_mintable(&migrated_context));
         assert_eq!(
             token2
                 .token_p9_base

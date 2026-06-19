@@ -6,13 +6,13 @@ use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreMovable, BlobStoreSt
 /// Migrate the P9 block state to P10.
 pub fn migrate_from_p9_to_p10(
     block_state_p9: BlockStateP9,
-    from_loader: &impl BlobStoreLoad,
-    to_storer: &mut impl BlobStoreStore,
+    from_store: &impl BlobStoreLoad,
+    to_store: &mut impl BlobStoreStore,
 ) -> BlockStateResult<BlockStateP10> {
     // There are no changes to data, so just move to new blob store.
     let new_persistent = block_state_p9
         .persistent
-        .move_blob_store(from_loader, to_storer)?;
+        .move_blob_store(from_store, to_store)?;
 
     Ok(BlockStateP10 {
         persistent: new_persistent,
@@ -101,7 +101,7 @@ mod test {
                 .unwrap(),
             configuration1
         );
-        assert_eq!(token1.token_p9_base.has_deny_list(&migrated_context), true);
+        assert!(token1.token_p9_base.has_deny_list(&migrated_context));
         assert_eq!(
             token1
                 .token_p9_base

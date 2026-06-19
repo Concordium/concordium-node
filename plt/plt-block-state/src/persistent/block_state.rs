@@ -80,8 +80,8 @@ impl PersistentBlockState {
     /// - `to_protocol_version` Protocol version for the block state to migrate to.
     pub fn migrate(
         &self,
-        from_loader: &impl BlobStoreLoad,
-        to_storer: &mut impl BlobStoreStore,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut (impl BlobStoreStore + BlobStoreLoad),
         to_protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
         match self {
@@ -91,8 +91,8 @@ impl PersistentBlockState {
                 };
                 let new_block_state = block_state::migration::p9_to_p10::migrate_from_p9_to_p10(
                     block_state,
-                    from_loader,
-                    to_storer,
+                    from_store,
+                    to_store,
                 )?;
                 assert_eq!(to_protocol_version, ProtocolVersion::P10);
                 Ok(Self::P10(new_block_state.persistent))
@@ -103,8 +103,8 @@ impl PersistentBlockState {
                 };
                 let new_block_state = block_state::migration::p10_to_p11::migrate_from_p10_to_p11(
                     block_state,
-                    from_loader,
-                    to_storer,
+                    from_store,
+                    to_store,
                 )?;
                 assert_eq!(to_protocol_version, ProtocolVersion::P11);
                 Ok(Self::P11(new_block_state.persistent))
