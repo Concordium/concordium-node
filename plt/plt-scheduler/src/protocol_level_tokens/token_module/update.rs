@@ -274,7 +274,7 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: TokenPXRefMut<'_>,
     token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
@@ -288,13 +288,9 @@ fn execute_token_update_operation_internal<C: EntityContextTypes>(
 
     // Execute operation
     match token_operation {
-        TokenOperation::Transfer(transfer) => execute_token_transfer(
-            transaction_execution,
-            context,
-            events,
-            token.token_p9_base_mut(),
-            transfer,
-        ),
+        TokenOperation::Transfer(transfer) => {
+            execute_token_transfer(transaction_execution, context, events, token, transfer)
+        }
         TokenOperation::Mint(mint) => {
             execute_token_mint(transaction_execution, context, events, token, mint)
         }
@@ -483,10 +479,10 @@ fn execute_token_transfer<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    token: &mut TokenP9Base,
+    token: TokenPXRefMut<'_>,
     transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let token_configuration = token.token_configuration(context)?;
+    let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
     let raw_amount = util::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
@@ -498,7 +494,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
 
     check_transfer_constraints(
         context,
-        token,
+        token.token_p9_base(),
         sender,
         sender_address,
         &receiver,
@@ -560,7 +556,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
-    mut token: TokenPXRefMut<'_>,
+    token: TokenPXRefMut<'_>,
     burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_p9_base().token_configuration(context)?;
@@ -585,7 +581,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     balance_operations::burn(
         context,
         events,
-        token.token_p9_base_mut(),
+        token,
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,

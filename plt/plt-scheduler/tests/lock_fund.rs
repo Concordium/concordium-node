@@ -11,7 +11,7 @@ use concordium_base::protocol_level_tokens::meta_operations::{
     MetaUpdateOperations, MetaUpdatePayload, lock_fund,
 };
 use concordium_base::protocol_level_tokens::{
-    RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
+    RawCbor, TokenAmount, TokenId, TokenModuleAccountState, TokenModuleRejectReason,
 };
 use concordium_base::transactions::Payload;
 use plt_block_state::{
@@ -171,6 +171,71 @@ fn test_lock_fund_updates_account_and_lock_state() {
     assert_eq!(lock_info.funds[0].amounts.len(), 1);
     assert_eq!(lock_info.funds[0].amounts[0].token, token_id);
     assert_eq!(lock_info.funds[0].amounts[0].amount.value(), 250);
+}
+
+#[test]
+fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let sender = context.external.create_account();
+    let recipient = context.external.create_account();
+    let token_id: TokenId = "pltX".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(1000),
+    );
+
+    let lock_id = LockId::new(sender.account_index(), 7u64, 0);
+    let lock_config = utils::CreateLockSimpleConfig {
+        recipients: vec![recipient.account_index()],
+        grants: vec![LockControllerSimpleV0Grant {
+            account: sender.account_index(),
+            roles: vec![LockControllerSimpleV0Capability::Fund],
+        }],
+        tokens: vec![token_id.clone()],
+        expiry: 1_804_806_000,
+        keep_alive: false,
+    };
+    utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(250),
+    );
+
+    let outcome = execute_meta_update!(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        0,
+        vec![lock_fund(
+            token_id.clone(),
+            lock_id.clone(),
+            TokenAmount::from_raw(800, 4),
+            None,
+        )],
+    );
+    let reject_reason = assert_matches!(outcome, TransactionOutcome::Rejected(reason) => reason);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(reason) => {
+        assert_eq!(reason.available_balance, TokenAmount::from_raw(750, 4));
+        assert_eq!(reason.required_balance, TokenAmount::from_raw(800, 4));
+    });
 }
 
 #[test]
