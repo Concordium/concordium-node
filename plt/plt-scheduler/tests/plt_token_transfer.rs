@@ -5,6 +5,7 @@ use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
@@ -12,7 +13,9 @@ use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload, TokenPauseDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
-use plt_block_state::entity::entity_test_stub;
+use plt_block_state::{
+    entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
+};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -255,6 +258,89 @@ fn test_transfer_insufficient_balance() {
         TokenBalanceInsufficientRejectReason { available_balance, required_balance, .. }) => {
         assert_eq!(available_balance, TokenAmount::from_raw(5000, 2));
         assert_eq!(required_balance, TokenAmount::from_raw(10000, 2));
+    });
+}
+
+#[test]
+fn test_transfer_insufficient_available_balance() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
+    let sender = context.external.create_account();
+    let receiver = context.external.create_account();
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(1000),
+    );
+
+    let lock_id = LockId::new(sender.account_index(), 7u64, 0);
+    utils::create_lock(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        utils::CreateLockSimpleConfig {
+            recipients: vec![receiver.account_index()],
+            grants: vec![LockControllerSimpleV0Grant {
+                account: sender.account_index(),
+                roles: vec![LockControllerSimpleV0Capability::Fund],
+            }],
+            tokens: vec![token_id.clone()],
+            expiry: 1_804_806_000,
+            keep_alive: false,
+        },
+    );
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        sender.account_index(),
+        &token_id,
+        RawTokenAmount(250),
+    );
+
+    let receiver_addr = context
+        .external
+        .account_canonical_address(receiver.account_index());
+    let sender_addr = context
+        .external
+        .account_canonical_address(sender.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(sender_addr),
+            sender.account_index(),
+            Payload::TokenUpdate {
+                payload: TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(800, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                },
+            },
+        )
+        .expect("transaction internal error");
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
+        TokenBalanceInsufficientRejectReason { available_balance, required_balance, .. }) => {
+        assert_eq!(available_balance, TokenAmount::from_raw(750, 2));
+        assert_eq!(required_balance, TokenAmount::from_raw(800, 2));
     });
 }
 
