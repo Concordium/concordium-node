@@ -174,6 +174,5 @@ fn test_create_any_recipient_lock() {
         .expect("lock lookup must succeed")
         .expect("lock must exist");
     let configuration = lock.lock_configuration(&context);
-    assert!(configuration.has_any_recipient());
-    assert_eq!(configuration.recipients_iter().count(), 0);
+    assert!(configuration.recipients.is_any());
 }

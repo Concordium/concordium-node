@@ -106,13 +106,13 @@ where
 
     let lock_configuration = lock.lock_configuration(context);
     if lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
-    lock_configuration.controller().validate_operation(
+    lock_configuration.controller.validate_operation(
         &bsq,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
@@ -182,7 +182,7 @@ where
 
     let lock_configuration = lock.lock_configuration(context);
     if lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
@@ -219,7 +219,10 @@ where
         return Err(token_update_error_reject_reason(&token_configuration, err));
     }
 
-    if !lock_configuration.is_recipient(&recipient.account_index()) {
+    if !lock_configuration
+        .recipients
+        .is_recipient(&recipient.account_index())
+    {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
             lock.lock_id().clone(),
             recipient_address,
@@ -227,7 +230,7 @@ where
         .into());
     }
 
-    lock_configuration.controller().validate_operation(
+    lock_configuration.controller.validate_operation(
         &bsq,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
@@ -294,7 +297,7 @@ where
 
     let lock_configuration = lock.lock_configuration(context);
     if lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
@@ -305,7 +308,7 @@ where
         .account_by_address(&source_address)
         .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
 
-    lock_configuration.controller().validate_operation(
+    lock_configuration.controller.validate_operation(
         &bsq,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
@@ -394,7 +397,11 @@ where
                 .collect::<Result<Vec<_>, TransactionRejectReason>>()?,
         ),
     };
-    let configuration = LockConfiguration::new(recipients, expiry, controller);
+    let configuration = LockConfiguration {
+        recipients,
+        expiry,
+        controller,
+    };
 
     let config = get_lock_config(&bsq, &configuration).map_err(|err| {
         BlockStateFailure::Invariant(format!("Failed to get lock config for created lock: {err}"))
@@ -433,10 +440,10 @@ where
     let memo: Option<transactions::Memo> = details.memo.clone().map(transactions::Memo::from);
 
     if !lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        lock_configuration.controller().validate_operation(
+        lock_configuration.controller.validate_operation(
             &bsq,
             transaction_execution.sender_account_address(),
             transaction_execution.sender_account(),
@@ -491,7 +498,7 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
 }
 
 fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
-    match configuration.controller() {
+    match &configuration.controller {
         LockControllerConfig::SimpleV0(controller) => controller.keep_alive,
     }
 }
