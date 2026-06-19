@@ -65,22 +65,49 @@ pub struct PersistentLockP11 {
 /// TODO: COR-2418 - proper "any" recipient representation in block state should remove this.
 const ANY_RECIPIENT_SENTINEL: AccountIndex = AccountIndex { index: u64::MAX };
 
+// Represents a list of lock recipients. This type enforces that the inner list is always sorted
+// to enable binary search.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LockRecipientsList(Vec<AccountIndex>);
+
+impl LockRecipientsList {
+    /// Create a new list of lock recipients from the given account index list
+    pub fn new(mut recipients: Vec<AccountIndex>) -> Self {
+        recipients.sort();
+        Self(recipients)
+    }
+
+    /// Get an iterator of the account indices in the list
+    pub fn iter(&self) -> impl Iterator<Item = &AccountIndex> {
+        self.0.iter()
+    }
+
+    /// Check whether the given account is a member
+    pub fn is_recipient(&self, account: &AccountIndex) -> bool {
+        self.0.binary_search(account).is_ok()
+    }
+
+    /// Get the length of the list
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Check whether the list is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// Accounts that can receive funds from this lock in block state.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LockRecipients {
     /// Any eligible account can receive funds from this lock.
     Any,
     /// Only the listed accounts can receive funds from this lock.
-    Limited(Vec<AccountIndex>),
+    Limited(LockRecipientsList),
 }
 
 impl LockRecipients {
-    /// Normalize the recipient representation for storage in block state.
-    pub fn limited(mut recipients: Vec<AccountIndex>) -> Self {
-        recipients.sort();
-        Self::Limited(recipients)
-    }
-
     /// Check whether this representation allows any recipient.
     pub fn is_any(&self) -> bool {
         matches!(self, Self::Any)
@@ -90,14 +117,14 @@ impl LockRecipients {
     pub fn is_recipient(&self, account: &AccountIndex) -> bool {
         match self {
             Self::Any => true,
-            Self::Limited(recipients) => recipients.binary_search(account).is_ok(),
+            Self::Limited(recipients) => recipients.0.binary_search(account).is_ok(),
         }
     }
 }
 
 impl From<Vec<AccountIndex>> for LockRecipients {
     fn from(recipients: Vec<AccountIndex>) -> Self {
-        Self::limited(recipients)
+        Self::Limited(LockRecipientsList::new(recipients))
     }
 }
 
@@ -110,7 +137,7 @@ impl Serial for LockRecipients {
             }
             Self::Limited(recipients) => {
                 (recipients.len() as u16).serial(out);
-                for recipient in recipients {
+                for recipient in recipients.iter() {
                     recipient.serial(out);
                 }
             }
@@ -129,7 +156,7 @@ impl Deserial for LockRecipients {
         Ok(if recipients.as_slice() == [ANY_RECIPIENT_SENTINEL] {
             Self::Any
         } else {
-            Self::limited(recipients)
+            Self::from(recipients)
         })
     }
 }
@@ -269,7 +296,7 @@ mod test {
 
         assert_eq!(
             recipients,
-            LockRecipients::Limited(vec![AccountIndex::from(1u64), AccountIndex::from(2u64)])
+            LockRecipients::from(vec![AccountIndex::from(1u64), AccountIndex::from(2u64)])
         );
     }
 

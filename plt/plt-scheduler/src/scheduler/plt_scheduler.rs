@@ -383,8 +383,8 @@ where
 
     let recipients = match recipients {
         CborLockRecipients::Any => LockRecipients::Any,
-        CborLockRecipients::Limited(recipients) => LockRecipients::Limited(
-            recipients
+        CborLockRecipients::Limited(recipients) => {
+            let recipients = recipients
                 .into_iter()
                 .map(
                     |recipient| match context.account_by_address(&recipient.address) {
@@ -394,8 +394,9 @@ where
                         )),
                     },
                 )
-                .collect::<Result<Vec<_>, TransactionRejectReason>>()?,
-        ),
+                .collect::<Result<Vec<_>, TransactionRejectReason>>()?;
+            LockRecipients::from(recipients)
+        }
     };
     let configuration = LockConfiguration {
         recipients,
