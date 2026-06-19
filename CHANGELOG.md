@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+### Fixed
+
+- `tokenTransfer` and `tokenBurn` operations now correctly check the available balance of the token on the account.
+
 ## 11.2.1 (Devnet)
 
 - Add support for the following "meta update" operations:
