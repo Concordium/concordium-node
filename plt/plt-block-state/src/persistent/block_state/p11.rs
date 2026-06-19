@@ -64,7 +64,7 @@ mod test {
     use crate::persistent::hash::Hashable;
     use crate::persistent::protocol_level_locks::p11::{
         LockConfiguration, LockControllerConfig, LockControllerSimpleV0,
-        LockControllerSimpleV0Grant,
+        LockControllerSimpleV0Grant, LockRecipients,
     };
     use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
     use concordium_base::base::AccountIndex;
@@ -81,10 +81,10 @@ mod test {
         let mut block_state = BlockStateP11::default();
 
         // Create locks
-        let configuration1 = LockConfiguration::new(
-            vec![AccountIndex::from(1), AccountIndex::from(2)],
-            TransactionTime::from(100u64),
-            LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+        let configuration1 = LockConfiguration {
+            recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
+            expiry: TransactionTime::from(100u64),
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![LockControllerSimpleV0Grant {
                     account: AccountIndex::from(1),
                     roles: vec![
@@ -96,7 +96,7 @@ mod test {
                 keep_alive: true,
                 memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             }),
-        );
+        };
         let lock_id1 = LockId {
             account_index: 1,
             sequence_number: 1,
@@ -117,16 +117,16 @@ mod test {
             sequence_number: 7,
             creation_order: 0,
         };
-        let configuration2 = LockConfiguration::new(
-            vec![],
-            TransactionTime::from(0u64),
-            LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+        let configuration2 = LockConfiguration {
+            recipients: LockRecipients::from(vec![]),
+            expiry: TransactionTime::from(0u64),
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: Vec::new(),
                 tokens: Vec::new(),
                 keep_alive: false,
                 memo: None,
             }),
-        );
+        };
         block_state
             .create_lock(&context, lock_id2.clone(), configuration2.clone())
             .unwrap();
@@ -219,10 +219,10 @@ mod test {
         let _token2 = block_state.create_token(&context, configuration2.clone());
 
         // Create locks
-        let configuration1 = LockConfiguration::new(
-            vec![AccountIndex::from(1), AccountIndex::from(2)],
-            TransactionTime::from(100u64),
-            LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+        let configuration1 = LockConfiguration {
+            recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
+            expiry: TransactionTime::from(100u64),
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![LockControllerSimpleV0Grant {
                     account: AccountIndex::from(1),
                     roles: vec![
@@ -234,7 +234,7 @@ mod test {
                 keep_alive: true,
                 memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             }),
-        );
+        };
         let lock_id1 = LockId {
             account_index: 1,
             sequence_number: 1,
@@ -255,16 +255,16 @@ mod test {
             sequence_number: 7,
             creation_order: 0,
         };
-        let configuration2 = LockConfiguration::new(
-            vec![],
-            TransactionTime::from(0u64),
-            LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+        let configuration2 = LockConfiguration {
+            recipients: LockRecipients::from(vec![]),
+            expiry: TransactionTime::from(0u64),
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: Vec::new(),
                 tokens: Vec::new(),
                 keep_alive: false,
                 memo: None,
             }),
-        );
+        };
         block_state
             .create_lock(&context, lock_id2.clone(), configuration2)
             .unwrap();
