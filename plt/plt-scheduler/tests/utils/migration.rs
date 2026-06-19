@@ -5,18 +5,18 @@ use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::entity_test_stub::{self, StubbedExternalBlockStateTypes};
+use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
 use plt_block_state::persistent::blob_store;
 use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 
-type StubContext = EntityContext<StubbedExternalBlockStateTypes>;
+// todo ar inspect
 
 /// Migrate a P9 block state to P10. es.
 pub fn migrate_p9_to_p10(
-    context: &mut StubContext,
+    context: &mut StubbedEntityContext,
     block_state: BlockStateP9,
-) -> (StubContext, BlockStateP10) {
+) -> (StubbedEntityContext, BlockStateP10) {
     // Flush the source block state so all referenced blobs are present in the source store.
     blob_store::store_to_store(&mut context.store, &block_state.persistent);
 
@@ -40,9 +40,9 @@ pub fn migrate_p9_to_p10(
 
 /// Migrate a P10 block state to P11.
 pub fn migrate_p10_to_p11(
-    context: &mut StubContext,
+    context: &mut StubbedEntityContext,
     block_state: BlockStateP10,
-) -> (StubContext, BlockStateP11) {
+) -> (StubbedEntityContext, BlockStateP11) {
     // Flush the source block state so all referenced blobs are present in the source store.
     blob_store::store_to_store(&mut context.store, &block_state.persistent);
 

@@ -17,7 +17,7 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::entity::{EntityContext, EntityContextTypesWitness};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
@@ -27,16 +27,9 @@ use plt_block_state::ffi::block_state_callbacks::{
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
 
-/// Context with no external block state (will panic if accessed).
-#[derive(Debug)]
-pub struct FfiQueryBlockStateTypes;
-
-impl EntityContextTypes for FfiQueryBlockStateTypes {
-    type ExternalBlockState = ExternalBlockStateQueryCallbacks;
-    type Store = LoadCallback;
-}
-
-pub type FfiQueryEntityContext = EntityContext<FfiQueryBlockStateTypes>;
+/// Context with write access to external block state (will panic if accessed).
+pub type FfiQueryEntityContext =
+    EntityContext<EntityContextTypesWitness<ExternalBlockStateQueryCallbacks, LoadCallback>>;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///

@@ -4,6 +4,7 @@
 use crate::external::ExternalBlockStateOperations;
 use crate::persistent::blob_store::BlobStoreLoad;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 pub mod accounts;
 pub mod block_state;
@@ -16,6 +17,18 @@ pub trait EntityContextTypes {
     type ExternalBlockState: ExternalBlockStateOperations;
     /// Type for blob store.
     type Store: BlobStoreLoad;
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct EntityContextTypesWitness<ExternalBlockState, Store>(
+    PhantomData<(ExternalBlockState, Store)>,
+);
+
+impl<ExternalBlockState: ExternalBlockStateOperations, Store: BlobStoreLoad> EntityContextTypes
+    for EntityContextTypesWitness<ExternalBlockState, Store>
+{
+    type ExternalBlockState = ExternalBlockState;
+    type Store = Store;
 }
 
 // todo ar try another construction, where you can specify with bounds what you want implemented for entity context types
@@ -33,7 +46,7 @@ pub struct EntityContext<C: EntityContextTypes> {
 pub mod entity_test_stub {
     use crate::entity::block_state::p9::BlockStateP9;
     use crate::entity::block_state::p11::BlockStateP11;
-    use crate::entity::{EntityContext, EntityContextTypes};
+    use crate::entity::{EntityContext, EntityContextTypes, EntityContextTypesWitness};
     use crate::external::test_stub::{ExternalBlockStateStub, UnreachableExternalBlockState};
     use crate::persistent::blob_store;
     use crate::persistent::blob_store::BlobStoreLocation;
@@ -41,17 +54,14 @@ pub mod entity_test_stub {
     use crate::persistent::block_state::p9::PersistentBlockStateP9;
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
 
-    /// Context with no external block state (will panic if accessed).
-    #[derive(Debug, Default, Clone)]
-    pub struct NoExternalBlockStateTypes;
+    type NoExternalBlockStateTypes =
+        EntityContextTypesWitness<UnreachableExternalBlockState, BlobStoreStub>;
 
-    impl EntityContextTypes for NoExternalBlockStateTypes {
-        type ExternalBlockState = UnreachableExternalBlockState;
-        type Store = BlobStoreStub;
-    }
+    /// Stubbed context with no external block state (will panic if accessed).
+    pub type StubbedNoExternalEntityContext = EntityContext<NoExternalBlockStateTypes>;
 
-    /// Create context with no external block state (will panic if accessed).
-    pub fn new_no_external_context() -> EntityContext<NoExternalBlockStateTypes> {
+    /// Create stubbed context with no external block state (will panic if accessed).
+    pub fn new_no_external_context() -> StubbedNoExternalEntityContext {
         let blob_store = BlobStoreStub::default();
         EntityContext {
             external: UnreachableExternalBlockState,
@@ -59,17 +69,14 @@ pub mod entity_test_stub {
         }
     }
 
-    /// Context with no external block state (will panic if accessed).
-    #[derive(Debug, Default, Clone)]
-    pub struct StubbedExternalBlockStateTypes;
+    type StubbedExternalBlockStateTypes =
+        EntityContextTypesWitness<ExternalBlockStateStub, BlobStoreStub>;
 
-    impl EntityContextTypes for StubbedExternalBlockStateTypes {
-        type ExternalBlockState = ExternalBlockStateStub;
-        type Store = BlobStoreStub;
-    }
+    /// Stubbed context with stubbed external block state.
+    pub type StubbedEntityContext = EntityContext<StubbedExternalBlockStateTypes>;
 
-    /// Create context with no external block state (will panic if accessed).
-    pub fn new_stubbed_context() -> EntityContext<StubbedExternalBlockStateTypes> {
+    /// Create stubbed context with stubbed external block state.
+    pub fn new_stubbed_context() -> StubbedEntityContext {
         let blob_store = BlobStoreStub::default();
         EntityContext {
             external: ExternalBlockStateStub::default(),

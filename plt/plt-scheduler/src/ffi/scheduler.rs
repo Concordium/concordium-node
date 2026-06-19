@@ -15,7 +15,7 @@ use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::entity::{EntityContext, EntityContextTypesWitness};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
@@ -28,16 +28,9 @@ use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 use std::marker::PhantomData;
 
-/// Context with no external block state (will panic if accessed).
-#[derive(Debug, Clone)]
-pub struct FfiSchedulerBlockStateTypes;
-
-impl EntityContextTypes for FfiSchedulerBlockStateTypes {
-    type ExternalBlockState = ExternalBlockStateOperationCallbacks;
-    type Store = LoadCallback;
-}
-
-pub type FfiSchedulerEntityContext = EntityContext<FfiSchedulerBlockStateTypes>;
+/// Context with full external block state.
+pub type FfiSchedulerEntityContext =
+    EntityContext<EntityContextTypesWitness<ExternalBlockStateOperationCallbacks, LoadCallback>>;
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///

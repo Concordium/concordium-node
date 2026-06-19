@@ -1,6 +1,6 @@
 use crate::entity::protocol_level_tokens::p9::TokenP9Base;
 use crate::entity::protocol_level_tokens::p11::{TokenP11, UNIVERSAL_ROLES};
-use crate::entity::{EntityContext, EntityContextTypes};
+use crate::entity::{EntityContext, EntityContextTypesWitness};
 use crate::external::test_stub::UnreachableExternalBlockState;
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
@@ -8,16 +8,10 @@ use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreMovable, BlobStoreSt
 use crate::persistent::lfmb_tree::LfmbTree;
 use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
 use concordium_base::protocol_level_tokens::TokenAdminRole;
-use std::marker::PhantomData;
 
-struct TemporaryMigrationBlockStateTypes<'a, L> {
-    _phantom_data: PhantomData<&'a L>,
-}
-
-impl<'a, L: BlobStoreLoad> EntityContextTypes for TemporaryMigrationBlockStateTypes<'a, L> {
-    type ExternalBlockState = UnreachableExternalBlockState;
-    type Store = &'a mut L;
-}
+/// Context initialized during migration with no access to external block state (will panic if accessed).
+type MigrationEntityContextNoExternal<'a, L> =
+    EntityContext<EntityContextTypesWitness<UnreachableExternalBlockState, &'a mut L>>;
 
 /// Migrate the P10 block state to P11.
 pub fn migrate_from_p10_to_p11(
@@ -25,7 +19,7 @@ pub fn migrate_from_p10_to_p11(
     from_store: &impl BlobStoreLoad,
     to_store: &mut (impl BlobStoreStore + BlobStoreLoad),
 ) -> BlockStateResult<PersistentTokensP9> {
-    let to_context = EntityContext::<TemporaryMigrationBlockStateTypes<_>> {
+    let to_context = MigrationEntityContextNoExternal {
         external: UnreachableExternalBlockState,
         store: to_store,
     };

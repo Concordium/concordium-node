@@ -12,10 +12,9 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
-use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::entity_test_stub;
-use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
+use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::{
     self, BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenTransferEvent,
@@ -33,7 +32,7 @@ const PLT_X: &str = "pltX";
 const PLT_Y: &str = "pltY";
 
 fn setup_test_plts(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut BlockStateLatest,
     account_1: &Account,
 ) {

@@ -3,7 +3,7 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use super::status;
-use crate::ffi::blob_store_callbacks::{LoadCallback, StoreAndLoadCallback, StoreCallback};
+use crate::ffi::blob_store_callbacks::{BlobStoreCallbacks, LoadCallback, StoreCallback};
 use crate::persistent::blob_store;
 use crate::persistent::blob_store::BlobStoreLocation;
 use crate::persistent::block_state::PersistentBlockState;
@@ -258,7 +258,7 @@ extern "C" fn ffi_migrate_plt_block_state(
         let new_block_state = from_block_state
             .migrate(
                 &from_load_callback,
-                &mut StoreAndLoadCallback {
+                &mut BlobStoreCallbacks {
                     store_callback: to_store_callback,
                     load_callback: to_load_callback,
                 },
