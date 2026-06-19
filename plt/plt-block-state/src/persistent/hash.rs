@@ -25,6 +25,15 @@ impl<T: Serial> Hashable for StoreSerialized<T> {
     }
 }
 
+impl<T: Hashable> Hashable for Option<T> {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        match self {
+            None => Ok(hash_of_serialization(0u8)),
+            Some(inner) => Ok(hash_of_serialization((1u8, inner.hash(loader)?))),
+        }
+    }
+}
+
 /// Calculate hash by digesting the bytes of two hashes.
 pub fn hash_of_hashes(hash1: Hash, hash2: Hash) -> Hash {
     let mut hasher = sha2::Sha256::new();

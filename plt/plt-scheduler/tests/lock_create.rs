@@ -173,6 +173,8 @@ fn test_create_any_recipient_lock() {
         .lock_by_id(&context, &LockId::new(account_index_1, 1, 0))
         .expect("lock lookup must succeed")
         .expect("lock must exist");
-    let configuration = lock.lock_configuration(&context);
+    let configuration = lock
+        .lock_configuration(&context)
+        .expect("lock configuration must load");
     assert!(configuration.recipients.is_any());
 }

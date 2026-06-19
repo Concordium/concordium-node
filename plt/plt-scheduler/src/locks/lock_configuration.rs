@@ -62,17 +62,17 @@ pub fn get_lock_config<BSQ: BlockStateQuery>(
 pub fn get_lock_info<BSQ: BlockStateQuery>(
     bsq: &BSQ,
     lock: &LockP11,
-    configuration: &LockConfiguration,
+    lock_configuration: &LockConfiguration,
 ) -> Result<LockInfo, QueryLockError> {
     // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
     // by looking up each account's canonical address.
-    let recipients = get_recipients(bsq, configuration)?;
+    let recipients = get_recipients(bsq, lock_configuration)?;
 
     // Convert the lock controller configuration into the CBOR `LockController` shape used
     // by the `lock-info` payload. Variant-specific resolution (e.g. expanding grant
     // `AccountIndex`es to `CborHolderAccount`) lives on the per-variant
     // `crate::locks::lock_controller::LockController` impl.
-    let controller = configuration.controller.to_cbor_controller(bsq)?;
+    let controller = lock_configuration.controller.to_cbor_controller(bsq)?;
 
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
@@ -86,7 +86,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
             bsq.context(),
             &bsq.token_p11(&token),
             account_index,
-            lock.lock_id(),
+            &lock_configuration.lock_id,
         )
         .map_err(|err| QueryLockError::StateInvariantViolation(err.to_string()))?;
         let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
@@ -117,9 +117,9 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         .collect::<Result<_, QueryLockError>>()?;
 
     Ok(LockInfo {
-        lock: lock.lock_id().clone(),
+        lock: lock_configuration.lock_id.clone(),
         recipients,
-        expiry: configuration.expiry,
+        expiry: lock_configuration.expiry,
         controller,
         funds,
     })
