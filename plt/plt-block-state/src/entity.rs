@@ -18,6 +18,8 @@ pub trait EntityContextTypes {
     type Store: BlobStoreLoad;
 }
 
+// todo ar try another construction, where you can specify with bounds what you want implemented for entity context types
+
 /// Context needed to call functions on the block state and entities
 /// in the block state.
 #[derive(Debug, Default, Clone)]

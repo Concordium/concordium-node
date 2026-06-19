@@ -241,7 +241,7 @@ extern "C" fn ffi_store_plt_block_state(
 extern "C" fn ffi_migrate_plt_block_state(
     from_load_callback: LoadCallback,
     to_store_callback: StoreCallback,
-    to_load_callback: LoadCallback,
+    to_load_callback: LoadCallback, // todo ar add to haskell side
     to_protocol_version: u64,
     new_block_state_out: *mut *mut PersistentBlockState,
     block_state: *const PersistentBlockState,

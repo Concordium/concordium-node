@@ -201,7 +201,13 @@ mod test {
         expected_roles2.assign(TokenAdminRole::Mint);
         expected_roles2.assign(TokenAdminRole::UpdateAllowList);
         assert_eq!(new_roles2, expected_roles2);
+
+        // Assert no locks
+        assert_eq!(
+            migrated_block_state
+                .lock_list(&migrated_context)
+                .unwrap_or_default(),
+            vec![]
+        );
     }
 }
-
-// todo ar scheduler tests
