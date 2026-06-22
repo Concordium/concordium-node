@@ -6,10 +6,14 @@
 
 module Concordium.Scheduler.ProtocolLevelTokens.Queries (
     QueryTokenModuleError (..),
+    QueryLockError (..),
+    SerializedLockId,
     queryTokenInfo,
     queryAccountTokens,
     queryPLTList,
     queryTokenAuthorizations,
+    queryLockList,
+    queryLockInfo,
 ) where
 
 import Control.Monad
@@ -20,6 +24,8 @@ import qualified Data.Map.Strict as Map
 import Data.Void
 
 import Concordium.Types
+import qualified Concordium.Types.Locks as Locks
+import qualified Concordium.Types.Queries.Locks as LockQueries
 import Concordium.Types.Queries.Tokens
 
 import qualified Concordium.GlobalState.BlockState as BS
@@ -204,3 +210,42 @@ queryPLTList bs =
         SPLTStateNone -> return []
         SPLTStateV0 -> BS.getPLTList bs
         SPLTStateV1 -> RustQ.queryPLTList bs
+
+-- | An error that may occur as a result of a lock query.
+data QueryLockError
+    = -- | The requested lock does not exist in the block.
+      QLEUnknownLock
+    deriving (Eq)
+
+instance Show QueryLockError where
+    show QLEUnknownLock = "unknown lock"
+
+-- | Get the list of all PLT lock ids that exist in the given block. Pre-V1 PLT state versions
+-- (including no PLT support) return the empty list.
+queryLockList ::
+    forall m.
+    (BS.BlockStateQuery m) =>
+    BlockState m ->
+    m [Locks.LockId]
+queryLockList bs =
+    case sPltStateVersionFor (protocolVersion @(MPV m)) of
+        SPLTStateNone -> return []
+        SPLTStateV0 -> return []
+        SPLTStateV1 -> RustQ.queryLockList bs
+
+type SerializedLockId = RustQ.SerializedLockId
+
+-- | Get the 'LockQueries.LockInfo' for a given lock ID.
+queryLockInfo ::
+    forall m.
+    (BS.BlockStateQuery m) =>
+    SerializedLockId ->
+    BlockState m ->
+    m (Either QueryLockError LockQueries.LockInfo)
+queryLockInfo lockId bs = case sPltStateVersionFor (protocolVersion @(MPV m)) of
+    SPLTStateNone -> return (Left QLEUnknownLock)
+    SPLTStateV0 -> return (Left QLEUnknownLock)
+    SPLTStateV1 ->
+        RustQ.queryLockInfo bs lockId <&> \case
+            Just lockInfo -> Right lockInfo
+            Nothing -> Left QLEUnknownLock

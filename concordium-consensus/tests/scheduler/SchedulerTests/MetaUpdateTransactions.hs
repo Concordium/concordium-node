@@ -11,7 +11,6 @@ module SchedulerTests.MetaUpdateTransactions (tests) where
 
 import Control.Monad
 import Data.Bool.Singletons
-import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
@@ -92,8 +91,7 @@ makeMetaTx sendAddr nonce nrg keys ops =
             }
   where
     mkOps =
-        Types.MetaUpdateParameter
-            . BSS.toShort
+        Types.rawCborFromBytes
             . CBOR.metaUpdateTransactionToBytes
             . CBOR.MetaUpdateTransaction
             . Seq.fromList
@@ -160,7 +158,7 @@ createPltBiaa pltName numDecimals initParam seqNum =
         }
   where
     createPLT = Types.CreatePLT pltName tokenModuleV0Ref numDecimals tp
-    tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes initParam
+    tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes initParam
 
 -- | Create a "pltX" token.
 createPlt1 :: UpdateSequenceNumber -> Helpers.BlockItemAndAssertion pv
@@ -250,7 +248,9 @@ metaUpdateMultiEvents =
           ettFrom = holder1,
           ettTo = holder2,
           ettAmount = TokenAmount{taValue = 100, taDecimals = 2},
-          ettMemo = Nothing
+          ettMemo = Nothing,
+          ettFromLock = Nothing,
+          ettToLock = Nothing
         },
       TokenMint
         { etmTokenId = pltY,
@@ -287,7 +287,9 @@ metaUpdateMultiEvents =
           ettFrom = holder1,
           ettTo = holder2,
           ettAmount = TokenAmount{taValue = 2200, taDecimals = 0},
-          ettMemo = Just (Memo "\xa0")
+          ettMemo = Just (Memo "\xa0"),
+          ettFromLock = Nothing,
+          ettToLock = Nothing
         },
       TokenModuleEvent
         { etmeTokenId = pltX,

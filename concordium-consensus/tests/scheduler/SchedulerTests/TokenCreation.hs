@@ -10,7 +10,6 @@ module SchedulerTests.TokenCreation (tests) where
 
 import qualified Codec.CBOR.Term as CBOR
 import Data.Bool.Singletons
-import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
@@ -604,7 +603,7 @@ testCreatePLT _ pvString = describe pvString $ do
               tipBurnable = Just True,
               tipAdditional = Map.empty
             }
-    toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenInitializationParametersToBytes
+    toTokenParam = Types.rawCborFromBytes . CBOR.tokenInitializationParametersToBytes
     createPLT1 =
         Types.CreatePLT
             { _cpltTokenModule = testModuleRef,

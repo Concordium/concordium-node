@@ -15,6 +15,16 @@ pub struct RawTokenAmount(pub u64);
 impl RawTokenAmount {
     /// Maximum representable raw token amount.
     pub const MAX: Self = Self(u64::MAX);
+
+    /// Checked addition of raw token amounts. Returns `None` if the result would overflow.
+    pub fn checked_add(self, other: RawTokenAmount) -> Option<RawTokenAmount> {
+        self.0.checked_add(other.0).map(RawTokenAmount)
+    }
+
+    /// Checked subtraction of raw token amounts. Returns `None` if the result would overflow.
+    pub fn checked_sub(self, other: RawTokenAmount) -> Option<RawTokenAmount> {
+        self.0.checked_sub(other.0).map(RawTokenAmount)
+    }
 }
 
 /// Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ).

@@ -304,11 +304,11 @@ data PayloadJSON
         { -- | Identifier of the token type to which the transaction refers.
           tuTokenId :: !Types.TokenId,
           -- | The CBOR-encoded operations to perform.
-          tuOperations :: !Types.TokenParameter
+          tuOperations :: !Types.RawCbor
         }
     | MetaUpdate
         { -- | The CBOR-encoded operations to perform.
-          muOperations :: !Types.MetaUpdateParameter
+          muOperations :: !Types.RawCbor
         }
     deriving (Show, Generic)
 

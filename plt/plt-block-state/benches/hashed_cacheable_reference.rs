@@ -1,9 +1,9 @@
 //! Benchmarks for the [`HashedCacheableRef`] covering congestion by concurrency.
 
 use divan::Bencher;
-use plt_block_state::block_state::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
-use plt_block_state::block_state::blob_store::StoreSerialized;
-use plt_block_state::block_state::blob_store::test_stub::UnreachableBlobStore;
+use plt_block_state::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use plt_block_state::persistent::blob_store::StoreSerialized;
+use plt_block_state::persistent::blob_store::test_stub::UnreachableBlobStore;
 
 fn main() {
     divan::main();

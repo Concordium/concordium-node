@@ -4,13 +4,18 @@
 
 use crate::ffi::status;
 use crate::scheduler;
-use concordium_base::base::{AccountIndex, Energy};
-use concordium_base::contracts_common::AccountAddress;
+use crate::transaction_execution::TransactionContext;
+use concordium_base::base::{AccountIndex, Energy, Nonce};
+use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
-use plt_block_state::block_state::{BlockState, ExecutionTimeBlockState};
+use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::block_state::p9::BlockStateP9;
+use plt_block_state::entity::block_state::p10::BlockStateP10;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::{EntityContext, EntityContextTypesWitness};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
@@ -19,7 +24,13 @@ use plt_block_state::ffi::block_state_callbacks::{
     ReadTokenAccountBalanceCallback, TouchTokenAccountCallback, UpdateTokenAccountBalanceCallback,
 };
 use plt_block_state::ffi::memory;
+use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
+use std::marker::PhantomData;
+
+/// Context with full external block state.
+pub type FfiSchedulerEntityContext =
+    EntityContext<EntityContextTypesWitness<ExternalBlockStateOperationCallbacks, LoadCallback>>;
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///
@@ -45,6 +56,8 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutco
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
+/// - `transaction_sequence_number` The account sequence number (nonce) of the transaction to execute.
+/// - `block_timestamp` Timestamp of the block in which the transaction is executed.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 ///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
@@ -80,13 +93,15 @@ extern "C" fn ffi_execute_transaction(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
     sender_account_address: *const u8,
+    transaction_sequence_number: Nonce,
+    block_timestamp: Timestamp,
     remaining_energy: u64,
-    block_state_out: *mut *mut BlockState,
+    block_state_out: *mut *mut PersistentBlockState,
     used_energy_out: *mut u64,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
@@ -114,7 +129,7 @@ extern "C" fn ffi_execute_transaction(
             !return_data_out.is_null(),
             "return_data_out is a null pointer."
         );
-        let external_callbacks = ExternalBlockStateOperationCallbacks {
+        let external = ExternalBlockStateOperationCallbacks {
             queries: ExternalBlockStateQueryCallbacks {
                 read_token_account_balance_ptr: read_token_account_balance_callback,
                 get_account_address_by_index_ptr: get_account_address_by_index_callback,
@@ -124,12 +139,11 @@ extern "C" fn ffi_execute_transaction(
             update_token_account_balance_ptr: update_token_account_balance_callback,
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+            _not_send_sync: PhantomData,
         };
-        let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
-        let mut block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
+        let mut context = FfiSchedulerEntityContext {
+            external,
+            store: load_callback,
         };
         let sender_account_index = AccountIndex::from(sender_account_index);
         let sender_account_address = {
@@ -147,13 +161,59 @@ extern "C" fn ffi_execute_transaction(
         let payload: Payload = common::from_bytes_complete(payload_bytes)
             .expect("Failed decoding transaction payload");
         let remaining_energy = Energy::from(remaining_energy);
-        let result = scheduler::execute_transaction(
-            sender_account_index,
+        let transaction_context = TransactionContext {
             sender_account_address,
-            &mut block_state,
-            payload,
-            remaining_energy,
-        );
+            transaction_sequence_number,
+            block_timestamp,
+            energy_limit: remaining_energy,
+        };
+        let (result, new_block_state) = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let mut block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                (
+                    scheduler::p9::execute_transaction(
+                        &mut context,
+                        &mut block_state,
+                        transaction_context,
+                        Account::from_existing_account(sender_account_index),
+                        payload,
+                    ),
+                    PersistentBlockState::P9(block_state.persistent),
+                )
+            }
+            PersistentBlockState::P10(persistent) => {
+                let mut block_state = BlockStateP10 {
+                    persistent: persistent.clone(),
+                };
+                (
+                    scheduler::p9::execute_transaction(
+                        &mut context,
+                        &mut block_state,
+                        transaction_context,
+                        Account::from_existing_account(sender_account_index),
+                        payload,
+                    ),
+                    PersistentBlockState::P10(block_state.persistent),
+                )
+            }
+            PersistentBlockState::P11(persistent) => {
+                let mut block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                (
+                    scheduler::p11::execute_transaction(
+                        &mut context,
+                        &mut block_state,
+                        transaction_context,
+                        Account::from_existing_account(sender_account_index),
+                        payload,
+                    ),
+                    PersistentBlockState::P11(block_state.persistent),
+                )
+            }
+        };
         let summary = result.expect("Unexpected failure during transaction execution");
         unsafe {
             *used_energy_out = summary.energy_used.energy;
@@ -161,8 +221,7 @@ extern "C" fn ffi_execute_transaction(
         match summary.outcome {
             TransactionOutcome::Success(events) => {
                 unsafe {
-                    *block_state_out =
-                        Box::into_raw(Box::new(block_state.internal_block_state.into_immutable()));
+                    *block_state_out = Box::into_raw(Box::new(new_block_state));
                 }
                 (status::FfiStatusCode::Success, common::to_bytes(&events))
             }
@@ -234,10 +293,10 @@ extern "C" fn ffi_execute_chain_update(
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
-    block_state: *const BlockState,
+    block_state: *const PersistentBlockState,
     payload: *const u8,
     payload_len: size_t,
-    block_state_out: *mut *mut BlockState,
+    block_state_out: *mut *mut PersistentBlockState,
     return_data_out: *mut *mut u8,
     return_data_len_out: *mut size_t,
 ) -> status::FfiStatusCode {
@@ -257,7 +316,7 @@ extern "C" fn ffi_execute_chain_update(
             "return_data_out is a null pointer."
         );
 
-        let external_callbacks = ExternalBlockStateOperationCallbacks {
+        let external = ExternalBlockStateOperationCallbacks {
             queries: ExternalBlockStateQueryCallbacks {
                 read_token_account_balance_ptr: read_token_account_balance_callback,
                 get_account_address_by_index_ptr: get_account_address_by_index_callback,
@@ -267,24 +326,50 @@ extern "C" fn ffi_execute_chain_update(
             update_token_account_balance_ptr: update_token_account_balance_callback,
             touch_token_account_ptr: touch_token_account_callback,
             increment_plt_update_sequence_number_ptr: increment_plt_update_sequence_number_callback,
+            _not_send_sync: PhantomData,
         };
-
-        let internal_block_state = unsafe { (*block_state).clone().into_mutable() };
-        let mut block_state = ExecutionTimeBlockState {
-            internal_block_state,
-            blob_store_load: load_callback,
-            external_block_state: external_callbacks,
+        let mut context = FfiSchedulerEntityContext {
+            external,
+            store: load_callback,
         };
         let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
         let payload: UpdatePayload = common::from_bytes_complete(payload_bytes)
             .expect("Failed decoding chain update payload");
-        let result = scheduler::execute_chain_update(&mut block_state, payload);
+        let (result, new_block_state) = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let mut block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                (
+                    scheduler::p9::execute_chain_update(&mut context, &mut block_state, payload),
+                    PersistentBlockState::P9(block_state.persistent),
+                )
+            }
+            PersistentBlockState::P10(persistent) => {
+                let mut block_state = BlockStateP10 {
+                    persistent: persistent.clone(),
+                };
+                (
+                    scheduler::p9::execute_chain_update(&mut context, &mut block_state, payload),
+                    PersistentBlockState::P10(block_state.persistent),
+                )
+            }
+            PersistentBlockState::P11(persistent) => {
+                let mut block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                (
+                    scheduler::p11::execute_chain_update(&mut context, &mut block_state, payload),
+                    PersistentBlockState::P11(block_state.persistent),
+                )
+            }
+        };
+
         let outcome = result.expect("Unexpected failure during chain update execution");
         match outcome {
             ChainUpdateOutcome::Success(events) => {
                 unsafe {
-                    *block_state_out =
-                        Box::into_raw(Box::new(block_state.internal_block_state.into_immutable()));
+                    *block_state_out = Box::into_raw(Box::new(new_block_state));
                 }
                 (status::FfiStatusCode::Success, common::to_bytes(&events))
             }
@@ -337,6 +422,8 @@ mod tests {
             0,
             0,
             ptr::null(),
+            Nonce::from(1),
+            Timestamp::from_timestamp_millis(0),
             0,
             ptr::null_mut(),
             ptr::null_mut(),

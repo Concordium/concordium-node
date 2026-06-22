@@ -1,62 +1,31 @@
-use crate::block_state::types::AccountWithCanonicalAddress;
-use crate::block_state::types::protocol_level_tokens::{
-    TokenAccountState, TokenConfiguration, TokenStateKey, TokenStateValue,
+use crate::entity::accounts::AccountWithCanonicalAddress;
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use crate::entity::protocol_level_locks::p11::LockP11;
+use crate::entity::protocol_level_tokens::p11::TokenP11;
+use crate::entity::{EntityContext, EntityContextTypes};
+use crate::external::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
+    TokenAccountState,
 };
+use crate::persistent::protocol_level_locks::p11::LockConfiguration;
+use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
-/// Change in [`RawTokenAmount`].
-///
-/// Represented as either add and subtract instead of a signed value, in order
-/// to be able to represent the full range of possible deltas.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum RawTokenAmountDelta {
-    /// Add the token amount
-    Add(RawTokenAmount),
-    /// Subtract the token amount
-    Subtract(RawTokenAmount),
-}
+// todo delete as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 
-/// Account with given id does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Token with id {0} does not exist")]
-pub struct TokenNotFoundByIdError(pub TokenId);
+/// Key in the key-value state.
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct TokenStateKey(pub Vec<u8>);
 
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
+/// Value in the key-value state.
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct TokenStateValue(pub Vec<u8>);
 
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
-
-/// Unrecoverable failure accessing the block state. This is generally an error that
-/// should never happen and is unrecoverable.
-///
-/// If returned when **applying a block item to the block state**,
-/// it may leave the block state in an indeterminate state. E.g. can parts of the effects
-/// of processing the block item be applied, an others not. Hence, the resulting block
-/// state should not be used.
-///
-/// If returned when **querying the block state**, the query itself fails,
-/// but the block state is still in a valid state.
-#[derive(Debug, thiserror::Error)]
-pub enum BlockStateFailure {
-    /// An error happened when decoding a block state value from the blob store.
-    #[error("Error decoding state from blob store: {0}")]
-    BlobStoreDecode(String),
-    /// An invariant that must be true is broken. The invariant can either be in the
-    /// stored block state or a runtime logical invariant related to the in-memory block state.
-    #[error("State invariant broken: {0}")]
-    Invariant(String),
-}
-
-pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
-
+// todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the thawed (mutable) token key-value map.
@@ -69,6 +38,11 @@ pub trait BlockStateQuery {
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
+
+    type EntityContextTypes: EntityContextTypes;
+
+    /// Get entity context.
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes>;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
@@ -100,6 +74,9 @@ pub trait BlockStateQuery {
     ///
     /// - `token` The token to get the config for.
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration;
+
+    /// Get token P11 entity.
+    fn token_p11(&self, token: &Self::Token) -> TokenP11;
 
     /// Get the circulating supply of a protocol-level token.
     ///
@@ -160,7 +137,7 @@ pub trait BlockStateQuery {
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
     fn account_index(&self, account: &Self::Account) -> AccountIndex;
@@ -178,8 +155,64 @@ pub trait BlockStateQuery {
 
     /// Query the protocol version of the block state.
     fn protocol_version(&self) -> ProtocolVersion;
+
+    /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
+    /// end of the block.
+    ///
+    /// If the protocol version does not support protocol-level locks, this will return the empty
+    /// list.
+    ///
+    /// # Ordering
+    ///
+    /// The order of the returned lock IDs is **not guaranteed**. Callers must not rely on any
+    /// particular ordering.
+    ///
+    /// # Warning — consensus safety
+    ///
+    /// Do **not** use this iterator directly to drive block-state mutations in the scheduler.
+    /// All nodes must execute transactions in identical order to reach the same state hash;
+    /// iterating in an unspecified order and acting on each element would produce diverging
+    /// state across nodes. Sort the result (or otherwise canonicalise it) before using it
+    /// to determine the sequence of any state-changing operations.
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId>;
+
+    /// Get the lock associated with a [`LockId`] (if it exists). If the protocol
+    /// version does not support protocol-level locks, this will always return
+    /// `Err(LockNotFoundByIdError(lock_id.clone()))`.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The lock id to get the [`LockP11`] of.
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockP11, LockNotFoundByIdError>;
+
+    /// Get the configuration of a protocol-level lock.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the configuration for.
+    ///
+    /// # Precondition
+    ///
+    /// - The `lock` MUST exist in the block state, i.e. `s.lock_by_id(lock.lock_id()).expect("lock exists")`.
+    fn lock_configuration(&self, lock: &LockP11) -> LockConfiguration;
+
+    /// Get the set of account/token balances currently tracked under a lock.
+    ///
+    /// Each returned pair identifies an account and token for which the lock may
+    /// hold a non-zero locked balance. The corresponding amount is tracked in the
+    /// token module state.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to get the tracked locked balances for.
+    ///
+    /// # Precondition
+    ///
+    /// - The `lock` MUST exist in the block state, i.e. `s.lock_by_id(lock.lock_id()).expect("lock exists")`.
+    fn lock_balances(&self, lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)>;
 }
 
+// todo remove as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
     /// Set the recorded total circulating supply for a protocol-level token.
@@ -262,9 +295,73 @@ pub trait BlockStateOperations: BlockStateQuery {
         token: &Self::Token,
         token_key_value_state: Self::MutableTokenKeyValueState,
     );
-}
 
-/// The computation resulted in overflow (negative or above maximum value).
-#[derive(Debug, thiserror::Error)]
-#[error("Token amount overflow")]
-pub struct OverflowError;
+    /// Create a new PLT lock with the given configuration. The initial state will be empty.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The ID of the PLT lock.
+    /// - `configuration` The configuration for the PLT lock.
+    ///
+    /// # Preconditions
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` of the given configuration MUST NOT already be in use by a protocol-level
+    ///   lock, i.e. `assert_eq!(s.lock_by_id(lock_id).ok(), None)`.
+    /// - The protocol version of the block state MUST support PLT locks.
+    fn create_lock(&mut self, configuration: LockConfiguration);
+
+    /// Delete a PLT lock with the given Lock ID. Returns `true` if it existed, or `false`
+    /// if it did not exist.
+    ///
+    /// # Arguments
+    ///
+    /// - `lock_id` The ID of the PLT lock.
+    ///
+    /// # Preconditions
+    ///
+    /// This function may panic if the protocol version does not support locks.
+    fn delete_lock(&mut self, lock_id: &LockId) -> bool;
+
+    /// Track that a lock holds a balance for the given account and token.
+    ///
+    /// This records the account/token pair in the lock state so it can later be
+    /// queried through [`BlockStateQuery::lock_balances`].
+    ///
+    /// # Arguments
+    ///
+    /// - `lock` The lock to update.
+    /// - `account` The account whose locked balance is tracked.
+    /// - `token` The token whose locked balance is tracked.
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` MUST already exist in the block state, i.e.
+    ///   `s.lock_by_id(lock_id).expect("lock exists")`.
+    fn add_lock_balance_ref(&mut self, lock: &LockId, account: &Self::Account, token: &Self::Token);
+
+    /// Stop tracking that a lock holds a balance for the given account and token.
+    ///
+    /// This removes the account/token pair from the lock state, so it will no longer be
+    /// returned by [`BlockStateQuery::lock_balances`].
+    ///
+    /// # Arguments
+    /// - `lock` The lock to update.
+    /// - `account` The account whose locked balance is no longer tracked.
+    /// - `token` The token whose locked balance is no longer tracked.
+    ///
+    /// The caller must ensure the following conditions are true, and failing to do so results in
+    /// undefined behavior.
+    ///
+    /// - The `lock` MUST already exist in the block state, i.e.
+    ///   `s.lock_by_id(lock_id).expect("lock exists")`.
+    fn remove_lock_balance_ref(
+        &mut self,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    );
+}

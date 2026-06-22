@@ -1,12 +1,12 @@
 //! Benchmarks for the [`LfmbTree`] covering asymptotic behavior with varying tree size.
 
 use divan::Bencher;
-use plt_block_state::block_state::blob_store;
-use plt_block_state::block_state::blob_store::StoreSerialized;
-use plt_block_state::block_state::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-use plt_block_state::block_state::cacheable::Cacheable;
-use plt_block_state::block_state::hash::Hashable;
-use plt_block_state::block_state::lfmb_tree::{LfmbTree, LfmbTreeKey};
+use plt_block_state::persistent::blob_store;
+use plt_block_state::persistent::blob_store::StoreSerialized;
+use plt_block_state::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+use plt_block_state::persistent::cacheable::Cacheable;
+use plt_block_state::persistent::hash::Hashable;
+use plt_block_state::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 
 fn main() {
     divan::main();
@@ -61,7 +61,7 @@ fn bench_lookup_value(bencher: Bencher, size: u64) {
     bencher
         .with_inputs(|| BenchKey(rand::random_range(0..size)))
         .bench_local_values(|key| {
-            tree.lookup_value(&UnreachableBlobStore, key, |v| Ok(*v))
+            tree.lookup_value(&UnreachableBlobStore, key)
                 .unwrap()
                 .unwrap()
         });
@@ -91,8 +91,8 @@ fn bench_update_value(bencher: Bencher, size: u64) {
 fn bench_values(bencher: Bencher, size: u64) {
     let tree = divan::black_box(build_tree(size));
     bencher.bench_local(|| {
-        tree.values(&UnreachableBlobStore, |_k, v| Ok(v.0))
-            .map(|r| r.unwrap())
+        tree.values(&UnreachableBlobStore)
+            .map(|r| r.unwrap().1.0)
             .sum::<u64>()
     });
 }

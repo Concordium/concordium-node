@@ -1,7 +1,8 @@
 //! Tests for token pause/unpause operations via the scheduler.
 
+use crate::utils::TokenInitTestParams;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
-use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole, TokenAmount,
@@ -10,35 +11,42 @@ use concordium_base::protocol_level_tokens::{
     TokenUpdateAdminRolesDetails,
 };
 use concordium_base::transactions::Payload;
-use plt_block_state::block_state_interface::BlockStateQuery;
-use plt_scheduler::{queries, scheduler};
+use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use utils::block_state_external_stubbed::{
-    BlockStateWithExternalStateStubbed, TokenInitTestParams,
-};
+
+use crate::utils::BlockStateLatest;
 
 mod utils;
 
 /// Test that pause/unpause operations modify the token module state as expected.
 #[test]
 fn test_token_pause_state() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
 
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
 
     // Pause the token
-    let events = stub.execute_token_operations(
+    let events = utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert_eq!(events.len(), 1);
@@ -47,7 +55,7 @@ fn test_token_pause_state() {
         let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
     assert!({
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -58,14 +66,17 @@ fn test_token_pause_state() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&unpause_ops)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
@@ -74,7 +85,7 @@ fn test_token_pause_state() {
         let _details: TokenPauseEventDetails = cbor::cbor_decode(&event.details).unwrap();
     });
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -83,10 +94,17 @@ fn test_token_pause_state() {
 /// Performing a double pause within one transaction and then again in another is permitted.
 #[test]
 fn test_double_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
 
     // Double pause in one transaction
     let operations = vec![
@@ -97,14 +115,17 @@ fn test_double_pause() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
     assert_eq!(events.len(), 2);
     for event in &events {
@@ -114,9 +135,11 @@ fn test_double_pause() {
     }
 
     // Pause again in a subsequent transaction
-    let events = stub.execute_token_operations(
+    let events = utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert_eq!(events.len(), 1);
@@ -125,7 +148,7 @@ fn test_double_pause() {
     });
 
     assert!({
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -134,10 +157,17 @@ fn test_double_pause() {
 /// Performing an unpause when the token is not paused is permitted.
 #[test]
 fn test_redundant_unpause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
 
     // Token is already unpaused; unpause again
     let unpause_ops = vec![TokenOperation::Unpause(TokenPauseDetails {})];
@@ -145,14 +175,17 @@ fn test_redundant_unpause() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&unpause_ops)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
@@ -160,7 +193,7 @@ fn test_redundant_unpause() {
         assert_eq!(event.event_type, TokenModuleEventType::Unpause.to_type_discriminator());
     });
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -169,25 +202,35 @@ fn test_redundant_unpause() {
 /// Rejects pause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, _gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
-    let non_governance_account = stub.create_account();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let non_governance_account = context.external.create_account();
 
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let non_gov_addr = context
+        .external
+        .account_canonical_address(non_governance_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(non_gov_addr),
+            non_governance_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -202,7 +245,7 @@ fn test_unauthorized_pause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    context.external.account_canonical_address(non_governance_account.account_index())
                 ))
             );
         }
@@ -210,7 +253,7 @@ fn test_unauthorized_pause() {
 
     // Token must remain unpaused
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -219,20 +262,29 @@ fn test_unauthorized_pause() {
 /// Rejects unpause operations from non-governance accounts.
 #[test]
 fn test_unauthorized_unpause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
-    let non_governance_account = stub.create_account();
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let non_governance_account = context.external.create_account();
 
     // Gov pauses the token first
-    stub.execute_token_operations(
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert!({
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -243,14 +295,17 @@ fn test_unauthorized_unpause() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        non_governance_account,
-        stub.account_canonical_address(&non_governance_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let non_gov_addr = context
+        .external
+        .account_canonical_address(non_governance_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(non_gov_addr),
+            non_governance_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -265,7 +320,7 @@ fn test_unauthorized_unpause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    context.external.account_canonical_address(non_governance_account.account_index())
                 ))
             );
         }
@@ -273,7 +328,7 @@ fn test_unauthorized_unpause() {
 
     // Token must remain paused
     assert!({
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -287,14 +342,21 @@ fn test_unauthorized_unpause() {
 /// state is discarded. The token is NOT paused and NO events are emitted after this rejection.
 #[test]
 fn test_pause_multiple_ops() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
         None,
     );
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .expect("created token");
 
     let operations = vec![
         TokenOperation::Pause(TokenPauseDetails {}),
@@ -306,14 +368,17 @@ fn test_pause_multiple_ops() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -328,12 +393,12 @@ fn test_pause_multiple_ops() {
 
     // No tokens minted
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(0)
     );
     // Token is NOT paused (local state was discarded on rejection)
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -342,9 +407,12 @@ fn test_pause_multiple_ops() {
 /// A transaction [Unpause, Mint] succeeds: unpause takes effect first, then mint proceeds.
 #[test]
 fn test_unpause_multiple_ops() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) = stub.create_and_init_token(
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
@@ -352,13 +420,15 @@ fn test_unpause_multiple_ops() {
     );
 
     // Pause the token first
-    stub.execute_token_operations(
+    utils::execute_token_operations(
+        &mut context,
+        &mut block_state,
         &token_id,
-        gov_account,
+        gov_account.account_index(),
         vec![TokenOperation::Pause(TokenPauseDetails {})],
     );
     assert!({
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -374,14 +444,17 @@ fn test_unpause_multiple_ops() {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
 
     // 2 events: Unpause + Mint
@@ -392,12 +465,16 @@ fn test_unpause_multiple_ops() {
     assert_matches!(&events[1], BlockItemEvent::TokenMint(_));
 
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
+    let token = block_state
+        .token_by_id(&context, &token_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        stub.state().token_circulating_supply(&token),
+        token.token_p9_base.token_circulating_supply(),
         RawTokenAmount(1000)
     );
 }
@@ -405,29 +482,39 @@ fn test_unpause_multiple_ops() {
 /// Rejects pause when governance account does not hold the pause role.
 #[test]
 fn test_role_authorization_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
 
     // Revoke pause role from governance account.
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::RevokeAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Pause],
-                account: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+                account: CborHolderAccount::from(gov_account_addr),
             },
         )])),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Attempting to pause as governance account (no longer has pause role).
@@ -437,14 +524,17 @@ fn test_role_authorization_pause() {
             TokenPauseDetails {},
         )])),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
 
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -456,12 +546,12 @@ fn test_role_authorization_pause() {
             reason: Some(reason),
         }) => {
             assert_eq!(reason, "sender is not authorized to perform the operation for this token");
-            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+            assert_eq!(address, CborHolderAccount::from(context.external.account_canonical_address(gov_account.account_index())));
         }
     );
     // Token must remain unpaused.
     assert!(!{
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });
@@ -470,30 +560,43 @@ fn test_role_authorization_pause() {
 /// Succeeds for another account holding the pause role.
 #[test]
 fn test_new_account_with_role_succeeds_pause() {
-    let mut stub = BlockStateWithExternalStateStubbed::new(utils::LATEST_PROTOCOL_VERSION);
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 0, None);
-    let account2 = stub.create_account();
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let account2 = context.external.create_account();
 
     // Assign pause role to account2.
+    let account2_addr = context
+        .external
+        .account_canonical_address(account2.account_index());
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::AssignAdminRoles(
             TokenUpdateAdminRolesDetails {
                 roles: vec![TokenAdminRole::Pause],
-                account: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+                account: CborHolderAccount::from(account2_addr),
             },
         )])),
     };
-    let result = scheduler::execute_transaction(
-        gov_account,
-        stub.account_canonical_address(&gov_account),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     // Pause as account2.
@@ -503,18 +606,21 @@ fn test_new_account_with_role_succeeds_pause() {
             TokenPauseDetails {},
         )])),
     };
-    let result = scheduler::execute_transaction(
-        account2,
-        stub.account_canonical_address(&account2),
-        stub.state_mut(),
-        Payload::TokenUpdate { payload },
-        Energy::from(u64::MAX),
-    )
-    .expect("transaction internal error");
+    let account2_addr = context
+        .external
+        .account_canonical_address(account2.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(account2_addr),
+            account2.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
 
     assert!({
-        let info = queries::query_token_info(stub.state(), &token_id).unwrap();
+        let info = block_state.query_token_info(&context, &token_id).unwrap();
         let state: TokenModuleState = cbor::cbor_decode(&info.state.module_state).unwrap();
         state.paused.unwrap_or(false)
     });

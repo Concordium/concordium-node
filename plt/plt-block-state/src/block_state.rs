@@ -1,308 +1,108 @@
-//! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
+//! This module contains temporary implementations of [`BlockStateOperations`]. The trait
+//! [`BlockStateOperations`] and [`BlockStateQuery`] will be removed.
 
-use crate::block_state::blob_store::{
-    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
-};
-use crate::block_state::cacheable::Cacheable;
-use crate::block_state::external::{ExternalBlockStateOperations, ExternalBlockStateQuery};
-use crate::block_state::hash::Hashable;
-use crate::block_state::migration::Migrate;
-use crate::block_state::state::protocol_level_tokens::ProtocolLevelTokens;
-use crate::block_state::types::AccountWithCanonicalAddress;
-use crate::block_state::types::protocol_level_tokens::{
-    TokenAccountState, TokenConfiguration, TokenIndex, TokenStateKey, TokenStateValue,
-};
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateFailure,
-    BlockStateOperations, BlockStateQuery, BlockStateResult, OverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, TokenStateKey, TokenStateValue,
 };
+use crate::entity::accounts::{Account, AccountWithCanonicalAddress};
+use crate::entity::block_state::p9::BlockStateP9;
+use crate::entity::block_state::p11::BlockStateP11;
+use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use crate::entity::protocol_level_locks::p11::LockP11;
+use crate::entity::protocol_level_tokens::p11::TokenP11;
+use crate::entity::{EntityContext, EntityContextTypes};
+use crate::external::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ExternalBlockStateQuery,
+    OverflowError, RawTokenAmountDelta, TokenAccountState,
+};
+use crate::persistent::protocol_level_locks::p11::LockConfiguration;
+use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+use crate::persistent::smart_contract_trie;
 use concordium_base::base::{AccountIndex, ProtocolVersion};
-use concordium_base::common::Buffer;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::hashes::Hash;
+use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use std::io::Read;
-use std::{any, mem};
+use std::fmt::Debug;
 
-pub mod blob_reference;
-pub mod blob_store;
-pub mod cacheable;
-pub mod external;
-pub mod hash;
-pub mod lfmb_tree;
-pub mod migration;
-mod smart_contract_trie;
-mod state;
-pub mod types;
-mod utils;
-
-/// Immutable block state. The block state is immutable in the sense,
-/// that the state it represents never changes during the lifetime of values of type [`BlockState`].
-/// In order to perform mutating operations on the block state, a new [`BlockState`]
-/// must be created.
-///
-/// The internal representation in [`BlockState`] may change during the lifetime via interior mutability.
-/// This happens if state are cached, stored or hashes are lazily calculated.
-#[derive(Debug, Clone)]
-pub struct BlockState {
-    /// The protocol version of the block state.
-    pub protocol_version: ProtocolVersion,
-    /// Data in the block state
-    pub data: BlockStateData,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct BlockStateData {
-    /// Protocol-level tokens
-    tokens: ProtocolLevelTokens,
-}
-
-/// The actual data in [`BlockState`]
-impl BlockStateData {
-    pub fn empty() -> Self {
-        BlockStateData {
-            tokens: ProtocolLevelTokens::empty(),
-        }
-    }
-}
-
-impl BlockState {
-    /// Construct an empty block state.
-    pub fn empty(protocol_version: ProtocolVersion) -> Self {
-        BlockState {
-            protocol_version,
-            data: BlockStateData::empty(),
-        }
-    }
-
-    /// Consume the immutable block state and create a mutable block state.
-    pub fn into_mutable(self) -> MutableBlockState {
-        MutableBlockState::new(self)
-    }
-
-    /// See [`blob_store::load_from_store`]. This function only differs by taking
-    /// protocol version as argument.
-    pub fn load_from_store(
-        loader: &impl BlobStoreLoad,
-        location: BlobStoreLocation,
-        protocol_version: ProtocolVersion,
-    ) -> BlockStateResult<Self> {
-        let bytes = loader.load_raw(location);
-        let mut bytes_slice = bytes.as_slice();
-        let value = Self::load_from_buffer(&mut bytes_slice, loader, protocol_version)?;
-        if !bytes_slice.is_empty() {
-            return Err(BlockStateFailure::BlobStoreDecode(format!(
-                "Bytes remaining after loading value of type {} from blob store",
-                any::type_name::<BlockState>()
-            )));
-        };
-        Ok(value)
-    }
-
-    /// See [`Loadable::load_from_buffer`]. This function only differs by taking
-    /// protocol version as argument.
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-        protocol_version: ProtocolVersion,
-    ) -> BlockStateResult<Self> {
-        let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
-
-        Ok(Self {
-            protocol_version,
-            data: BlockStateData { tokens },
-        })
-    }
-
-    /// See [`Migrate::migrate`]. This function only differs by taking
-    /// protocol version as argument.
-    pub fn migrate(
-        &self,
-        from_loader: &impl BlobStoreLoad,
-        to_storer: &mut impl BlobStoreStore,
-        to_protocol_version: ProtocolVersion,
-    ) -> BlockStateResult<Self>
-    where
-        Self: Sized,
-    {
-        let new_tokens = self.data.tokens.migrate(from_loader, to_storer)?;
-
-        Ok(Self {
-            protocol_version: to_protocol_version,
-            data: BlockStateData { tokens: new_tokens },
-        })
-    }
-}
-
-impl Storable for BlockState {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        self.data.tokens.store_to_buffer(&mut buffer, storer);
-    }
-}
-
-impl Cacheable for BlockState {
-    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.data.tokens.cache_reference_values(loader)?;
-        Ok(())
-    }
-}
-
-impl Hashable for BlockState {
-    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        self.data.tokens.hash(loader)
-    }
-}
-
-/// Mutable block state. In contrast to the immutable block state [`BlockState`],
-/// operations on the mutable block state changes the state that
-/// the value represents.
-#[derive(Debug, Clone)]
-pub struct MutableBlockState {
-    /// Immutable block state value. The block state represented by [`MutableBlockState`] is
-    /// mutated simply by setting a new value for the immutable block state [`BlockState`].
-    immutable_state: BlockState,
-}
-
-impl MutableBlockState {
-    /// Create mutable block state from immutable block state.
-    fn new(mutable_state: BlockState) -> Self {
-        Self {
-            immutable_state: mutable_state,
-        }
-    }
-
-    /// Consume the mutable block state and create an immutable block state.
-    pub fn into_immutable(self) -> BlockState {
-        self.immutable_state
-    }
-
-    /// Update the block state using `update` closure and return
-    /// the additional value of type `T` returned by the closure.
-    fn update_block_state<T>(
-        &mut self,
-        update: impl FnOnce(BlockStateData) -> BlockStateResult<(T, BlockStateData)>,
-    ) -> BlockStateResult<T> {
-        let ret;
-        (ret, self.immutable_state.data) = update(mem::take(&mut self.immutable_state.data))?;
-        Ok(ret)
-    }
-
-    /// Update the block state using `update` closure.
-    fn update_block_state_(
-        &mut self,
-        update: impl FnOnce(BlockStateData) -> BlockStateResult<BlockStateData>,
-    ) -> BlockStateResult<()> {
-        self.immutable_state.data = update(mem::take(&mut self.immutable_state.data))?;
-        Ok(())
-    }
-}
+// todo delete as part of https://linear.app/concordium/issue/COR-2398/push-block-state-entity-model-into-the-scheduler
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateQuery`] and [`BlockStateOperations`].
-///
-/// In addition to the PLT block state, this type contains callbacks
-/// for the parts of the state that is managed on the Haskell side.
-#[derive(Debug)]
-pub struct ExecutionTimeBlockState<IntState, Load, ExtState> {
+pub struct ExecutionTimeBlockStateP9<C: EntityContextTypes> {
     /// The library block state implementation.
-    pub internal_block_state: IntState,
+    pub block_state: BlockStateP9,
     /// External function for reading from the blob store.
-    pub blob_store_load: Load,
-    /// Part of block state that is managed externally.
-    pub external_block_state: ExtState,
+    pub context: EntityContext<C>,
 }
 
-/// Provides access needed for querying block state (but not to do operations on the block state).
-trait HasBlockState {
-    fn block_state(&self) -> &BlockStateData;
-
-    fn protocol_version(&self) -> ProtocolVersion;
-}
-
-impl HasBlockState for &BlockState {
-    fn block_state(&self) -> &BlockStateData {
-        &self.data
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.protocol_version
-    }
-}
-
-impl HasBlockState for BlockState {
-    fn block_state(&self) -> &BlockStateData {
-        &self.data
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.protocol_version
-    }
-}
-
-impl HasBlockState for MutableBlockState {
-    fn block_state(&self) -> &BlockStateData {
-        &self.immutable_state.data
-    }
-
-    fn protocol_version(&self) -> ProtocolVersion {
-        self.immutable_state.protocol_version
-    }
-}
-
-impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQuery>
-    BlockStateQuery for ExecutionTimeBlockState<IntState, Load, ExtState>
+impl<C: EntityContextTypes> std::fmt::Debug for ExecutionTimeBlockStateP9<C>
+where
+    EntityContext<C>: Debug,
 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionTimeBlockStateP9")
+            .field("block_state", &self.block_state)
+            .field("context", &self.context)
+            .finish()
+    }
+}
+
+impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP9<C> {
     type MutableTokenKeyValueState = smart_contract_trie::MutableState;
-    type Account = AccountIndex;
+    type Account = Account;
     type Token = TokenIndex;
+    type EntityContextTypes = C;
+
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes> {
+        &self.context
+    }
 
     fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .plt_list(&self.blob_store_load)
-            .map(|item| item.unwrap())
+        self.block_state
+            .plt_list(&self.context)
+            .map(|token| token.unwrap())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .token_by_id(token_id)
-            .ok_or_else(|| TokenNotFoundByIdError(token_id.clone()))
+        self.block_state
+            .token_by_id(&self.context, token_id)
+            .unwrap()
+            .map(|token| token.token_p9_base.token_index)
     }
 
     fn mutable_token_key_value_state(
         &self,
         token: &Self::Token,
     ) -> Self::MutableTokenKeyValueState {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .mutable_token_key_value_state(&self.blob_store_load, *token)
-            .unwrap()
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token.token_p9_base.mutable_key_value_state
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .token_configuration(&self.blob_store_load, *token)
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token
+            .token_p9_base
+            .token_configuration(&self.context)
             .unwrap()
     }
 
+    fn token_p11(&self, _token: &Self::Token) -> TokenP11 {
+        panic!("cannot get P11 token on P9")
+    }
+
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .block_state()
-            .tokens
-            .token_circulating_supply(&self.blob_store_load, *token)
-            .unwrap()
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token.token_p9_base.token_circulating_supply()
     }
 
     fn lookup_token_state_value(
@@ -311,19 +111,17 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
         token_key_value
-            .lookup_value(&self.blob_store_load, &key.0)
+            .lookup_value(&self.context.store, &key.0)
             .map(TokenStateValue)
     }
 
-    fn iter_token_state_prefix<'a>(
-        &'a self,
+    fn iter_token_state_prefix(
+        &self,
         token_key_value: &Self::MutableTokenKeyValueState,
         prefix: &TokenStateKey,
-    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'a, IntState, Load, ExtState>
-    {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
         token_key_value
-            .iter_prefix(&self.blob_store_load, &prefix.0)
+            .iter_prefix(&self.context.store, &prefix.0)
             .unwrap()
             .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
     }
@@ -334,14 +132,13 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
         if let Some(value) = value {
             token_key_value_state
-                .insert_value(&self.blob_store_load, &key.0, value.0)
+                .insert_value(&self.context.store, &key.0, value.0)
                 .unwrap();
         } else {
             token_key_value_state
-                .delete_value(&self.blob_store_load, &key.0)
+                .delete_value(&self.context.store, &key.0)
                 .unwrap();
         }
     }
@@ -350,29 +147,32 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        let index = self
-            .external_block_state
+        let account_index = self
+            .context
+            .external
             .account_index_by_account_address(address)?;
-
-        Ok(index)
+        Ok(Account::from_existing_account(account_index))
     }
 
     fn account_by_index(
         &self,
-        index: AccountIndex,
-    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
+        account_index: AccountIndex,
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
         let canonical_account_address = self
-            .external_block_state
-            .account_canonical_address_by_account_index(index)?;
+            .context
+            .external
+            .account_canonical_address_by_account_index(account_index)?;
+
+        let account = Account::from_existing_account(account_index);
 
         Ok(AccountWithCanonicalAddress {
-            account: index,
+            account,
             canonical_account_address,
         })
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        *account
+        account.account_index()
     }
 
     fn account_token_balance(
@@ -380,55 +180,63 @@ impl<IntState: HasBlockState, Load: BlobStoreLoad, ExtState: ExternalBlockStateQ
         account: &Self::Account,
         token: &Self::Token,
     ) -> RawTokenAmount {
-        self.external_block_state
-            .read_token_account_balance(*account, *token)
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        account.account_token_balance(&self.context, token.token_p9_base.token_index)
     }
 
     fn token_account_states(
         &self,
         account: &Self::Account,
     ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
-        self.external_block_state
-            .token_account_states(*account)
-            .into_iter()
+        account.token_account_states(&self.context)
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
-        self.internal_block_state.protocol_version()
+        ProtocolVersion::P9
+    }
+
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        std::iter::empty()
+    }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockP11, LockNotFoundByIdError> {
+        // There are no locks, so always return not found.
+        Err(LockNotFoundByIdError(lock_id.clone()))
+    }
+
+    fn lock_configuration(&self, _lock: &LockP11) -> LockConfiguration {
+        panic!("protocol version does not support locks")
+    }
+
+    fn lock_balances(&self, _lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+        panic!("protocol version does not support locks");
+        #[allow(unreachable_code)]
+        std::iter::empty()
     }
 }
 
-impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOperations
-    for ExecutionTimeBlockState<MutableBlockState, Load, ExtState>
-{
+impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP9<C> {
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .update_block_state_(|state| {
-                Ok(BlockStateData {
-                    tokens: state.tokens.set_token_circulating_supply(
-                        &self.blob_store_load,
-                        *token,
-                        circulating_supply,
-                    )?,
-                })
-            })
+        let mut token = self
+            .block_state
+            .token_by_index(&self.context, *token)
             .unwrap();
+        token
+            .token_p9_base
+            .set_token_circulating_supply(circulating_supply);
+        self.block_state.update_token(&self.context, token).unwrap();
     }
 
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .update_block_state(|state| {
-                let (token_index, tokens) = state
-                    .tokens
-                    .create_token(&self.blob_store_load, configuration)?;
-                Ok((token_index, BlockStateData { tokens }))
-            })
+        self.block_state
+            .create_token(&self.context, configuration)
             .unwrap()
     }
 
@@ -438,18 +246,28 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        self.external_block_state
-            .update_token_account_balance(*account, *token, amount_delta)
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        account.update_token_account_balance(
+            &mut self.context,
+            token.token_p9_base.token_index,
+            amount_delta,
+        )
     }
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
-        self.external_block_state
-            .touch_token_account(*account, *token);
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        account.touch_token_account(&mut self.context, token.token_p9_base.token_index)
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
-        self.external_block_state
-            .increment_plt_update_sequence_number();
+        self.block_state
+            .increment_plt_update_instruction_sequence_number(&mut self.context);
     }
 
     fn set_token_key_value_state(
@@ -457,17 +275,348 @@ impl<Load: BlobStoreLoad, ExtState: ExternalBlockStateOperations> BlockStateOper
         token: &Self::Token,
         token_key_value_state: Self::MutableTokenKeyValueState,
     ) {
-        // todo propagate block state error as part of https://linear.app/concordium/issue/COR-2346/push-blockstateerror-to-scheduler-code
-        self.internal_block_state
-            .update_block_state_(|state| {
-                Ok(BlockStateData {
-                    tokens: state.tokens.set_token_key_value_state(
-                        &self.blob_store_load,
-                        *token,
-                        token_key_value_state,
-                    )?,
-                })
-            })
+        let mut token = self
+            .block_state
+            .token_by_index(&self.context, *token)
             .unwrap();
+        token.token_p9_base.mutable_key_value_state = token_key_value_state;
+        self.block_state.update_token(&self.context, token).unwrap();
+    }
+
+    fn create_lock(&mut self, _configuration: LockConfiguration) {
+        panic!("no locks on P9")
+    }
+
+    fn delete_lock(&mut self, _: &LockId) -> bool {
+        panic!("no locks on P9")
+    }
+
+    fn add_lock_balance_ref(
+        &mut self,
+        _lock: &LockId,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
+        panic!("no locks on P9")
+    }
+
+    fn remove_lock_balance_ref(
+        &mut self,
+        _lock: &LockId,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) {
+        panic!("no locks on P9")
+    }
+}
+
+/// Runtime/execution state relevant for providing an implementation of
+/// [`BlockStateQuery`] and [`BlockStateOperations`].
+pub type ExecutionTimeBlockStateP10<C> = ExecutionTimeBlockStateP9<C>;
+
+/// Runtime/execution state relevant for providing an implementation of
+/// [`BlockStateQuery`] and [`BlockStateOperations`].
+pub struct ExecutionTimeBlockStateP11<C: EntityContextTypes> {
+    /// The library block state implementation.
+    pub block_state: BlockStateP11,
+    /// External function for reading from the blob store.
+    pub context: EntityContext<C>,
+}
+
+impl<C: EntityContextTypes> std::fmt::Debug for ExecutionTimeBlockStateP11<C>
+where
+    EntityContext<C>: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionTimeBlockStateP11")
+            .field("block_state", &self.block_state)
+            .field("context", &self.context)
+            .finish()
+    }
+}
+
+impl<C: EntityContextTypes> BlockStateQuery for ExecutionTimeBlockStateP11<C> {
+    type MutableTokenKeyValueState = smart_contract_trie::MutableState;
+    type Account = Account;
+    type Token = TokenIndex;
+    type EntityContextTypes = C;
+
+    fn context(&self) -> &EntityContext<Self::EntityContextTypes> {
+        &self.context
+    }
+
+    fn plt_list(&self) -> impl ExactSizeIterator<Item = TokenId> {
+        self.block_state
+            .plt_list(&self.context)
+            .unwrap()
+            .into_iter()
+    }
+
+    fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
+        self.block_state
+            .token_by_id(&self.context, token_id)
+            .unwrap()
+            .map(|token| token.token_p9_base.token_index)
+    }
+
+    fn mutable_token_key_value_state(
+        &self,
+        token: &Self::Token,
+    ) -> Self::MutableTokenKeyValueState {
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token.token_p9_base.mutable_key_value_state
+    }
+
+    fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token
+            .token_p9_base
+            .token_configuration(&self.context)
+            .unwrap()
+    }
+
+    fn token_p11(&self, token: &Self::Token) -> TokenP11 {
+        self.block_state
+            .token_by_index(&self.context, *token)
+            .unwrap()
+    }
+
+    fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token.token_p9_base.token_circulating_supply()
+    }
+
+    fn lookup_token_state_value(
+        &self,
+        token_key_value: &Self::MutableTokenKeyValueState,
+        key: &TokenStateKey,
+    ) -> Option<TokenStateValue> {
+        token_key_value
+            .lookup_value(&self.context.store, &key.0)
+            .map(TokenStateValue)
+    }
+
+    fn iter_token_state_prefix(
+        &self,
+        token_key_value: &Self::MutableTokenKeyValueState,
+        prefix: &TokenStateKey,
+    ) -> impl Iterator<Item = (TokenStateKey, TokenStateValue)> + use<'_, C> {
+        token_key_value
+            .iter_prefix(&self.context.store, &prefix.0)
+            .unwrap()
+            .map(|entry| (TokenStateKey(entry.0), TokenStateValue(entry.1)))
+    }
+
+    fn update_token_state_value(
+        &self,
+        token_key_value_state: &mut Self::MutableTokenKeyValueState,
+        key: &TokenStateKey,
+        value: Option<TokenStateValue>,
+    ) {
+        if let Some(value) = value {
+            token_key_value_state
+                .insert_value(&self.context.store, &key.0, value.0)
+                .unwrap();
+        } else {
+            token_key_value_state
+                .delete_value(&self.context.store, &key.0)
+                .unwrap();
+        }
+    }
+
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
+        let account_index = self
+            .context
+            .external
+            .account_index_by_account_address(address)?;
+        Ok(Account::from_existing_account(account_index))
+    }
+
+    fn account_by_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountWithCanonicalAddress, AccountNotFoundByIndexError> {
+        let canonical_account_address = self
+            .context
+            .external
+            .account_canonical_address_by_account_index(account_index)?;
+
+        let account = Account::from_existing_account(account_index);
+
+        Ok(AccountWithCanonicalAddress {
+            account,
+            canonical_account_address,
+        })
+    }
+
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
+        account.account_index()
+    }
+
+    fn account_token_balance(
+        &self,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) -> RawTokenAmount {
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        account.account_token_balance(&self.context, token.token_p9_base.token_index)
+    }
+
+    fn token_account_states(
+        &self,
+        account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
+        account.token_account_states(&self.context)
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        ProtocolVersion::P11
+    }
+
+    fn lock_list(&self) -> impl ExactSizeIterator<Item = LockId> {
+        self.block_state
+            .lock_list(&self.context)
+            .unwrap()
+            .into_iter()
+    }
+
+    fn lock_by_id(&self, lock_id: &LockId) -> Result<LockP11, LockNotFoundByIdError> {
+        self.block_state.lock_by_id(&self.context, lock_id).unwrap()
+    }
+
+    fn lock_configuration(&self, lock: &LockP11) -> LockConfiguration {
+        lock.lock_configuration(&self.context)
+            .expect("lock must contain the configuration")
+            .to_owned()
+    }
+
+    fn lock_balances(&self, lock: &LockP11) -> impl Iterator<Item = (AccountIndex, Self::Token)> {
+        lock.lock_balance_refs().into_iter()
+    }
+}
+
+impl<C: EntityContextTypes> BlockStateOperations for ExecutionTimeBlockStateP11<C> {
+    fn set_token_circulating_supply(
+        &mut self,
+        token: &Self::Token,
+        circulating_supply: RawTokenAmount,
+    ) {
+        let mut token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token
+            .token_p9_base
+            .set_token_circulating_supply(circulating_supply);
+        self.block_state.update_token(&self.context, token).unwrap();
+    }
+
+    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
+        self.block_state
+            .create_token(&self.context, configuration)
+            .unwrap()
+    }
+
+    fn update_token_account_balance(
+        &mut self,
+        token: &Self::Token,
+        account: &Self::Account,
+        amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), OverflowError> {
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        account.update_token_account_balance(
+            &mut self.context,
+            token.token_p9_base.token_index,
+            amount_delta,
+        )
+    }
+
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
+        let token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        account.touch_token_account(&mut self.context, token.token_p9_base.token_index)
+    }
+
+    fn increment_plt_update_instruction_sequence_number(&mut self) {
+        self.block_state
+            .increment_plt_update_instruction_sequence_number(&mut self.context);
+    }
+
+    fn set_token_key_value_state(
+        &mut self,
+        token: &Self::Token,
+        token_key_value_state: Self::MutableTokenKeyValueState,
+    ) {
+        let mut token = self
+            .block_state
+            .token_by_index(&self.context, *token)
+            .unwrap();
+        token.token_p9_base.mutable_key_value_state = token_key_value_state;
+        self.block_state.update_token(&self.context, token).unwrap();
+    }
+
+    fn create_lock(&mut self, configuration: LockConfiguration) {
+        self.block_state
+            .create_lock(&self.context, configuration)
+            .unwrap();
+    }
+
+    fn delete_lock(&mut self, lock_id: &LockId) -> bool {
+        self.block_state
+            .delete_lock(&self.context, lock_id)
+            .unwrap()
+    }
+
+    fn add_lock_balance_ref(
+        &mut self,
+        lock_id: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) {
+        let mut lock = self
+            .block_state
+            .lock_by_id(&self.context, lock_id)
+            .unwrap()
+            .unwrap();
+        lock.add_lock_balance_ref(account.account_index(), *token);
+        self.block_state.update_lock(&self.context, lock).unwrap();
+    }
+
+    fn remove_lock_balance_ref(
+        &mut self,
+        lock: &LockId,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) {
+        let mut lock = self
+            .block_state
+            .lock_by_id(&self.context, lock)
+            .unwrap()
+            .unwrap();
+        let removed = lock.remove_lock_balance_ref(account.account_index(), *token);
+        if removed {
+            // Only update on a change.
+            self.block_state.update_lock(&self.context, lock).unwrap();
+        }
     }
 }

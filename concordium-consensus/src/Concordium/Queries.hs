@@ -46,10 +46,12 @@ import Concordium.Types.Execution (
  )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import qualified Concordium.Types.Locks as Locks
 import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
+import qualified Concordium.Types.Queries.Locks as Locks
 import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
@@ -89,7 +91,17 @@ import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenModuleError, queryAccountTokens, queryPLTList, queryTokenAuthorizations, queryTokenInfo)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryLockError,
+    QueryTokenModuleError,
+    SerializedLockId,
+    queryAccountTokens,
+    queryLockInfo,
+    queryLockList,
+    queryPLTList,
+    queryTokenAuthorizations,
+    queryTokenInfo,
+ )
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
@@ -1198,6 +1210,14 @@ getTokenInfo blockHashInput tokenId = liftSkovQueryStateBHI (queryTokenInfo toke
 -- | Get the details of token authorizations in the block state.
 getTokenAuthorizations :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Either QueryTokenModuleError Tokens.TokenAuthorizations))
 getTokenAuthorizations blockHashInput tokenId = liftSkovQueryStateBHI (queryTokenAuthorizations tokenId) blockHashInput
+
+-- | Get a list of all PLT lock ids that exist in the block state.
+getLockList :: BlockHashInput -> MVR finconf (BHIQueryResponse [Locks.LockId])
+getLockList = liftSkovQueryStateBHI queryLockList
+
+-- | Get the CBOR-encoded `lock-info` payload for a given lock id.
+getLockInfo :: BlockHashInput -> SerializedLockId -> MVR finconf (BHIQueryResponse (Either QueryLockError Locks.LockInfo))
+getLockInfo blockHashInput lockId = liftSkovQueryStateBHI (queryLockInfo lockId) blockHashInput
 
 -- | Get the details of an account in the block state.
 --  The account can be given via an address, an account index or a credential registration id.

@@ -7,6 +7,9 @@ edition = "2024"
 # Concordium dependencies
 concordium_base.workspace = true
 
+# Third party dependencies
+thiserror.workspace = true
+
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true

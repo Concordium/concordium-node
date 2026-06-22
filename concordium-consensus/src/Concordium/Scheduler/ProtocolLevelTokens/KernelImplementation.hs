@@ -145,7 +145,9 @@ instance (BS.BlockStateOperations m, PVSupportsHaskellManagedPLT (MPV m)) => PLT
                               ettFrom = HolderAccount accAddrFrom,
                               ettTo = HolderAccount accAddrTo,
                               ettAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context)),
-                              ettMemo = mbMemo
+                              ettMemo = mbMemo,
+                              ettFromLock = Nothing,
+                              ettToLock = Nothing
                             }
                             :
                        )
