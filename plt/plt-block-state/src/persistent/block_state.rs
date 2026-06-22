@@ -1,6 +1,3 @@
-use crate::entity::block_state;
-use crate::entity::block_state::p9::BlockStateP9;
-use crate::entity::block_state::p10::BlockStateP10;
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
@@ -69,50 +66,6 @@ impl PersistentBlockState {
             ProtocolVersion::P10 => Self::P10(Loadable::load_from_buffer(buffer, loader)?),
             ProtocolVersion::P11 => Self::P11(Loadable::load_from_buffer(buffer, loader)?),
         })
-    }
-
-    /// Migrate the PLT block state from one blob store to another.
-    ///
-    /// # Arguments
-    ///
-    /// - `from_loader` Blob store loader for the blob store we are migrating from.
-    /// - `to_storer` Blob store storer for the blob store we are migrating to.
-    /// - `to_protocol_version` Protocol version for the block state to migrate to.
-    pub fn migrate(
-        &self,
-        from_store: &impl BlobStoreLoad,
-        to_store: &mut (impl BlobStoreStore + BlobStoreLoad),
-        to_protocol_version: ProtocolVersion,
-    ) -> BlockStateResult<Self> {
-        match self {
-            PersistentBlockState::P9(persistent_block_state) => {
-                let block_state = BlockStateP9 {
-                    persistent: persistent_block_state.clone(),
-                };
-                let new_block_state = block_state::migration::p9_to_p10::migrate_from_p9_to_p10(
-                    block_state,
-                    from_store,
-                    to_store,
-                )?;
-                assert_eq!(to_protocol_version, ProtocolVersion::P10);
-                Ok(Self::P10(new_block_state.persistent))
-            }
-            PersistentBlockState::P10(persistent_block_state) => {
-                let block_state = BlockStateP10 {
-                    persistent: persistent_block_state.clone(),
-                };
-                let new_block_state = block_state::migration::p10_to_p11::migrate_from_p10_to_p11(
-                    block_state,
-                    from_store,
-                    to_store,
-                )?;
-                assert_eq!(to_protocol_version, ProtocolVersion::P11);
-                Ok(Self::P11(new_block_state.persistent))
-            }
-            PersistentBlockState::P11(_) => Err(BlockStateFailure::Invariant(
-                "migration of P11 block state not implemented".to_string(),
-            )),
-        }
     }
 }
 

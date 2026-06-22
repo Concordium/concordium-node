@@ -21,20 +21,17 @@ pub fn migrate_from_p9_to_p10(
 
 #[cfg(test)]
 mod test {
+    use crate::entity::block_state::migration;
     use crate::entity::block_state::p9::BlockStateP9;
-    use crate::entity::block_state::p10::BlockStateP10;
     use crate::entity::entity_test_stub;
-    use crate::persistent::blob_store;
-    use crate::persistent::block_state::PersistentBlockState;
     use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::protocol_level_tokens::TokenModuleRef;
-    use plt_scheduler_types::types::protocol_version::ProtocolVersion;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 
     /// Migrate block state from P9 to P10.
     #[test]
     fn test_migrate_p9_to_p10() {
-        let mut context = entity_test_stub::new_no_external_context();
+        let mut context = entity_test_stub::new_stubbed_context();
         let mut block_state = BlockStateP9::default();
 
         // Create tokens
@@ -65,24 +62,10 @@ mod test {
             decimals: 4,
         };
         let _token_index2 = block_state.create_token(&context, configuration2.clone());
-        blob_store::store_to_store(&mut context.store, &block_state.persistent);
 
         // Migrate the block state
-        let mut migrated_context = entity_test_stub::new_no_external_context();
-        let migrated_persistent_block_state = PersistentBlockState::P9(block_state.persistent)
-            .migrate(
-                &context.store,
-                &mut migrated_context.store,
-                ProtocolVersion::P10,
-            )
-            .unwrap();
-        let blob_ref = blob_store::store_to_store(
-            &mut migrated_context.store,
-            &migrated_persistent_block_state,
-        );
-        let migrated_block_state = BlockStateP10 {
-            persistent: blob_store::load_from_store(&migrated_context.store, blob_ref).unwrap(),
-        };
+        let (migrated_context, migrated_block_state) =
+            migration::test_utils::migrate_p9_to_p10(&mut context, block_state);
 
         // Assert on migrated block state
         assert_eq!(migrated_block_state.plt_list(&migrated_context).len(), 2);

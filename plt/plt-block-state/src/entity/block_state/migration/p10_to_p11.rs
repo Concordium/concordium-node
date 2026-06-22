@@ -31,15 +31,12 @@ pub fn migrate_from_p10_to_p11(
 
 #[cfg(test)]
 mod test {
+    use crate::entity::block_state::migration;
     use crate::entity::block_state::p10::BlockStateP10;
-    use crate::entity::block_state::p11::BlockStateP11;
     use crate::entity::entity_test_stub;
     use crate::entity::protocol_level_tokens::p11::Roles;
-    use crate::persistent::blob_store;
-    use crate::persistent::block_state::PersistentBlockState;
     use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleRef};
-    use plt_scheduler_types::types::protocol_version::ProtocolVersion;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 
     /// Migrate block state from P10 to P11.
@@ -97,24 +94,9 @@ mod test {
         token2.token_p9_base.set_mintable_enabled(&context).unwrap();
         block_state.update_token(&context, token2).unwrap();
 
-        blob_store::store_to_store(&mut context.store, &block_state.persistent);
         // Migrate the block state
-        let mut migrated_context = entity_test_stub::new_stubbed_context();
-        migrated_context.external = context.external.clone();
-        let migrated_persistent_block_state = PersistentBlockState::P10(block_state.persistent)
-            .migrate(
-                &context.store,
-                &mut migrated_context.store,
-                ProtocolVersion::P11,
-            )
-            .unwrap();
-        let blob_ref = blob_store::store_to_store(
-            &mut migrated_context.store,
-            &migrated_persistent_block_state,
-        );
-        let migrated_block_state = BlockStateP11 {
-            persistent: blob_store::load_from_store(&migrated_context.store, blob_ref).unwrap(),
-        };
+        let (migrated_context, migrated_block_state) =
+            migration::test_utils::migrate_p10_to_p11(&mut context, block_state);
 
         // Assert on migrated block state
         assert_eq!(

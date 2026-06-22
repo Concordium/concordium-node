@@ -3,6 +3,7 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use super::status;
+use crate::entity::block_state;
 use crate::ffi::blob_store_callbacks::{BlobStoreCallbacks, LoadCallback, StoreCallback};
 use crate::persistent::blob_store;
 use crate::persistent::blob_store::BlobStoreLocation;
@@ -255,16 +256,16 @@ extern "C" fn ffi_migrate_plt_block_state(
         let from_block_state = unsafe { &*block_state };
         let to_protocol_version =
             ProtocolVersion::try_from(to_protocol_version).expect("Unknown protocol version");
-        let new_block_state = from_block_state
-            .migrate(
-                &from_load_callback,
-                &mut BlobStoreCallbacks {
-                    store_callback: to_store_callback,
-                    load_callback: to_load_callback,
-                },
-                to_protocol_version,
-            )
-            .expect("Migrate block state");
+        let new_block_state = block_state::migration::migrate(
+            from_block_state.clone(),
+            &from_load_callback,
+            &mut BlobStoreCallbacks {
+                store_callback: to_store_callback,
+                load_callback: to_load_callback,
+            },
+            to_protocol_version,
+        )
+        .expect("Migrate block state");
 
         unsafe {
             *new_block_state_out = Box::into_raw(Box::new(new_block_state));

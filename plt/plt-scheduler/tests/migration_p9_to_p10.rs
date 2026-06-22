@@ -7,6 +7,7 @@ use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use concordium_base::protocol_level_tokens::{
     TokenAmount, TokenId, TokenOperation, TokenSupplyUpdateDetails,
 };
+use plt_block_state::entity::block_state::migration;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler::TOKEN_MODULE_REF;
@@ -34,7 +35,8 @@ fn test_migrate_p9_to_p10() {
     );
 
     // Migrate the block state from P9 to P10.
-    let (mut context, mut block_state) = utils::migrate_p9_to_p10(&mut context, block_state);
+    let (mut context, mut block_state) =
+        migration::test_utils::migrate_p9_to_p10(&mut context, block_state);
 
     // Query the migrated state (P10) using the scheduler-implemented queries.
     assert_eq!(block_state.query_plt_list(&context), vec![token_id.clone()]);

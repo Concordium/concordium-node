@@ -5,12 +5,10 @@
 
 pub mod entity_traits;
 mod lock;
-mod migration;
 mod token;
 
 use concordium_base::{base::Energy, contracts_common::AccountAddress, transactions};
 pub use lock::*;
-pub use migration::*;
 pub use token::*;
 
 use plt_block_state::entity::block_state::p11::BlockStateP11;
