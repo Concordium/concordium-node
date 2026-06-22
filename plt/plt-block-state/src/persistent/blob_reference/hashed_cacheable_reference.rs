@@ -313,6 +313,7 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for HashedCache
             .value(from_loader)?
             .move_blob_store(from_loader, to_storer)?;
         let new_hcr = HashedCacheableRef::new(migrated_value);
+        // Eagerly store value in the new store
         new_hcr.inner.repr.get_reference_or_store(to_storer);
         Ok(new_hcr)
     }

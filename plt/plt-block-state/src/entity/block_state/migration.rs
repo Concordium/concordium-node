@@ -8,14 +8,14 @@ use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 pub mod p10_to_p11;
 pub mod p9_to_p10;
 
-/// Migrate the PLT block state from protocol version to another. The persisten block state
+/// Migrate the PLT block state from protocol version to another. The persistent block state
 /// is first "lifted" into an entity block state and then migrated.
 ///
 /// # Arguments
 ///
 /// - `from_store` Blob store loader for the blob store we are migrating from.
 /// - `to_store` Blob store loader and storer for the blob store we are migrating to.
-/// - `to_protocol_version` Protocol version for the block state to migrate to.
+/// - `to_protocol_version` Protocol version for the block state to migrate to.om
 pub fn migrate(
     block_state: PersistentBlockState,
     from_store: &impl BlobStoreLoad,

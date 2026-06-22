@@ -19,6 +19,7 @@ pub trait EntityContextTypes {
     type Store: BlobStoreLoad;
 }
 
+/// Concrete types for [`EntityContextTypes`]
 #[derive(Debug, Default, Clone)]
 pub struct EntityContextTypesWitness<ExternalBlockState, Store>(
     PhantomData<(ExternalBlockState, Store)>,
@@ -30,8 +31,6 @@ impl<ExternalBlockState: ExternalBlockStateOperations, Store: BlobStoreLoad> Ent
     type ExternalBlockState = ExternalBlockState;
     type Store = Store;
 }
-
-// todo ar try another construction, where you can specify with bounds what you want implemented for entity context types
 
 /// Context needed to call functions on the block state and entities
 /// in the block state.
