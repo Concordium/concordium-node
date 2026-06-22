@@ -510,7 +510,7 @@ mod test {
 
         // Move trie to new store
         let new_state = state.move_blob_store(&from_store, &mut to_store).unwrap();
-        let new_blob_loc = blob_store::store_to_store(&mut to_store, &state);
+        let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_state);
         drop(state);
 
         // Lookup values in migrated state
