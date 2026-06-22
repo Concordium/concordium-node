@@ -510,7 +510,7 @@ migrateProtocolLevelTokensForPV migration oldPLTsV0@(ProtocolLevelTokensV0 oldPL
             storePLTs newPLTs
         SPLTStateV1 -> do
             -- Migrate from Haskell to Rust by reloading the PLT state from the blob store and into Rust and then
-            -- migrate the newly loaded state in the Rust block state implementation.            
+            -- migrate the newly loaded state in the Rust block state implementation.
             -- 1. Get blob reference
             let oldBlobRefMaybe = getHBRRefIfBlobbed oldPLTsRef
             let oldBlobRef =
