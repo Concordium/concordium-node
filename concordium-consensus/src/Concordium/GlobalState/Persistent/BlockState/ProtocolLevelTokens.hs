@@ -485,9 +485,9 @@ migrateProtocolLevelTokens ProtocolLevelTokens{..} = do
                   _pltCirculatingSupply = _pltCirculatingSupply
                 }
 
--- | Migrate 'ProtocolLevelTokensForPV'. Where the old protocol version did not support PLTs, and
---  the new protocol version does, this initializes the empty 'ProtocolLevelTokensForPV'. Otherwise,
---  the PLTs are unchanged in the migration.
+-- | Migrate 'ProtocolLevelTokensForPV'. When the old protocol version does support PLTs ('SPLTStateNone'), and
+--  the new protocol version does, this initializes the empty 'ProtocolLevelTokensForPV'. Migration of Haskell maintained
+-- state to Rust maintaned state happens from 'SPLTStateV1' to 'SPLTStateV2'.
 migrateProtocolLevelTokensForPV ::
     forall t m.
     ( SupportMigration m t,
@@ -509,15 +509,18 @@ migrateProtocolLevelTokensForPV migration oldPLTsV0@(ProtocolLevelTokensV0 oldPL
             newPLTs <- migrateProtocolLevelTokens oldPLTs
             storePLTs newPLTs
         SPLTStateV1 -> do
-            -- Migrate from Haskell to Rust, by reloading the PLT state from the blob store and into Rust and then
-            -- migrate the newly loaded state in the Rust block state implementation.
+            -- Migrate from Haskell to Rust by reloading the PLT state from the blob store and into Rust and then
+            -- migrate the newly loaded state in the Rust block state implementation.            
+            -- 1. Get blob reference
             let oldBlobRefMaybe = getHBRRefIfBlobbed oldPLTsRef
             let oldBlobRef =
                     maybe
                         (error "Haskell maintained PLT state to migrate from does not have blob reference set")
                         id
                         oldBlobRefMaybe
+            -- 2. Load it into Rust block state (supports P10)
             (oldState :: ForeignPLTBlockStatePtr (MPV m)) <- lift $ loadDirect (coerce oldBlobRef)
+            -- 3. Migrate Rust block state from P10 to P11
             ProtocolLevelTokensV1 <$> RustBS.migrate oldState
 migrateProtocolLevelTokensForPV migration (ProtocolLevelTokensV1 oldState) =
     case pltStateVersion @(PltStateVersionFor (MPV (t m))) of
