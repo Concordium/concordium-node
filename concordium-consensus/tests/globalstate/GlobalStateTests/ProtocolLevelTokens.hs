@@ -60,7 +60,7 @@ configDEF =
         }
 
 emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForPV 'P9)
-emptyPLTPV = emptyProtocolLevelTokensFor
+emptyPLTPV = emptyProtocolLevelTokensForPV
 
 testCreateToken :: Assertion
 testCreateToken = runWithNewMemBlobStore $ do
