@@ -7,6 +7,7 @@
 module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BSS
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
@@ -34,12 +35,17 @@ import qualified Data.FixedByteString as FBS
 import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified ConcordiumTests.KonsensusV1.Common as Common
 
--- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
---  the finalizers are (nominally) sampled from.
+-- | Generate a 'FinalizerSet'. The size parameter determines the size of the inner byte array, which
+-- amounts to s * 8 finalizer indices.
 genFinalizerSet :: Gen FinalizerSet
 genFinalizerSet = sized $ \s -> do
-    indices <- listOf $ FinalizerIndex . fromIntegral <$> chooseInt (0, max 0 s)
-    return $ finalizerSet indices
+    len <- chooseInt (0, max 0 s)
+    if len == 0
+        then return $ FinalizerSet BSS.empty
+        else do
+            prefix <- vectorOf (len - 1) (arbitrary @Word8)
+            lastByte <- chooseInt (1, 255)
+            return $ FinalizerSet $ BSS.pack $ prefix ++ [fromIntegral lastByte]
 
 -- | An arbitrarily-chosen 'Bls.SecretKey'.
 someBlsSecretKey :: Bls.SecretKey
@@ -351,8 +357,8 @@ propSignTimeoutMessageDiffKey =
         forAll genBlockKeyPair $ \kp1 ->
             forAll genBlockKeyPair $ \kp2 ->
                 forAll genBlockHash $ \genesis ->
-                    (kp1 /= kp2) ==>
-                        not (checkTimeoutMessageSignature (Sig.verifyKey kp2) genesis (signTimeoutMessage body genesis kp1))
+                    (kp1 /= kp2)
+                        ==> not (checkTimeoutMessageSignature (Sig.verifyKey kp2) genesis (signTimeoutMessage body genesis kp1))
 
 -- | Check that signing a timeout message and changing the body to something different produces a
 --  timeout message that does not verify with the key.
@@ -361,10 +367,10 @@ propSignTimeoutMessageDiffBody =
     forAll genTimeoutMessageBody $ \body1 ->
         forAll genTimeoutMessageBody $ \body2 ->
             forAll genBlockHash $ \genesis ->
-                (body1 /= body2) ==>
-                    forAll genBlockKeyPair $
-                        \kp ->
-                            not (checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body1 genesis kp){tmBody = body2})
+                (body1 /= body2)
+                    ==> forAll genBlockKeyPair
+                    $ \kp ->
+                        not (checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body1 genesis kp){tmBody = body2})
 
 -- | Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
 propSignQuorumSignatureMessageSingle :: Property
@@ -383,8 +389,8 @@ propSignQuorumSignatureMessageDiffBodySingle :: Property
 propSignQuorumSignatureMessageDiffBodySingle =
     forAll genQuorumSignatureMessage $ \qsm1 ->
         forAll genQuorumSignatureMessage $ \qsm2 ->
-            (qsm1 /= qsm2) ==>
-                not (checkQuorumSignatureSingle qsm1 (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm2 someBlsSecretKey))
+            (qsm1 /= qsm2)
+                ==> not (checkQuorumSignatureSingle qsm1 (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm2 someBlsSecretKey))
 
 -- | Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
 propSignQuorumSignatureMessage :: Property
@@ -409,11 +415,11 @@ propSignQuorumSignatureMessageDiffBody :: Property
 propSignQuorumSignatureMessageDiffBody =
     forAll genQuorumSignatureMessage $ \qsm1 ->
         forAll genQuorumSignatureMessage $ \qsm2 ->
-            (qsm1 /= qsm2) ==>
-                let qs = signQuorumSignatureMessage qsm1 someBlsSecretKey
-                    qs' = signQuorumSignatureMessage qsm2 (someOtherBlsSecretKey 0) <> qs
-                    pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
-                in  not (checkQuorumSignature qsm1 pubKeys qs')
+            (qsm1 /= qsm2)
+                ==> let qs = signQuorumSignatureMessage qsm1 someBlsSecretKey
+                        qs' = signQuorumSignatureMessage qsm2 (someOtherBlsSecretKey 0) <> qs
+                        pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
+                    in  not (checkQuorumSignature qsm1 pubKeys qs')
 
 propSignBakedBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Property
 propSignBakedBlock sProtocolVersion =
@@ -451,11 +457,46 @@ nonCanonicalFinalizerSetBytes = runPut $ do
     putWord8 0x00
     putWord8 0xff
 
--- | Wire encoding of finalizer set @{0, 1, 3}@.
-encodedFinalizerSet013 :: BS.ByteString
-encodedFinalizerSet013 = runPut $ do
-    putWord32be 1
+-- | Wire encoding of finalizer set @{0, 1, 3, 10}@.
+encodedFinalizerSet01310 :: BS.ByteString
+encodedFinalizerSet01310 = runPut $ do
+    putWord32be 2
+    putWord8 0x04
     putWord8 0x0b
+
+genSmallFinalizerIndex :: Gen FinalizerIndex
+genSmallFinalizerIndex = FinalizerIndex . fromIntegral <$> chooseInt (0, 255)
+
+-- | 'memberFinalizerSet' returns 'True' for all finalizer indices in the list of finalizer
+-- indices used to construct the `FinalizerSet`
+propMemberFinalizerSetMatchesListMembership :: Property
+propMemberFinalizerSetMatchesListMembership =
+    forAll (listOf genSmallFinalizerIndex) $ \indices ->
+        let fs = finalizerSet indices
+        in  all (`memberFinalizerSet` fs) indices === True
+
+-- | 'memberFinalizerSet' returns 'False' for any finalizer index _not_ in the list of finalizer
+-- indices used to construct the `FinalizerSet`
+propMemberFinalizerSetRejectsAbsent :: Property
+propMemberFinalizerSetRejectsAbsent =
+    forAll (listOf genSmallFinalizerIndex) $ \indices ->
+        forAll (listOf1 (suchThat genSmallFinalizerIndex (`notElem` indices))) $ \notIndices ->
+            let fs = finalizerSet indices
+            in  any (`memberFinalizerSet` fs) notIndices === False
+
+propSubsetFinalizerSetMatchesListSubset :: Property
+propSubsetFinalizerSetMatchesListSubset =
+    forAll (listOf genSmallFinalizerIndex) $ \xs ->
+        forAll (sublistOf xs) $ \ys ->
+            subsetFinalizerSet (finalizerSet ys) (finalizerSet xs) === True
+
+propSubsetFinalizerSetRejectsMissingMember :: Property
+propSubsetFinalizerSetRejectsMissingMember =
+    withMaxSuccess 1000 $
+        forAll (listOf genSmallFinalizerIndex) $ \ys ->
+            forAll (suchThat genSmallFinalizerIndex (`notElem` ys)) $ \missing ->
+                let xs = missing : ys
+                in  subsetFinalizerSet (finalizerSet xs) (finalizerSet ys) === False
 
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
@@ -476,22 +517,27 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different key" propSignQuorumSignatureMessageDiffKey
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet
+    it "FinalizerSet membership matches list membership" propMemberFinalizerSetMatchesListMembership
+    it "FinalizerSet membership rejects absent indices" propMemberFinalizerSetRejectsAbsent
     it "FinalizerSet membership reflects added finalizers" $ do
-        let fs = finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3, FinalizerIndex 9]
+        let fs = finalizerSet [FinalizerIndex 0, FinalizerIndex 3, FinalizerIndex 7, FinalizerIndex 9]
         memberFinalizerSet (FinalizerIndex 0) fs `shouldBe` True
-        memberFinalizerSet (FinalizerIndex 1) fs `shouldBe` True
-        memberFinalizerSet (FinalizerIndex 2) fs `shouldBe` False
+        memberFinalizerSet (FinalizerIndex 1) fs `shouldBe` False
         memberFinalizerSet (FinalizerIndex 3) fs `shouldBe` True
+        memberFinalizerSet (FinalizerIndex 7) fs `shouldBe` True
+        memberFinalizerSet (FinalizerIndex 8) fs `shouldBe` False
         memberFinalizerSet (FinalizerIndex 9) fs `shouldBe` True
+    it "FinalizerSet subset matches list subset" propSubsetFinalizerSetMatchesListSubset
+    it "FinalizerSet subset rejects if missing member" propSubsetFinalizerSetRejectsMissingMember
     it "FinalizerSet subset checks set inclusion" $ do
         let fs = finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3, FinalizerIndex 9]
-            subset = finalizerSet [FinalizerIndex 1, FinalizerIndex 9]
+            subset = finalizerSet [FinalizerIndex 0, FinalizerIndex 9]
             notSubset = finalizerSet [FinalizerIndex 1, FinalizerIndex 8]
         subsetFinalizerSet subset fs `shouldBe` True
         subsetFinalizerSet notSubset fs `shouldBe` False
     it "FinalizerSet serialization uses canonical big-endian wire encoding" $ do
-        encode (finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3]) `shouldBe` encodedFinalizerSet013
-        decode encodedFinalizerSet013 `shouldBe` Right (finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3])
+        encode (finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3, FinalizerIndex 10]) `shouldBe` encodedFinalizerSet01310
+        decode encodedFinalizerSet01310 `shouldBe` Right (finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 3, FinalizerIndex 10])
     it "FinalizerSet deserialization rejects non-canonical leading zero byte" $ do
         (decode nonCanonicalFinalizerSetBytes :: Either String FinalizerSet) `shouldSatisfy` isLeft
     it "FinalizerSet deserialization rejects a byte count that exceeds the remaining input" $ do
