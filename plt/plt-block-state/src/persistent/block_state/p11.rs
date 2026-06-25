@@ -102,6 +102,7 @@ mod test {
                 keep_alive: true,
                 memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             }),
+            metadata: None,
         };
 
         block_state
@@ -129,6 +130,7 @@ mod test {
                 keep_alive: false,
                 memo: None,
             }),
+            metadata: None,
         };
         block_state
             .create_lock(&context, configuration2.clone())
@@ -150,6 +152,7 @@ mod test {
                 keep_alive: false,
                 memo: None,
             }),
+            metadata: None,
         };
         block_state.create_lock(&context, configuration3).unwrap();
         let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
@@ -276,6 +279,7 @@ mod test {
                 keep_alive: true,
                 memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             }),
+            metadata: None,
         };
         block_state.create_lock(&context, configuration1).unwrap();
         let mut lock1 = block_state
@@ -300,6 +304,7 @@ mod test {
                 keep_alive: false,
                 memo: None,
             }),
+            metadata: None,
         };
         block_state.create_lock(&context, configuration2).unwrap();
 

@@ -54,6 +54,7 @@ pub fn get_lock_config<BSQ: BlockStateQuery>(
         recipients,
         expiry: configuration.expiry,
         controller,
+        metadata: configuration.metadata.clone(),
     })
 }
 
@@ -121,6 +122,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         recipients,
         expiry: lock_configuration.expiry,
         controller,
+        metadata: lock_configuration.metadata.clone(),
         funds,
     })
 }
