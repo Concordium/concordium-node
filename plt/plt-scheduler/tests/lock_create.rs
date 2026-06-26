@@ -74,7 +74,7 @@ fn test_create_simple_lock() {
             keep_alive: false,
             memo: None,
         }),
-        metadata: Some(metadata.encode_raw()),
+        metadata: Some(metadata.encode_raw_cbor()),
     };
     let operations = vec![lock_create(config.clone())];
     let payload = MetaUpdatePayload {
@@ -113,7 +113,7 @@ fn test_create_simple_lock() {
         .unwrap()
         .metadata
         .clone();
-    assert_eq!(stored_metadata, Some(metadata.encode_raw()));
+    assert_eq!(stored_metadata, Some(metadata.encode_raw_cbor()));
 }
 
 #[test]
