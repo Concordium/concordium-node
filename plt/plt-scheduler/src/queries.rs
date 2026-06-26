@@ -11,20 +11,12 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::{
     BlockStateResult, FlattenedBlockStateResult, FlattenedWithBlockStateFailure,
+    HigherLevelProtocolError,
 };
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.
 pub fn query_lock_list_p9<C: EntityContextTypes>(
-    _context: &EntityContext<C>,
-    _block_state: &BlockStateP9,
-) -> BlockStateResult<Vec<LockId>> {
-    Ok(vec![])
-}
-
-/// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
-/// end of the block.
-pub fn query_lock_list_p10<C: EntityContextTypes>(
     _context: &EntityContext<C>,
     _block_state: &BlockStateP9,
 ) -> BlockStateResult<Vec<LockId>> {
@@ -51,6 +43,8 @@ pub enum QueryLockError {
     LockDoesNotExist,
 }
 
+impl HigherLevelProtocolError for QueryLockError {}
+
 impl From<LockNotFoundByIdError> for QueryLockError {
     fn from(_: LockNotFoundByIdError) -> Self {
         QueryLockError::LockDoesNotExist
@@ -59,17 +53,6 @@ impl From<LockNotFoundByIdError> for QueryLockError {
 
 /// Assemble the [`LockInfo`] CBOR payload for a lock.
 pub fn query_lock_info_p9<C: EntityContextTypes>(
-    _context: &EntityContext<C>,
-    _block_state: &BlockStateP9,
-    _lock_id: &LockId,
-) -> FlattenedBlockStateResult<RawCbor, QueryLockError> {
-    Err(FlattenedWithBlockStateFailure::Error(
-        QueryLockError::LockDoesNotExist,
-    ))
-}
-
-/// Assemble the [`LockInfo`] CBOR payload for a lock.
-pub fn query_lock_info_p10<C: EntityContextTypes>(
     _context: &EntityContext<C>,
     _block_state: &BlockStateP9,
     _lock_id: &LockId,

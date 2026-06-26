@@ -44,10 +44,7 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
     operation_index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<(), TransactionFailure> {
     match lock_operation {
         LockOperation::Fund(details) => execute_lock_fund(
             context,
@@ -89,10 +86,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockFundDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<(), TransactionFailure> {
     // TODO: (COR-2306) charge.
     let mut lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -162,10 +156,7 @@ fn execute_lock_send<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockSendDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<(), TransactionFailure> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -271,10 +262,7 @@ fn execute_lock_return<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockReturnDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<(), TransactionFailure> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -347,10 +335,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     details: MetaLockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<(), TransactionFailure> {
     let config = details.config;
     let account_index = transaction_execution.sender_account().account_index();
     let sequence_number = transaction_execution.transaction_sequence_number();
@@ -390,10 +375,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     details: MetaLockCancelDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<(), TransactionFailure> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?

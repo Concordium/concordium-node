@@ -44,10 +44,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
     transaction_context: TransactionContext,
     sender_account: Account,
     payload: Payload,
-) -> Result<TransactionExecutionSummary, TransactionExecutionError>
-where
-    EntityContext<C>: Clone,
-{
+) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
     let mut execution = TransactionExecution::new(transaction_context, sender_account);
 
     let outcome = match payload {
@@ -77,10 +74,7 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     payload: MetaUpdatePayload,
-) -> BlockStateResult<TransactionOutcome>
-where
-    EntityContext<C>: Clone,
-{
+) -> BlockStateResult<TransactionOutcome> {
     // Charge energy
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::META_UPDATE_TRANSACTIONS)

@@ -39,11 +39,15 @@ pub enum FlattenedWithBlockStateFailure<T> {
     BlockStateFailure(#[from] BlockStateFailure),
 }
 
-// impl<T> From<T> for FlattenedWithBlockStateFailure<T> {
-//     fn from(error: T) -> Self {
-//         Self::Error(error)
-//     }
-// }
+/// Marker trait that allows an error to be used in [`FlattenedWithBlockStateFailure`] (acts as a
+/// "negative" bound in the `From<T>` implementation to avoid conflict with `From<BlockStateFailure>`).
+pub trait HigherLevelProtocolError {}
+
+impl<T: HigherLevelProtocolError> From<T> for FlattenedWithBlockStateFailure<T> {
+    fn from(error: T) -> Self {
+        Self::Error(error)
+    }
+}
 
 pub type FlattenedBlockStateResult<T, E> = Result<T, FlattenedWithBlockStateFailure<E>>;
 
