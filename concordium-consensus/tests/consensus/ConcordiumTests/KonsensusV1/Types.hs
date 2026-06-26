@@ -43,9 +43,8 @@ genFinalizerSet = sized $ \s -> do
     if len == 0
         then return $ FinalizerSet BSS.empty
         else do
-            prefix <- vectorOf (len - 1) (arbitrary @Word8)
-            lastByte <- chooseInt (1, 255)
-            return $ FinalizerSet $ BSS.pack $ prefix ++ [fromIntegral lastByte]
+            bytes <- vectorOf len (arbitrary @Word8) `suchThat` ((/= 0) . last)
+            return $ FinalizerSet $ BSS.pack bytes
 
 -- | An arbitrarily-chosen 'Bls.SecretKey'.
 someBlsSecretKey :: Bls.SecretKey
@@ -357,8 +356,8 @@ propSignTimeoutMessageDiffKey =
         forAll genBlockKeyPair $ \kp1 ->
             forAll genBlockKeyPair $ \kp2 ->
                 forAll genBlockHash $ \genesis ->
-                    (kp1 /= kp2)
-                        ==> not (checkTimeoutMessageSignature (Sig.verifyKey kp2) genesis (signTimeoutMessage body genesis kp1))
+                    (kp1 /= kp2) ==>
+                        not (checkTimeoutMessageSignature (Sig.verifyKey kp2) genesis (signTimeoutMessage body genesis kp1))
 
 -- | Check that signing a timeout message and changing the body to something different produces a
 --  timeout message that does not verify with the key.
@@ -367,10 +366,10 @@ propSignTimeoutMessageDiffBody =
     forAll genTimeoutMessageBody $ \body1 ->
         forAll genTimeoutMessageBody $ \body2 ->
             forAll genBlockHash $ \genesis ->
-                (body1 /= body2)
-                    ==> forAll genBlockKeyPair
-                    $ \kp ->
-                        not (checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body1 genesis kp){tmBody = body2})
+                (body1 /= body2) ==>
+                    forAll genBlockKeyPair $
+                        \kp ->
+                            not (checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body1 genesis kp){tmBody = body2})
 
 -- | Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
 propSignQuorumSignatureMessageSingle :: Property
@@ -389,8 +388,8 @@ propSignQuorumSignatureMessageDiffBodySingle :: Property
 propSignQuorumSignatureMessageDiffBodySingle =
     forAll genQuorumSignatureMessage $ \qsm1 ->
         forAll genQuorumSignatureMessage $ \qsm2 ->
-            (qsm1 /= qsm2)
-                ==> not (checkQuorumSignatureSingle qsm1 (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm2 someBlsSecretKey))
+            (qsm1 /= qsm2) ==>
+                not (checkQuorumSignatureSingle qsm1 (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm2 someBlsSecretKey))
 
 -- | Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
 propSignQuorumSignatureMessage :: Property
@@ -415,11 +414,11 @@ propSignQuorumSignatureMessageDiffBody :: Property
 propSignQuorumSignatureMessageDiffBody =
     forAll genQuorumSignatureMessage $ \qsm1 ->
         forAll genQuorumSignatureMessage $ \qsm2 ->
-            (qsm1 /= qsm2)
-                ==> let qs = signQuorumSignatureMessage qsm1 someBlsSecretKey
-                        qs' = signQuorumSignatureMessage qsm2 (someOtherBlsSecretKey 0) <> qs
-                        pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
-                    in  not (checkQuorumSignature qsm1 pubKeys qs')
+            (qsm1 /= qsm2) ==>
+                let qs = signQuorumSignatureMessage qsm1 someBlsSecretKey
+                    qs' = signQuorumSignatureMessage qsm2 (someOtherBlsSecretKey 0) <> qs
+                    pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
+                in  not (checkQuorumSignature qsm1 pubKeys qs')
 
 propSignBakedBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Property
 propSignBakedBlock sProtocolVersion =
