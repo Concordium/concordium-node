@@ -10,6 +10,7 @@ use plt_block_state::entity::entity_test_stub;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockConfiguration, LockControllerConfig, LockControllerSimpleV0, LockControllerSimpleV0Grant,
+    LockRecipients,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -250,11 +251,11 @@ fn test_create_lock() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::new(
-        lock_id.clone(),
-        vec![AccountIndex::from(1), AccountIndex::from(2)],
-        TransactionTime::from(100u64),
-        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration = LockConfiguration {
+        lock_id: lock_id.clone(),
+        recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
+        expiry: TransactionTime::from(100u64),
+        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: vec![LockControllerSimpleV0Grant {
                 account: AccountIndex::from(1),
                 roles: vec![
@@ -266,7 +267,7 @@ fn test_create_lock() {
             keep_alive: true,
             memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
         }),
-    );
+    };
 
     block_state
         .create_lock(&context, configuration.clone())
@@ -295,17 +296,17 @@ fn test_lock_by_id() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::new(
-        lock_id.clone(),
-        vec![],
-        TransactionTime::from(0u64),
-        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration = LockConfiguration {
+        lock_id: lock_id.clone(),
+        recipients: LockRecipients::from(vec![]),
+        expiry: TransactionTime::from(0u64),
+        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
             tokens: Vec::new(),
             keep_alive: false,
             memo: None,
         }),
-    );
+    };
 
     block_state.create_lock(&context, configuration).unwrap();
 
@@ -315,7 +316,7 @@ fn test_lock_by_id() {
         .unwrap()
         .expect("lock should exist");
     assert_eq!(
-        lock.lock_configuration(&context).unwrap().lock_id(),
+        &lock.lock_configuration(&context).unwrap().lock_id,
         &lock_id
     );
 
@@ -344,17 +345,17 @@ fn test_lock_balance_refs() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::new(
-        lock_id.clone(),
-        vec![],
-        TransactionTime::from(0u64),
-        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration = LockConfiguration {
+        lock_id: lock_id.clone(),
+        recipients: LockRecipients::from(vec![]),
+        expiry: TransactionTime::from(0u64),
+        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
             tokens: Vec::new(),
             keep_alive: false,
             memo: None,
         }),
-    );
+    };
 
     block_state.create_lock(&context, configuration).unwrap();
     let mut lock = block_state
@@ -398,17 +399,17 @@ fn test_create_and_delete_lock() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::new(
-        lock_id.clone(),
-        vec![],
-        TransactionTime::from(0u64),
-        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration = LockConfiguration {
+        lock_id: lock_id.clone(),
+        recipients: LockRecipients::from(vec![]),
+        expiry: TransactionTime::from(0u64),
+        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
             tokens: Vec::new(),
             keep_alive: false,
             memo: None,
         }),
-    );
+    };
 
     block_state.create_lock(&context, configuration).unwrap();
 
@@ -455,34 +456,34 @@ fn test_lock_list() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration_a = LockConfiguration::new(
-        lock_id_a.clone(),
-        vec![],
-        TransactionTime::from(0u64),
-        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration_a = LockConfiguration {
+        lock_id: lock_id_a.clone(),
+        recipients: LockRecipients::from(vec![]),
+        expiry: TransactionTime::from(0u64),
+        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
             tokens: Vec::new(),
             keep_alive: false,
             memo: None,
         }),
-    );
+    };
 
     let lock_id_b = LockId {
         account_index: 2,
         sequence_number: 7,
         creation_order: 0,
     };
-    let configuration_b = LockConfiguration::new(
-        lock_id_b.clone(),
-        vec![],
-        TransactionTime::from(0u64),
-        LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+    let configuration_b = LockConfiguration {
+        lock_id: lock_id_b.clone(),
+        recipients: LockRecipients::from(vec![]),
+        expiry: TransactionTime::from(0u64),
+        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
             grants: Vec::new(),
             tokens: Vec::new(),
             keep_alive: false,
             memo: None,
         }),
-    );
+    };
     block_state.create_lock(&context, configuration_a).unwrap();
     block_state.create_lock(&context, configuration_b).unwrap();
 

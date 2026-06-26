@@ -4,6 +4,7 @@ use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
+use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
     RawCbor, TokenAdminRole, TokenAmount, TokenId, TokenModuleRejectReason, TokenOperation,
@@ -11,7 +12,9 @@ use concordium_base::protocol_level_tokens::{
     UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Payload;
-use plt_block_state::entity::entity_test_stub;
+use plt_block_state::{
+    entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
+};
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
@@ -188,6 +191,78 @@ fn test_burn_insufficient_balance() {
         }) => {
             assert_eq!(required_balance, TokenAmount::from_raw(2000, 2));
             assert_eq!(available_balance, TokenAmount::from_raw(1000, 2));
+    });
+}
+
+#[test]
+fn test_burn_insufficient_available_balance() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (gov_account, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default().burnable(),
+        2,
+        Some(RawTokenAmount(1000)),
+    );
+    let recipient = context.external.create_account();
+
+    let lock_id = LockId::new(gov_account.account_index(), 7u64, 0);
+    utils::create_lock(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        utils::CreateLockSimpleConfig {
+            recipients: vec![recipient.account_index()],
+            grants: vec![LockControllerSimpleV0Grant {
+                account: gov_account.account_index(),
+                roles: vec![LockControllerSimpleV0Capability::Fund],
+            }],
+            tokens: vec![token_id.clone()],
+            expiry: 1_804_806_000,
+            keep_alive: false,
+        },
+    );
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        gov_account.account_index(),
+        &token_id,
+        RawTokenAmount(250),
+    );
+
+    let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(800, 2),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let gov_account_addr = context
+        .external
+        .account_canonical_address(gov_account.account_index());
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(gov_account_addr),
+            gov_account.account_index(),
+            Payload::TokenUpdate { payload },
+        )
+        .expect("transaction internal error");
+
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
+        concordium_base::protocol_level_tokens::TokenBalanceInsufficientRejectReason {
+            available_balance,
+            required_balance,
+            ..
+        }) => {
+            assert_eq!(required_balance, TokenAmount::from_raw(800, 2));
+            assert_eq!(available_balance, TokenAmount::from_raw(750, 2));
     });
 }
 
