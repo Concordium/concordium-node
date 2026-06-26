@@ -53,7 +53,7 @@ impl<T: HigherLevelProtocolError> From<T> for WithBlockStateFailure<T> {
 
 pub type WithBlockStateResult<T, E> = Result<T, WithBlockStateFailure<E>>;
 
-/// Created two nested results, with [`BlockStateFailure`] in the outer, and the higher level protocol
+/// Create two nested results, with [`BlockStateFailure`] in the outer, and the higher level protocol
 /// error in the inner.
 pub fn nest<E, T>(result: WithBlockStateResult<T, E>) -> BlockStateResult<Result<T, E>> {
     match result {
