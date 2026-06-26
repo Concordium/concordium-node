@@ -1,6 +1,5 @@
 //! Runtime interface for protocol-level lock controllers.
 
-use crate::scheduler::TransactionFailure;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
@@ -8,7 +7,7 @@ use concordium_base::protocol_level_tokens::meta_operations::{
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::BlockStateResult;
+use plt_block_state::failure::{BlockStateResult, WithBlockStateResult};
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerConfig, LockControllerSimpleV0,
 };
@@ -63,7 +62,7 @@ pub trait LockController {
         context: &EntityContext<C>,
         block_state: &BlockStateP11,
         config: Self::ControllerConfig,
-    ) -> Result<Self, TransactionFailure>
+    ) -> WithBlockStateResult<Self, TransactionRejectReason>
     where
         Self: Sized;
 }
@@ -99,7 +98,7 @@ impl LockController for LockControllerConfig {
         context: &EntityContext<C>,
         block_state: &BlockStateP11,
         config: Self::ControllerConfig,
-    ) -> Result<Self, TransactionFailure>
+    ) -> WithBlockStateResult<Self, TransactionRejectReason>
     where
         Self: Sized,
     {

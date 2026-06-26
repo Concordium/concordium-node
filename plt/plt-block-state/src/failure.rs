@@ -1,3 +1,5 @@
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
+
 /// Unrecoverable failure accessing the block state. This is generally an error that
 /// should never happen and is unrecoverable.
 ///
@@ -30,7 +32,7 @@ pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
 /// [`BlockStateFailure`] and [`T`] flattened into one error
 /// for convenience.
 #[derive(Debug, thiserror::Error)]
-pub enum FlattenedWithBlockStateFailure<T> {
+pub enum WithBlockStateFailure<T> {
     /// Higher protocol level error
     #[error("{0}")]
     Error(T),
@@ -39,22 +41,24 @@ pub enum FlattenedWithBlockStateFailure<T> {
     BlockStateFailure(#[from] BlockStateFailure),
 }
 
-/// Marker trait that allows an error to be used in [`FlattenedWithBlockStateFailure`] (acts as a
+/// Marker trait that allows an error to be used in [`WithBlockStateFailure`] (acts as a
 /// "negative" bound in the `From<T>` implementation to avoid conflict with `From<BlockStateFailure>`).
 pub trait HigherLevelProtocolError {}
 
-impl<T: HigherLevelProtocolError> From<T> for FlattenedWithBlockStateFailure<T> {
+impl<T: HigherLevelProtocolError> From<T> for WithBlockStateFailure<T> {
     fn from(error: T) -> Self {
         Self::Error(error)
     }
 }
 
-pub type FlattenedBlockStateResult<T, E> = Result<T, FlattenedWithBlockStateFailure<E>>;
+pub type WithBlockStateResult<T, E> = Result<T, WithBlockStateFailure<E>>;
 
-pub fn nest<E, T>(result: FlattenedBlockStateResult<T, E>) -> BlockStateResult<Result<T, E>> {
+pub fn nest<E, T>(result: WithBlockStateResult<T, E>) -> BlockStateResult<Result<T, E>> {
     match result {
         Ok(val) => Ok(Ok(val)),
-        Err(FlattenedWithBlockStateFailure::Error(err)) => Ok(Err(err)),
-        Err(FlattenedWithBlockStateFailure::BlockStateFailure(err)) => Err(err),
+        Err(WithBlockStateFailure::Error(err)) => Ok(Err(err)),
+        Err(WithBlockStateFailure::BlockStateFailure(err)) => Err(err),
     }
 }
+
+impl HigherLevelProtocolError for TransactionRejectReason {}

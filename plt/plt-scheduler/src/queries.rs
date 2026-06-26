@@ -10,8 +10,7 @@ use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::{
-    BlockStateResult, FlattenedBlockStateResult, FlattenedWithBlockStateFailure,
-    HigherLevelProtocolError,
+    BlockStateResult, HigherLevelProtocolError, WithBlockStateFailure, WithBlockStateResult,
 };
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
@@ -56,8 +55,8 @@ pub fn query_lock_info_p9<C: EntityContextTypes>(
     _context: &EntityContext<C>,
     _block_state: &BlockStateP9,
     _lock_id: &LockId,
-) -> FlattenedBlockStateResult<RawCbor, QueryLockError> {
-    Err(FlattenedWithBlockStateFailure::Error(
+) -> WithBlockStateResult<RawCbor, QueryLockError> {
+    Err(WithBlockStateFailure::Error(
         QueryLockError::LockDoesNotExist,
     ))
 }
@@ -74,7 +73,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
     lock_id: &LockId,
-) -> FlattenedBlockStateResult<RawCbor, QueryLockError> {
+) -> WithBlockStateResult<RawCbor, QueryLockError> {
     let lock = block_state
         .lock_by_id(context, lock_id)?
         .map_err(|_err: LockNotFoundByIdError| QueryLockError::LockDoesNotExist)?;

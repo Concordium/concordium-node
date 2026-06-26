@@ -1,6 +1,4 @@
-use crate::scheduler::{
-    ChainUpdateExecutionError, TransactionExecutionError, TransactionFailure, plt_scheduler,
-};
+use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError, plt_scheduler};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use crate::{TransactionContext, protocol_level_tokens};
 use concordium_base::protocol_level_tokens::meta_operations::{
@@ -14,7 +12,7 @@ use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
-use plt_block_state::utils;
+use plt_block_state::{failure, utils};
 use plt_scheduler_types::types::execution::{
     ChainUpdateOutcome, TransactionExecutionSummary, TransactionOutcome,
 };
@@ -118,20 +116,17 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
                 }
             }
             MetaUpdateOperationKind::Lock(lock_operation) => {
-                match plt_scheduler::execute_lock_operation(
+                match failure::nest(plt_scheduler::execute_lock_operation(
                     context,
                     transaction_execution,
                     block_state,
                     index,
                     lock_operation,
                     &mut events,
-                ) {
+                ))? {
                     Ok(()) => (),
-                    Err(TransactionFailure::RejectReason(reject_reason)) => {
+                    Err(reject_reason) => {
                         return Ok(TransactionOutcome::Rejected(reject_reason));
-                    }
-                    Err(TransactionFailure::BlockStateFailure(failure)) => {
-                        return Err(failure);
                     }
                 }
             }
