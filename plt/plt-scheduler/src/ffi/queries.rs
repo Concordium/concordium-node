@@ -9,15 +9,13 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
 use libc::size_t;
-use plt_block_state::block_state::{
-    ExecutionTimeBlockStateP9, ExecutionTimeBlockStateP10, ExecutionTimeBlockStateP11,
-};
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::failure;
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
@@ -535,40 +533,31 @@ extern "C" fn ffi_query_lock_list(
             external,
             loader: load_callback,
         };
-        let lock_ids = match unsafe { &*block_state } {
+        let lock_ids_res = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
                 let block_state = BlockStateP9 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP9 {
-                    block_state,
-                    context,
-                };
-                queries::query_lock_list(&exec_block_state)
+                queries::query_lock_list_p9(&context, &block_state)
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP10 {
-                    block_state,
-                    context,
-                };
-                queries::query_lock_list(&exec_block_state)
+                queries::query_lock_list_p10(&context, &block_state)
             }
             PersistentBlockState::P11(persistent) => {
                 let block_state = BlockStateP11 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP11 {
-                    block_state,
-                    context,
-                };
-                queries::query_lock_list(&exec_block_state)
+                queries::query_lock_list(&context, &block_state)
             }
         };
-        let return_data = common::to_bytes(&lock_ids);
-        (status::FfiStatusCode::Success, return_data)
+
+        match lock_ids_res {
+            Ok(lock_ids) => (status::FfiStatusCode::Success, common::to_bytes(&lock_ids)),
+            Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
+        }
     });
     let array = memory::alloc_array_from_vec(return_data);
     unsafe {
@@ -655,39 +644,27 @@ extern "C" fn ffi_query_lock_info(
                 let block_state = BlockStateP9 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP9 {
-                    block_state,
-                    context,
-                };
-                queries::query_lock_info(&exec_block_state, &lock_id)
+                queries::query_lock_info_p9(&context, &block_state, &lock_id)
             }
             PersistentBlockState::P10(persistent) => {
                 let block_state = BlockStateP10 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP10 {
-                    block_state,
-                    context,
-                };
-                queries::query_lock_info(&exec_block_state, &lock_id)
+                queries::query_lock_info_p10(&context, &block_state, &lock_id)
             }
             PersistentBlockState::P11(persistent) => {
                 let block_state = BlockStateP11 {
                     persistent: persistent.clone(),
                 };
-                let exec_block_state = ExecutionTimeBlockStateP11 {
-                    block_state,
-                    context,
-                };
-                queries::query_lock_info(&exec_block_state, &lock_id)
+                queries::query_lock_info(&context, &block_state, &lock_id)
             }
         };
-        match lock_info_res {
-            Ok(cbor_bytes) => (status::FfiStatusCode::Success, cbor_bytes.into()),
-            Err(QueryLockError::LockDoesNotExist) => (status::FfiStatusCode::Failed, Vec::new()),
-            Err(QueryLockError::StateInvariantViolation(message)) => {
-                (status::FfiStatusCode::Panic, message.into_bytes())
+        match failure::nest(lock_info_res) {
+            Ok(Ok(cbor_bytes)) => (status::FfiStatusCode::Success, cbor_bytes.into()),
+            Ok(Err(QueryLockError::LockDoesNotExist)) => {
+                (status::FfiStatusCode::Failed, Vec::new())
             }
+            Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
         }
     });
     let array = memory::alloc_array_from_vec(return_data);

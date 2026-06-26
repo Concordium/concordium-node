@@ -1,11 +1,14 @@
 //! Runtime interface for protocol-level lock controllers.
 
+use crate::scheduler::TransactionFailure;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
 };
-use plt_block_state::block_state_interface::BlockStateQuery;
-use plt_block_state::external::AccountNotFoundByIndexError;
+use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerConfig, LockControllerSimpleV0,
 };
@@ -14,7 +17,6 @@ use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 /// Runtime lock operation model. This corresponds to the "fund", "send", "return", and "cancel"
 /// CBOR operations for interacting with locks from concordium-base.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[allow(dead_code)] // FIXME: remove this when all operations are implemented.
 pub enum LockOperation {
     Fund(MetaLockFundDetails),
     Send(MetaLockSendDetails),
@@ -30,11 +32,10 @@ pub trait LockController {
     /// * `bsq`: the block state to query on
     /// * `sender`: the transaction sender reference
     /// * `operation`: the lock operation to approve/reject.
-    fn validate_operation<BSQ: BlockStateQuery>(
+    fn validate_operation(
         &self,
-        bsq: &BSQ,
         sender_address: AccountAddress,
-        sender: &BSQ::Account,
+        sender: &Account,
         operation: &LockOperation,
     ) -> Result<(), TransactionRejectReason>;
 
@@ -47,10 +48,10 @@ pub trait LockController {
     /// [`AccountNotFoundByIndexError`] if a recorded `AccountIndex` cannot be
     /// looked up — that signals corrupted block state, since lock configurations are only
     /// allowed to reference accounts that exist at creation time.
-    fn to_cbor_controller<BSQ: BlockStateQuery>(
+    fn to_cbor_controller<C: EntityContextTypes>(
         &self,
-        bsq: &BSQ,
-    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError>;
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<concordium_base::protocol_level_locks::LockController>;
 
     /// Controller configuration type used for constructing this controller.
     /// This is expected to be decoded CBOR derived from the `lockCreate`
@@ -58,54 +59,54 @@ pub trait LockController {
     type ControllerConfig;
 
     /// Construct this lock controller from the given configuration.
-    fn new<BSQ: BlockStateQuery>(
-        bsq: &BSQ,
+    fn new<C: EntityContextTypes>(
+        context: &EntityContext<C>,
+        block_state: &BlockStateP11,
         config: Self::ControllerConfig,
-    ) -> Result<Self, TransactionRejectReason>
+    ) -> Result<Self, TransactionFailure>
     where
         Self: Sized;
 }
 
 impl LockController for LockControllerConfig {
-    fn validate_operation<BSQ: BlockStateQuery>(
+    fn validate_operation(
         &self,
-        bsq: &BSQ,
         sender_address: AccountAddress,
-        sender: &BSQ::Account,
+        sender: &Account,
         operation: &LockOperation,
     ) -> Result<(), TransactionRejectReason> {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
-                lock_controller_simple_v0.validate_operation(bsq, sender_address, sender, operation)
+                lock_controller_simple_v0.validate_operation(sender_address, sender, operation)
             }
         }
     }
 
-    fn to_cbor_controller<BSQ: BlockStateQuery>(
+    fn to_cbor_controller<C: EntityContextTypes>(
         &self,
-        bsq: &BSQ,
-    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError>
-    {
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<concordium_base::protocol_level_locks::LockController> {
         match self {
             LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
-                lock_controller_simple_v0.to_cbor_controller(bsq)
+                lock_controller_simple_v0.to_cbor_controller(context)
             }
         }
     }
 
     type ControllerConfig = concordium_base::protocol_level_locks::LockController;
 
-    fn new<BSQ: BlockStateQuery>(
-        bsq: &BSQ,
+    fn new<C: EntityContextTypes>(
+        context: &EntityContext<C>,
+        block_state: &BlockStateP11,
         config: Self::ControllerConfig,
-    ) -> Result<Self, TransactionRejectReason>
+    ) -> Result<Self, TransactionFailure>
     where
         Self: Sized,
     {
         use concordium_base::protocol_level_locks::LockController::*;
         match config {
             SimpleV0(lock_controller_simple_v0) => Ok(LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(bsq, lock_controller_simple_v0)?,
+                LockControllerSimpleV0::new(context, block_state, lock_controller_simple_v0)?,
             )),
         }
     }

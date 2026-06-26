@@ -22,12 +22,10 @@ use concordium_base::protocol_level_tokens::{
     TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
 };
 use concordium_base::transactions;
-use plt_block_state::block_state::ExecutionTimeBlockStateP11;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::BlockStateFailure;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockConfiguration, LockControllerConfig,
 };
@@ -96,10 +94,6 @@ where
     EntityContext<C>: Clone,
 {
     // TODO: (COR-2306) charge.
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
     let mut lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
@@ -115,7 +109,6 @@ where
     }
 
     lock_configuration.controller().validate_operation(
-        &bsq,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Fund(details.clone()),
@@ -174,10 +167,6 @@ where
     EntityContext<C>: Clone,
 {
     // TODO: (COR-2306) charge.
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
@@ -232,7 +221,6 @@ where
     }
 
     lock_configuration.controller().validate_operation(
-        &bsq,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Send(details.clone()),
@@ -288,10 +276,6 @@ where
     EntityContext<C>: Clone,
 {
     // TODO: (COR-2306) charge.
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
@@ -312,7 +296,6 @@ where
         .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
 
     lock_configuration.controller().validate_operation(
-        &bsq,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Return(details.clone()),
@@ -368,17 +351,12 @@ fn execute_lock_create<C: EntityContextTypes>(
 where
     EntityContext<C>: Clone,
 {
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
-
     let config = details.config;
     let account_index = transaction_execution.sender_account().account_index();
     let sequence_number = transaction_execution.transaction_sequence_number();
     let creation_order = transaction_execution.next_lock_creation_order();
     let lock_id = LockId::new(account_index, sequence_number, creation_order);
-    let controller = LockController::new(&bsq, config.controller)?;
+    let controller = LockController::new(context, block_state, config.controller)?;
 
     let recipients = config
         .recipients
@@ -395,9 +373,7 @@ where
     let configuration =
         LockConfiguration::new(lock_id.clone(), recipients, config.expiry, controller);
 
-    let config = get_lock_config(&bsq, &configuration).map_err(|err| {
-        BlockStateFailure::Invariant(format!("Failed to get lock config for created lock: {err}"))
-    })?;
+    let config = get_lock_config(context, &configuration)?;
     let event = events::LockCreateEvent {
         lock_id: lock_id.clone(),
         lock_config: RawCbor::from(cbor::cbor_encode(&config)),
@@ -418,11 +394,6 @@ fn execute_lock_cancel<C: EntityContextTypes>(
 where
     EntityContext<C>: Clone,
 {
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
-
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -436,7 +407,6 @@ where
         .is_expired(transaction_execution.timestamp())
     {
         lock_configuration.controller().validate_operation(
-            &bsq,
             transaction_execution.sender_account_address(),
             transaction_execution.sender_account(),
             &lock_controller::LockOperation::Cancel(details),

@@ -26,3 +26,31 @@ pub enum BlockStateFailure {
 }
 
 pub type BlockStateResult<T> = Result<T, BlockStateFailure>;
+
+/// [`BlockStateFailure`] and [`T`] flattened into one error
+/// for convenience.
+#[derive(Debug, thiserror::Error)]
+pub enum FlattenedWithBlockStateFailure<T> {
+    /// Higher protocol level error
+    #[error("{0}")]
+    Error(T),
+    /// An unrecoverable error occurred in block state when executing the transaction.
+    #[error("Block state failure: {0}")]
+    BlockStateFailure(#[from] BlockStateFailure),
+}
+
+// impl<T> From<T> for FlattenedWithBlockStateFailure<T> {
+//     fn from(error: T) -> Self {
+//         Self::Error(error)
+//     }
+// }
+
+pub type FlattenedBlockStateResult<T, E> = Result<T, FlattenedWithBlockStateFailure<E>>;
+
+pub fn nest<E, T>(result: FlattenedBlockStateResult<T, E>) -> BlockStateResult<Result<T, E>> {
+    match result {
+        Ok(val) => Ok(Ok(val)),
+        Err(FlattenedWithBlockStateFailure::Error(err)) => Ok(Err(err)),
+        Err(FlattenedWithBlockStateFailure::BlockStateFailure(err)) => Err(err),
+    }
+}
