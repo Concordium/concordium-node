@@ -9,7 +9,7 @@ use crate::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Deserial, ParseResult, ReadBytesExt, Serial, Serialize};
+use concordium_base::common::{Buffer, Serialize};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, TokenId};
@@ -135,48 +135,44 @@ impl Hashable for PersistentLockP11 {
     }
 }
 
-/// Sentinel account index used to represent an any-recipient lock in block state.
-///
-/// This temporary representation is local to node block-state code and maps
-/// back to the external `"any"` representation during query/event conversion.
-/// TODO: COR-2418 - proper "any" recipient representation in block state should remove this.
-const ANY_RECIPIENT_SENTINEL: AccountIndex = AccountIndex { index: u64::MAX };
-
 // Represents a list of lock recipients. This type enforces that the inner list is always sorted
 // to enable binary search.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LockRecipientsList(Vec<AccountIndex>);
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct LockRecipientsList {
+    #[size_length = 2]
+    recipients: Vec<AccountIndex>,
+}
 
 impl LockRecipientsList {
     /// Create a new list of lock recipients from the given account index list
     pub fn new(mut recipients: Vec<AccountIndex>) -> Self {
         recipients.sort();
-        Self(recipients)
+        Self { recipients }
     }
 
     /// Get an iterator of the account indices in the list
     pub fn iter(&self) -> impl Iterator<Item = &AccountIndex> {
-        self.0.iter()
+        self.recipients.iter()
     }
 
     /// Check whether the given account is a member
     pub fn is_recipient(&self, account: &AccountIndex) -> bool {
-        self.0.binary_search(account).is_ok()
+        self.recipients.binary_search(account).is_ok()
     }
 
     /// Get the length of the list
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.recipients.len()
     }
 
     /// Check whether the list is empty
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.recipients.is_empty()
     }
 }
 
 /// Accounts that can receive funds from this lock in block state.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub enum LockRecipients {
     /// Any eligible account can receive funds from this lock.
     Any,
@@ -194,7 +190,7 @@ impl LockRecipients {
     pub fn is_recipient(&self, account: &AccountIndex) -> bool {
         match self {
             Self::Any => true,
-            Self::Limited(recipients) => recipients.0.binary_search(account).is_ok(),
+            Self::Limited(recipients) => recipients.recipients.binary_search(account).is_ok(),
         }
     }
 }
@@ -202,39 +198,6 @@ impl LockRecipients {
 impl From<Vec<AccountIndex>> for LockRecipients {
     fn from(recipients: Vec<AccountIndex>) -> Self {
         Self::Limited(LockRecipientsList::new(recipients))
-    }
-}
-
-impl Serial for LockRecipients {
-    fn serial<B: Buffer>(&self, out: &mut B) {
-        match self {
-            Self::Any => {
-                1u16.serial(out);
-                ANY_RECIPIENT_SENTINEL.serial(out);
-            }
-            Self::Limited(recipients) => {
-                (recipients.len() as u16).serial(out);
-                for recipient in recipients.iter() {
-                    recipient.serial(out);
-                }
-            }
-        }
-    }
-}
-
-impl Deserial for LockRecipients {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
-        let len = u16::deserial(source)? as usize;
-        let mut recipients = Vec::with_capacity(len);
-        for _ in 0..len {
-            recipients.push(AccountIndex::deserial(source)?);
-        }
-
-        Ok(if recipients.as_slice() == [ANY_RECIPIENT_SENTINEL] {
-            Self::Any
-        } else {
-            Self::from(recipients)
-        })
     }
 }
 
@@ -340,7 +303,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "00000000000000320000000000000002000000000000000000020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e310100"
+            "0000000000000032000000000000000200000000000000000100020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e310100"
         );
 
         let deserialized: LockConfiguration =
@@ -371,7 +334,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "000000000000003200000000000000020000000000000000000000000000000001f400000000000000"
+            "00000000000000320000000000000002000000000000000001000000000000000001f400000000000000"
         );
 
         let deserialized: LockConfiguration =
@@ -425,7 +388,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000032000000000000000200000000000000000001ffffffffffffffff00000000000001f400000000000000"
+            "0000000000000032000000000000000200000000000000000000000000000001f400000000000000"
         );
 
         let deserialized: LockConfiguration =

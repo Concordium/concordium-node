@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
+
 ## 11.2.2 (Devnet)
 
 - Add support for lock configurations with "any" specified for the `recipients` field.
