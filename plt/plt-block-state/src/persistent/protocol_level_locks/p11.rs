@@ -9,7 +9,7 @@ use crate::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Serialize};
+use concordium_base::common::{Buffer, Deserial, ParseResult, ReadBytesExt, Serial, Serialize};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, TokenId};
@@ -135,65 +135,120 @@ impl Hashable for PersistentLockP11 {
     }
 }
 
-/// Lock configuration at the block state level.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct LockConfiguration {
-    /// Identifier of the lock.
-    lock_id: LockId,
-    /// Accounts that can receive funds from this lock.
-    ///
-    /// The recipients are stored as a sorted vector of account indices, and
-    /// the number of recipients is limited to `u16::MAX` to ensure that the
-    /// serialized form fits within the size limits of the block state.
-    // todo use newtype for the type for this field and make all fields public (for consistency with the other block state types)
-    #[size_length = 2]
-    recipients: Vec<AccountIndex>,
-    /// Expiry time of the lock (seconds since epoch).
-    expiry: TransactionTime,
-    /// Controller configuration for the lock.
-    controller: LockControllerConfig,
+/// Sentinel account index used to represent an any-recipient lock in block state.
+///
+/// This temporary representation is local to node block-state code and maps
+/// back to the external `"any"` representation during query/event conversion.
+/// TODO: COR-2418 - proper "any" recipient representation in block state should remove this.
+const ANY_RECIPIENT_SENTINEL: AccountIndex = AccountIndex { index: u64::MAX };
+
+// Represents a list of lock recipients. This type enforces that the inner list is always sorted
+// to enable binary search.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LockRecipientsList(Vec<AccountIndex>);
+
+impl LockRecipientsList {
+    /// Create a new list of lock recipients from the given account index list
+    pub fn new(mut recipients: Vec<AccountIndex>) -> Self {
+        recipients.sort();
+        Self(recipients)
+    }
+
+    /// Get an iterator of the account indices in the list
+    pub fn iter(&self) -> impl Iterator<Item = &AccountIndex> {
+        self.0.iter()
+    }
+
+    /// Check whether the given account is a member
+    pub fn is_recipient(&self, account: &AccountIndex) -> bool {
+        self.0.binary_search(account).is_ok()
+    }
+
+    /// Get the length of the list
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Check whether the list is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
-impl LockConfiguration {
-    pub fn new(
-        lock_id: LockId,
-        mut recipients: Vec<AccountIndex>,
-        expiry: TransactionTime,
-        controller: LockControllerConfig,
-    ) -> Self {
-        assert!(recipients.len() <= u16::MAX as usize, "Too many recipients");
-        recipients.sort();
-        Self {
-            lock_id,
-            recipients,
-            expiry,
-            controller,
-        }
-    }
+/// Accounts that can receive funds from this lock in block state.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum LockRecipients {
+    /// Any eligible account can receive funds from this lock.
+    Any,
+    /// Only the listed accounts can receive funds from this lock.
+    Limited(LockRecipientsList),
+}
 
-    pub fn lock_id(&self) -> &LockId {
-        &self.lock_id
-    }
-
-    /// Get an iterator over the recipient accounts.
-    pub fn recipients_iter(&self) -> impl Iterator<Item = &AccountIndex> {
-        self.recipients.iter()
+impl LockRecipients {
+    /// Check whether this representation allows any recipient.
+    pub fn is_any(&self) -> bool {
+        matches!(self, Self::Any)
     }
 
     /// Check if the given account is a recipient.
     pub fn is_recipient(&self, account: &AccountIndex) -> bool {
-        self.recipients.binary_search(account).is_ok()
+        match self {
+            Self::Any => true,
+            Self::Limited(recipients) => recipients.0.binary_search(account).is_ok(),
+        }
     }
+}
 
-    /// Get the expiry time of the lock.
-    pub fn expiry(&self) -> TransactionTime {
-        self.expiry
+impl From<Vec<AccountIndex>> for LockRecipients {
+    fn from(recipients: Vec<AccountIndex>) -> Self {
+        Self::Limited(LockRecipientsList::new(recipients))
     }
+}
 
-    /// Get the lock controller configuration.
-    pub fn controller(&self) -> &LockControllerConfig {
-        &self.controller
+impl Serial for LockRecipients {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        match self {
+            Self::Any => {
+                1u16.serial(out);
+                ANY_RECIPIENT_SENTINEL.serial(out);
+            }
+            Self::Limited(recipients) => {
+                (recipients.len() as u16).serial(out);
+                for recipient in recipients.iter() {
+                    recipient.serial(out);
+                }
+            }
+        }
     }
+}
+
+impl Deserial for LockRecipients {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
+        let len = u16::deserial(source)? as usize;
+        let mut recipients = Vec::with_capacity(len);
+        for _ in 0..len {
+            recipients.push(AccountIndex::deserial(source)?);
+        }
+
+        Ok(if recipients.as_slice() == [ANY_RECIPIENT_SENTINEL] {
+            Self::Any
+        } else {
+            Self::from(recipients)
+        })
+    }
+}
+
+/// Lock configuration at the block state level.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct LockConfiguration {
+    /// Identifier of the lock.
+    pub lock_id: LockId,
+    /// Accounts that can receive funds from this lock.
+    pub recipients: LockRecipients,
+    /// Expiry time of the lock (seconds since epoch).
+    pub expiry: TransactionTime,
+    /// Controller configuration for the lock.
+    pub controller: LockControllerConfig,
 }
 
 /// Top-level lock controller type.
@@ -266,7 +321,10 @@ mod test {
                 sequence_number: 2,
                 creation_order: 0,
             },
-            recipients: vec![AccountIndex::from(1u64), AccountIndex::from(2u64)],
+            recipients: LockRecipients::from(vec![
+                AccountIndex::from(1u64),
+                AccountIndex::from(2u64),
+            ]),
             expiry: TransactionTime::from(1000u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![LockControllerSimpleV0Grant {
@@ -300,7 +358,7 @@ mod test {
                 sequence_number: 2,
                 creation_order: 0,
             },
-            recipients: vec![],
+            recipients: LockRecipients::from(vec![]),
             expiry: TransactionTime::from(500u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![],
@@ -319,6 +377,61 @@ mod test {
         let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
+    }
+
+    #[test]
+    fn test_lock_recipients_limited_sorts_accounts() {
+        let recipients =
+            LockRecipients::from(vec![AccountIndex::from(2u64), AccountIndex::from(1u64)]);
+
+        assert_eq!(
+            recipients,
+            LockRecipients::from(vec![AccountIndex::from(1u64), AccountIndex::from(2u64)])
+        );
+    }
+
+    #[test]
+    fn test_lock_configuration_serial_any_recipient_sentinel() {
+        use concordium_base::common::types::TransactionTime;
+
+        let lock_config = LockConfiguration {
+            lock_id: LockId {
+                account_index: 50,
+                sequence_number: 2,
+                creation_order: 0,
+            },
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from(500u64),
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+                grants: vec![],
+                tokens: vec![],
+                keep_alive: false,
+                memo: None,
+            }),
+        };
+
+        assert!(lock_config.recipients.is_any());
+        assert!(
+            lock_config
+                .recipients
+                .is_recipient(&AccountIndex::from(0u64))
+        );
+        assert!(
+            lock_config
+                .recipients
+                .is_recipient(&AccountIndex::from(42u64))
+        );
+
+        let bytes = common::to_bytes(&lock_config);
+        assert_eq!(
+            hex::encode(&bytes),
+            "0000000000000032000000000000000200000000000000000001ffffffffffffffff00000000000001f400000000000000"
+        );
+
+        let deserialized: LockConfiguration =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(deserialized, lock_config);
+        assert!(deserialized.recipients.is_any());
     }
 
     #[test]

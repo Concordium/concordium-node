@@ -6,27 +6,39 @@ use crate::{
 };
 use concordium_base::{
     base::AccountIndex,
-    protocol_level_locks::{LockAccountFunds, LockConfig, LockInfo, LockedTokenAmount},
+    protocol_level_locks::{
+        LockAccountFunds, LockConfig, LockInfo, LockRecipients, LockedTokenAmount,
+    },
     protocol_level_tokens::{CborHolderAccount, TokenAmount},
 };
 use plt_block_state::block_state_interface::BlockStateQuery;
 use plt_block_state::entity::protocol_level_locks::p11::LockP11;
 use plt_block_state::external::AccountNotFoundByIndexError;
-use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
+use plt_block_state::persistent::protocol_level_locks::p11::{
+    LockConfiguration, LockRecipients as BlockStateLockRecipients,
+};
 
-/// Get the list of recipient accounts for a lock configuration, resolving
-/// [`AccountIndex`]es to [`CborHolderAccount`]s.
+/// Get the recipients for a lock configuration, resolving [`AccountIndex`]es
+/// to [`CborHolderAccount`]s unless the block-state sentinel represents an
+/// any-recipient lock.
 fn get_recipients<BSQ: BlockStateQuery>(
     bsq: &BSQ,
     configuration: &LockConfiguration,
-) -> Result<Vec<CborHolderAccount>, AccountNotFoundByIndexError> {
-    configuration
-        .recipients_iter()
-        .map(|account_index| {
-            let with_addr = bsq.account_by_index(*account_index)?;
-            Ok(CborHolderAccount::from(with_addr.canonical_account_address))
-        })
-        .collect()
+) -> Result<LockRecipients, AccountNotFoundByIndexError> {
+    match &configuration.recipients {
+        BlockStateLockRecipients::Any => Ok(LockRecipients::Any),
+        BlockStateLockRecipients::Limited(recipients) => {
+            let recipients = recipients
+                .iter()
+                .map(|account_index| {
+                    let with_addr = bsq.account_by_index(*account_index)?;
+                    Ok(CborHolderAccount::from(with_addr.canonical_account_address))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(LockRecipients::Limited(recipients))
+        }
+    }
 }
 
 /// Get the lock configuration as a CBOR-representable [`LockConfig`] with
@@ -36,11 +48,11 @@ pub fn get_lock_config<BSQ: BlockStateQuery>(
     configuration: &LockConfiguration,
 ) -> Result<LockConfig, AccountNotFoundByIndexError> {
     let recipients = get_recipients(bsq, configuration)?;
-    let controller = configuration.controller().to_cbor_controller(bsq)?;
+    let controller = configuration.controller.to_cbor_controller(bsq)?;
 
     Ok(LockConfig {
         recipients,
-        expiry: configuration.expiry(),
+        expiry: configuration.expiry,
         controller,
     })
 }
@@ -60,7 +72,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
     // by the `lock-info` payload. Variant-specific resolution (e.g. expanding grant
     // `AccountIndex`es to `CborHolderAccount`) lives on the per-variant
     // `crate::locks::lock_controller::LockController` impl.
-    let controller = lock_configuration.controller().to_cbor_controller(bsq)?;
+    let controller = lock_configuration.controller.to_cbor_controller(bsq)?;
 
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
@@ -74,7 +86,7 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
             bsq.context(),
             &bsq.token_p11(&token),
             account_index,
-            lock_configuration.lock_id(),
+            &lock_configuration.lock_id,
         )
         .map_err(|err| QueryLockError::StateInvariantViolation(err.to_string()))?;
         let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
@@ -105,9 +117,9 @@ pub fn get_lock_info<BSQ: BlockStateQuery>(
         .collect::<Result<_, QueryLockError>>()?;
 
     Ok(LockInfo {
-        lock: lock_configuration.lock_id().clone(),
+        lock: lock_configuration.lock_id.clone(),
         recipients,
-        expiry: lock_configuration.expiry(),
+        expiry: lock_configuration.expiry,
         controller,
         funds,
     })

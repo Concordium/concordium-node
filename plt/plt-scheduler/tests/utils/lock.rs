@@ -46,7 +46,8 @@ pub fn create_lock(
                 .canonical_account_address,
         )
     };
-    let recipients = config.recipients.iter().map(resolve_account).collect();
+    let recipients =
+        LockRecipients::Limited(config.recipients.iter().map(resolve_account).collect());
     let grants = config
         .grants
         .iter()
