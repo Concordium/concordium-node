@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
+- Added lock metadata as part of lock configurations
 
 ## 11.2.2 (Devnet)
 
