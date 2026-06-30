@@ -384,6 +384,7 @@ where
         recipients,
         expiry,
         controller: controller_config,
+        metadata,
     } = details.config;
     let controller = LockController::new(&bsq, controller_config)?;
 
@@ -409,6 +410,7 @@ where
         recipients,
         expiry,
         controller,
+        metadata,
     };
 
     let config = get_lock_config(&bsq, &configuration).map_err(|err| {

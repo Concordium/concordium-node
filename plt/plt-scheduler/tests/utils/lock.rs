@@ -66,6 +66,7 @@ pub fn create_lock(
                 keep_alive: config.keep_alive,
                 memo: None,
             }),
+            metadata: None,
         })],
     };
 

@@ -245,6 +245,7 @@ fn test_lock_send_allows_any_recipient() {
                 keep_alive: false,
                 memo: None,
             }),
+            metadata: None,
         }),
         lock_fund(
             token_id.clone(),

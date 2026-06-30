@@ -5,10 +5,10 @@ use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
-    common::{cbor, types::TransactionTime},
+    common::{cbor, cbor::value::Value, types::TransactionTime},
     protocol_level_locks::{
         LockConfig, LockController, LockControllerSimpleV0, LockControllerSimpleV0Capability,
-        LockControllerSimpleV0Grant, LockId, LockRecipients,
+        LockControllerSimpleV0Grant, LockId, LockMetadata, LockRecipients,
     },
     protocol_level_tokens::{
         MetadataUrl, RawCbor, TokenAmount, TokenId, TokenModuleInitializationParameters,
@@ -20,6 +20,7 @@ use concordium_base::{
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
+use std::collections::HashMap;
 
 mod utils;
 
@@ -53,6 +54,11 @@ fn test_create_simple_lock() {
         .execute_chain_update(&mut context, payload)
         .expect("create pltX");
 
+    let metadata = LockMetadata {
+        name: Some("Test lock".to_string()),
+        description: Some("Lock created in scheduler test".to_string()),
+        additional: HashMap::from([("issuer".to_string(), Value::Text("Concordium".to_string()))]),
+    };
     let config = LockConfig {
         recipients: LockRecipients::Limited(vec![account_1.into()]),
         expiry: TransactionTime::from_seconds(1000),
@@ -68,6 +74,7 @@ fn test_create_simple_lock() {
             keep_alive: false,
             memo: None,
         }),
+        metadata: Some(metadata.encode_raw_cbor()),
     };
     let operations = vec![lock_create(config.clone())];
     let payload = MetaUpdatePayload {
@@ -89,13 +96,24 @@ fn test_create_simple_lock() {
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
     assert_eq!(events.len(), 1);
+    let lock_id = LockId::new(account_index_1, 1, 0);
     assert_eq!(
         events[0],
         BlockItemEvent::LockCreated(LockCreateEvent {
-            lock_id: LockId::new(account_index_1, 1, 0),
+            lock_id: lock_id.clone(),
             lock_config: RawCbor::from(cbor::cbor_encode(&config))
         })
     );
+
+    let stored_metadata = block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .unwrap()
+        .lock_configuration(&context)
+        .unwrap()
+        .metadata
+        .clone();
+    assert_eq!(stored_metadata, Some(metadata.encode_raw_cbor()));
 }
 
 #[test]
@@ -140,6 +158,7 @@ fn test_create_any_recipient_lock() {
             keep_alive: false,
             memo: None,
         }),
+        metadata: None,
     };
     let operations = vec![lock_create(config.clone())];
     let payload = MetaUpdatePayload {
