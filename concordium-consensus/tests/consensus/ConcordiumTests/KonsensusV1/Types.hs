@@ -9,6 +9,7 @@ module ConcordiumTests.KonsensusV1.Types where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Either (isLeft)
+import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
@@ -30,7 +31,6 @@ import Concordium.Types
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Option
 import Concordium.Types.Transactions
-import qualified Data.FixedByteString as FBS
 
 import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified ConcordiumTests.KonsensusV1.Common as Common

@@ -12,6 +12,20 @@
 
 module Concordium.KonsensusV1.Types where
 
+import Control.Monad
+import Data.Bits
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BSS
+import qualified Data.Map.Strict as Map
+import Data.Maybe
+import qualified Data.ProtoLens.Combinators as Proto
+import Data.Serialize
+import qualified Data.Set as Set
+import Data.Singletons
+import qualified Data.Vector as Vector
+import Data.Word
+import Lens.Micro.Platform
+
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -31,19 +45,6 @@ import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-import Control.Monad
-import Data.Bits
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Short as BSS
-import qualified Data.Map.Strict as Map
-import Data.Maybe
-import qualified Data.ProtoLens.Combinators as Proto
-import Data.Serialize
-import qualified Data.Set as Set
-import Data.Singletons
-import qualified Data.Vector as Vector
-import Data.Word
-import Lens.Micro.Platform
 import qualified Proto.V2.Concordium.Types as Proto
 import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
@@ -260,9 +261,8 @@ instance Serialize FinalizerSet where
         when (toInteger byteCount > toInteger remainingBytes) $
             fail "FinalizerSet length exceeds remaining input"
         bytes <- getByteString (fromIntegral byteCount)
-        unless (BS.null bytes) $
-            when (BS.head bytes == 0) $
-                fail "unexpected 0 byte"
+        when (not (BS.null bytes) && BS.head bytes == 0) $
+            fail "unexpected 0 byte"
         return $! FinalizerSet $! BSS.toShort $! BS.reverse bytes
 
 -- | Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
