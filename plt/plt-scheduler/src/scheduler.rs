@@ -2,7 +2,6 @@
 //! transaction and update instruction payloads.
 
 use plt_block_state::failure::BlockStateFailure;
-use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
 pub mod p11;
 pub mod p9;
@@ -18,24 +17,6 @@ pub enum TransactionExecutionError {
     /// Error in the block state. This is generally an error that should never happen and is unrecoverable.
     #[error("Block state failure: {0}")]
     BlockStateFailure(#[from] BlockStateFailure),
-}
-
-/// [`BlockStateFailure`] and [`TransactionRejectReason`] flattened into one error
-/// for convenience.
-#[derive(Debug, thiserror::Error)]
-pub enum TransactionFailure {
-    /// The transaction was rejected, but can be included in a block.
-    #[error("Transaction rejected")]
-    RejectReason(TransactionRejectReason),
-    /// An unrecoverable error occurred in block state when executing the transaction.
-    #[error("Block state failure: {0}")]
-    BlockStateFailure(#[from] BlockStateFailure),
-}
-
-impl From<TransactionRejectReason> for TransactionFailure {
-    fn from(reject_reason: TransactionRejectReason) -> Self {
-        Self::RejectReason(reject_reason)
-    }
 }
 
 /// Account with given id does not exist
