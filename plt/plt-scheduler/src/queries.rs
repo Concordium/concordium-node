@@ -2,6 +2,7 @@
 
 use crate::locks;
 
+use crate::failure::{HigherLevelProtocolError, WithBlockStateFailure, WithBlockStateResult};
 use concordium_base::common::cbor::cbor_encode;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::RawCbor;
@@ -9,9 +10,7 @@ use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::{
-    BlockStateResult, HigherLevelProtocolError, WithBlockStateFailure, WithBlockStateResult,
-};
+use plt_block_state::failure::BlockStateResult;
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.

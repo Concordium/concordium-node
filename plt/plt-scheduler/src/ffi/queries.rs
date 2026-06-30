@@ -4,7 +4,7 @@
 
 use crate::ffi::status;
 use crate::queries::QueryLockError;
-use crate::{protocol_level_tokens, queries};
+use crate::{failure, protocol_level_tokens, queries};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
@@ -15,7 +15,6 @@ use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure;
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,

@@ -1,3 +1,5 @@
+use crate::failure::WithBlockStateResult;
+use crate::locks::lock_controller::{LockController, LockOperation};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::CborHolderAccount;
@@ -6,13 +8,11 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_block_state::failure::{BlockStateFailure, BlockStateResult, WithBlockStateResult};
+use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerSimpleV0, LockControllerSimpleV0Grant,
 };
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
-
-use crate::locks::lock_controller::{LockController, LockOperation};
 
 impl LockController for LockControllerSimpleV0 {
     fn validate_operation(

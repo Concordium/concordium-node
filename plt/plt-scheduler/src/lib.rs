@@ -1,4 +1,5 @@
 pub mod block_state_polymorph;
+pub mod failure;
 #[cfg(feature = "ffi")]
 mod ffi;
 mod locks;

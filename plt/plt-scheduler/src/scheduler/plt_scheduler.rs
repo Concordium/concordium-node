@@ -1,6 +1,7 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::failure::WithBlockStateResult;
 use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
 use crate::protocol_level_tokens::balance_operations;
@@ -25,7 +26,6 @@ use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::WithBlockStateResult;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockConfiguration, LockControllerConfig, LockRecipients,
 };

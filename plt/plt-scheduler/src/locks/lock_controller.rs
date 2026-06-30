@@ -1,5 +1,6 @@
 //! Runtime interface for protocol-level lock controllers.
 
+use crate::failure::WithBlockStateResult;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
@@ -7,7 +8,7 @@ use concordium_base::protocol_level_tokens::meta_operations::{
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::{BlockStateResult, WithBlockStateResult};
+use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerConfig, LockControllerSimpleV0,
 };
