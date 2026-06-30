@@ -205,8 +205,7 @@ migrate ::
     t m (ForeignPLTBlockStatePtr pv)
 migrate currentState = do
     oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
-    newStoreCallback <- snd <$> BlobStore.getCallbacks
-    newLoadCallback <- fst <$> BlobStore.getCallbacks
+    (newLoadCallback, newStoreCallback) <- BlobStore.getCallbacks
     let newSProtocolVersion = Types.protocolVersion @pv
     liftIO $ FFI.alloca $ \newStateDestPtr -> do
         status <-

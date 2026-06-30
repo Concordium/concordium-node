@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- | Tests for the Rust-maintained PLT block state primarily to smoke test
--- the FFI interface..
+-- the FFI interface.
 module GlobalStateTests.RustPLTBlockState (tests) where
 
 import Control.Monad.IO.Class
@@ -52,5 +52,5 @@ testMigrate = do
 
 tests :: Spec
 tests = describe "GlobalStateTests.RustPLTBlockState" $ do
-    it "storeLoadHashCache" testStoreLoadHashCache
-    it "migrate" testMigrate
+    it "smoke test store, load, hash and cache FFI calls" testStoreLoadHashCache
+    it "smoke test migrate FFI call" testMigrate
