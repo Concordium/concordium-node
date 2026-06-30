@@ -67,23 +67,6 @@ impl PersistentBlockState {
             ProtocolVersion::P11 => Self::P11(Loadable::load_from_buffer(buffer, loader)?),
         })
     }
-
-    /// Migrate the PLT block state from one blob store to another.
-    ///
-    /// # Arguments
-    ///
-    /// - `from_loader` Blob store loader for the blob store we are migrating from.
-    /// - `to_storer` Blob store storer for the blob store we are migrating to.
-    /// - `to_protocol_version` Protocol version for the block state to migrate to.
-    pub fn migrate(
-        &self,
-        _from_loader: impl BlobStoreLoad,
-        _to_storer: impl BlobStoreStore,
-        _to_protocol_version: ProtocolVersion,
-    ) -> Self {
-        // todo implement as part of https://linear.app/concordium/issue/PSR-91/implement-migration-of-rust-block-state-and-block-state-types
-        todo!()
-    }
 }
 
 impl Storable for PersistentBlockState {

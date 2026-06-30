@@ -1,7 +1,7 @@
 use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, Storable, StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
@@ -166,6 +166,47 @@ impl Hashable for PersistentTokenP9 {
         let state = hash::hash_of_serialization((key_value_state, self.circulating_supply.0));
 
         Ok(hash::hash_of_hashes(config, state))
+    }
+}
+
+impl BlobStoreMovable for PersistentTokenP9 {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_configuration = self.configuration.move_blob_store(from_loader, to_storer)?;
+        let new_key_value_state = self
+            .key_value_state
+            .move_blob_store(from_loader, to_storer)?;
+
+        Ok(Self {
+            configuration: new_configuration,
+            circulating_supply: self.circulating_supply,
+            key_value_state: new_key_value_state,
+        })
+    }
+}
+
+impl BlobStoreMovable for PersistentTokensP9 {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.tokens.move_blob_store(from_loader, to_storer)?;
+        let new_token_id_map = self.token_id_map.clone();
+
+        Ok(Self {
+            tokens: new_tokens,
+            token_id_map: new_token_id_map,
+        })
     }
 }
 

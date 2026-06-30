@@ -17,7 +17,7 @@ use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::entity::{EntityContext, EntityContextTypesWitness};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateQueryCallbacks, GetAccountIndexByAddressCallback,
@@ -27,16 +27,9 @@ use plt_block_state::ffi::block_state_callbacks::{
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
 
-/// Context with no external block state (will panic if accessed).
-#[derive(Debug)]
-pub struct FfiQueryBlockStateTypes;
-
-impl EntityContextTypes for FfiQueryBlockStateTypes {
-    type ExternalBlockState = ExternalBlockStateQueryCallbacks;
-    type Loader = LoadCallback;
-}
-
-pub type FfiQueryEntityContext = EntityContext<FfiQueryBlockStateTypes>;
+/// Context with write access to external block state (will panic if accessed).
+pub type FfiQueryEntityContext =
+    EntityContext<EntityContextTypesWitness<ExternalBlockStateQueryCallbacks, LoadCallback>>;
 
 /// C-binding for calling [`queries::query_plt_list`].
 ///
@@ -96,7 +89,7 @@ extern "C" fn ffi_query_plt_list(
         };
         let context = FfiQueryEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let token_ids_res = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
@@ -199,7 +192,7 @@ extern "C" fn ffi_query_token_info(
         };
         let context = FfiQueryEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
         let token_id = String::from_utf8(token_id_bytes.to_vec())
@@ -308,7 +301,7 @@ extern "C" fn ffi_query_token_authorizations(
         };
         let context = FfiQueryEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let token_id_bytes = unsafe { std::slice::from_raw_parts(token_id, token_id_len) };
         let token_id = String::from_utf8(token_id_bytes.to_vec())
@@ -424,7 +417,7 @@ extern "C" fn ffi_query_token_account_infos(
         };
         let context = FfiQueryEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let token_account_infos_res = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
@@ -533,7 +526,7 @@ extern "C" fn ffi_query_lock_list(
         };
         let context = FfiQueryEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let lock_ids = match unsafe { &*block_state } {
             PersistentBlockState::P9(persistent) => {
@@ -644,7 +637,7 @@ extern "C" fn ffi_query_lock_info(
         };
         let context = FfiQueryEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         // The Haskell side serializes a `LockId` as three big-endian `u64`s, exactly 24 bytes.
         let lock_id_bytes = unsafe { lock_id.as_ref().expect("lock_id is a null pointer") };

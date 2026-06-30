@@ -1,5 +1,7 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
-use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::persistent::blob_store::{
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, Storable,
+};
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
 use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
@@ -44,11 +46,26 @@ impl Hashable for PersistentBlockStateP9 {
     }
 }
 
+impl BlobStoreMovable for PersistentBlockStateP9 {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_tokens = self.tokens.move_blob_store(from_loader, to_storer)?;
+
+        Ok(PersistentBlockStateP9 { tokens: new_tokens })
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::entity::block_state::p9::BlockStateP9;
-    use crate::entity::entity_test_stub::NoExternalBlockStateTypes;
-    use crate::entity::{EntityContext, entity_test_stub};
+    use crate::entity::entity_test_stub;
+    use crate::entity::entity_test_stub::StubbedNoExternalEntityContext;
     use crate::external::test_stub::UnreachableExternalBlockState;
     use crate::persistent::blob_store;
     use crate::persistent::blob_store::BlobStoreLocation;
@@ -81,12 +98,12 @@ mod test {
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 1], vec![0, 0])
+            .insert_value(&context.store, &[0, 1], vec![0, 0])
             .unwrap();
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 2], vec![1, 1])
+            .insert_value(&context.store, &[0, 2], vec![1, 1])
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
@@ -97,7 +114,7 @@ mod test {
         let _token_index2 = block_state.create_token(&context, configuration2.clone());
 
         // Store and load block state
-        let blob_ref = blob_store::store_to_store(&mut context.loader, block_state.persistent);
+        let blob_ref = blob_store::store_to_store(&mut context.store, block_state.persistent);
         let block_state = entity_test_stub::load_block_state_p9(&context, blob_ref);
 
         // Assert loaded state
@@ -117,12 +134,12 @@ mod test {
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 1]);
+            .lookup_value(&context.store, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 2]);
+            .lookup_value(&context.store, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
         let token2 = block_state
             .token_by_id(&context, &"token2".parse().unwrap())
@@ -146,7 +163,7 @@ mod test {
         let persistent_block_state = PersistentBlockStateP9::default();
 
         // Assert hash
-        let hash = persistent_block_state.hash(&context.loader).expect("hash");
+        let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
             "c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05"
@@ -176,12 +193,12 @@ mod test {
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 1], vec![0, 0])
+            .insert_value(&context.store, &[0, 1], vec![0, 0])
             .unwrap();
         token1
             .token_p9_base
             .mutable_key_value_state
-            .insert_value(&context.loader, &[0, 2], vec![1, 1])
+            .insert_value(&context.store, &[0, 2], vec![1, 1])
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
@@ -192,7 +209,7 @@ mod test {
         let _token2 = block_state.create_token(&context, configuration2.clone());
 
         // Assert hash
-        let hash = block_state.persistent.hash(&context.loader).expect("hash");
+        let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
             "d202e9153fea3fdd22c594be21d471c07e9619abc0baad3faca5c81f0bb1504b"
@@ -204,9 +221,9 @@ mod test {
     #[test]
     fn fixture_test_storage_empty() {
         let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
-        let context = EntityContext::<NoExternalBlockStateTypes> {
+        let context = StubbedNoExternalEntityContext {
             external: UnreachableExternalBlockState,
-            loader: store,
+            store,
         };
 
         // Load block state
@@ -222,9 +239,9 @@ mod test {
     fn fixture_test_storage_simple_tokens() {
         let store = BlobStoreStub(hex::decode("000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155").unwrap());
 
-        let context = EntityContext::<NoExternalBlockStateTypes> {
+        let context = StubbedNoExternalEntityContext {
             external: UnreachableExternalBlockState,
-            loader: store,
+            store,
         };
 
         // Load block state
@@ -252,12 +269,12 @@ mod test {
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 1]);
+            .lookup_value(&context.store, &[0, 1]);
         assert_eq!(value, Some(vec![0, 0]));
         let value = token1
             .token_p9_base
             .mutable_key_value_state
-            .lookup_value(&context.loader, &[0, 2]);
+            .lookup_value(&context.store, &[0, 2]);
         assert_eq!(value, Some(vec![1, 1]));
         let token2 = block_state
             .token_by_id(&context, &"token2".parse().unwrap())

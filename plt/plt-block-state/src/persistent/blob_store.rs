@@ -25,12 +25,30 @@ pub trait BlobStoreStore {
     fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobStoreLocation;
 }
 
+impl<T: BlobStoreStore> BlobStoreStore for &mut T {
+    fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobStoreLocation {
+        (**self).store_raw(data)
+    }
+}
+
 /// Trait implemented by types that can load data from given locations.
 /// Dual to [`BlobStoreStore`].
 pub trait BlobStoreLoad {
     /// Load the provided value from the given location. The implementation of
     /// this should match [BlobStoreStore::store_raw].
     fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8>;
+}
+
+impl<T: BlobStoreLoad> BlobStoreLoad for &T {
+    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
+        (**self).load_raw(location)
+    }
+}
+
+impl<T: BlobStoreLoad> BlobStoreLoad for &mut T {
+    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
+        (**self).load_raw(location)
+    }
 }
 
 /// A trait implemented by types that can be loaded from a [blob store](BlobStoreLoad).
@@ -181,6 +199,51 @@ impl<T> ParseResultExt<T> for common::ParseResult<T> {
                 err
             ))
         })
+    }
+}
+
+/// Trait implemented by persistent block state types to support migration when protocol version increments.
+/// Such a migration moves the block state to a new blob store, hence the name of the trait.
+/// Moving to a new blob store must recursively store all [blob references](super::blob_reference)
+/// into the new blob store we migrate to (the blob store of the new protocol version).
+///
+/// Since each protocol version has its own blob store, moving the block state is always needed at
+/// protocol update, even if the block state value has no data model changes. Any changes to the data
+/// model are handled at a higher level than the present trait. The present trait only implements a
+/// 1-1 move of the type implementing it.
+pub trait BlobStoreMovable {
+    /// Move the value from the blob store it is currently stored in
+    /// (`from_store`), to the new blob store for the next protocol version (`to_store`).
+    /// Notice that the value will still be persisted in the current store, it should not
+    /// be removed from the store.
+    ///
+    /// Moving the value must recursively move all [blob references](super::blob_reference) the
+    /// value is composed of to the new blob store, including storing the referenced values in the
+    /// new blob store.
+    /// The function returns the new, moved value, that represents the value on the new store,
+    /// and whose [blob references](super::blob_reference) points to the new blob store.
+    ///
+    /// # Arguments
+    ///
+    /// - `from_store`: loader for the blob store that the value is currently stored in
+    ///   (the blob store we migrate from)
+    /// - `to_store`: storer for the blob store that we migrate to
+    fn move_blob_store(
+        &self,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized;
+}
+
+impl<T: Serial + Clone> BlobStoreMovable for StoreSerialized<T> {
+    fn move_blob_store(
+        &self,
+        _from_loader: &impl BlobStoreLoad,
+        _to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self> {
+        Ok(self.clone())
     }
 }
 

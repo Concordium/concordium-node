@@ -30,7 +30,7 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     };
     let (lock_index, updated_locks) = persistent_locks
         .locks
-        .insert_value(&context.loader, Some(persistent))?;
+        .insert_value(&context.store, Some(persistent))?;
     persistent_locks.locks = updated_locks;
     let existing = persistent_locks
         .lock_id_map
@@ -55,7 +55,7 @@ pub(crate) fn delete_lock<C: EntityContextTypes>(
     };
     persistent_locks.locks = persistent_locks
         .locks
-        .update_value(&context.loader, lock_index, |_| Ok(None))?
+        .update_value(&context.store, lock_index, |_| Ok(None))?
         .ok_or_else(|| {
             BlockStateFailure::Invariant(format!("Lock not found by index: {:?}", lock_id))
         })?;
@@ -69,7 +69,7 @@ pub(crate) fn update_lock<C: EntityContextTypes>(
 ) -> BlockStateResult<()> {
     persistent_locks.locks = persistent_locks
         .locks
-        .update_value(&context.loader, lock.lock_index, |_| {
+        .update_value(&context.store, lock.lock_index, |_| {
             Ok(Some(lock.persistent))
         })?
         .ok_or_else(|| {
@@ -88,7 +88,7 @@ pub(crate) fn lock_by_id<C: EntityContextTypes>(
     };
     let Some(persistent) = persistent_locks
         .locks
-        .lookup_value(&context.loader, lock_index)?
+        .lookup_value(&context.store, lock_index)?
     else {
         return Err(BlockStateFailure::Invariant(format!(
             "No lock entry found for lock index {} ({lock_id})",
@@ -126,7 +126,7 @@ impl LockP11 {
     ) -> BlockStateResult<utils::Cow<'_, LockConfiguration>> {
         self.persistent
             .configuration
-            .value(&context.loader)
+            .value(&context.store)
             .map(|cow| cow.cow_project())
     }
 
