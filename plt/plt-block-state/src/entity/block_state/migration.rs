@@ -13,6 +13,8 @@ pub mod p9_to_p10;
 ///
 /// # Arguments
 ///
+/// - `block_state` Block state to migrate. Must be of a protocol version one lower than
+///   `to_protocol_version`.
 /// - `from_store` Blob store loader for the blob store we are migrating from.
 /// - `to_store` Blob store loader and storer for the blob store we are migrating to.
 /// - `to_protocol_version` Protocol version for the block state to migrate to.om

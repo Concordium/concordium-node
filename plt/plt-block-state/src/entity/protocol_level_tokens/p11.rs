@@ -216,13 +216,6 @@ const ALL_ROLES: &[TokenAdminRole] = &[
     TokenAdminRole::UpdateMetadata,
 ];
 
-/// List roles which are unaffected by which features are enabled.
-pub const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
-    TokenAdminRole::UpdateAdminRoles,
-    TokenAdminRole::Pause,
-    TokenAdminRole::UpdateMetadata,
-];
-
 /// Convert a role into the bitmask with 1 in the position of the specific role and zero every else.
 const fn role_bitmask(role: TokenAdminRole) -> u16 {
     let bitshift = match role {

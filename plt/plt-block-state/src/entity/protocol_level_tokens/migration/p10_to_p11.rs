@@ -1,5 +1,5 @@
 use crate::entity::protocol_level_tokens::p9::TokenP9Base;
-use crate::entity::protocol_level_tokens::p11::{TokenP11, UNIVERSAL_ROLES};
+use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{EntityContext, EntityContextTypesWitness};
 use crate::external::test_stub::UnreachableExternalBlockState;
 use crate::failure::{BlockStateFailure, BlockStateResult};
@@ -42,9 +42,16 @@ pub fn migrate_from_p10_to_p11(
             },
         };
 
+        /// List new roles on P11 which are unaffected by which features are enabled.
+        const NEW_UNIVERSAL_ROLES_P11: &[TokenAdminRole] = &[
+            TokenAdminRole::UpdateAdminRoles,
+            TokenAdminRole::Pause,
+            TokenAdminRole::UpdateMetadata,
+        ];
+
         // The governance account should hold every role, except for disabled features, so we build a
         // list of every enabled role and the mandatory roles.
-        let mut enabled_roles = Vec::from(UNIVERSAL_ROLES);
+        let mut enabled_roles = Vec::from(NEW_UNIVERSAL_ROLES_P11);
 
         if new_token.token_p9_base.has_allow_list(&to_context) {
             enabled_roles.push(TokenAdminRole::UpdateAllowList);
