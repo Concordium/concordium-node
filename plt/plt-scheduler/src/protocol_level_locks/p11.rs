@@ -1,6 +1,7 @@
 use crate::failure::WithBlockStateResult;
-use crate::protocol_level_locks::lock_controller::LockController;
-use crate::protocol_level_locks::{lock_configuration::get_lock_config, lock_controller};
+use crate::protocol_level_locks::{
+    lock_configuration, lock_configuration::get_lock_config, lock_controller,
+};
 use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
 use crate::protocol_level_tokens::token_module::{
     TokenUpdateError, check_transfer_constraints, token_update_error_internal_to_external,
@@ -67,13 +68,13 @@ pub fn query_lock_info<C: EntityContextTypes>(
 
     // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
     // by looking up each account's canonical address.
-    let recipients = super::lock_configuration::get_recipients(context, &configuration)?;
+    let recipients = lock_configuration::get_recipients(context, &configuration)?;
 
     // Convert the lock controller configuration into the CBOR `LockController` shape used
     // by the `lock-info` payload. Variant-specific resolution (e.g. expanding grant
     // `AccountIndex`es to `CborHolderAccount`) lives on the per-variant
     // `crate::locks::lock_controller::LockController` impl.
-    let controller = configuration.controller.to_cbor_controller(context)?;
+    let controller = lock_controller::to_cbor_controller(context, &configuration.controller)?;
 
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
@@ -197,7 +198,8 @@ fn execute_lock_fund<C: EntityContextTypes>(
         );
     }
 
-    lock_configuration.controller.validate_operation(
+    lock_controller::validate_operation(
+        &lock_configuration.controller,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Fund(details.clone()),
@@ -220,6 +222,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         raw_amount,
         memo,
     )? {
+        // todo ar
         Ok(is_new_holder) => is_new_holder,
         Err(err) => {
             return Err(token_balance_insufficient_reject_reason(
@@ -289,6 +292,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         &recipient,
         recipient_address,
     ) {
+        // todo ar
         let err = token_update_error_internal_to_external(
             &token_configuration,
             operation_index,
@@ -309,7 +313,8 @@ fn execute_lock_send<C: EntityContextTypes>(
         .into());
     }
 
-    lock_configuration.controller.validate_operation(
+    lock_controller::validate_operation(
+        &lock_configuration.controller,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Send(details.clone()),
@@ -381,7 +386,8 @@ fn execute_lock_return<C: EntityContextTypes>(
         .account_by_address(&source_address)
         .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
 
-    lock_configuration.controller.validate_operation(
+    lock_controller::validate_operation(
+        &lock_configuration.controller,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Return(details.clone()),
@@ -444,7 +450,8 @@ fn execute_lock_create<C: EntityContextTypes>(
         controller: controller_config,
         metadata,
     } = details.config;
-    let controller = LockController::new(context, block_state, controller_config)?;
+    let controller =
+        lock_controller::from_cbor_controller(context, block_state, controller_config)?;
 
     let recipients = match recipients {
         CborLockRecipients::Any => LockRecipients::Any,
@@ -501,7 +508,8 @@ fn execute_lock_cancel<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        lock_configuration.controller.validate_operation(
+        lock_controller::validate_operation(
+            &lock_configuration.controller,
             transaction_execution.sender_account_address(),
             transaction_execution.sender_account(),
             &lock_controller::LockOperation::Cancel(details),
