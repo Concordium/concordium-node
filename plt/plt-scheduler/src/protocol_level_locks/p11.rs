@@ -1,24 +1,26 @@
 use crate::failure::WithBlockStateResult;
 use crate::protocol_level_locks::lock_controller::LockController;
 use crate::protocol_level_locks::{lock_configuration::get_lock_config, lock_controller};
-use crate::protocol_level_tokens::balance_operations;
 use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
 use crate::protocol_level_tokens::token_module::{
     TokenUpdateError, check_transfer_constraints, token_update_error_internal_to_external,
 };
+use crate::protocol_level_tokens::{balance_operations, token_module};
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_locks::LockRecipients as CborLockRecipients;
-use concordium_base::protocol_level_tokens::RawCbor;
+use concordium_base::protocol_level_locks::{
+    LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
+};
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaLockCancelDetails, MetaLockCreateDetails, MetaLockFundDetails,
     MetaLockReturnDetails, MetaLockSendDetails,
 };
+use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor};
 use concordium_base::protocol_level_tokens::{
-    DeserializationFailureRejectReason, TokenAmount as BaseTokenAmount,
-    TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
+    DeserializationFailureRejectReason, TokenAmount, TokenBalanceInsufficientRejectReason,
+    TokenModuleRejectReason,
 };
 use concordium_base::transactions;
 use plt_block_state::entity::accounts::Accounts;
@@ -26,7 +28,8 @@ use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::BlockStateResult;
+use plt_block_state::external::AccountNotFoundByIndexError;
+use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockConfiguration, LockControllerConfig, LockRecipients,
 };
@@ -36,6 +39,7 @@ use plt_scheduler_types::types::reject_reasons::{
     EncodedTokenModuleRejectReason, TransactionRejectReason,
 };
 use plt_scheduler_types::types::tokens::RawTokenAmount;
+use std::collections::BTreeMap;
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.
@@ -49,14 +53,10 @@ pub fn query_lock_list<C: EntityContextTypes>(
     block_state.lock_list(context)
 }
 
-/// Assemble the [`LockInfo`] CBOR payload for a lock.
+/// Query [`LockInfo`] a lock.
 ///
-/// Thin orchestrator: resolves `lock_id` to a [`LockConfiguration`] via the block state
-/// and delegates payload assembly to
-/// [`crate::protocol_level_locks::lock_configuration::LockInfoQuery::query_info`].
-///
-/// [`LockInfo`]: concordium_base::protocol_level_locks::LockInfo
-/// [`LockConfiguration`]: plt_block_state::block_state::types::protocol_level_locks::LockConfiguration
+/// The function builds the [`LockInfo`] from the locks static [`LockConfiguration`] and
+/// the non-static per-`(account, token)` balances held by the lock.
 pub fn query_lock_info<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
@@ -64,8 +64,70 @@ pub fn query_lock_info<C: EntityContextTypes>(
 ) -> WithBlockStateResult<RawCbor, LockNotFoundByIdError> {
     let lock = block_state.lock_by_id(context, lock_id)??;
     let configuration = lock.lock_configuration(context)?;
-    let lock_info =
-        super::lock_configuration::get_lock_info(context, block_state, &lock, &configuration)?;
+
+    // Resolve recipients (block-state `AccountIndex`es) into `CborHolderAccount` values
+    // by looking up each account's canonical address.
+    let recipients = super::lock_configuration::get_recipients(context, &configuration)?;
+
+    // Convert the lock controller configuration into the CBOR `LockController` shape used
+    // by the `lock-info` payload. Variant-specific resolution (e.g. expanding grant
+    // `AccountIndex`es to `CborHolderAccount`) lives on the per-variant
+    // `crate::locks::lock_controller::LockController` impl.
+    let controller = configuration.controller.to_cbor_controller(context)?;
+
+    // Group the tracked `(account, token)` balances by account so we emit a single
+    // `LockAccountFunds` entry per account.
+    let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
+    for (account_index, token_index) in lock.lock_balance_refs() {
+        let token = block_state.token_by_index(context, token_index)?;
+        let token_configuration = token.token_p9_base.token_configuration(context)?;
+
+        // for each locked balance record for the lock, get the locked token amount recorded in the
+        // account state of the token.
+        let raw_balance = token_module::query_locked_balance(
+            context,
+            &token,
+            account_index,
+            &configuration.lock_id,
+        )?;
+        let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
+        funds_by_account
+            .entry(account_index)
+            .or_default()
+            .push(LockedTokenAmount {
+                token: token_configuration.token_id,
+                amount,
+            });
+    }
+
+    // Resolve the account addresses for the accounts holding locked funds
+    let funds: Vec<LockAccountFunds> = funds_by_account
+        .into_iter()
+        .map(|(account_index, amounts)| {
+            let with_addr = context.account_by_index(account_index).map_err(
+                |_err: AccountNotFoundByIndexError| {
+                    BlockStateFailure::Invariant(format!(
+                        "account index {} returned by `lock_balances` does not exist",
+                        account_index
+                    ))
+                },
+            )?;
+            Ok(LockAccountFunds {
+                account: CborHolderAccount::from(with_addr.canonical_account_address),
+                amounts,
+            })
+        })
+        .collect::<Result<_, BlockStateFailure>>()?;
+
+    let lock_info = LockInfo {
+        lock: configuration.lock_id.clone(),
+        recipients,
+        expiry: configuration.expiry,
+        controller,
+        metadata: configuration.metadata.clone(),
+        funds,
+    };
+
     Ok(RawCbor::from(cbor::cbor_encode(&lock_info)))
 }
 
@@ -500,7 +562,7 @@ fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
 
 fn parse_raw_amount(
     token_configuration: &TokenConfiguration,
-    amount: BaseTokenAmount,
+    amount: TokenAmount,
     operation_index: usize,
 ) -> Result<RawTokenAmount, TransactionRejectReason> {
     if amount.decimals() != token_configuration.decimals {
@@ -562,14 +624,11 @@ fn token_balance_insufficient_reject_reason(
     let (reason_type, details) =
         TokenModuleRejectReason::TokenBalanceInsufficient(TokenBalanceInsufficientRejectReason {
             index: operation_index as u64,
-            available_balance: BaseTokenAmount::from_raw(
+            available_balance: TokenAmount::from_raw(
                 error.available.0,
                 token_configuration.decimals,
             ),
-            required_balance: BaseTokenAmount::from_raw(
-                error.required.0,
-                token_configuration.decimals,
-            ),
+            required_balance: TokenAmount::from_raw(error.required.0, token_configuration.decimals),
         })
         .encode_reject_reason();
 
