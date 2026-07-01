@@ -1,29 +1,32 @@
-use concordium_base::base::AccountIndex;
+use crate::failure::WithBlockStateResult;
+use crate::locks::lock_controller::{LockController, LockOperation};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
-use concordium_base::protocol_level_tokens::{CborHolderAccount, TokenId};
-use plt_block_state::block_state_interface::BlockStateQuery;
+use concordium_base::protocol_level_tokens::CborHolderAccount;
+use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
-use plt_block_state::external::AccountNotFoundByIndexError;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockControllerSimpleV0, LockControllerSimpleV0Grant,
 };
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
-use crate::locks::lock_controller::{LockController, LockOperation};
-
 impl LockController for LockControllerSimpleV0 {
-    fn validate_operation<BSQ: BlockStateQuery>(
+    fn validate_operation(
         &self,
-        bsq: &BSQ,
         sender_address: AccountAddress,
-        sender: &BSQ::Account,
+        sender: &Account,
         operation: &LockOperation,
     ) -> Result<(), TransactionRejectReason> {
-        let sender_index = bsq.account_index(sender);
         match operation {
             LockOperation::Fund(fund_details) => {
-                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Fund) {
+                if !self.has_role(
+                    sender.account_index(),
+                    LockControllerSimpleV0Capability::Fund,
+                ) {
                     return Err(TransactionRejectReason::LockFundNotAuthorized(
                         fund_details.lock.clone(),
                         sender_address,
@@ -37,7 +40,10 @@ impl LockController for LockControllerSimpleV0 {
                 }
             }
             LockOperation::Send(send_details) => {
-                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Send) {
+                if !self.has_role(
+                    sender.account_index(),
+                    LockControllerSimpleV0Capability::Send,
+                ) {
                     return Err(TransactionRejectReason::LockSendNotAuthorized(
                         send_details.lock.clone(),
                         sender_address,
@@ -45,7 +51,10 @@ impl LockController for LockControllerSimpleV0 {
                 }
             }
             LockOperation::Return(return_details) => {
-                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Return) {
+                if !self.has_role(
+                    sender.account_index(),
+                    LockControllerSimpleV0Capability::Return,
+                ) {
                     return Err(TransactionRejectReason::LockReturnNotAuthorized(
                         return_details.lock.clone(),
                         sender_address,
@@ -53,7 +62,10 @@ impl LockController for LockControllerSimpleV0 {
                 }
             }
             LockOperation::Cancel(cancel_details) => {
-                if !self.has_role(sender_index, LockControllerSimpleV0Capability::Cancel) {
+                if !self.has_role(
+                    sender.account_index(),
+                    LockControllerSimpleV0Capability::Cancel,
+                ) {
                     return Err(TransactionRejectReason::LockCancelNotAuthorized(
                         cancel_details.lock.clone(),
                         sender_address,
@@ -64,16 +76,22 @@ impl LockController for LockControllerSimpleV0 {
         Ok(())
     }
 
-    fn to_cbor_controller<BSQ: BlockStateQuery>(
+    fn to_cbor_controller<C: EntityContextTypes>(
         &self,
-        bsq: &BSQ,
-    ) -> Result<concordium_base::protocol_level_locks::LockController, AccountNotFoundByIndexError>
-    {
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<concordium_base::protocol_level_locks::LockController> {
         let grants = self
             .grants
             .iter()
             .map(|grant| {
-                let with_addr = bsq.account_by_index(grant.account)?;
+                let with_addr = context.account_by_index(grant.account).map_err(
+                    |err: AccountNotFoundByIndexError| {
+                        BlockStateFailure::Invariant(format!(
+                            "Account persisted in lock controller grants not found: {}",
+                            err
+                        ))
+                    },
+                )?;
                 Ok(
                     concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                         account: CborHolderAccount::from(with_addr.canonical_account_address),
@@ -96,10 +114,11 @@ impl LockController for LockControllerSimpleV0 {
 
     type ControllerConfig = concordium_base::protocol_level_locks::LockControllerSimpleV0;
 
-    fn new<BSQ: BlockStateQuery>(
-        bsq: &BSQ,
+    fn new<C: EntityContextTypes>(
+        context: &EntityContext<C>,
+        block_state: &BlockStateP11,
         config: Self::ControllerConfig,
-    ) -> Result<Self, TransactionRejectReason>
+    ) -> WithBlockStateResult<Self, TransactionRejectReason>
     where
         Self: Sized,
     {
@@ -107,18 +126,34 @@ impl LockController for LockControllerSimpleV0 {
             .grants
             .into_iter()
             .map(|grant| {
-                let account_index = lookup_account_index(bsq, grant.account)?;
+                let account = context.account_by_address(&grant.account.address).map_err(
+                    |_err: AccountNotFoundByAddressError| {
+                        TransactionRejectReason::InvalidAccountReference(grant.account.address)
+                    },
+                )?;
+
                 Ok(LockControllerSimpleV0Grant {
-                    account: account_index,
+                    account: account.account_index(),
                     roles: grant.roles,
                 })
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<WithBlockStateResult<_, TransactionRejectReason>>()?;
+
         let tokens = config
             .tokens
             .into_iter()
-            .map(|token_id| lookup_token_id(bsq, token_id))
-            .collect::<Result<_, _>>()?;
+            .map(|token_id| {
+                // Check that token exists
+                let token = block_state.token_by_id(context, &token_id)?.map_err(
+                    |_err: TokenNotFoundByIdError| {
+                        TransactionRejectReason::NonExistentTokenId(token_id.clone())
+                    },
+                )?;
+
+                // Return canonical token id
+                Ok(token.token_p9_base.token_configuration(context)?.token_id)
+            })
+            .collect::<WithBlockStateResult<_, TransactionRejectReason>>()?;
 
         Ok(LockControllerSimpleV0 {
             grants,
@@ -126,37 +161,5 @@ impl LockController for LockControllerSimpleV0 {
             keep_alive: config.keep_alive,
             memo: config.memo,
         })
-    }
-}
-
-/// Look up the account index for a [`CborHolderAccount`]. If the account does
-/// not exist, a [`TransactionRejectReason::InvalidAccountReference`] is
-/// returned.
-pub fn lookup_account_index<BSQ: BlockStateQuery>(
-    block_state: &BSQ,
-    holder: CborHolderAccount,
-) -> Result<AccountIndex, TransactionRejectReason> {
-    match block_state.account_by_address(&holder.address) {
-        Ok(account) => Ok(block_state.account_index(&account)),
-        Err(_) => Err(TransactionRejectReason::InvalidAccountReference(
-            holder.address,
-        )),
-    }
-}
-
-/// Look up the token ID in the block state. If the token ID does not exist, a
-/// [`TransactionRejectReason::NonExistentTokenId`] is returned.
-/// Otherwise, this returns the canonical representation of the token ID.
-///
-/// TODO: Consider returning token index instead.
-pub fn lookup_token_id<BSQ: BlockStateQuery>(
-    block_state: &BSQ,
-    token_id: TokenId,
-) -> Result<TokenId, TransactionRejectReason> {
-    match block_state.token_by_id(&token_id) {
-        Ok(token) => Ok(block_state.token_configuration(&token).token_id),
-        Err(TokenNotFoundByIdError(_)) => {
-            Err(TransactionRejectReason::NonExistentTokenId(token_id))
-        }
     }
 }

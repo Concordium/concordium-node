@@ -23,7 +23,7 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     persistent_locks: &mut PersistentLocksP11,
     configuration: LockConfiguration,
 ) -> BlockStateResult<()> {
-    let lock_id = configuration.lock_id().clone();
+    let lock_id = configuration.lock_id.clone();
     let persistent = PersistentLockP11 {
         locked_balances: Default::default(),
         configuration: HashedCacheableRef::new(StoreSerialized(configuration)),

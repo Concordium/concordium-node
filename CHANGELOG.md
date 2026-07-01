@@ -2,6 +2,14 @@
 
 ## Unreleased changes
 
+- **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
+- Added lock metadata as part of lock configurations
+
+## 11.2.2 (Devnet)
+
+- Add support for lock configurations with "any" specified for the `recipients` field.
+- `tokenTransfer` and `tokenBurn` operations now correctly check the available balance of the token on the account.
+
 ## 11.2.1 (Devnet)
 
 - Add support for the following "meta update" operations:

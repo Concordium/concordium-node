@@ -23,9 +23,7 @@ pub trait SchedulerOperations {
         transaction_context: TransactionContext,
         sender_account: AccountIndex,
         payload: Payload,
-    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
-    where
-        EntityContext<C>: Clone;
+    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>;
 
     fn execute_chain_update<C: EntityContextTypes>(
         &mut self,
@@ -53,15 +51,11 @@ pub trait SchedulerOperations {
         token_id: &TokenId,
     ) -> Result<TokenAuthorizations, TokenNotFoundByIdError>;
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
-    where
-        EntityContext<C>: Clone;
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>;
 
     fn query_lock_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError>
-    where
-        EntityContext<C>: Clone;
+    ) -> Result<RawCbor, QueryLockError>;
 }

@@ -1,6 +1,7 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::failure::WithBlockStateResult;
 use crate::locks::lock_controller::LockController;
 use crate::locks::{get_lock_config, lock_controller};
 use crate::protocol_level_tokens::balance_operations;
@@ -8,11 +9,10 @@ use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError
 use crate::protocol_level_tokens::token_module::{
     TokenUpdateError, check_transfer_constraints, token_update_error_internal_to_external,
 };
-use crate::scheduler::TransactionFailure;
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor::{self};
-use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_locks::{LockId, LockRecipients as CborLockRecipients};
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaLockCancelDetails, MetaLockCreateDetails, MetaLockFundDetails,
     MetaLockReturnDetails, MetaLockSendDetails,
@@ -22,14 +22,12 @@ use concordium_base::protocol_level_tokens::{
     TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
 };
 use concordium_base::transactions;
-use plt_block_state::block_state::ExecutionTimeBlockStateP11;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::BlockStateFailure;
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfiguration, LockControllerConfig,
+    LockConfiguration, LockControllerConfig, LockRecipients,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{self, BlockItemEvent};
@@ -46,10 +44,7 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
     operation_index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     match lock_operation {
         LockOperation::Fund(details) => execute_lock_fund(
             context,
@@ -91,31 +86,23 @@ fn execute_lock_fund<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockFundDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
     let mut lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
     if lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
         return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id().clone()).into(),
+            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
         );
     }
 
-    lock_configuration.controller().validate_operation(
-        &bsq,
+    lock_configuration.controller.validate_operation(
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Fund(details.clone()),
@@ -134,7 +121,7 @@ where
         &mut token,
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
-        lock_configuration.lock_id(),
+        &lock_configuration.lock_id,
         raw_amount,
         memo,
     )? {
@@ -169,26 +156,19 @@ fn execute_lock_send<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockSendDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
     if lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
         return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id().clone()).into(),
+            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
         );
     }
 
@@ -220,19 +200,21 @@ where
             "transfer",
             err,
         )?;
-        return Err(token_update_error_reject_reason(&token_configuration, err));
+        return Err(token_update_error_reject_reason(&token_configuration, err).into());
     }
 
-    if !lock_configuration.is_recipient(&recipient.account_index()) {
+    if !lock_configuration
+        .recipients
+        .is_recipient(&recipient.account_index())
+    {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
-            lock_configuration.lock_id().clone(),
+            lock_configuration.lock_id.clone(),
             recipient_address,
         )
         .into());
     }
 
-    lock_configuration.controller().validate_operation(
-        &bsq,
+    lock_configuration.controller.validate_operation(
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Send(details.clone()),
@@ -249,7 +231,7 @@ where
         source_address,
         &recipient,
         recipient_address,
-        lock_configuration.lock_id(),
+        &lock_configuration.lock_id,
         raw_amount,
         memo,
     )?
@@ -283,26 +265,19 @@ fn execute_lock_return<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockReturnDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
     if lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
         return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id().clone()).into(),
+            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
         );
     }
 
@@ -311,8 +286,7 @@ where
         .account_by_address(&source_address)
         .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
 
-    lock_configuration.controller().validate_operation(
-        &bsq,
+    lock_configuration.controller.validate_operation(
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
         &lock_controller::LockOperation::Return(details.clone()),
@@ -331,7 +305,7 @@ where
         &mut token,
         source.account_index(),
         source_address,
-        lock_configuration.lock_id(),
+        &lock_configuration.lock_id,
         raw_amount,
         memo,
     )?
@@ -364,40 +338,45 @@ fn execute_lock_create<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     details: MetaLockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
-
-    let config = details.config;
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     let account_index = transaction_execution.sender_account().account_index();
     let sequence_number = transaction_execution.transaction_sequence_number();
     let creation_order = transaction_execution.next_lock_creation_order();
     let lock_id = LockId::new(account_index, sequence_number, creation_order);
-    let controller = LockController::new(&bsq, config.controller)?;
+    let concordium_base::protocol_level_locks::LockConfig {
+        recipients,
+        expiry,
+        controller: controller_config,
+        metadata,
+    } = details.config;
+    let controller = LockController::new(context, block_state, controller_config)?;
 
-    let recipients = config
-        .recipients
-        .iter()
-        .map(
-            |recipient| match context.account_by_address(&recipient.address) {
-                Ok(account) => Ok(account.account_index()),
-                Err(_) => Err(TransactionRejectReason::InvalidAccountReference(
-                    recipient.address,
-                )),
-            },
-        )
-        .collect::<Result<Vec<_>, TransactionRejectReason>>()?;
-    let configuration =
-        LockConfiguration::new(lock_id.clone(), recipients, config.expiry, controller);
+    let recipients = match recipients {
+        CborLockRecipients::Any => LockRecipients::Any,
+        CborLockRecipients::Limited(recipients) => {
+            let recipients = recipients
+                .into_iter()
+                .map(
+                    |recipient| match context.account_by_address(&recipient.address) {
+                        Ok(account) => Ok(account.account_index()),
+                        Err(_) => Err(TransactionRejectReason::InvalidAccountReference(
+                            recipient.address,
+                        )),
+                    },
+                )
+                .collect::<Result<Vec<_>, TransactionRejectReason>>()?;
+            LockRecipients::from(recipients)
+        }
+    };
+    let configuration = LockConfiguration {
+        lock_id: lock_id.clone(),
+        recipients,
+        expiry,
+        controller,
+        metadata,
+    };
 
-    let config = get_lock_config(&bsq, &configuration).map_err(|err| {
-        BlockStateFailure::Invariant(format!("Failed to get lock config for created lock: {err}"))
-    })?;
+    let config = get_lock_config(context, &configuration)?;
     let event = events::LockCreateEvent {
         lock_id: lock_id.clone(),
         lock_config: RawCbor::from(cbor::cbor_encode(&config)),
@@ -414,15 +393,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     details: MetaLockCancelDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> Result<(), TransactionFailure>
-where
-    EntityContext<C>: Clone,
-{
-    let bsq = ExecutionTimeBlockStateP11 {
-        block_state: block_state.clone(),
-        context: context.clone(),
-    };
-
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -432,11 +403,10 @@ where
     let memo: Option<transactions::Memo> = details.memo.clone().map(transactions::Memo::from);
 
     if !lock_configuration
-        .expiry()
+        .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        lock_configuration.controller().validate_operation(
-            &bsq,
+        lock_configuration.controller.validate_operation(
             transaction_execution.sender_account_address(),
             transaction_execution.sender_account(),
             &lock_controller::LockOperation::Cancel(details),
@@ -449,14 +419,14 @@ where
             events,
             &mut token,
             account_index,
-            lock_configuration.lock_id(),
+            &lock_configuration.lock_id,
             &memo,
         )?;
         block_state.update_token(context, token)?;
     }
-    block_state.delete_lock(context, lock_configuration.lock_id())?;
+    block_state.delete_lock(context, &lock_configuration.lock_id)?;
     let event = events::LockDestroyEvent {
-        lock_id: lock_configuration.lock_id().clone(),
+        lock_id: lock_configuration.lock_id.clone(),
     };
     events.push(BlockItemEvent::LockDestroyed(event));
     Ok(())
@@ -471,8 +441,8 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     mut lock: plt_block_state::entity::protocol_level_locks::p11::LockP11,
     account_index: AccountIndex,
     token_index: plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex,
-    lock_id: concordium_base::protocol_level_locks::LockId,
-) -> Result<(), TransactionFailure> {
+    lock_id: LockId,
+) -> WithBlockStateResult<(), TransactionRejectReason> {
     if !lock.remove_lock_balance_ref(account_index, token_index) {
         // No lock state change needed: either the account still holds a non-zero balance
         // controlled by the lock, or there was no balance reference to remove.
@@ -490,7 +460,7 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
 }
 
 fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
-    match configuration.controller() {
+    match &configuration.controller {
         LockControllerConfig::SimpleV0(controller) => controller.keep_alive,
     }
 }
@@ -537,9 +507,9 @@ fn token_deserialization_failure_reject_reason(
 fn token_update_error_reject_reason(
     token_configuration: &TokenConfiguration,
     err: TokenUpdateError,
-) -> TransactionFailure {
+) -> TransactionRejectReason {
     match err {
-        TokenUpdateError::OutOfEnergy(_) => TransactionRejectReason::OutOfEnergy.into(),
+        TokenUpdateError::OutOfEnergy(_) => TransactionRejectReason::OutOfEnergy,
         TokenUpdateError::TokenModuleReject(reject_reason) => {
             let (reason_type, details) = reject_reason.encode_reject_reason();
             TransactionRejectReason::TokenUpdateTransactionFailed(EncodedTokenModuleRejectReason {
@@ -547,7 +517,6 @@ fn token_update_error_reject_reason(
                 reason_type: reason_type.to_type_discriminator(),
                 details: Some(details),
             })
-            .into()
         }
     }
 }
