@@ -15,7 +15,7 @@ use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p10::BlockStateP10;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_block_state::entity::{EntityContext, EntityContextTypesWitness};
 use plt_block_state::ffi::blob_store_callbacks::LoadCallback;
 use plt_block_state::ffi::block_state_callbacks::{
     ExternalBlockStateOperationCallbacks, ExternalBlockStateQueryCallbacks,
@@ -28,16 +28,9 @@ use plt_block_state::persistent::block_state::PersistentBlockState;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 use std::marker::PhantomData;
 
-/// Context with no external block state (will panic if accessed).
-#[derive(Debug, Clone)]
-pub struct FfiSchedulerBlockStateTypes;
-
-impl EntityContextTypes for FfiSchedulerBlockStateTypes {
-    type ExternalBlockState = ExternalBlockStateOperationCallbacks;
-    type Loader = LoadCallback;
-}
-
-pub type FfiSchedulerEntityContext = EntityContext<FfiSchedulerBlockStateTypes>;
+/// Context with full external block state.
+pub type FfiSchedulerEntityContext =
+    EntityContext<EntityContextTypesWitness<ExternalBlockStateOperationCallbacks, LoadCallback>>;
 
 /// C-binding for calling [`scheduler::execute_transaction`].
 ///
@@ -150,7 +143,7 @@ extern "C" fn ffi_execute_transaction(
         };
         let mut context = FfiSchedulerEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let sender_account_index = AccountIndex::from(sender_account_index);
         let sender_account_address = {
@@ -337,7 +330,7 @@ extern "C" fn ffi_execute_chain_update(
         };
         let mut context = FfiSchedulerEntityContext {
             external,
-            loader: load_callback,
+            store: load_callback,
         };
         let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
         let payload: UpdatePayload = common::from_bytes_complete(payload_bytes)

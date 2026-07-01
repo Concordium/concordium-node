@@ -205,7 +205,7 @@ migrate ::
     t m (ForeignPLTBlockStatePtr pv)
 migrate currentState = do
     oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
-    newStoreCallback <- snd <$> BlobStore.getCallbacks
+    (newLoadCallback, newStoreCallback) <- BlobStore.getCallbacks
     let newSProtocolVersion = Types.protocolVersion @pv
     liftIO $ FFI.alloca $ \newStateDestPtr -> do
         status <-
@@ -213,6 +213,7 @@ migrate currentState = do
                 ffiMigratePLTBlockState
                     oldLoadCallback
                     newStoreCallback
+                    newLoadCallback
                     (sProtocolVersionToWord64 newSProtocolVersion)
                     newStateDestPtr
         Monad.unless (status == 0) $ error "Unexpected panic when migrating a block state"
@@ -228,6 +229,8 @@ foreign import ccall "ffi_migrate_plt_block_state"
         FFI.LoadCallback ->
         -- | Called to write data to the blob store being migrated to.
         FFI.StoreCallback ->
+        -- | Called to read data from the blob store being migrated to.
+        FFI.LoadCallback ->
         -- | Protocol version of the block being migrated to.
         FFI.Word64 ->
         -- | Pointer to the new block state.

@@ -21,18 +21,15 @@ pub(crate) fn plt_list<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_tokens: &PersistentTokensP9,
 ) -> impl ExactSizeIterator<Item = BlockStateResult<TokenId>> {
-    persistent_tokens
-        .tokens
-        .values(&context.loader)
-        .map(|item| {
-            Ok(item?
-                .1
-                .cow_project_configuration()
-                .value(&context.loader)?
-                .into_owned()
-                .0
-                .token_id)
-        })
+    persistent_tokens.tokens.values(&context.store).map(|item| {
+        Ok(item?
+            .1
+            .cow_project_configuration()
+            .value(&context.store)?
+            .into_owned()
+            .0
+            .token_id)
+    })
 }
 
 pub(crate) fn create_token<C: EntityContextTypes>(
@@ -52,7 +49,7 @@ pub(crate) fn create_token<C: EntityContextTypes>(
     let token_index;
     (token_index, persistent_tokens.tokens) = persistent_tokens
         .tokens
-        .insert_value(&context.loader, persistent_token)?;
+        .insert_value(&context.store, persistent_token)?;
     persistent_tokens
         .token_id_map
         .insert(normalized_token_id, token_index);
@@ -67,12 +64,12 @@ pub(crate) fn update_token<C: EntityContextTypes>(
 ) -> BlockStateResult<()> {
     if token.mutable_key_value_state.is_dirty() {
         token.persistent.key_value_state =
-            HashedCacheableRef::new(token.mutable_key_value_state.freeze(&context.loader));
+            HashedCacheableRef::new(token.mutable_key_value_state.freeze(&context.store));
     }
 
     persistent_tokens.tokens = persistent_tokens
         .tokens
-        .update_value(&context.loader, token.token_index, |_| Ok(token.persistent))?
+        .update_value(&context.store, token.token_index, |_| Ok(token.persistent))?
         .ok_or_else(|| {
             BlockStateFailure::Invariant(format!(
                 "Token not found by index: {:?}",
@@ -90,7 +87,7 @@ pub(crate) fn token_by_index<C: EntityContextTypes>(
 ) -> BlockStateResult<TokenP9Base> {
     let persistent_token = persistent_tokens
         .tokens
-        .lookup_value(&context.loader, token_index)?
+        .lookup_value(&context.store, token_index)?
         .ok_or_else(|| {
             BlockStateFailure::Invariant(format!("Token not found by index: {:?}", token_index))
         })?
@@ -98,7 +95,7 @@ pub(crate) fn token_by_index<C: EntityContextTypes>(
 
     let mutable_key_value_state = persistent_token
         .key_value_state
-        .value(&context.loader)?
+        .value(&context.store)?
         .thaw();
 
     Ok(TokenP9Base {
@@ -153,7 +150,7 @@ impl TokenP9Base {
         Ok(self
             .persistent
             .configuration
-            .value(&context.loader)?
+            .value(&context.store)?
             .into_owned()
             .0)
     }
@@ -179,7 +176,7 @@ impl TokenP9Base {
     pub fn is_paused<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_PAUSED),
             )
             .is_some()
@@ -193,13 +190,13 @@ impl TokenP9Base {
     ) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_PAUSED),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_PAUSED),
             )
         }
@@ -209,7 +206,7 @@ impl TokenP9Base {
     pub fn has_allow_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
             )
             .is_some()
@@ -221,7 +218,7 @@ impl TokenP9Base {
         context: &EntityContext<C>,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_ALLOW_LIST),
             vec![],
         )
@@ -231,7 +228,7 @@ impl TokenP9Base {
     pub fn has_deny_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_DENY_LIST),
             )
             .is_some()
@@ -243,7 +240,7 @@ impl TokenP9Base {
         context: &EntityContext<C>,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_DENY_LIST),
             vec![],
         )
@@ -253,7 +250,7 @@ impl TokenP9Base {
     pub fn is_mintable<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_MINTABLE),
             )
             .is_some()
@@ -265,7 +262,7 @@ impl TokenP9Base {
         context: &EntityContext<C>,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_MINTABLE),
             vec![],
         )
@@ -275,7 +272,7 @@ impl TokenP9Base {
     pub fn is_burnable<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_BURNABLE),
             )
             .is_some()
@@ -287,7 +284,7 @@ impl TokenP9Base {
         context: &EntityContext<C>,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_BURNABLE),
             vec![],
         )
@@ -300,7 +297,7 @@ impl TokenP9Base {
     ) -> BlockStateResult<String> {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_NAME),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Name not present".to_string()))
@@ -318,7 +315,7 @@ impl TokenP9Base {
         name: &str,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_NAME),
             name.as_bytes().to_vec(),
         )
@@ -332,7 +329,7 @@ impl TokenP9Base {
         let governance_account_index = AccountIndex::from(
             self.mutable_key_value_state
                 .lookup_value(
-                    &context.loader,
+                    &context.store,
                     &state_keys::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
                 )
                 .ok_or_else(|| {
@@ -357,7 +354,7 @@ impl TokenP9Base {
         account: AccountIndex,
     ) -> BlockStateResult<()> {
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_GOVERNANCE_ACCOUNT),
             common::to_bytes(&account),
         )
@@ -371,7 +368,7 @@ impl TokenP9Base {
         let metadata_cbor = self
             .mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::module_state_key(STATE_KEY_METADATA),
             )
             .ok_or_else(|| BlockStateFailure::Invariant("Metadata not present".to_string()))?;
@@ -389,7 +386,7 @@ impl TokenP9Base {
     ) -> BlockStateResult<()> {
         let encoded_metadata = common::cbor::cbor_encode(metadata);
         self.mutable_key_value_state.insert_value(
-            &context.loader,
+            &context.store,
             &state_keys::module_state_key(STATE_KEY_METADATA),
             encoded_metadata,
         )
@@ -403,7 +400,7 @@ impl TokenP9Base {
     ) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
             )
             .is_some()
@@ -419,13 +416,13 @@ impl TokenP9Base {
     ) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_state_key(account, STATE_KEY_ALLOW_LIST),
             )
         }
@@ -439,7 +436,7 @@ impl TokenP9Base {
     ) -> bool {
         self.mutable_key_value_state
             .lookup_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
             .is_some()
@@ -454,13 +451,13 @@ impl TokenP9Base {
     ) -> BlockStateResult<()> {
         if value {
             self.mutable_key_value_state.insert_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
                 vec![],
             )
         } else {
             self.mutable_key_value_state.delete_value(
-                &context.loader,
+                &context.store,
                 &state_keys::account_state_key(account, STATE_KEY_DENY_LIST),
             )
         }

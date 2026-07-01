@@ -6,7 +6,7 @@
 
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreLocation, BlobStoreStore, Loadable, Storable,
+    BlobStoreLoad, BlobStoreLocation, BlobStoreMovable, BlobStoreStore, Loadable, Storable,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
@@ -71,6 +71,32 @@ impl PersistentState {
 
     fn lock_read(&self) -> RwLockReadGuard<'_, trie::PersistentState> {
         self.0.read().expect("PersistentState lock poisoned")
+    }
+}
+
+impl BlobStoreMovable for PersistentState {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let new_persistent_state = self
+            .lock_write()
+            .migrate(
+                &mut StorerAdapter(to_storer),
+                &mut LoaderAdapter(from_loader),
+            )
+            .map_err(|err| {
+                BlockStateFailure::BlobStoreDecode(format!(
+                    "Error migrating PersistentState: {}",
+                    err
+                ))
+            })?;
+
+        Ok(Self(RwLock::new(new_persistent_state)))
     }
 }
 
@@ -278,6 +304,7 @@ impl Hashable for PersistentState {
 #[cfg(test)]
 mod test {
     use crate::persistent::blob_store;
+    use crate::persistent::blob_store::BlobStoreMovable;
     use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
     use crate::persistent::cacheable::Cacheable;
     use crate::persistent::smart_contract_trie::PersistentState;
@@ -460,6 +487,49 @@ mod test {
         );
         assert_eq!(
             state.lookup_value(&UnreachableBlobStore, &[0, 2]),
+            Some(vec![2, 2])
+        );
+    }
+
+    #[test]
+    fn test_move_blob_store() {
+        let mut from_store = BlobStoreStub::default();
+        let mut to_store = BlobStoreStub::default();
+
+        // Create tree and store it
+        let state = PersistentState::empty();
+        let mut mutable_state = state.thaw();
+        mutable_state
+            .insert_value(&from_store, &[0, 1], vec![1, 1])
+            .unwrap();
+        mutable_state
+            .insert_value(&from_store, &[0, 2], vec![2, 2])
+            .unwrap();
+        let state = mutable_state.freeze(&from_store);
+        blob_store::store_to_store(&mut from_store, &state);
+
+        // Move trie to new store
+        let new_state = state.move_blob_store(&from_store, &mut to_store).unwrap();
+        let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_state);
+        drop(state);
+
+        // Lookup values in migrated state
+        assert_eq!(new_state.lookup_value(&to_store, &[0, 1]), Some(vec![1, 1]));
+        assert_eq!(new_state.lookup_value(&to_store, &[0, 2]), Some(vec![2, 2]));
+        drop(new_state);
+
+        // Load moved state from destination store
+        let new_state2: PersistentState =
+            blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
+
+        // Lookup values using "unreachable" blob store since entries
+        // should be in memory now.
+        assert_eq!(
+            new_state2.lookup_value(&to_store, &[0, 1]),
+            Some(vec![1, 1])
+        );
+        assert_eq!(
+            new_state2.lookup_value(&to_store, &[0, 2]),
             Some(vec![2, 2])
         );
     }

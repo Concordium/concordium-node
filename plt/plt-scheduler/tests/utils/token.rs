@@ -19,7 +19,7 @@ use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
+use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::events::BlockItemEvent;
@@ -69,7 +69,7 @@ impl TokenInitTestParams {
 
 /// Create and initialize token in the stub. Returns the governance account for the token.
 pub fn create_and_init_token_p9(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut BlockStateP9,
     token_id: TokenId,
     params: TokenInitTestParams,
@@ -117,7 +117,7 @@ pub fn create_and_init_token_p9(
 
 /// Create and initialize token in the stub. Returns the governance account for the token.
 pub fn create_and_init_token_p11(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut BlockStateP11,
     token_id: TokenId,
     params: TokenInitTestParams,
@@ -166,7 +166,7 @@ pub fn create_and_init_token_p11(
 /// Add amount to account balance in the stub. This is done by minting
 /// and transferring the given amount
 pub fn increment_account_balance_p11(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut BlockStateP11,
     account_index: AccountIndex,
     token_id: &TokenId,
@@ -224,7 +224,7 @@ pub fn increment_account_balance_p11(
 
 /// Pause the given token as the governance account. Panics if the operation fails.
 pub fn pause_token(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
     gov_account: AccountIndex,
@@ -248,7 +248,7 @@ pub fn pause_token(
 
 /// Unpause the given token as the governance account. Panics if the operation fails.
 pub fn unpause_token(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
     gov_account: AccountIndex,
@@ -273,7 +273,7 @@ pub fn unpause_token(
 /// Execute token operations as the given sender account. Returns the block item events on
 /// success, panics if the transaction fails.
 pub fn execute_token_operations(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut impl SchedulerOperations,
     token_id: &TokenId,
     sender: AccountIndex,
@@ -298,7 +298,7 @@ pub fn execute_token_operations(
 /// Execute meta-update operations as the given sender account. Returns the block item events on
 /// success, panics if the transaction fails.
 pub fn execute_meta_operations(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut impl SchedulerOperations,
     sender: AccountIndex,
     operations: Vec<MetaUpdateOperation>,
