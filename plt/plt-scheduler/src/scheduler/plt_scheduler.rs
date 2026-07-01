@@ -2,8 +2,8 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::failure::WithBlockStateResult;
-use crate::locks::lock_controller::LockController;
-use crate::locks::{get_lock_config, lock_controller};
+use crate::protocol_level_locks::lock_controller::LockController;
+use crate::protocol_level_locks::{lock_configuration::get_lock_config, lock_controller};
 use crate::protocol_level_tokens::balance_operations;
 use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
 use crate::protocol_level_tokens::token_module::{

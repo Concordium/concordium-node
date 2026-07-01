@@ -7,14 +7,13 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use hex::ToHex;
 use plt_block_state::entity::accounts::Account;
-use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
-use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
-use plt_scheduler::{TransactionContext, queries, scheduler};
+use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
 use plt_scheduler::{failure, protocol_level_tokens};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
@@ -80,15 +79,18 @@ impl SchedulerOperations for BlockStateP9 {
     }
 
     fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId> {
-        queries::query_lock_list_p9(context, self).unwrap()
+        protocol_level_locks::p9::query_lock_list(context, self).unwrap()
     }
 
     fn query_lock_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError> {
-        failure::nest(queries::query_lock_info_p9(context, self, lock_id)).unwrap()
+    ) -> Result<RawCbor, LockNotFoundByIdError> {
+        failure::nest(protocol_level_locks::p9::query_lock_info(
+            context, self, lock_id,
+        ))
+        .unwrap()
     }
 }
 
@@ -152,14 +154,17 @@ impl SchedulerOperations for BlockStateP11 {
     }
 
     fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId> {
-        queries::query_lock_list(context, self).unwrap()
+        protocol_level_locks::p11::query_lock_list(context, self).unwrap()
     }
 
     fn query_lock_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError> {
-        failure::nest(queries::query_lock_info(context, self, lock_id)).unwrap()
+    ) -> Result<RawCbor, LockNotFoundByIdError> {
+        failure::nest(protocol_level_locks::p11::query_lock_info(
+            context, self, lock_id,
+        ))
+        .unwrap()
     }
 }

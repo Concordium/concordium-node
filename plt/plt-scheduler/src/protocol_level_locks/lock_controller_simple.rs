@@ -1,5 +1,5 @@
 use crate::failure::WithBlockStateResult;
-use crate::locks::lock_controller::{LockController, LockOperation};
+use crate::protocol_level_locks::lock_controller::{LockController, LockOperation};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::CborHolderAccount;
