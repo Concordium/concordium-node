@@ -222,7 +222,6 @@ fn execute_lock_fund<C: EntityContextTypes>(
         raw_amount,
         memo,
     )? {
-        // todo ar
         Ok(is_new_holder) => is_new_holder,
         Err(err) => {
             return Err(token_balance_insufficient_reject_reason(
@@ -292,7 +291,6 @@ fn execute_lock_send<C: EntityContextTypes>(
         &recipient,
         recipient_address,
     ) {
-        // todo ar
         let err = token_update_error_internal_to_external(
             &token_configuration,
             operation_index,
