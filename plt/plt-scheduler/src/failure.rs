@@ -1,3 +1,4 @@
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
@@ -36,3 +37,4 @@ pub fn nest<E, T>(result: WithBlockStateResult<T, E>) -> BlockStateResult<Result
 }
 
 impl HigherLevelProtocolError for TransactionRejectReason {}
+impl HigherLevelProtocolError for LockNotFoundByIdError {}

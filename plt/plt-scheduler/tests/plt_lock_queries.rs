@@ -1,5 +1,6 @@
 //! Tests for the new `query_lock_list` and `query_lock_info` scheduler query functions.
 
+use crate::utils::BlockStateLatest;
 use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
@@ -15,13 +16,11 @@ use concordium_base::protocol_level_tokens::meta_operations::{
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
-use plt_scheduler::queries::QueryLockError;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::collections::HashMap;
-
-use crate::utils::BlockStateLatest;
 
 mod utils;
 
@@ -205,5 +204,5 @@ fn test_query_lock_info_unknown_lock() {
         creation_order: 0,
     };
     let result = block_state.query_lock_info(&context, &unknown);
-    assert_matches!(result, Err(QueryLockError::LockDoesNotExist));
+    assert_matches!(result, Err(LockNotFoundByIdError(_)));
 }

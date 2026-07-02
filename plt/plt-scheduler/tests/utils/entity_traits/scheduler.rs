@@ -4,12 +4,11 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
-use plt_block_state::entity::block_state::TokenNotFoundByIdError;
+use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::blob_reference;
 use plt_scheduler::TransactionContext;
-use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
@@ -57,5 +56,5 @@ pub trait SchedulerOperations {
         &self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError>;
+    ) -> Result<RawCbor, LockNotFoundByIdError>;
 }

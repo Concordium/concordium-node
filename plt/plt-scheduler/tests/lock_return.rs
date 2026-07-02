@@ -14,10 +14,10 @@ use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
 };
 use concordium_base::transactions::Payload;
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_scheduler::queries::QueryLockError;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent, TokenTransferEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -181,7 +181,7 @@ fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
 
     assert_matches!(
         block_state.query_lock_info(&context, &lock_id),
-        Err(QueryLockError::LockDoesNotExist)
+        Err(LockNotFoundByIdError(_))
     );
 }
 #[test]
