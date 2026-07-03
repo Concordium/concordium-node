@@ -34,9 +34,9 @@ import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Migration
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
-import Concordium.Types.Migration
 import qualified Concordium.Types.UpdateQueues as UQ
 
 -- | An update queue consists of pending future updates ordered by

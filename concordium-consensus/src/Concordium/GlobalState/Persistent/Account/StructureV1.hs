@@ -33,6 +33,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Migration
 import Concordium.ID.Types hiding (values)
 import Concordium.Logger
 import Concordium.Types
@@ -41,7 +42,6 @@ import Concordium.Types.Accounts.Releases
 import Concordium.Types.Conditionally
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
-import Concordium.Types.Migration
 import Concordium.Types.Parameters
 import Concordium.Types.Tokens
 import Concordium.Utils

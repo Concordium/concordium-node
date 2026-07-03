@@ -17,6 +17,7 @@ import qualified Data.Map.Strict as Map
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
+import Concordium.GlobalState.Persistent.Migration
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types
@@ -24,7 +25,6 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
-import Concordium.Types.Migration
 import Concordium.Types.Parameters
 import Concordium.Types.Tokens (TokenRawAmount)
 

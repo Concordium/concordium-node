@@ -28,10 +28,10 @@ import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Migration
 import Concordium.Types
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.Types.Execution (DelegationTarget (..))
-import Concordium.Types.Migration
 import Concordium.Types.Parameters
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
