@@ -4,12 +4,11 @@ use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
-use plt_block_state::entity::block_state::TokenNotFoundByIdError;
+use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::blob_reference;
 use plt_scheduler::TransactionContext;
-use plt_scheduler::queries::QueryLockError;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
@@ -23,9 +22,7 @@ pub trait SchedulerOperations {
         transaction_context: TransactionContext,
         sender_account: AccountIndex,
         payload: Payload,
-    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>
-    where
-        EntityContext<C>: Clone;
+    ) -> Result<TransactionExecutionSummary, TransactionExecutionError>;
 
     fn execute_chain_update<C: EntityContextTypes>(
         &mut self,
@@ -53,15 +50,11 @@ pub trait SchedulerOperations {
         token_id: &TokenId,
     ) -> Result<TokenAuthorizations, TokenNotFoundByIdError>;
 
-    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>
-    where
-        EntityContext<C>: Clone;
+    fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId>;
 
     fn query_lock_info<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-    ) -> Result<RawCbor, QueryLockError>
-    where
-        EntityContext<C>: Clone;
+    ) -> Result<RawCbor, LockNotFoundByIdError>;
 }

@@ -28,6 +28,24 @@ impl BlobStoreLoad for LoadCallback {
     }
 }
 
+/// Type representing blob store callbacks
+pub struct BlobStoreCallbacks {
+    pub store_callback: StoreCallback,
+    pub load_callback: LoadCallback,
+}
+
+impl BlobStoreStore for BlobStoreCallbacks {
+    fn store_raw(&mut self, data: impl AsRef<[u8]>) -> BlobStoreLocation {
+        self.store_callback.store_raw(data)
+    }
+}
+
+impl BlobStoreLoad for BlobStoreCallbacks {
+    fn load_raw(&self, location: BlobStoreLocation) -> Vec<u8> {
+        self.load_callback.load_raw(location)
+    }
+}
+
 pub mod tests_helpers {
     use super::*;
 

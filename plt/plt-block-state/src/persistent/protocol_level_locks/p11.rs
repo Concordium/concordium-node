@@ -12,7 +12,7 @@ use concordium_base::common::types::TransactionTime;
 use concordium_base::common::{Buffer, Serialize};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-use concordium_base::protocol_level_tokens::{CborMemo, TokenId};
+use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
 use std::collections::BTreeSet;
 use std::io::Read;
 
@@ -212,6 +212,8 @@ pub struct LockConfiguration {
     pub expiry: TransactionTime,
     /// Controller configuration for the lock.
     pub controller: LockControllerConfig,
+    /// Optional raw CBOR-encoded user-facing lock metadata.
+    pub metadata: Option<RawCbor>,
 }
 
 /// Top-level lock controller type.
@@ -298,12 +300,13 @@ mod test {
                 keep_alive: true,
                 memo: None,
             }),
+            metadata: None,
         };
 
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000032000000000000000200000000000000000100020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e310100"
+            "0000000000000032000000000000000200000000000000000100020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e31010000"
         );
 
         let deserialized: LockConfiguration =
@@ -329,12 +332,47 @@ mod test {
                 keep_alive: false,
                 memo: None,
             }),
+            metadata: None,
         };
 
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "00000000000000320000000000000002000000000000000001000000000000000001f400000000000000"
+            "00000000000000320000000000000002000000000000000001000000000000000001f40000000000000000"
+        );
+
+        let deserialized: LockConfiguration =
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(deserialized, lock_config);
+    }
+
+    #[test]
+    fn test_lock_configuration_serial_with_metadata() {
+        use concordium_base::common::types::TransactionTime;
+
+        let lock_config = LockConfiguration {
+            lock_id: LockId {
+                account_index: 50,
+                sequence_number: 2,
+                creation_order: 0,
+            },
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from(500u64),
+            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+                grants: vec![],
+                tokens: vec![],
+                keep_alive: false,
+                memo: None,
+            }),
+            metadata: Some(RawCbor::from(vec![
+                0xa1, 0x64, b'n', b'a', b'm', b'e', 0x64, b't', b'e', b's', b't',
+            ])),
+        };
+
+        let bytes = common::to_bytes(&lock_config);
+        assert_eq!(
+            hex::encode(&bytes),
+            "0000000000000032000000000000000200000000000000000000000000000001f400000000000000010000000ba1646e616d656474657374"
         );
 
         let deserialized: LockConfiguration =
@@ -371,6 +409,7 @@ mod test {
                 keep_alive: false,
                 memo: None,
             }),
+            metadata: None,
         };
 
         assert!(lock_config.recipients.is_any());
@@ -388,7 +427,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000032000000000000000200000000000000000000000000000001f400000000000000"
+            "0000000000000032000000000000000200000000000000000000000000000001f40000000000000000"
         );
 
         let deserialized: LockConfiguration =

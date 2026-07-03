@@ -3,7 +3,8 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use super::status;
-use crate::ffi::blob_store_callbacks::{LoadCallback, StoreCallback};
+use crate::entity::block_state;
+use crate::ffi::blob_store_callbacks::{BlobStoreCallbacks, LoadCallback, StoreCallback};
 use crate::persistent::blob_store;
 use crate::persistent::blob_store::BlobStoreLocation;
 use crate::persistent::block_state::PersistentBlockState;
@@ -221,6 +222,8 @@ extern "C" fn ffi_store_plt_block_state(
 ///   the blob store to migrate from.
 /// - `to_store_callback` External function to call for storing bytes in the blob store
 ///   to migrate to.
+/// - `to_load_callback` External function to call for loading bytes from the blob store
+///   to migrate to.
 /// - `to_protocol_version` Protocol version for the block state to migrate to.
 /// - `new_block_state_out` Location for writing the pointer of the new, migrated block state.
 ///   The new block state is only written if return value is [`status::FfiStatusCode::Success`].
@@ -239,6 +242,7 @@ extern "C" fn ffi_store_plt_block_state(
 extern "C" fn ffi_migrate_plt_block_state(
     from_load_callback: LoadCallback,
     to_store_callback: StoreCallback,
+    to_load_callback: LoadCallback,
     to_protocol_version: u64,
     new_block_state_out: *mut *mut PersistentBlockState,
     block_state: *const PersistentBlockState,
@@ -252,8 +256,17 @@ extern "C" fn ffi_migrate_plt_block_state(
         let from_block_state = unsafe { &*block_state };
         let to_protocol_version =
             ProtocolVersion::try_from(to_protocol_version).expect("Unknown protocol version");
-        let new_block_state =
-            from_block_state.migrate(from_load_callback, to_store_callback, to_protocol_version);
+        let new_block_state = block_state::migration::migrate(
+            from_block_state.clone(),
+            &from_load_callback,
+            &mut BlobStoreCallbacks {
+                store_callback: to_store_callback,
+                load_callback: to_load_callback,
+            },
+            to_protocol_version,
+        )
+        .expect("Migrate block state");
+
         unsafe {
             *new_block_state_out = Box::into_raw(Box::new(new_block_state));
         }

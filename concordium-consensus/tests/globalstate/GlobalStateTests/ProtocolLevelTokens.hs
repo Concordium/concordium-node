@@ -59,8 +59,8 @@ configDEF =
           _pltDecimals = 0
         }
 
-emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForStateVersion 'P9)
-emptyPLTPV = emptyProtocolLevelTokensForStateVersion
+emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForPV 'P9)
+emptyPLTPV = emptyProtocolLevelTokensForPV
 
 testCreateToken :: Assertion
 testCreateToken = runWithNewMemBlobStore $ do

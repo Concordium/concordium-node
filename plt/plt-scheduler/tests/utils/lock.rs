@@ -12,7 +12,7 @@ use concordium_base::transactions::Payload;
 use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
-use plt_block_state::entity::entity_test_stub::StubbedExternalBlockStateTypes;
+use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -28,7 +28,7 @@ pub struct CreateLockSimpleConfig {
 
 /// Create a lock in the block state.
 pub fn create_lock(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut BlockStateP11,
     lock_id: &LockId,
     config: CreateLockSimpleConfig,
@@ -66,6 +66,7 @@ pub fn create_lock(
                 keep_alive: config.keep_alive,
                 memo: None,
             }),
+            metadata: None,
         })],
     };
 
@@ -97,7 +98,7 @@ pub fn create_lock(
 /// instead of poking the block state and key-value store directly. At that point
 /// the constants duplicated above can also be removed.
 pub fn lock_balance(
-    context: &mut EntityContext<StubbedExternalBlockStateTypes>,
+    context: &mut StubbedEntityContext,
     block_state: &mut BlockStateP11,
     lock_id: &LockId,
     funder_account: AccountIndex,

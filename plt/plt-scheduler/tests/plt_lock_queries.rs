@@ -1,25 +1,26 @@
 //! Tests for the new `query_lock_list` and `query_lock_info` scheduler query functions.
 
+use crate::utils::BlockStateLatest;
 use crate::utils::TokenInitTestParams;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
+use concordium_base::common::cbor::value::Value;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockController, LockControllerSimpleV0Capability, LockId, LockRecipients,
+    LockController, LockControllerSimpleV0Capability, LockId, LockMetadata, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaUpdateOperations, MetaUpdatePayload, lock_create,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
+use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
-use plt_scheduler::queries::QueryLockError;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-
-use crate::utils::BlockStateLatest;
+use std::collections::HashMap;
 
 mod utils;
 
@@ -138,6 +139,11 @@ fn test_query_lock_info_any_recipient() {
     let sender_addr = context
         .external
         .account_canonical_address(owner.account_index());
+    let metadata = LockMetadata {
+        name: Some("Any recipient lock".to_string()),
+        description: Some("Metadata returned by GetLockInfo".to_string()),
+        additional: HashMap::from([("purpose".to_string(), Value::Text("query test".to_string()))]),
+    };
     let operations = MetaUpdateOperations {
         operations: vec![lock_create(
             concordium_base::protocol_level_locks::LockConfig {
@@ -156,6 +162,7 @@ fn test_query_lock_info_any_recipient() {
                         memo: None,
                     },
                 ),
+                metadata: Some(metadata.encode_raw_cbor()),
             },
         )],
     };
@@ -184,6 +191,7 @@ fn test_query_lock_info_any_recipient() {
         cbor::cbor_decode(&bytes).expect("CBOR encoding produced by query_lock_info must decode");
 
     assert_eq!(decoded.recipients, LockRecipients::Any);
+    assert_eq!(decoded.metadata, Some(metadata.encode_raw_cbor()));
 }
 
 #[test]
@@ -196,5 +204,5 @@ fn test_query_lock_info_unknown_lock() {
         creation_order: 0,
     };
     let result = block_state.query_lock_info(&context, &unknown);
-    assert_matches!(result, Err(QueryLockError::LockDoesNotExist));
+    assert_matches!(result, Err(LockNotFoundByIdError(_)));
 }

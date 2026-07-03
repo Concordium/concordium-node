@@ -28,7 +28,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Vec<TokenId>> {
         protocol_level_tokens::p9::plt_list(
             context,
-            &*self.persistent.tokens.value(&context.loader)?,
+            &*self.persistent.tokens.value(&context.store)?,
         )
         .collect::<BlockStateResult<Vec<_>>>()
     }
@@ -48,7 +48,7 @@ impl BlockStateP11 {
         token_id: &TokenId,
     ) -> BlockStateResult<Result<TokenP11, TokenNotFoundByIdError>> {
         let token_index_option = protocol_level_tokens::p9::token_index_by_id(
-            &*self.persistent.tokens.value(&context.loader)?,
+            &*self.persistent.tokens.value(&context.store)?,
             token_id,
         );
 
@@ -70,7 +70,7 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         configuration: TokenConfiguration,
     ) -> BlockStateResult<TokenIndex> {
-        let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
+        let mut new_tokens = self.persistent.tokens.value(&context.store)?.into_owned();
         let token_index =
             protocol_level_tokens::p9::create_token(context, &mut new_tokens, configuration)?;
         self.persistent.tokens = HashedCacheableRef::new(new_tokens);
@@ -94,7 +94,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<TokenP11> {
         let token_base = protocol_level_tokens::p9::token_by_index(
             context,
-            &*self.persistent.tokens.value(&context.loader)?,
+            &*self.persistent.tokens.value(&context.store)?,
             token_index,
         )?;
 
@@ -110,7 +110,7 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         token: TokenP11,
     ) -> BlockStateResult<()> {
-        let mut new_tokens = self.persistent.tokens.value(&context.loader)?.into_owned();
+        let mut new_tokens = self.persistent.tokens.value(&context.store)?.into_owned();
         protocol_level_tokens::p9::update_token(context, &mut new_tokens, token.token_p9_base)?;
         self.persistent.tokens = HashedCacheableRef::new(new_tokens);
 
@@ -139,7 +139,7 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         configuration: LockConfiguration,
     ) -> BlockStateResult<()> {
-        let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
+        let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
         protocol_level_locks::p11::create_lock(context, &mut new_locks, configuration)?;
 
         self.persistent.locks = HashedCacheableRef::new(new_locks);
@@ -157,7 +157,7 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> BlockStateResult<bool> {
-        let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
+        let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
         let existing = protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
         if existing {
             // We only need to update the locks if a lock was actually deleted,
@@ -175,7 +175,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Vec<LockId>> {
         Ok(protocol_level_locks::p11::lock_list(
             context,
-            &*self.persistent.locks.value(&context.loader)?,
+            &*self.persistent.locks.value(&context.store)?,
         )
         .cloned()
         .collect())
@@ -193,7 +193,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Result<LockP11, LockNotFoundByIdError>> {
         let lock_option = protocol_level_locks::p11::lock_by_id(
             context,
-            &*self.persistent.locks.value(&context.loader)?,
+            &*self.persistent.locks.value(&context.store)?,
             lock_id.clone(),
         )?;
 
@@ -207,7 +207,7 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         lock: LockP11,
     ) -> BlockStateResult<()> {
-        let mut new_locks = self.persistent.locks.value(&context.loader)?.into_owned();
+        let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
         protocol_level_locks::p11::update_lock(context, &mut new_locks, lock)?;
         self.persistent.locks = HashedCacheableRef::new(new_locks);
 
