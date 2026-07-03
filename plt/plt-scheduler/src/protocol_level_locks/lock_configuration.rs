@@ -1,4 +1,3 @@
-use crate::protocol_level_locks::lock_controller::LockController;
 use concordium_base::{
     protocol_level_locks::{LockConfig, LockRecipients},
     protocol_level_tokens::CborHolderAccount,
@@ -12,8 +11,7 @@ use plt_block_state::persistent::protocol_level_locks::p11::{
 };
 
 /// Get the recipients for a lock configuration, resolving [`AccountIndex`]es
-/// to [`CborHolderAccount`]s unless the block-state sentinel represents an
-/// any-recipient lock.
+/// to [`CborHolderAccount`]s.
 pub fn get_recipients<C: EntityContextTypes>(
     context: &EntityContext<C>,
     configuration: &LockConfiguration,
@@ -48,7 +46,8 @@ pub fn get_lock_config<C: EntityContextTypes>(
     configuration: &LockConfiguration,
 ) -> BlockStateResult<LockConfig> {
     let recipients = get_recipients(context, configuration)?;
-    let controller = configuration.controller.to_cbor_controller(context)?;
+    let controller =
+        super::lock_controller::to_cbor_controller(context, &configuration.controller)?;
 
     Ok(LockConfig {
         recipients,

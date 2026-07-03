@@ -2,15 +2,19 @@
 
 use crate::failure::WithBlockStateResult;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
+use concordium_base::protocol_level_tokens::CborHolderAccount;
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
 };
-use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::accounts::{Account, Accounts};
+use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
-use plt_block_state::failure::BlockStateResult;
+use plt_block_state::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockControllerConfig, LockControllerSimpleV0,
+    LockControllerConfig, LockControllerSimpleV0, LockControllerSimpleV0Grant,
 };
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
@@ -24,90 +28,164 @@ pub enum LockOperation {
     Cancel(MetaLockCancelDetails),
 }
 
-/// Runtime interface implemented by protocol-level locks.
-pub trait LockController {
-    /// Approve or reject a lock operation. Returns `Ok(())` if the operation is authorized, or
-    /// a `TransactionRejectReason` if it is not.
-    ///
-    /// * `bsq`: the block state to query on
-    /// * `sender`: the transaction sender reference
-    /// * `operation`: the lock operation to approve/reject.
-    fn validate_operation(
-        &self,
-        sender_address: AccountAddress,
-        sender: &Account,
-        operation: &LockOperation,
-    ) -> Result<(), TransactionRejectReason>;
+/// Approve or reject a lock operation. Returns `Ok(())` if the operation is authorized, or
+/// a `TransactionRejectReason` if it is not.
+///
+/// * `sender_address`: account address of the sender
+/// * `sender`: the transaction sender reference
+/// * `operation`: the lock operation to approve/reject.
+pub fn validate_operation(
+    controller_config: &LockControllerConfig,
+    sender_address: AccountAddress,
+    sender: &Account,
+    operation: &LockOperation,
+) -> Result<(), TransactionRejectReason> {
+    let LockControllerConfig::SimpleV0(controller_config) = controller_config;
 
-    /// Convert this controller configuration to its canonical CBOR
-    /// [`concordium_base::protocol_level_locks::LockController`] representation, used by the
-    /// `lock-info` payload returned from `query_lock_info`.
-    ///
-    /// Resolves any block-state `AccountIndex` references (e.g. grant accounts) to their
-    /// canonical [`CborHolderAccount`] form via `bsq`. Surfaces an
-    /// [`AccountNotFoundByIndexError`] if a recorded `AccountIndex` cannot be
-    /// looked up — that signals corrupted block state, since lock configurations are only
-    /// allowed to reference accounts that exist at creation time.
-    fn to_cbor_controller<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<concordium_base::protocol_level_locks::LockController>;
-
-    /// Controller configuration type used for constructing this controller.
-    /// This is expected to be decoded CBOR derived from the `lockCreate`
-    /// operation payload.
-    type ControllerConfig;
-
-    /// Construct this lock controller from the given configuration.
-    fn new<C: EntityContextTypes>(
-        context: &EntityContext<C>,
-        block_state: &BlockStateP11,
-        config: Self::ControllerConfig,
-    ) -> WithBlockStateResult<Self, TransactionRejectReason>
-    where
-        Self: Sized;
+    match operation {
+        LockOperation::Fund(fund_details) => {
+            if !controller_config.has_role(
+                sender.account_index(),
+                LockControllerSimpleV0Capability::Fund,
+            ) {
+                return Err(TransactionRejectReason::LockFundNotAuthorized(
+                    fund_details.lock.clone(),
+                    sender_address,
+                ));
+            }
+            if !controller_config.tokens.contains(&fund_details.token) {
+                return Err(TransactionRejectReason::LockTokenNotPermitted(
+                    fund_details.lock.clone(),
+                    fund_details.token.clone(),
+                ));
+            }
+        }
+        LockOperation::Send(send_details) => {
+            if !controller_config.has_role(
+                sender.account_index(),
+                LockControllerSimpleV0Capability::Send,
+            ) {
+                return Err(TransactionRejectReason::LockSendNotAuthorized(
+                    send_details.lock.clone(),
+                    sender_address,
+                ));
+            }
+        }
+        LockOperation::Return(return_details) => {
+            if !controller_config.has_role(
+                sender.account_index(),
+                LockControllerSimpleV0Capability::Return,
+            ) {
+                return Err(TransactionRejectReason::LockReturnNotAuthorized(
+                    return_details.lock.clone(),
+                    sender_address,
+                ));
+            }
+        }
+        LockOperation::Cancel(cancel_details) => {
+            if !controller_config.has_role(
+                sender.account_index(),
+                LockControllerSimpleV0Capability::Cancel,
+            ) {
+                return Err(TransactionRejectReason::LockCancelNotAuthorized(
+                    cancel_details.lock.clone(),
+                    sender_address,
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
-impl LockController for LockControllerConfig {
-    fn validate_operation(
-        &self,
-        sender_address: AccountAddress,
-        sender: &Account,
-        operation: &LockOperation,
-    ) -> Result<(), TransactionRejectReason> {
-        match self {
-            LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
-                lock_controller_simple_v0.validate_operation(sender_address, sender, operation)
-            }
-        }
-    }
+/// Construct this lock controller from the given configuration.
+pub fn from_cbor_controller<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    block_state: &BlockStateP11,
+    cbor_controller: concordium_base::protocol_level_locks::LockController,
+) -> WithBlockStateResult<LockControllerConfig, TransactionRejectReason> {
+    let concordium_base::protocol_level_locks::LockController::SimpleV0(cbor_controller) =
+        cbor_controller;
 
-    fn to_cbor_controller<C: EntityContextTypes>(
-        &self,
-        context: &EntityContext<C>,
-    ) -> BlockStateResult<concordium_base::protocol_level_locks::LockController> {
-        match self {
-            LockControllerConfig::SimpleV0(lock_controller_simple_v0) => {
-                lock_controller_simple_v0.to_cbor_controller(context)
-            }
-        }
-    }
+    let grants = cbor_controller
+        .grants
+        .into_iter()
+        .map(|grant| {
+            let account = context.account_by_address(&grant.account.address).map_err(
+                |_err: AccountNotFoundByAddressError| {
+                    TransactionRejectReason::InvalidAccountReference(grant.account.address)
+                },
+            )?;
 
-    type ControllerConfig = concordium_base::protocol_level_locks::LockController;
+            Ok(LockControllerSimpleV0Grant {
+                account: account.account_index(),
+                roles: grant.roles,
+            })
+        })
+        .collect::<WithBlockStateResult<_, TransactionRejectReason>>()?;
 
-    fn new<C: EntityContextTypes>(
-        context: &EntityContext<C>,
-        block_state: &BlockStateP11,
-        config: Self::ControllerConfig,
-    ) -> WithBlockStateResult<Self, TransactionRejectReason>
-    where
-        Self: Sized,
-    {
-        use concordium_base::protocol_level_locks::LockController::*;
-        match config {
-            SimpleV0(lock_controller_simple_v0) => Ok(LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(context, block_state, lock_controller_simple_v0)?,
-            )),
-        }
-    }
+    let tokens = cbor_controller
+        .tokens
+        .into_iter()
+        .map(|token_id| {
+            // Check that token exists
+            let token = block_state.token_by_id(context, &token_id)?.map_err(
+                |_err: TokenNotFoundByIdError| {
+                    TransactionRejectReason::NonExistentTokenId(token_id.clone())
+                },
+            )?;
+
+            // Return canonical token id
+            Ok(token.token_p9_base.token_configuration(context)?.token_id)
+        })
+        .collect::<WithBlockStateResult<_, TransactionRejectReason>>()?;
+
+    let lock_controller = LockControllerSimpleV0 {
+        grants,
+        tokens,
+        keep_alive: cbor_controller.keep_alive,
+        memo: cbor_controller.memo,
+    };
+
+    Ok(LockControllerConfig::SimpleV0(lock_controller))
+}
+
+/// Convert this controller configuration to its canonical CBOR
+/// [`concordium_base::protocol_level_locks::LockController`] representation, used by the
+/// `lock-info` payload returned from `query_lock_info`.
+pub fn to_cbor_controller<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    controller_config: &LockControllerConfig,
+) -> BlockStateResult<concordium_base::protocol_level_locks::LockController> {
+    let LockControllerConfig::SimpleV0(controller_config) = controller_config;
+
+    let grants = controller_config
+        .grants
+        .iter()
+        .map(|grant| {
+            let with_addr = context.account_by_index(grant.account).map_err(
+                |err: AccountNotFoundByIndexError| {
+                    BlockStateFailure::Invariant(format!(
+                        "Account persisted in lock controller grants not found: {}",
+                        err
+                    ))
+                },
+            )?;
+            Ok(
+                concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                    account: CborHolderAccount::from(with_addr.canonical_account_address),
+                    roles: grant.roles.clone(),
+                },
+            )
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(
+        concordium_base::protocol_level_locks::LockController::SimpleV0(
+            concordium_base::protocol_level_locks::LockControllerSimpleV0 {
+                grants,
+                tokens: controller_config.tokens.clone(),
+                keep_alive: controller_config.keep_alive,
+                memo: controller_config.memo.clone(),
+            },
+        ),
+    )
 }
