@@ -2,7 +2,9 @@
 
 ## Unreleased changes
 
-- upgraded rust version to 1.94
+## 10.0.9
+
+- Upgraded rust version to 1.94
 - Change `FinalizerSet` inner representation to `ShortByteString` to improve performance on deserialize/serialize.
 
 # 10.0.8
