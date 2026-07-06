@@ -191,6 +191,7 @@ migrateChainParameters m = case chainParametersMigrationFor m of
                   _cpPoolParameters = migratePoolParameters m _cpPoolParameters,
                   _cpFinalizationCommitteeParameters = NoParam,
                   _cpValidatorScoreParameters = NoParam,
+                  _cpMaxLockDuration = NoParam,
                   ..
                 }
           where
@@ -212,6 +213,7 @@ migrateChainParameters m = case chainParametersMigrationFor m of
                   -- with the time parameters.
                   _cpTimeParameters = SomeParam $ unOParam _cpTimeParameters,
                   _cpValidatorScoreParameters = NoParam,
+                  _cpMaxLockDuration = NoParam,
                   ..
                 }
           where
@@ -221,6 +223,7 @@ migrateChainParameters m = case chainParametersMigrationFor m of
         StateMigrationParametersP7ToP8 migrationData ->
             ChainParameters
                 { _cpValidatorScoreParameters = SomeParam updateValidatorScoreParameters,
+                  _cpMaxLockDuration = SomeParam Nothing,
                   _cpTimeParameters = SomeParam $ unOParam _cpTimeParameters,
                   _cpFinalizationCommitteeParameters = SomeParam $ unOParam _cpFinalizationCommitteeParameters,
                   _cpPoolParameters = migratePoolParameters m _cpPoolParameters,

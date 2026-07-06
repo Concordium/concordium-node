@@ -95,7 +95,8 @@ dummyAuthorizations =
           asAddIdentityProvider = theOnly,
           asCooldownParameters = conditionally (sSupportsCooldownParametersAccessStructure (sing @auv)) theOnly,
           asTimeParameters = conditionally (sSupportsTimeParameters (sing @auv)) theOnly,
-          asCreatePLT = conditionally (sSupportsCreatePLT (sing @auv)) theOnly
+          asCreatePLT = conditionally (sSupportsCreatePLT (sing @auv)) theOnly,
+          asTokenParameters = conditionally (sSupportsTokenParameters (sing @auv)) theOnly
         }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -392,7 +393,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                     { _ppBakerStakeThreshold = 300000000000
                     },
               _cpFinalizationCommitteeParameters = NoParam,
-              _cpValidatorScoreParameters = NoParam
+              _cpValidatorScoreParameters = NoParam,
+              _cpMaxLockDuration = NoParam
             }
     SChainParametersV1 ->
         ChainParameters
@@ -431,7 +433,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                             }
                     },
               _cpFinalizationCommitteeParameters = NoParam,
-              _cpValidatorScoreParameters = NoParam
+              _cpValidatorScoreParameters = NoParam,
+              _cpMaxLockDuration = NoParam
             }
     SChainParametersV2 ->
         ChainParameters
@@ -470,7 +473,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                             }
                     },
               _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters,
-              _cpValidatorScoreParameters = NoParam
+              _cpValidatorScoreParameters = NoParam,
+              _cpMaxLockDuration = NoParam
             }
     SChainParametersV3 ->
         ChainParameters
@@ -509,7 +513,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                             }
                     },
               _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters,
-              _cpValidatorScoreParameters = SomeParam dummyValidatorScoreParameters
+              _cpValidatorScoreParameters = SomeParam dummyValidatorScoreParameters,
+              _cpMaxLockDuration = SomeParam Nothing
             }
   where
     fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
