@@ -38,11 +38,11 @@ genFinalizerWeight = VoterPower <$> arbitrary
 genBakerId :: Gen BakerId
 genBakerId = BakerId . AccountIndex <$> arbitrary
 
--- | Generate a 'QuorumMessage' for a particular block.
+-- | Generate a 'QuorumMessage' for a particular block with a reasonably-sized finalizer index.
 genQuorumMessageFor :: BlockHash -> Gen QuorumMessage
 genQuorumMessageFor bh = do
     qmSignature <- genQuorumSignature
-    qmFinalizerIndex <- genFinalizerIndex
+    qmFinalizerIndex <- genSmallFinalizerIndex
     qmRound <- genRound
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
@@ -52,7 +52,7 @@ genQuorumMessageFor bh = do
 --  then the weight is being accumulated and signatures are aggregated.
 propAddQuorumMessage :: SProtocolVersion pv -> Property
 propAddQuorumMessage sProtocolVersion =
-    forAll genQuorumMessage $ \qm0 ->
+    forAll (genQuorumMessageFor =<< genBlockHash) $ \qm0 ->
         forAll (genQuorumMessageFor (qmBlock qm0)) $ \qm1 ->
             (qm0 /= qm1) ==>
                 forAll genFinalizerWeight $ \weight -> forAll genBakerId $ \bakerId0 -> forAll genBakerId $ \bakerId1 -> do

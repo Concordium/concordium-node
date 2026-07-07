@@ -464,7 +464,7 @@ encodedFinalizerSet01310 = runPut $ do
     putWord8 0x0b
 
 genSmallFinalizerIndex :: Gen FinalizerIndex
-genSmallFinalizerIndex = FinalizerIndex . fromIntegral <$> chooseInt (0, 255)
+genSmallFinalizerIndex = FinalizerIndex . fromIntegral <$> chooseInt (0, 4096)
 
 -- | 'memberFinalizerSet' returns 'True' for all finalizer indices in the list of finalizer
 -- indices used to construct the `FinalizerSet`
