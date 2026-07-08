@@ -515,7 +515,7 @@ migrateAccounts ::
 migrateAccounts migration Accounts{..} = do
     logEvent GlobalState LLTrace "Migrating accounts"
     let migrateAccount acct = do
-            canonicalAddress <- accountCanonicalAddress =<< lift (refLoad acct)
+            canonicalAddress <- lift (accountCanonicalAddress =<< refLoad acct)
             logEvent GlobalState LLTrace $ "Migrating account: " <> show canonicalAddress
             newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
             -- Increment the account index counter.
