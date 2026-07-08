@@ -15,14 +15,16 @@ module Concordium.KonsensusV1.Types where
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BSS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import qualified Data.ProtoLens.Combinators as Proto
 import Data.Serialize
 import qualified Data.Set as Set
 import Data.Singletons
 import qualified Data.Vector as Vector
 import Data.Word
-import Numeric.Natural
+import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -43,8 +45,6 @@ import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-import qualified Data.ProtoLens.Combinators as Proto
-import Lens.Micro.Platform
 import qualified Proto.V2.Concordium.Types as Proto
 import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
@@ -241,69 +241,80 @@ computeFinalizationCommitteeHash FinalizationCommittee{..} =
 -- | A set of 'FinalizerIndex'es.
 --  This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
 --  in the set.
-newtype FinalizerSet = FinalizerSet {theFinalizerSet :: Natural}
+newtype FinalizerSet = FinalizerSet {theFinalizerSet :: BSS.ShortByteString}
     deriving (Eq)
 
 -- | The serialization of a 'FinalizerSet' consists of a length (Word32, big-endian), followed by
 --  that many bytes, the first of which (if any) must be non-zero. These bytes encode the bit-vector
 --  in big-endian. This enforces that the serialization of a finalizer set is unique.
+--
+--  Internally, the bit-vector is stored little-endian, so finalizer index @i@ is represented by
+--  bit @i mod 8@ of byte @i div 8@. This makes membership tests constant time and keeps decoding
+--  linear in the number of serialized bytes.
 instance Serialize FinalizerSet where
-    put fs = do
-        let (byteCount, putBytes) = unroll 0 (return ()) (theFinalizerSet fs)
-        putWord32be byteCount
-        putBytes
-      where
-        unroll :: Word32 -> Put -> Natural -> (Word32, Put)
-        -- Compute the number of bytes and construct a 'Put' that serializes in big-endian.
-        -- We do this by adding the low order byte to the accumulated 'Put' (at the start)
-        -- and recursing with the bitvector shifted right 8 bits.
-        unroll bc cont 0 = (bc, cont)
-        unroll bc cont n = unroll (bc + 1) (putWord8 (fromIntegral n) >> cont) (shiftR n 8)
+    put (FinalizerSet fs) = do
+        putWord32be $ fromIntegral $ BSS.length fs
+        putByteString $ BS.reverse $ BSS.fromShort fs
     get = label "FinalizerSet" $ do
         byteCount <- getWord32be
-        FinalizerSet <$> roll1 byteCount
-      where
-        roll1 0 = return 0
-        roll1 bc = do
-            b <- getWord8
-            when (b == 0) $ fail "unexpected 0 byte"
-            roll (bc - 1) (fromIntegral b)
-        roll 0 n = return n
-        roll bc n = do
-            b <- getWord8
-            roll (bc - 1) (shiftL n 8 .|. fromIntegral b)
+        remainingBytes <- remaining
+        when (toInteger byteCount > toInteger remainingBytes) $
+            fail "FinalizerSet length exceeds remaining input"
+        bytes <- getByteString (fromIntegral byteCount)
+        when (not (BS.null bytes) && BS.head bytes == 0) $
+            fail "unexpected 0 byte"
+        return $! FinalizerSet $! BSS.toShort $! BS.reverse bytes
 
 -- | Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
 finalizerList :: FinalizerSet -> [FinalizerIndex]
-finalizerList = unroll 0 . theFinalizerSet
+finalizerList (FinalizerSet fs) = concat $ zipWith finalizersInByte [0, 8 ..] (BSS.unpack fs)
   where
-    unroll _ 0 = []
-    unroll i x
-        | testBit x 0 = FinalizerIndex i : r
-        | otherwise = r
-      where
-        r = unroll (i + 1) (shiftR x 1)
+    finalizersInByte base byte =
+        [ FinalizerIndex (base + bitIndex)
+        | bitIndex <- [0 .. 7],
+          testBit byte (fromIntegral bitIndex)
+        ]
 
 -- | The empty set of finalizers
 emptyFinalizerSet :: FinalizerSet
-emptyFinalizerSet = FinalizerSet 0
+emptyFinalizerSet = FinalizerSet BSS.empty
 
 -- | Add a finalizer to a 'FinalizerSet'.
 addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
-addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
+addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) =
+    FinalizerSet $ BSS.pack $ case splitAt byteIndex paddedBytes of
+        (prefix, oldByte : suffix) -> prefix ++ setBit oldByte bitIndex : suffix
+        -- This case cannot occur because 'paddedBytes' has length at least @byteIndex + 1@.
+        _ -> paddedBytes
+  where
+    byteIndex = fromIntegral (i `div` 8)
+    bitIndex = fromIntegral (i `mod` 8)
+    bytes = BSS.unpack setOfFinalizers
+    paddedBytes = bytes ++ replicate (byteIndex + 1 - length bytes) 0
 
 -- | Test whether a given finalizer index is present in a finalizer set.
 memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool
-memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
-    testBit setOfFinalizers (fromIntegral fi)
+memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers)
+    | byteIndex >= BSS.length setOfFinalizers = False
+    | otherwise = testBit (BSS.index setOfFinalizers byteIndex) bitIndex
+  where
+    byteIndex = fromIntegral (fi `div` 8)
+    bitIndex = fromIntegral (fi `mod` 8)
 
 -- | Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
 finalizerSet :: [FinalizerIndex] -> FinalizerSet
-finalizerSet = foldl' addFinalizer (FinalizerSet 0)
+finalizerSet = foldl' addFinalizer emptyFinalizerSet
 
 -- | Test if the first finalizer set is a subset of the second.
 subsetFinalizerSet :: FinalizerSet -> FinalizerSet -> Bool
-subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
+subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = go 0 (BSS.unpack s1)
+  where
+    go _ [] = True
+    go byteIndex (b1 : rest) = b1 .&. b2 == b1 && go (byteIndex + 1) rest
+      where
+        b2
+            | byteIndex < BSS.length s2 = BSS.index s2 byteIndex
+            | otherwise = 0
 
 instance Show FinalizerSet where
     show = show . finalizerList
@@ -329,7 +340,7 @@ data QuorumCertificate = QuorumCertificate
 
 -- | For generating a genesis quorum certificate with empty signature and empty finalizer set.
 genesisQuorumCertificate :: BlockHash -> QuorumCertificate
-genesisQuorumCertificate genesisHash = QuorumCertificate genesisHash 0 0 mempty $ FinalizerSet 0
+genesisQuorumCertificate genesisHash = QuorumCertificate genesisHash 0 0 mempty emptyFinalizerSet
 
 instance Serialize QuorumCertificate where
     put QuorumCertificate{..} = do
@@ -1091,6 +1102,7 @@ data DerivableBlockHashesBHV (bhv :: BlockHashVersion) where
         DerivableBlockHashesBHV 'BlockHashVersion1
 
 deriving instance Show (DerivableBlockHashesBHV bhv)
+
 deriving instance Eq (DerivableBlockHashesBHV bhv)
 
 -- | Serialize derivable hashes.

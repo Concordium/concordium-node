@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## Unreleased changes (Devnet)
+
 - **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
 - Added lock metadata as part of lock configurations
 
@@ -36,6 +38,15 @@
 # 11.0.0 (DevNet)
 
 - Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
+
+# 10.0.9
+
+- Upgraded rust version to 1.94
+- Change `FinalizerSet` inner representation to `ShortByteString` to improve performance on deserialize/serialize.
+
+# 10.0.8
+
+- Treat scheduled transfers where the total transferred amount overflows as invalid.
 
 # 10.0.7
 
