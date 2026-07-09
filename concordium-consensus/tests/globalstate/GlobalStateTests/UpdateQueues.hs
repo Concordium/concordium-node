@@ -32,7 +32,7 @@ testCase _ _ pvString = do
     effects <- liftIO . runBlobStoreTemp "." $ do
         (u1 :: BufferedRef (PU.Updates' cpv auv)) <-
             refMake
-                =<< PU.initialUpdates dummyKeyCollection dummyChainParameters
+                =<< PU.initialUpdates (dummyKeyCollection @auv) (dummyChainParameters' @cpv)
         enqueuedState <-
             PU.enqueueUpdate effectiveTime poolParameterUpdate
                 =<< PU.enqueueUpdate (effectiveTime - 1) euroEnergyExchange

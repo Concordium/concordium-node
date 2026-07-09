@@ -86,7 +86,7 @@ createGS = do
             dummyIdentityProviders
             dummyArs
             dummyKeyCollection
-            dummyChainParameters
+            (dummyChainParameters @PV)
 
 --------------------------------------------------------------------------------
 --                                                                            --

@@ -7,18 +7,29 @@ module GlobalStateTests.PersistentChainParameters (tests) where
 
 import Control.Exception (ErrorCall, evaluate, try)
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Maybe
 import qualified Data.Serialize as S
+import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Genesis.Data
+import qualified Concordium.Genesis.Data.P11 as P11
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Persistent.BlockState.Parameters as PCP
+import qualified Concordium.GlobalState.Persistent.BlockState.Updates as PU
+import qualified Concordium.GlobalState.Persistent.Migration as Migration
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
+import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Updates (AccessStructure (..))
+
+import GlobalStateTests.BlockStateHelpers (dummySeedState, runTestBlockState)
 
 -- | Run an action in the 'MemBlobStoreT' monad transformer from an empty store.
 runWithNewMemBlobStore :: MemBlobStoreT IO a -> IO a
@@ -92,6 +103,59 @@ p10ChainParameters = dummyChainParameters' & cpMaxLockDuration .~ SomeParam Noth
 p11ChainParameters :: Duration -> ChainParameters' 'ChainParametersV3
 p11ChainParameters duration = dummyChainParameters' & cpMaxLockDuration .~ SomeParam (Just duration)
 
+p11ProtocolUpdateData :: Duration -> P11.ProtocolUpdateData
+p11ProtocolUpdateData duration =
+    P11.ProtocolUpdateData
+        { P11.updateTokenParametersAccessStructure = AccessStructure (Set.singleton 0) 1,
+          P11.updateMaxLockDuration = duration
+        }
+
+assertP10P11MigrationExposesMaxLockDuration :: Assertion
+assertP10P11MigrationExposesMaxLockDuration = runWithNewMemBlobStore $ do
+    let duration = Duration 12345
+        migration = StateMigrationParametersP10ToP11 (P11.StateMigrationData (p11ProtocolUpdateData duration))
+    persistent0 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'ChainParametersV3 @'AuthorizationsVersion2 p10ChainParameters
+    migratedMaybe <- runMaybeT $ Migration.migrateChainParameters migration persistent0
+    migrated <- case migratedMaybe of
+        Nothing -> liftIO $ assertFailure "P10-to-P11 chain-parameter migration unexpectedly failed"
+        Just migrated -> return migrated
+    publicView <- PCP.persistentChainParametersToChainParametersM migrated
+    liftIO $ assertEqual "P10-to-P11 migration should expose protocol-update maxLockDuration" (SomeParam (Just duration)) (publicView ^. cpMaxLockDuration)
+
+assertP11InitialPersistentStateExposesMaxLockDuration :: Assertion
+assertP11InitialPersistentStateExposesMaxLockDuration = runTestBlockState @'P11 $ do
+    let duration = Duration 67890
+    hpbs <-
+        PBS.initialPersistentState @'P11
+            (dummySeedState SP11)
+            dummyCryptographicParameters
+            []
+            dummyIdentityProviders
+            dummyArs
+            (dummyKeyCollection @'AuthorizationsVersion3)
+            (p11ChainParameters duration)
+    bsp <- PBS.loadPBS (PBS.hpbsPointers hpbs)
+    updates <- refLoad (PBS.bspUpdates bsp)
+    basicUpdates <- PU.makeBasicUpdates updates
+    liftIO $ assertEqual "P11 initial state should expose genesis maxLockDuration" (SomeParam (Just duration)) (UQ._currentParameters basicUpdates ^. cpMaxLockDuration)
+
+assertP11InitialPersistentStateRequiresMaxLockDuration :: Assertion
+assertP11InitialPersistentStateRequiresMaxLockDuration = do
+    result <- try $ runTestBlockState @'P11 $ do
+        hpbs <-
+            PBS.initialPersistentState @'P11
+                (dummySeedState SP11)
+                dummyCryptographicParameters
+                []
+                dummyIdentityProviders
+                dummyArs
+                (dummyKeyCollection @'AuthorizationsVersion3)
+                p10ChainParameters
+        liftIO $ evaluate hpbs
+    case result of
+        Left (_ :: ErrorCall) -> return ()
+        Right _ -> assertFailure "P11 initial persistent state should require maxLockDuration"
+
 assertP11RoundtripExposesMaxLockDuration :: Assertion
 assertP11RoundtripExposesMaxLockDuration = runWithNewMemBlobStore $ do
     let duration = Duration 42
@@ -137,6 +201,12 @@ tests = describe "GlobalStateTests.PersistentChainParameters" $ do
         assertOldLayoutHashCompatible @'ChainParametersV1 @'AuthorizationsVersion1 dummyChainParameters'
         assertOldLayoutHashCompatible @'ChainParametersV2 @'AuthorizationsVersion1 dummyChainParameters'
         assertOldLayoutHashCompatible @'ChainParametersV3 @'AuthorizationsVersion2 p10ChainParameters
+    it "migrates P10 chain parameters to P11 with protocol-update maxLockDuration" $
+        assertP10P11MigrationExposesMaxLockDuration
+    it "initializes P11 persistent state with genesis maxLockDuration" $
+        assertP11InitialPersistentStateExposesMaxLockDuration
+    it "rejects P11 initial persistent state without maxLockDuration" $
+        assertP11InitialPersistentStateRequiresMaxLockDuration
     it "stores, loads, caches, hashes, and exposes P11 external maxLockDuration" $
         assertP11RoundtripExposesMaxLockDuration
     it "includes P11 external maxLockDuration in the persistent chain-parameter hash" $
