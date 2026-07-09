@@ -480,7 +480,7 @@ testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P7 $ do
     startEpoch = 10
     startTriggerTime = 1000
     cooldownDuration =
-        DummyData.dummyChainParameters @ChainParametersV2
+        DummyData.dummyChainParameters' @ChainParametersV2
             ^. cpCooldownParameters . cpUnifiedCooldown
 
 -- | Test an snapshot epoch transition.
@@ -541,7 +541,7 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     hour = Duration 3_600_000
     startEpoch = 10
     startTriggerTime = 1000
-    chainParams = DummyData.dummyChainParameters @ChainParametersV2
+    chainParams = DummyData.dummyChainParameters' @ChainParametersV2
 
 -- | Test two successive epoch transitions where the first is a snapshot and the second is a payday.
 testEpochTransitionSnapshotPayday :: [AccountConfig 'AccountV3] -> Assertion
@@ -626,7 +626,7 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
     hour = Duration 3_600_000
     startEpoch = 10
     startTriggerTime = 1000
-    chainParams = DummyData.dummyChainParameters @ChainParametersV2
+    chainParams = DummyData.dummyChainParameters' @ChainParametersV2
     cooldownDuration = chainParams ^. cpCooldownParameters . cpUnifiedCooldown
 
 -- | Test epoch transitions for two successive transitions where the payday length is one epoch.
@@ -735,7 +735,7 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
     hour = Duration 3_600_000
     startEpoch = 10
     startTriggerTime = 1000
-    chainParams = DummyData.dummyChainParameters @ChainParametersV2
+    chainParams = DummyData.dummyChainParameters' @ChainParametersV2
     cooldownDuration = chainParams ^. cpCooldownParameters . cpUnifiedCooldown
 
 -- | Test that missed rounds are carried over when rotating current capital distribution.

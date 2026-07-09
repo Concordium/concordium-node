@@ -22,6 +22,7 @@ import qualified GlobalStateTests.FinalizationSerializationSpec (tests)
 import qualified GlobalStateTests.Instances (tests)
 import qualified GlobalStateTests.LFMBTree (tests)
 import qualified GlobalStateTests.LMDBAccountMap (tests)
+import qualified GlobalStateTests.PersistentChainParameters (tests)
 import qualified GlobalStateTests.PersistentTreeState (tests)
 import qualified GlobalStateTests.ProtocolLevelTokens (tests)
 import qualified GlobalStateTests.RustPLTBlockState (tests)
@@ -49,6 +50,7 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.Accounts.tests lvl
     GlobalStateTests.Trie.tests
     GlobalStateTests.PersistentTreeState.tests
+    GlobalStateTests.PersistentChainParameters.tests
     GlobalStateTests.FinalizationSerializationSpec.tests
     GlobalStateTests.Instances.tests lvl
     GlobalStateTests.AccountReleaseScheduleTest.tests

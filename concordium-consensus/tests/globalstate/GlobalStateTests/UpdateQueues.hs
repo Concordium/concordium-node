@@ -24,8 +24,8 @@ testCase :: forall cpv auv. (IsChainParametersVersion cpv, IsAuthorizationsVersi
 testCase _ _ pvString = do
     -- Schedule three updates
     let rootKeyUpdate = UVRootKeys dummyHigherLevelKeys
-    let poolParameterUpdate = UVPoolParameters (dummyChainParameters @cpv ^. cpPoolParameters)
-    let euroEnergyExchange = UVEuroPerEnergy (_erEuroPerEnergy (dummyChainParameters @cpv ^. cpExchangeRates))
+    let poolParameterUpdate = UVPoolParameters (dummyChainParameters' @cpv ^. cpPoolParameters)
+    let euroEnergyExchange = UVEuroPerEnergy (_erEuroPerEnergy (dummyChainParameters' @cpv ^. cpExchangeRates))
     -- The first two are scheduled at effectiveTime = 123
     -- The last one is schedule for a millisecond earlier.
     let effectiveTime = 123 :: TransactionTime

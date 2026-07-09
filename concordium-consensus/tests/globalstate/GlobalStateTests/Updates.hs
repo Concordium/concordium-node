@@ -39,6 +39,7 @@ import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.Persistent.BlockState.Parameters as PCP
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as PU
 import Concordium.ID.DummyData
 import Concordium.ID.Parameters
@@ -94,7 +95,7 @@ createGS = do
 --------------------------------------------------------------------------------
 
 limit :: Amount
-limit = dummyChainParameters @'ChainParametersV0 ^. cpPoolParameters . ppBakerStakeThreshold
+limit = dummyChainParameters' @'ChainParametersV0 ^. cpPoolParameters . ppBakerStakeThreshold
 limitDelta :: AmountDelta
 limitDelta = fromIntegral limit
 
@@ -183,9 +184,10 @@ increaseLimit newLimit (bs2, ai) = do
     -- load the updates field
     updates <- refLoad (PBS.bspUpdates bsp)
     -- load the current parameters
-    currentParams <- unStoreSerialized <$> refLoad (PU.currentParameters updates)
+    currentPersistentParams <- refLoad (PU.currentParameters updates)
+    let currentParams = PCP.persistentChainParametersToChainParameters currentPersistentParams
     -- store the new parameters
-    newParams <- refMake $ StoreSerialized (currentParams & cpPoolParameters . ppMinimumEquityCapital .~ newLimit)
+    newParams <- refMake $ PCP.updateChainParameters (currentParams & cpPoolParameters . ppMinimumEquityCapital .~ newLimit) currentPersistentParams
     -- store the new updates
     newUpdates <- refMake (updates{PU.currentParameters = newParams})
     -- store the new block in the IORef

@@ -3,6 +3,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -282,7 +283,7 @@ maxBlockEnergy = 3_000_000
 -- | Construct a genesis state with hardcoded values for parameters that should not affect this test.
 --  Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
-testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP5 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection dummyChainParameters
+testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP5 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection (dummyChainParameters @PV)
 
 -- | Run the doReceiveTransaction function and obtain the results
 testDoReceiveTransaction :: [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]

@@ -113,7 +113,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
     supportSuspension = supportsValidatorSuspension $ accountVersionFor $ demoteProtocolVersion (protocolVersion @pv)
     minEquity = 1_000_000_000
     chainParams =
-        DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
+        DummyData.dummyChainParameters @pv
             & cpPoolParameters . ppMinimumEquityCapital .~ minEquity
             & cpPoolParameters . ppCommissionBounds
                 .~ CommissionRanges
@@ -565,7 +565,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
     hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
     minEquity = 1_000_000_000
     chainParams =
-        DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
+        DummyData.dummyChainParameters @pv
             & cpPoolParameters . ppMinimumEquityCapital .~ minEquity
             & cpPoolParameters . ppCommissionBounds
                 .~ commissionRanges

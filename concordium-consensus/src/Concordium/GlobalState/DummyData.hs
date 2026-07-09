@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -374,8 +375,21 @@ dummyValidatorScoreParameters =
           _vspMaxMissedRounds = 1
         }
 
-dummyChainParameters :: forall cpv. (IsChainParametersVersion cpv) => ChainParameters' cpv
-dummyChainParameters = case chainParametersVersion @cpv of
+-- | Dummy chain parameters for the given protocol version.
+--
+-- For P11 this includes an initial max lock duration, which is required by the
+-- node-owned external chain-parameters component.
+dummyChainParameters :: forall pv. (IsProtocolVersion pv) => ChainParameters pv
+dummyChainParameters = case protocolVersion @pv of
+    SP11 -> (dummyChainParameters' @(ChainParametersVersionFor pv)){_cpMaxLockDuration = SomeParam (Just (Duration 42))}
+    _ -> dummyChainParameters' @(ChainParametersVersionFor pv)
+
+-- | Dummy chain parameters for the given chain-parameters version.
+--
+-- This helper is intentionally indexed by chain-parameters version only. For
+-- protocol-aware genesis/test data, prefer 'dummyChainParameters'.
+dummyChainParameters' :: forall cpv. (IsChainParametersVersion cpv) => ChainParameters' cpv
+dummyChainParameters' = case chainParametersVersion @cpv of
     SChainParametersV0 ->
         ChainParameters
             { _cpConsensusParameters = ConsensusParametersV0 $ makeElectionDifficulty 50000,
