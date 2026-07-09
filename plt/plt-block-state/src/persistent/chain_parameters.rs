@@ -31,6 +31,11 @@ impl PersistentChainParameters {
         }
     }
 
+    /// Construct P11 persistent chain parameters with an initial maximum lock duration.
+    pub fn p11_new_external_chain_parameters(max_lock_duration: u64) -> Self {
+        Self::P11(PersistentChainParametersP11 { max_lock_duration })
+    }
+
     /// Load persistent chain parameters from the blob store.
     pub fn load_from_store(
         loader: &impl BlobStoreLoad,

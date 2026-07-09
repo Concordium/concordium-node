@@ -14,6 +14,7 @@ module Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters (
     ForeignExternalChainParametersPtr,
     wrapFFIPtr,
     empty,
+    p11NewExternalChainParameters,
     withExternalChainParameters,
     ExternalChainParametersHash (..),
     getMaxLockDuration,
@@ -70,6 +71,21 @@ empty = liftIO $ do
 
 foreign import ccall "ffi_empty_external_chain_parameters"
     ffiEmptyExternalChainParameters ::
+        FFI.Word64 ->
+        FFI.Ptr (FFI.Ptr RustExternalChainParameters) ->
+        IO FFI.Word8
+
+-- | Allocate new P11 external chain parameters with an initial maximum lock duration.
+p11NewExternalChainParameters :: (BlobStore.MonadBlobStore m) => Duration -> m ForeignExternalChainParametersPtr
+p11NewExternalChainParameters (Duration maxLockDuration) = liftIO $ do
+    FFI.alloca $ \paramsDestPtr -> do
+        status <- ffiP11NewExternalChainParameters maxLockDuration paramsDestPtr
+        Monad.unless (status == 0) $ error "Unexpected panic when creating P11 external chain parameters"
+        params <- FFI.peek paramsDestPtr
+        wrapFFIPtr params
+
+foreign import ccall "ffi_p11_new_external_chain_parameters"
+    ffiP11NewExternalChainParameters ::
         FFI.Word64 ->
         FFI.Ptr (FFI.Ptr RustExternalChainParameters) ->
         IO FFI.Word8

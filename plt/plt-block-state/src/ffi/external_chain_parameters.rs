@@ -38,6 +38,32 @@ extern "C" fn ffi_empty_external_chain_parameters(
     }
 }
 
+/// Allocate new P11 external chain parameters with an initial maximum lock duration.
+///
+/// # Safety
+///
+/// - `params_out` must be non-null and valid for writing.
+#[unsafe(no_mangle)]
+extern "C" fn ffi_p11_new_external_chain_parameters(
+    max_lock_duration: u64,
+    params_out: *mut *mut PersistentChainParameters,
+) -> status::FfiStatusCode {
+    let panic_message = status::catch_unwind(move || {
+        assert!(!params_out.is_null(), "params_out is a null pointer.");
+        unsafe {
+            *params_out = Box::into_raw(Box::new(
+                PersistentChainParameters::p11_new_external_chain_parameters(max_lock_duration),
+            ));
+        }
+    });
+    if let Some(message) = panic_message {
+        eprintln!("{}", message);
+        status::FfiStatusCode::Panic
+    } else {
+        status::FfiStatusCode::Success
+    }
+}
+
 /// Deallocate external chain parameters.
 ///
 /// # Safety

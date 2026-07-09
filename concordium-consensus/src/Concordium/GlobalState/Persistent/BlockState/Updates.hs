@@ -34,6 +34,7 @@ import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState.Parameters as PCP
 import Concordium.GlobalState.Persistent.Migration
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
@@ -666,8 +667,8 @@ data Updates' (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) = U
       currentKeyCollection :: !(HashedBufferedRef (StoreSerialized (UpdateKeysCollection auv))),
       -- | Current protocol update.
       currentProtocolUpdate :: !(Nullable (HashedBufferedRef (StoreSerialized ProtocolUpdate))),
-      -- | Current chain parameters.
-      currentParameters :: !(HashedBufferedRef (StoreSerialized (ChainParameters' cpv))),
+      -- | Current node-owned persistent chain parameters.
+      currentParameters :: !(HashedBufferedRef (PCP.PersistentChainParameters' cpv auv)),
       -- | Pending updates.
       pendingUpdates :: !(PendingUpdates cpv auv),
       -- | Sequence number for updates to the protocol level tokens (PLT).
@@ -697,7 +698,7 @@ migrateUpdates migration Updates{..} = do
                 migrateHashedBufferedRef
                     (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
                     currentKeyCollection
-    newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
+    newParameters <- migrateHashedBufferedRef (migrateChainParameters migration) currentParameters
 
     let newPltUpdateSequenceNumber = case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @oldpv)) of
             STrue -> case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv)) of
@@ -802,7 +803,7 @@ initialUpdates ::
 initialUpdates initialKeyCollection chainParams = do
     currentKeyCollection <- makeHashedBufferedRef (StoreSerialized initialKeyCollection)
     let currentProtocolUpdate = Null
-    currentParameters <- makeHashedBufferedRef (StoreSerialized chainParams)
+    currentParameters <- makeHashedBufferedRef =<< PCP.makePersistentChainParameters chainParams
     pendingUpdates <- emptyPendingUpdates
     let pltUpdateSequenceNumber = conditionally (sSupportsCreatePLT (authorizationsVersion @auv)) minUpdateSequenceNumber
     return Updates{..}
@@ -818,7 +819,7 @@ makePersistentUpdates UQ.Updates{..} = do
     currentProtocolUpdate <- case _currentProtocolUpdate of
         Nothing -> return Null
         Just pu -> Some <$> refMake (StoreSerialized pu)
-    currentParameters <- refMake (StoreSerialized _currentParameters)
+    currentParameters <- refMake =<< PCP.makePersistentChainParameters _currentParameters
     pendingUpdates <- makePersistentPendingUpdates _pendingUpdates
     let pltUpdateSequenceNumber = _pltUpdateSequenceNumber
     return Updates{..}
@@ -827,7 +828,7 @@ makePersistentUpdates UQ.Updates{..} = do
 makeBasicUpdates ::
     forall m cpv auv.
     (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    (Updates' cpv auv) ->
+    Updates' cpv auv ->
     m (UQ.Updates' cpv auv)
 makeBasicUpdates Updates{..} = do
     hKC <- getHashM currentKeyCollection
@@ -836,10 +837,28 @@ makeBasicUpdates Updates{..} = do
     _currentProtocolUpdate <- case currentProtocolUpdate of
         Null -> return Nothing
         Some pu -> Just . unStoreSerialized <$> refLoad pu
-    _currentParameters <- unStoreSerialized <$> refLoad currentParameters
+    _currentParameters <- PCP.persistentChainParametersToChainParametersM =<< refLoad currentParameters
     _pendingUpdates <- makeBasicPendingUpdates pendingUpdates
     let _pltUpdateSequenceNumber = pltUpdateSequenceNumber
     return UQ.Updates{..}
+
+-- | Load the public/wire view of current chain parameters from the persistent node representation.
+loadChainParametersRef ::
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    HashedBufferedRef (PCP.PersistentChainParameters' cpv auv) ->
+    m (ChainParameters' cpv)
+loadChainParametersRef currentParameters =
+    PCP.persistentChainParametersToChainParameters <$> refLoad currentParameters
+
+-- | Store a new chain-parameter value while preserving node-internal external state.
+makeUpdatedChainParametersRef ::
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    HashedBufferedRef (PCP.PersistentChainParameters' cpv auv) ->
+    ChainParameters' cpv ->
+    m (HashedBufferedRef (PCP.PersistentChainParameters' cpv auv))
+makeUpdatedChainParametersRef currentParameters newChainParameters = do
+    persistentParameters <- refLoad currentParameters
+    refMake $ PCP.updateChainParameters newChainParameters persistentParameters
 
 -- | Process the update queue to determine the new value of a parameter (or the authorizations).
 --  This splits the queue at the given timestamp. The last value up to and including the timestamp
@@ -946,11 +965,11 @@ processElectionDifficultyUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newEDp newQ m ->
                 (UVElectionDifficulty <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newED <- refLoad newEDp
                     let newConsensusParameters = case oldCP ^. cpConsensusParameters of
                             ConsensusParametersV0{} -> ConsensusParametersV0 newED
-                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -969,9 +988,9 @@ processEuroPerEnergyUpdates t bu = do
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newEPEp newQ m ->
         (UVEuroPerEnergy <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newEPE <- refLoad newEPEp
-            newParameters <- refMake $ StoreSerialized $ oldCP & euroPerEnergy .~ newEPE
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & euroPerEnergy .~ newEPE
             refMake
                 u
                     { currentParameters = newParameters,
@@ -990,9 +1009,9 @@ processMicroGTUPerEuroUpdates t bu = do
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newMGTUPEp newQ m ->
         (UVMicroGTUPerEuro <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newMGTUPE <- refLoad newMGTUPEp
-            newParameters <- refMake $ StoreSerialized $ oldCP & microGTUPerEuro .~ newMGTUPE
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & microGTUPerEuro .~ newMGTUPE
             refMake
                 u
                     { currentParameters = newParameters,
@@ -1010,9 +1029,9 @@ processFoundationAccountUpdates t bu = do
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
         (UVFoundationAccount <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newParam <- refLoad newParamPtr
-            newParameters <- refMake $ StoreSerialized $ oldCP & cpFoundationAccount .~ newParam
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & cpFoundationAccount .~ newParam
             refMake
                 u
                     { currentParameters = newParameters,
@@ -1031,9 +1050,9 @@ processMintDistributionUpdates t bu = withIsMintDistributionVersionFor (chainPar
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
         (UVMintDistribution <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newParam <- refLoad newParamPtr
-            newParameters <- refMake $ StoreSerialized $ oldCP & rpMintDistribution .~ newParam
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & rpMintDistribution .~ newParam
             refMake
                 u
                     { currentParameters = newParameters,
@@ -1051,9 +1070,9 @@ processTransactionFeeDistributionUpdates t bu = do
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
         (UVTransactionFeeDistribution <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newParam <- refLoad newParamPtr
-            newParameters <- refMake $ StoreSerialized $ oldCP & rpTransactionFeeDistribution .~ newParam
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & rpTransactionFeeDistribution .~ newParam
             refMake
                 u
                     { currentParameters = newParameters,
@@ -1072,9 +1091,9 @@ processGASRewardsUpdates t bu = withIsGASRewardsVersionFor (chainParametersVersi
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
         (UVGASRewards <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newParam <- refLoad newParamPtr
-            newParameters <- refMake $ StoreSerialized $ oldCP & rpGASRewards .~ newParam
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & rpGASRewards .~ newParam
             refMake
                 u
                     { currentParameters = newParameters,
@@ -1093,9 +1112,9 @@ processPoolParamatersUpdates t bu = withIsPoolParametersVersionFor (chainParamet
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
         (UVPoolParameters <$> m,) <$> do
             newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
+            oldCP <- loadChainParametersRef currentParameters
             StoreSerialized newParam <- refLoad newParamPtr
-            newParameters <- refMake $ StoreSerialized $ oldCP & cpPoolParameters .~ newParam
+            newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & cpPoolParameters .~ newParam
             refMake
                 u
                     { currentParameters = newParameters,
@@ -1118,9 +1137,9 @@ processCooldownParametersUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVCooldownParameters <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newParam <- refLoad newParamPtr
-                    newParameters <- refMake $ StoreSerialized $ oldCP & cpCooldownParameters .~ newParam
+                    newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & cpCooldownParameters .~ newParam
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1142,9 +1161,9 @@ processTimeParametersUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVTimeParameters <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newParam <- refLoad newParamPtr
-                    newParameters <- refMake $ StoreSerialized $ oldCP & cpTimeParameters .~ SomeParam newParam
+                    newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & cpTimeParameters .~ SomeParam newParam
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1170,11 +1189,11 @@ processTimeoutParametersUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newTOp newQ m ->
                 (UVTimeoutParameters <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newTimeoutParameters <- refLoad newTOp
                     let newConsensusParameters = case oldCP ^. cpConsensusParameters of
                             cp@ConsensusParametersV1{} -> cp & cpTimeoutParameters .~ newTimeoutParameters
-                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1200,11 +1219,11 @@ processMinBlockTimeUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newMBTp newQ m ->
                 (UVMinBlockTime <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newMinBlockTime <- refLoad newMBTp
                     let newConsensusParameters = case oldCP ^. cpConsensusParameters of
                             cp@ConsensusParametersV1{} -> cp & cpMinBlockTime .~ newMinBlockTime
-                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1230,11 +1249,11 @@ processBlockEnergyLimitUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
                 (UVBlockEnergyLimit <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newBlockEnergyLimit <- refLoad newBELp
                     let newConsensusParameters = case oldCP ^. cpConsensusParameters of
                             cp@ConsensusParametersV1{} -> cp & cpBlockEnergyLimit .~ newBlockEnergyLimit
-                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    newParameters <- makeUpdatedChainParametersRef currentParameters $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1260,13 +1279,12 @@ processFinalizationCommitteeParametersUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
                 (UVFinalizationCommitteeParameters <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newFinalizationCommitteeParameters <- refLoad newBELp
                     newParameters <-
-                        refMake $
-                            StoreSerialized $
-                                oldCP
-                                    & (cpFinalizationCommitteeParameters . supportedOParam .~ newFinalizationCommitteeParameters)
+                        makeUpdatedChainParametersRef currentParameters $
+                            oldCP
+                                & (cpFinalizationCommitteeParameters . supportedOParam .~ newFinalizationCommitteeParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1292,13 +1310,12 @@ processValidationScoreParametersUpdates t bu = do
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
                 (UVValidatorScoreParameters <$> m,) <$> do
                     newpQ <- refMake newQ
-                    StoreSerialized oldCP <- refLoad currentParameters
+                    oldCP <- loadChainParametersRef currentParameters
                     StoreSerialized newValidatorScoreParameters <- refLoad newBELp
                     newParameters <-
-                        refMake $
-                            StoreSerialized $
-                                oldCP
-                                    & (cpValidatorScoreParameters . supportedOParam .~ newValidatorScoreParameters)
+                        makeUpdatedChainParametersRef currentParameters $
+                            oldCP
+                                & (cpValidatorScoreParameters . supportedOParam .~ newValidatorScoreParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
@@ -1512,7 +1529,7 @@ futureElectionDifficulty uref ts = do
     Updates{..} <- refLoad uref
     oldQ <- refLoad $ unOParam $ pElectionDifficultyQueue pendingUpdates
     let getCurED = do
-            StoreSerialized cp <- refLoad currentParameters
+            cp <- loadChainParametersRef currentParameters
             return $ cp ^. cpConsensusParameters . cpElectionDifficulty
     processValueUpdates ts oldQ getCurED (\newEDp _ _ -> unStoreSerialized <$> refLoad newEDp)
 
@@ -1694,8 +1711,8 @@ overwriteElectionDifficulty ::
     m (BufferedRef (Updates' cpv auv))
 overwriteElectionDifficulty newDifficulty uref = do
     u@Updates{pendingUpdates = p@PendingUpdates{..}, ..} <- refLoad uref
-    StoreSerialized cp <- refLoad currentParameters
-    newCurrentParameters <- refMake $ StoreSerialized (cp & cpConsensusParameters . cpElectionDifficulty .~ newDifficulty)
+    cp <- loadChainParametersRef currentParameters
+    newCurrentParameters <- makeUpdatedChainParametersRef currentParameters (cp & cpConsensusParameters . cpElectionDifficulty .~ newDifficulty)
     newPendingUpdates <- clearQueue (unOParam pElectionDifficultyQueue) <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
     refMake u{currentParameters = newCurrentParameters, pendingUpdates = newPendingUpdates}
 
@@ -1717,7 +1734,7 @@ lookupExchangeRates ::
     m ExchangeRates
 lookupExchangeRates uref = do
     Updates{..} <- refLoad uref
-    StoreSerialized ChainParameters{..} <- refLoad currentParameters
+    ChainParameters{..} <- loadChainParametersRef currentParameters
     return _cpExchangeRates
 
 -- | Look up the current chain parameters.
@@ -1727,7 +1744,7 @@ lookupCurrentParameters ::
     m (ChainParameters' cpv)
 lookupCurrentParameters uref = do
     Updates{..} <- refLoad uref
-    unStoreSerialized <$> refLoad currentParameters
+    PCP.persistentChainParametersToChainParametersM =<< refLoad currentParameters
 
 -- | Look up the pending changes to the time parameters.
 lookupPendingTimeParameters ::
