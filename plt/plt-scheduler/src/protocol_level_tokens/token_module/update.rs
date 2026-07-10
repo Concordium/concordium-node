@@ -1,7 +1,5 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
-use crate::failure::{
-    HigherLevelProtocolError, ResultWithBlockStateFailure, ResultWithBlockStateFailureExt,
-};
+use crate::failure::{ResultWithBlockStateFailure, ResultWithBlockStateFailureExt};
 use crate::protocol_level_tokens::balance_operations::{
     InsufficientBalanceError, MintWouldOverflowError,
 };
@@ -12,9 +10,9 @@ use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenListUpdateDetails, TokenListUpdateEventDetails,
-    TokenModuleEvent, TokenModuleRejectReason, TokenOperation, TokenPauseEventDetails,
-    TokenSupplyUpdateDetails, TokenTransfer, TokenUpdateAdminRolesDetails,
-    TokenUpdateAdminRolesEventDetails, TokenUpdateMetadataEventDetails,
+    TokenModuleEvent, TokenOperation, TokenPauseEventDetails, TokenSupplyUpdateDetails,
+    TokenTransfer, TokenUpdateAdminRolesDetails, TokenUpdateAdminRolesEventDetails,
+    TokenUpdateMetadataEventDetails,
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::entity::accounts::{Account, Accounts};
@@ -26,17 +24,6 @@ use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
-
-/// Represents the reasons why [`execute_token_update_transaction`] can fail.
-#[derive(Debug, thiserror::Error)]
-pub enum TokenUpdateError {
-    #[error("Token module rejection")]
-    TokenModuleReject(TokenModuleRejectReason),
-    #[error("{0}")]
-    OutOfEnergy(#[from] OutOfEnergyError),
-}
-
-impl HigherLevelProtocolError for TokenUpdateError {}
 
 /// Execute a token update operation using the token context to
 /// update state and produce events.
