@@ -2,11 +2,7 @@ use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
 use crate::failure::{
     HigherLevelProtocolError, ResultWithBlockStateFailure, ResultWithBlockStateFailureExt,
 };
-use crate::protocol_level_tokens::balance_operations;
-use crate::protocol_level_tokens::token_module::errors::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
-};
-use crate::protocol_level_tokens::token_module::util;
+use crate::protocol_level_tokens::{balance_operations, token_amount};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
@@ -28,6 +24,8 @@ use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
+use crate::protocol_level_tokens::balance_operations::{InsufficientBalanceError, MintWouldOverflowError};
+use crate::protocol_level_tokens::token_amount::TokenAmountDecimalsMismatchError;
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
@@ -158,17 +156,17 @@ fn token_update_error_internal_to_external(
             TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
                 TokenBalanceInsufficientRejectReason {
                     index: index as u64,
-                    available_balance: util::to_token_amount(token_configuration, err.available),
-                    required_balance: util::to_token_amount(token_configuration, err.required),
+                    available_balance: token_amount::to_token_amount(token_configuration, err.available),
+                    required_balance: token_amount::to_token_amount(token_configuration, err.required),
                 },
             ))
         }
         TokenUpdateErrorInternal::MintWouldOverflow(err) => TokenUpdateError::TokenModuleReject(
             TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
                 index: index as u64,
-                requested_amount: util::to_token_amount(token_configuration, err.requested_amount),
-                current_supply: util::to_token_amount(token_configuration, err.current_supply),
-                max_representable_amount: util::to_token_amount(
+                requested_amount: token_amount::to_token_amount(token_configuration, err.requested_amount),
+                current_supply: token_amount::to_token_amount(token_configuration, err.current_supply),
+                max_representable_amount: token_amount::to_token_amount(
                     token_configuration,
                     err.max_representable_amount,
                 ),
@@ -499,7 +497,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = util::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
+    let raw_amount = token_amount::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
 
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
@@ -540,7 +538,7 @@ fn execute_token_mint<C: EntityContextTypes>(
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = util::to_raw_token_amount(&token_configuration, mint_operation.amount)?;
+    let raw_amount = token_amount::to_raw_token_amount(&token_configuration, mint_operation.amount)?;
 
     // operation execution
     if !token.token_p9_base().is_mintable(context) {
@@ -578,7 +576,7 @@ fn execute_token_burn<C: EntityContextTypes>(
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = util::to_raw_token_amount(&token_configuration, burn_operation.amount)?;
+    let raw_amount = token_amount::to_raw_token_amount(&token_configuration, burn_operation.amount)?;
 
     // operation execution
     if !token.token_p9_base().is_burnable(context) {

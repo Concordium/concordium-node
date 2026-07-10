@@ -2,7 +2,6 @@ use crate::failure::{ResultWithBlockStateFailure, ResultWithBlockStateFailureExt
 use crate::protocol_level_locks::{
     lock_configuration, lock_configuration::get_lock_config, lock_controller,
 };
-use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
 use crate::protocol_level_tokens::token_module::{TokenUpdateError, check_transfer_constraints};
 use crate::protocol_level_tokens::{balance_operations, token_module};
 use crate::transaction_execution::TransactionExecution;
@@ -39,6 +38,7 @@ use plt_scheduler_types::types::reject_reasons::{
 };
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
+use crate::protocol_level_tokens::balance_operations::InsufficientBalanceError;
 
 /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
 /// end of the block.

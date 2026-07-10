@@ -33,11 +33,12 @@ impl HigherLevelProtocolError for AccountNotFoundByAddressError {}
 
 /// Extension trait for [`ResultWithBlockStateFailure`]
 pub trait ResultWithBlockStateFailureExt<T, E> {
-    /// Create two nested results, with [`BlockStateFailure`] in the outer, and the higher level protocol
-    /// error in the inner.
+    /// Map [`ResultWithBlockStateFailure`] to two nested results, with [`BlockStateFailure`]
+    /// as the error type in the outer, and the higher level protocol
+    /// error as the error type in the inner.
     fn nest(self) -> BlockStateResult<Result<T, E>>;
 
-    /// Map the inner nested error.
+    /// Map the inner higher level protocol error in [`ResultWithBlockStateFailure`] using `op`.
     fn map_nested_err<F, O>(self, op: O) -> ResultWithBlockStateFailure<T, F>
     where
         O: FnOnce(E) -> F;

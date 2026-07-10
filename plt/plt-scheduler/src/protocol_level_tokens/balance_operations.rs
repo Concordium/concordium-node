@@ -1,8 +1,5 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
-use crate::failure::ResultWithBlockStateFailure;
-use crate::protocol_level_tokens::token_module::errors::{
-    InsufficientBalanceError, MintWouldOverflowError,
-};
+use crate::failure::{HigherLevelProtocolError, ResultWithBlockStateFailure};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockId;
@@ -17,6 +14,32 @@ use plt_scheduler_types::types::events::{
     BlockItemEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
+
+/// The account has insufficient balance.
+#[derive(Debug, thiserror::Error)]
+#[error("Insufficient balance on account")]
+pub struct InsufficientBalanceError {
+    /// Balance available on account
+    pub available: RawTokenAmount,
+    /// Balance required on account
+    pub required: RawTokenAmount,
+}
+
+/// Mint exceed the representable amount.
+#[derive(Debug, thiserror::Error)]
+#[error("Minting the requested amount would overflow the circulating supply amount")]
+pub struct MintWouldOverflowError {
+    /// Amount requested to be minted
+    pub requested_amount: RawTokenAmount,
+    /// Current circulating supply of the token
+    pub current_supply: RawTokenAmount,
+    /// Maximum representable token amount
+    pub max_representable_amount: RawTokenAmount,
+}
+
+impl HigherLevelProtocolError for InsufficientBalanceError {}
+impl HigherLevelProtocolError for MintWouldOverflowError {}
+
 
 /// Get the available balance for an account.
 ///
