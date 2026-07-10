@@ -17,6 +17,7 @@ module Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters (
     p11NewExternalChainParameters,
     withExternalChainParameters,
     ExternalChainParametersHash (..),
+    applyMaxLockDurationUpdate,
     getMaxLockDuration,
 ) where
 
@@ -157,6 +158,19 @@ foreign import ccall "ffi_hash_external_chain_parameters"
         FFI.LoadCallback ->
         FFI.Ptr RustExternalChainParameters ->
         FFI.Ptr FFI.Word8 ->
+        IO FFI.Word8
+
+-- | Apply a max-lock-duration update to external chain parameters.
+applyMaxLockDurationUpdate :: ForeignExternalChainParametersPtr -> Duration -> IO ()
+applyMaxLockDurationUpdate params (Duration maxLockDuration) =
+    withExternalChainParameters params $ \paramsPtr -> do
+        status <- ffiApplyExternalChainParametersMaxLockDurationUpdate paramsPtr maxLockDuration
+        Monad.unless (status == 0) $ error "Unexpected panic when applying max lock duration update"
+
+foreign import ccall "ffi_apply_external_chain_parameters_max_lock_duration_update"
+    ffiApplyExternalChainParametersMaxLockDurationUpdate ::
+        FFI.Ptr RustExternalChainParameters ->
+        FFI.Word64 ->
         IO FFI.Word8
 
 -- | Read the current maximum lock duration from external chain parameters.

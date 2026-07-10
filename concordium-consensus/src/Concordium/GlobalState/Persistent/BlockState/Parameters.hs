@@ -20,6 +20,7 @@ module Concordium.GlobalState.Persistent.BlockState.Parameters (
     persistentChainParametersToChainParameters,
     persistentChainParametersToChainParametersM,
     updateChainParameters,
+    updateMaxLockDuration,
 ) where
 
 import Control.Monad.IO.Class
@@ -177,6 +178,18 @@ updateChainParameters ::
     PersistentChainParameters' cpv auv
 updateChainParameters newChainParameters PersistentChainParameters{..} =
     fromChainParameters newChainParameters pcpExternalChainParameters
+
+-- | Apply a max-lock-duration update to the Rust-managed external chain-parameters component.
+updateMaxLockDuration ::
+    (MonadIO m) =>
+    Duration ->
+    PersistentChainParameters' cpv auv ->
+    m (PersistentChainParameters' cpv auv)
+updateMaxLockDuration duration params@PersistentChainParameters{pcpExternalChainParameters = CTrue external} = do
+    liftIO $ ECP.applyMaxLockDurationUpdate external duration
+    return params
+updateMaxLockDuration _ PersistentChainParameters{pcpExternalChainParameters = CFalse} =
+    error "Max lock duration update requires external chain parameters"
 
 -- | Serialize persistent chain parameters.
 putPersistentChainParameters :: forall cpv auv. (IsChainParametersVersion cpv) => S.Putter (PersistentChainParameters' cpv auv)

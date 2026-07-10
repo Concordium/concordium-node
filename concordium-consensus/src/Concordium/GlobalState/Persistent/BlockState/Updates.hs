@@ -250,7 +250,9 @@ data PendingUpdates (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersio
       -- | Finalization committee parameters (CPV2 onwards).
       pFinalizationCommitteeParametersQueue :: !(HashedBufferedRefO 'PTFinalizationCommitteeParameters cpv (UpdateQueue FinalizationCommitteeParameters)),
       -- | Validators score parameters (CPV3 onwards).
-      pValidatorScoreParametersQueue :: !(HashedBufferedRefO 'PTValidatorScoreParameters cpv (UpdateQueue ValidatorScoreParameters))
+      pValidatorScoreParametersQueue :: !(HashedBufferedRefO 'PTValidatorScoreParameters cpv (UpdateQueue ValidatorScoreParameters)),
+      -- | Max lock duration (P11/AUV3 onwards).
+      pMaxLockDurationQueue :: !(Conditionally (SupportsTokenParameters auv) (HashedBufferedRef (UpdateQueue Duration)))
     }
 
 -- | Migrate a conditionally-present update queue.
@@ -360,6 +362,17 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints oldCPV $
         migrateUpdateQueueRefO id pFinalizationCommitteeParametersQueue
     -- Validator score parameters were introduced in P8.
     newValidatorScoreParametersQueue <- migrateUpdateQueueRefO id pValidatorScoreParametersQueue
+    -- Max lock duration was introduced in P11/AUV3.
+    newMaxLockDurationQueue <- case sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @oldpv)) of
+        STrue -> case sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @pv)) of
+            STrue -> case pMaxLockDurationQueue of
+                CTrue hbr -> CTrue <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            SFalse -> return CFalse
+        SFalse -> case sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @pv)) of
+            STrue -> do
+                (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+                return (CTrue hbr)
+            SFalse -> return CFalse
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -382,7 +395,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints oldCPV $
               pMinBlockTimeQueue = newMinBlockTimeQueue,
               pBlockEnergyLimitQueue = newBlockEnergyLimitQueue,
               pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue,
-              pValidatorScoreParametersQueue = newValidatorScoreParametersQueue
+              pValidatorScoreParametersQueue = newValidatorScoreParametersQueue,
+              pMaxLockDurationQueue = newMaxLockDurationQueue
             }
   where
     oldCPV = chainParametersVersion @(ChainParametersVersionFor oldpv)
@@ -414,6 +428,7 @@ instance
         hBlockEnergyLimitQueue <- hashWhenSupported pBlockEnergyLimitQueue
         hFinalizationCommitteeParametersQueue <- hashWhenSupported pFinalizationCommitteeParametersQueue
         hValidatorScoreParametersQueue <- hashWhenSupported pValidatorScoreParametersQueue
+        hMaxLockDurationQueue <- hashWhenConditionallySupported pMaxLockDurationQueue
         return $!
             H.hash $
                 hRootKeysUpdateQueue
@@ -437,9 +452,13 @@ instance
                     <> hBlockEnergyLimitQueue
                     <> hFinalizationCommitteeParametersQueue
                     <> hValidatorScoreParametersQueue
+                    <> hMaxLockDurationQueue
       where
         hashWhenSupported :: (MHashableTo m H.Hash a) => OParam pt cpv a -> m BS.ByteString
         hashWhenSupported = maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM)
+        hashWhenConditionallySupported :: (MHashableTo m H.Hash a) => Conditionally b a -> m BS.ByteString
+        hashWhenConditionallySupported CFalse = return mempty
+        hashWhenConditionallySupported (CTrue value) = H.hashToByteString <$> getHashM value
 
 instance
     (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
@@ -467,6 +486,11 @@ instance
         (putBlockEnergyLimitQueue, newBlockEnergyLimitQueue) <- storeUpdate pBlockEnergyLimitQueue
         (putFinalizationCommitteeParametersQueue, newFinalizationCommitteeParametersQueue) <- storeUpdate pFinalizationCommitteeParametersQueue
         (putValidatorScoreParametersQueue, newValidatorScoreParametersQueue) <- storeUpdate pValidatorScoreParametersQueue
+        (putMaxLockDurationQueue, newMaxLockDurationQueue) <- case pMaxLockDurationQueue of
+            CFalse -> return (return (), CFalse)
+            CTrue queue -> do
+                (putQueue, newQueue) <- storeUpdate queue
+                return (putQueue, CTrue newQueue)
         let newPU =
                 PendingUpdates
                     { pRootKeysUpdateQueue = rkQ,
@@ -489,7 +513,8 @@ instance
                       pMinBlockTimeQueue = newMinBlockTimeQueue,
                       pBlockEnergyLimitQueue = newBlockEnergyLimitQueue,
                       pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue,
-                      pValidatorScoreParametersQueue = newValidatorScoreParametersQueue
+                      pValidatorScoreParametersQueue = newValidatorScoreParametersQueue,
+                      pMaxLockDurationQueue = newMaxLockDurationQueue
                     }
         let putPU =
                 pRKQ
@@ -513,6 +538,7 @@ instance
                     >> putBlockEnergyLimitQueue
                     >> putFinalizationCommitteeParametersQueue
                     >> putValidatorScoreParametersQueue
+                    >> putMaxLockDurationQueue
         return (putPU, newPU)
     load = withCPVConstraints (chainParametersVersion @cpv) $ do
         mRKQ <- label "Root keys update queue" load
@@ -536,6 +562,7 @@ instance
         mBlockEnergyLimitQueue <- label "Block energy limit update queue" load
         mFinalizationCommitteeParametersQueue <- label "Finalization committee parameters update queue" load
         mValidatorScoreParametersQueue <- label "Validator score parameters update queue" load
+        mMaxLockDurationQueue <- conditionallyA (sSupportsTokenParameters (authorizationsVersion @auv)) $ label "Max lock duration update queue" load
         return $! do
             pRootKeysUpdateQueue <- mRKQ
             pLevel1KeysUpdateQueue <- mL1KQ
@@ -558,6 +585,7 @@ instance
             pBlockEnergyLimitQueue <- mBlockEnergyLimitQueue
             pFinalizationCommitteeParametersQueue <- mFinalizationCommitteeParametersQueue
             pValidatorScoreParametersQueue <- mValidatorScoreParametersQueue
+            pMaxLockDurationQueue <- sequenceA mMaxLockDurationQueue
             return PendingUpdates{..}
 
 instance
@@ -588,15 +616,39 @@ instance
                 <*> cache pBlockEnergyLimitQueue
                 <*> cache pFinalizationCommitteeParametersQueue
                 <*> cache pValidatorScoreParametersQueue
+                <*> traverse cache pMaxLockDurationQueue
       where
         cpv = chainParametersVersion @cpv
 
 -- | Initial pending updates with empty queues.
 emptyPendingUpdates ::
     forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     m (PendingUpdates cpv auv)
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
+emptyPendingUpdates =
+    PendingUpdates
+        <$> e
+        <*> e
+        <*> e
+        <*> e
+        <*> whenSupportedA e
+        <*> e
+        <*> e
+        <*> e
+        <*> e
+        <*> e
+        <*> e
+        <*> e
+        <*> e
+        <*> e
+        <*> whenSupportedA e
+        <*> whenSupportedA e
+        <*> whenSupportedA e
+        <*> whenSupportedA e
+        <*> whenSupportedA e
+        <*> whenSupportedA e
+        <*> whenSupportedA e
+        <*> conditionallyA (sSupportsTokenParameters (authorizationsVersion @auv)) e
   where
     e :: m (HashedBufferedRef (UpdateQueue a))
     e = makeHashedBufferedRef emptyUpdateQueue
@@ -629,6 +681,7 @@ makePersistentPendingUpdates UQ.PendingUpdates{..} = withCPVConstraints (chainPa
     pBlockEnergyLimitQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pBlockEnergyLimitQueue
     pFinalizationCommitteeParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pFinalizationCommitteeParametersQueue
     pValidatorScoreParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pValidatorScoreParametersQueue
+    pMaxLockDurationQueue <- traverse (refMake <=< makePersistentUpdateQueue) _pMaxLockDurationQueue
     return PendingUpdates{..}
 
 -- | Convert a persistent 'PendingUpdates' to an in-memory 'UQ.PendingUpdates'.
@@ -659,6 +712,7 @@ makeBasicPendingUpdates PendingUpdates{..} = withCPVConstraints (chainParameters
     _pBlockEnergyLimitQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pBlockEnergyLimitQueue
     _pFinalizationCommitteeParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pFinalizationCommitteeParametersQueue
     _pValidatorScoreParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pValidatorScoreParametersQueue
+    _pMaxLockDurationQueue <- traverse (makeBasicUpdateQueue <=< refLoad) pMaxLockDurationQueue
     return UQ.PendingUpdates{..}
 
 -- | Current state of updatable parameters and update queues.
@@ -1324,6 +1378,33 @@ processValidationScoreParametersUpdates t bu = do
 
 -- | Process the add anonymity revoker update queue.
 --   Ignores updates with duplicate ARs.
+-- | Process max lock duration updates.
+--  If token-parameter updates are supported then update the Rust-managed
+--  external chain-parameters component and update the pending queue.
+processMaxLockDurationUpdates ::
+    forall m cpv auv.
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+processMaxLockDurationUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pMaxLockDurationQueue pendingUpdates of
+        CFalse -> return (Map.empty, bu)
+        CTrue qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newDurationRef newQ m ->
+                (UVMaxLockDuration <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized newDuration <- refLoad newDurationRef
+                    newPersistentParameters <- PCP.updateMaxLockDuration newDuration =<< refLoad currentParameters
+                    newParameters <- refMake newPersistentParameters
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pMaxLockDurationQueue = CTrue newpQ}
+                            }
+
 processAddAnonymityRevokerUpdates ::
     (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
@@ -1473,7 +1554,8 @@ processUpdateQueues t (u0, ars, ips) = do
               processMinBlockTimeUpdates t,
               processBlockEnergyLimitUpdates t,
               processFinalizationCommitteeParametersUpdates t,
-              processValidationScoreParametersUpdates t
+              processValidationScoreParametersUpdates t,
+              processMaxLockDurationUpdates t
             ]
 
     -- AR and IP updates are handled separately to avoid adding the large objects to the 'Updates' types.
@@ -1629,7 +1711,9 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                     pltUpdateSequenceNumber
         -- TODO: Add a max-lock-duration update queue and sequence number in the
         -- update-queue implementation in subsequent PR.
-        UpdateMaxLockDuration -> error "UpdateMaxLockDuration sequence number queue is not implemented"
+        UpdateMaxLockDuration -> case pMaxLockDurationQueue pendingUpdates of
+            CFalse -> return minUpdateSequenceNumber
+            CTrue queue -> uqNextSequenceNumber <$> refLoad queue
 
 -- | Enqueue an update in the appropriate queue, incrementing the sequence number of this queue.
 -- Note that incrementing the sequence number of updates to protocol level tokens is handled separately.
@@ -1687,6 +1771,10 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
             SomeParam q ->
                 enqueue effectiveTime v q
                     <&> \newQ -> p{pValidatorScoreParametersQueue = SomeParam newQ}
+        UVMaxLockDuration v -> case pMaxLockDurationQueue of
+            CTrue q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pMaxLockDurationQueue = CTrue newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- | Increment the update sequence number for Protocol Level Tokens (PLT).

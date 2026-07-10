@@ -15,7 +15,7 @@ import qualified Concordium.Genesis.Data.P8 as P8
 import qualified Concordium.Genesis.Data.P9 as P9
 import Concordium.GlobalState.Persistent.BlobStore (SupportMigration)
 import qualified Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters as ECP
-import Concordium.GlobalState.Persistent.BlockState.Parameters
+import Concordium.GlobalState.Persistent.BlockState.Parameters hiding (updateMaxLockDuration)
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Conditionally
