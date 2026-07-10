@@ -1,4 +1,5 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
+use crate::failure::ResultWithBlockStateFailure;
 use crate::protocol_level_tokens::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError,
 };
@@ -71,25 +72,20 @@ pub fn mint<C: EntityContextTypes>(
     account: &Account,
     account_address: AccountAddress,
     amount: RawTokenAmount,
-) -> BlockStateResult<Result<(), MintWouldOverflowError>> {
+) -> ResultWithBlockStateFailure<(), MintWouldOverflowError> {
     let token_configuration = token.token_configuration(context)?;
 
     // Update total supply
-    let new_circulating_supply = match token
+    let new_circulating_supply = token
         .token_circulating_supply()
         .0
         .checked_add(amount.0)
         .map(RawTokenAmount)
-    {
-        Some(circulating_supply) => circulating_supply,
-        None => {
-            return Ok(Err(MintWouldOverflowError {
-                requested_amount: amount,
-                current_supply: token.token_circulating_supply(),
-                max_representable_amount: RawTokenAmount::MAX,
-            }));
-        }
-    };
+        .ok_or(MintWouldOverflowError {
+            requested_amount: amount,
+            current_supply: token.token_circulating_supply(),
+            max_representable_amount: RawTokenAmount::MAX,
+        })?;
 
     token.set_token_circulating_supply(new_circulating_supply);
 
@@ -118,7 +114,7 @@ pub fn mint<C: EntityContextTypes>(
 
     events.extend(Some(event));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 /// Burn a specified amount from the account.
@@ -137,30 +133,30 @@ pub fn burn<C: EntityContextTypes>(
     account: &Account,
     account_address: AccountAddress,
     amount: RawTokenAmount,
-) -> BlockStateResult<Result<(), InsufficientBalanceError>> {
+) -> ResultWithBlockStateFailure<(), InsufficientBalanceError> {
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     let available = available_balance(context, token.as_ref(), account)?;
     if amount > available {
-        return Ok(Err(InsufficientBalanceError {
+        return Err(InsufficientBalanceError {
             available,
             required: amount,
-        }));
+        }
+        .into());
     }
 
     // Update balance of the account
-    match account.update_token_account_balance(
-        context,
-        token.token_p9_base().token_index(),
-        RawTokenAmountDelta::Subtract(amount),
-    ) {
-        Ok(()) => (),
-        Err(OverflowError) => {
-            return Err(BlockStateFailure::Invariant(
+    account
+        .update_token_account_balance(
+            context,
+            token.token_p9_base().token_index(),
+            RawTokenAmountDelta::Subtract(amount),
+        )
+        .map_err(|_err: OverflowError| {
+            BlockStateFailure::Invariant(
                 "Available token balance check passed, but burn underflowed".to_string(),
-            ));
-        }
-    };
+            )
+        })?;
 
     // Update total supply
     let new_circulating_supply = token
@@ -191,7 +187,7 @@ pub fn burn<C: EntityContextTypes>(
 
     events.extend(Some(event));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 /// Transfer a token amount from one account to another, with an optional memo.
@@ -214,30 +210,29 @@ pub fn transfer<C: EntityContextTypes>(
     to_address: AccountAddress,
     amount: RawTokenAmount,
     memo: Option<Memo>,
-) -> BlockStateResult<Result<(), InsufficientBalanceError>> {
+) -> ResultWithBlockStateFailure<(), InsufficientBalanceError> {
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     let available = available_balance(context, token.as_ref(), from)?;
     if amount > available {
-        return Ok(Err(InsufficientBalanceError {
+        return Err(InsufficientBalanceError {
             available,
             required: amount,
-        }));
+        }
+        .into());
     }
 
     // Update sender balance
-    match from.update_token_account_balance(
+    from.update_token_account_balance(
         context,
         token.token_p9_base().token_index(),
         RawTokenAmountDelta::Subtract(amount),
-    ) {
-        Ok(()) => (),
-        Err(OverflowError) => {
-            return Err(BlockStateFailure::Invariant(
-                "Available token balance check passed, but transfer underflowed".to_string(),
-            ));
-        }
-    };
+    )
+    .map_err(|_err: OverflowError| {
+        BlockStateFailure::Invariant(
+            "Available token balance check passed, but transfer underflowed".to_string(),
+        )
+    })?;
 
     // Update receiver balance
     to.update_token_account_balance(
@@ -267,7 +262,7 @@ pub fn transfer<C: EntityContextTypes>(
 
     events.extend(Some(event));
 
-    Ok(Ok(()))
+    Ok(())
 }
 
 /// Move `amount` of tokens from an account's available balance into the control of a lock.
@@ -294,13 +289,14 @@ pub fn lock_amount<C: EntityContextTypes>(
     lock_id: &LockId,
     amount: RawTokenAmount,
     memo: Option<Memo>,
-) -> BlockStateResult<Result<bool, InsufficientBalanceError>> {
+) -> ResultWithBlockStateFailure<bool, InsufficientBalanceError> {
     let available = available_balance(context, TokenPXRef::TokenP11(token), account)?;
     if amount > available {
-        return Ok(Err(InsufficientBalanceError {
+        return Err(InsufficientBalanceError {
             available,
             required: amount,
-        }));
+        }
+        .into());
     }
 
     let old_locked =
@@ -324,9 +320,7 @@ pub fn lock_amount<C: EntityContextTypes>(
         to_lock: Some(lock_id.clone()),
     })));
 
-    Ok(Ok(
-        old_locked == RawTokenAmount(0) && new_locked > RawTokenAmount(0)
-    ))
+    Ok(old_locked == RawTokenAmount(0) && new_locked > RawTokenAmount(0))
 }
 
 /// Move `amount` of tokens from a lock's control on `source` to `recipient`'s available balance.
@@ -353,18 +347,15 @@ pub fn send_locked_amount<C: EntityContextTypes>(
     lock_id: &LockId,
     amount: RawTokenAmount,
     memo: Option<Memo>,
-) -> BlockStateResult<Result<RawTokenAmount, InsufficientBalanceError>> {
+) -> ResultWithBlockStateFailure<RawTokenAmount, InsufficientBalanceError> {
     let old_locked =
         token.get_locked_balance_for_account(context, source.account_index(), lock_id)?;
-    let new_locked = match old_locked.checked_sub(amount) {
-        Some(new_locked) => new_locked,
-        None => {
-            return Ok(Err(InsufficientBalanceError {
-                available: old_locked,
-                required: amount,
-            }));
-        }
-    };
+    let new_locked = old_locked
+        .checked_sub(amount)
+        .ok_or(InsufficientBalanceError {
+            available: old_locked,
+            required: amount,
+        })?;
     token.set_locked_balance_for_account(context, source.account_index(), lock_id, new_locked)?;
 
     source
@@ -400,7 +391,7 @@ pub fn send_locked_amount<C: EntityContextTypes>(
         to_lock: None,
     })));
 
-    Ok(Ok(new_locked))
+    Ok(new_locked)
 }
 
 /// Release `amount` from a lock's control back to the owner account's available balance.
@@ -426,17 +417,14 @@ pub fn return_locked_amount<C: EntityContextTypes>(
     lock_id: &LockId,
     amount: RawTokenAmount,
     memo: Option<Memo>,
-) -> BlockStateResult<Result<RawTokenAmount, InsufficientBalanceError>> {
+) -> ResultWithBlockStateFailure<RawTokenAmount, InsufficientBalanceError> {
     let old_locked = token.get_locked_balance_for_account(context, account_index, lock_id)?;
-    let new_locked = match old_locked.checked_sub(amount) {
-        Some(new_locked) => new_locked,
-        None => {
-            return Ok(Err(InsufficientBalanceError {
-                available: old_locked,
-                required: amount,
-            }));
-        }
-    };
+    let new_locked = old_locked
+        .checked_sub(amount)
+        .ok_or(InsufficientBalanceError {
+            available: old_locked,
+            required: amount,
+        })?;
     token.set_locked_balance_for_account(context, account_index, lock_id, new_locked)?;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
@@ -453,7 +441,7 @@ pub fn return_locked_amount<C: EntityContextTypes>(
         to_lock: None,
     })));
 
-    Ok(Ok(new_locked))
+    Ok(new_locked)
 }
 
 /// Unlock the balance of an account associated with a particular lock for

@@ -1,11 +1,9 @@
-use crate::failure::WithBlockStateResult;
+use crate::failure::{ResultWithBlockStateFailure, ResultWithBlockStateFailureExt};
 use crate::protocol_level_locks::{
     lock_configuration, lock_configuration::get_lock_config, lock_controller,
 };
 use crate::protocol_level_tokens::token_module::errors::InsufficientBalanceError;
-use crate::protocol_level_tokens::token_module::{
-    TokenUpdateError, check_transfer_constraints, token_update_error_internal_to_external,
-};
+use crate::protocol_level_tokens::token_module::{TokenUpdateError, check_transfer_constraints};
 use crate::protocol_level_tokens::{balance_operations, token_module};
 use crate::transaction_execution::TransactionExecution;
 use concordium_base::base::AccountIndex;
@@ -62,7 +60,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
     lock_id: &LockId,
-) -> WithBlockStateResult<RawCbor, LockNotFoundByIdError> {
+) -> ResultWithBlockStateFailure<RawCbor, LockNotFoundByIdError> {
     let lock = block_state.lock_by_id(context, lock_id)??;
     let configuration = lock.lock_configuration(context)?;
 
@@ -140,7 +138,7 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
     operation_index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     match lock_operation {
         LockOperation::Fund(details) => execute_lock_fund(
             context,
@@ -182,7 +180,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockFundDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
     let mut lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -212,7 +210,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
     let raw_amount = parse_raw_amount(&token_configuration, details.amount, operation_index)?;
 
     let memo = details.memo.map(transactions::Memo::from);
-    let is_new_holder = match balance_operations::lock_amount(
+    let is_new_holder = balance_operations::lock_amount(
         context,
         events,
         &mut token,
@@ -221,17 +219,10 @@ fn execute_lock_fund<C: EntityContextTypes>(
         &lock_configuration.lock_id,
         raw_amount,
         memo,
-    )? {
-        Ok(is_new_holder) => is_new_holder,
-        Err(err) => {
-            return Err(token_balance_insufficient_reject_reason(
-                operation_index,
-                &token_configuration,
-                err,
-            )
-            .into());
-        }
-    };
+    )
+    .map_nested_err(|err| {
+        token_balance_insufficient_reject_reason(operation_index, &token_configuration, err)
+    })?;
 
     let token_index = token.token_p9_base.token_index();
     block_state.update_token(context, token)?;
@@ -253,7 +244,7 @@ fn execute_lock_send<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockSendDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -283,22 +274,16 @@ fn execute_lock_send<C: EntityContextTypes>(
     )?;
     let token_configuration = token.token_p9_base.token_configuration(context)?;
 
-    if let Err(err) = check_transfer_constraints(
+    check_transfer_constraints(
         context,
         &token.token_p9_base,
         &source,
         source_address,
         &recipient,
         recipient_address,
-    ) {
-        let err = token_update_error_internal_to_external(
-            &token_configuration,
-            operation_index,
-            "transfer",
-            err,
-        )?;
-        return Err(token_update_error_reject_reason(&token_configuration, err).into());
-    }
+        operation_index,
+    )
+    .map_nested_err(|err| token_update_error_reject_reason(&token_configuration, err))?;
 
     if !lock_configuration
         .recipients
@@ -332,8 +317,8 @@ fn execute_lock_send<C: EntityContextTypes>(
         &lock_configuration.lock_id,
         raw_amount,
         memo,
-    )?
-    .map_err(|err| {
+    )
+    .map_nested_err(|err| {
         token_balance_insufficient_reject_reason(operation_index, &token_configuration, err)
     })?;
 
@@ -363,7 +348,7 @@ fn execute_lock_return<C: EntityContextTypes>(
     operation_index: usize,
     details: MetaLockReturnDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -407,8 +392,8 @@ fn execute_lock_return<C: EntityContextTypes>(
         &lock_configuration.lock_id,
         raw_amount,
         memo,
-    )?
-    .map_err(|err| {
+    )
+    .map_nested_err(|err| {
         token_balance_insufficient_reject_reason(operation_index, &token_configuration, err)
     })?;
 
@@ -437,7 +422,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     details: MetaLockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     let account_index = transaction_execution.sender_account().account_index();
     let sequence_number = transaction_execution.transaction_sequence_number();
     let creation_order = transaction_execution.next_lock_creation_order();
@@ -493,7 +478,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     details: MetaLockCancelDetails,
     events: &mut Vec<BlockItemEvent>,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
@@ -543,7 +528,7 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     account_index: AccountIndex,
     token_index: plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex,
     lock_id: LockId,
-) -> WithBlockStateResult<(), TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     if !lock.remove_lock_balance_ref(account_index, token_index) {
         // No lock state change needed: either the account still holds a non-zero balance
         // controlled by the lock, or there was no balance reference to remove.
@@ -566,6 +551,7 @@ fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
     }
 }
 
+// todo ar share
 fn parse_raw_amount(
     token_configuration: &TokenConfiguration,
     amount: TokenAmount,
@@ -586,6 +572,7 @@ fn parse_raw_amount(
     }
 }
 
+// todo ar moved to shared place?
 fn token_deserialization_failure_reject_reason(
     token_configuration: &TokenConfiguration,
     operation_index: usize,
@@ -605,6 +592,7 @@ fn token_deserialization_failure_reject_reason(
     })
 }
 
+// todo ar remove
 fn token_update_error_reject_reason(
     token_configuration: &TokenConfiguration,
     err: TokenUpdateError,
@@ -622,6 +610,7 @@ fn token_update_error_reject_reason(
     }
 }
 
+// todo ar moved to shared place?
 fn token_balance_insufficient_reject_reason(
     operation_index: usize,
     token_configuration: &TokenConfiguration,

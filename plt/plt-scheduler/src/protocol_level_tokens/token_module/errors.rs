@@ -1,5 +1,6 @@
 //! Errors used in the token module.
 
+use crate::failure::HigherLevelProtocolError;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Token amount decimals mismatch
@@ -11,6 +12,8 @@ pub struct TokenAmountDecimalsMismatchError {
     /// Actual decimals
     pub found: u8,
 }
+
+impl HigherLevelProtocolError for TokenAmountDecimalsMismatchError {}
 
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]
@@ -33,3 +36,6 @@ pub struct MintWouldOverflowError {
     /// Maximum representable token amount
     pub max_representable_amount: RawTokenAmount,
 }
+
+impl HigherLevelProtocolError for InsufficientBalanceError {}
+impl HigherLevelProtocolError for MintWouldOverflowError {}

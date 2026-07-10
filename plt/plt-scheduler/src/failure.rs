@@ -1,4 +1,5 @@
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
+use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
@@ -18,23 +19,49 @@ pub enum WithBlockStateFailure<T> {
 /// "negative" bound in the `From<T>` implementation to avoid conflict with `From<BlockStateFailure>`).
 pub trait HigherLevelProtocolError {}
 
-impl<T: HigherLevelProtocolError> From<T> for WithBlockStateFailure<T> {
-    fn from(error: T) -> Self {
-        Self::Error(error)
+impl<E: HigherLevelProtocolError + Into<F>, F> From<E> for WithBlockStateFailure<F> {
+    fn from(error: E) -> Self {
+        Self::Error(error.into())
     }
 }
 
-pub type WithBlockStateResult<T, E> = Result<T, WithBlockStateFailure<E>>;
-
-/// Create two nested results, with [`BlockStateFailure`] in the outer, and the higher level protocol
-/// error in the inner.
-pub fn nest<E, T>(result: WithBlockStateResult<T, E>) -> BlockStateResult<Result<T, E>> {
-    match result {
-        Ok(val) => Ok(Ok(val)),
-        Err(WithBlockStateFailure::Error(err)) => Ok(Err(err)),
-        Err(WithBlockStateFailure::BlockStateFailure(err)) => Err(err),
-    }
-}
+pub type ResultWithBlockStateFailure<T, E> = Result<T, WithBlockStateFailure<E>>;
 
 impl HigherLevelProtocolError for TransactionRejectReason {}
 impl HigherLevelProtocolError for LockNotFoundByIdError {}
+impl HigherLevelProtocolError for AccountNotFoundByAddressError {}
+
+/// Extension trait for [`ResultWithBlockStateFailure`]
+pub trait ResultWithBlockStateFailureExt<T, E> {
+    /// Create two nested results, with [`BlockStateFailure`] in the outer, and the higher level protocol
+    /// error in the inner.
+    fn nest(self) -> BlockStateResult<Result<T, E>>;
+
+    /// Map the inner nested error.
+    fn map_nested_err<F, O>(self, op: O) -> ResultWithBlockStateFailure<T, F>
+    where
+        O: FnOnce(E) -> F;
+}
+
+impl<T, E> ResultWithBlockStateFailureExt<T, E> for ResultWithBlockStateFailure<T, E> {
+    fn nest(self) -> BlockStateResult<Result<T, E>> {
+        match self {
+            Ok(t) => Ok(Ok(t)),
+            Err(WithBlockStateFailure::BlockStateFailure(failure)) => Err(failure),
+            Err(WithBlockStateFailure::Error(err)) => Ok(Err(err)),
+        }
+    }
+
+    fn map_nested_err<F, O>(self, op: O) -> ResultWithBlockStateFailure<T, F>
+    where
+        O: FnOnce(E) -> F,
+    {
+        match self {
+            Ok(t) => Ok(t),
+            Err(WithBlockStateFailure::BlockStateFailure(failure)) => {
+                Err(WithBlockStateFailure::BlockStateFailure(failure))
+            }
+            Err(WithBlockStateFailure::Error(err)) => Err(WithBlockStateFailure::Error(op(err))),
+        }
+    }
+}

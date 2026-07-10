@@ -1,4 +1,5 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
+use crate::failure::ResultWithBlockStateFailureExt;
 use crate::protocol_level_tokens::token_module::TokenUpdateError;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use crate::{TOKEN_MODULE_REF, protocol_level_tokens::token_module};
@@ -200,7 +201,8 @@ pub fn execute_create_plt_chain_update<C: EntityContextTypes>(
         &mut events,
         TokenPXRefMut::TokenP11(&mut token),
         &initialization_parameters,
-    )?;
+    )
+    .nest()?;
 
     match token_initialize_result {
         Ok(()) => {
@@ -298,7 +300,9 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
             TokenPXRefMut::TokenP11(&mut token),
             index,
             &operation,
-        )? {
+        )
+        .nest()?
+        {
             Ok(()) => (),
             Err(TokenUpdateError::OutOfEnergy(_)) => {
                 return Ok(TransactionOutcome::Rejected(
@@ -357,7 +361,9 @@ pub fn execute_token_update_operation<C: EntityContextTypes>(
         TokenPXRefMut::TokenP11(&mut token),
         operation_index,
         &token_operation,
-    )? {
+    )
+    .nest()?
+    {
         Ok(()) => (),
         Err(TokenUpdateError::OutOfEnergy(_)) => {
             return Ok(Err(TransactionRejectReason::OutOfEnergy));

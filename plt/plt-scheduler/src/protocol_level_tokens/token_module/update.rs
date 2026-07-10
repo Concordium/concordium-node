@@ -1,4 +1,7 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
+use crate::failure::{
+    HigherLevelProtocolError, ResultWithBlockStateFailure, ResultWithBlockStateFailureExt,
+};
 use crate::protocol_level_tokens::balance_operations;
 use crate::protocol_level_tokens::token_module::errors::{
     InsufficientBalanceError, MintWouldOverflowError, TokenAmountDecimalsMismatchError,
@@ -34,6 +37,8 @@ pub enum TokenUpdateError {
     #[error("{0}")]
     OutOfEnergy(#[from] OutOfEnergyError),
 }
+
+impl HigherLevelProtocolError for TokenUpdateError {}
 
 /// Execute a token update operation using the token context to
 /// update state and produce events.
@@ -105,55 +110,31 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     index: usize,
     operation: &TokenOperation,
-) -> BlockStateResult<Result<(), TokenUpdateError>> {
-    let int_err = match execute_token_update_operation_internal(
+) -> ResultWithBlockStateFailure<(), TokenUpdateError> {
+    match execute_token_update_operation_internal(
         transaction_execution,
         context,
         events,
         token.as_mut(),
         operation,
     ) {
-        Ok(()) => return Ok(Ok(())),
-        Err(int_err) => int_err,
-    };
-
-    let token_configuration = token.token_p9_base().token_configuration(context)?;
-    token_update_error_internal_to_external(
-        &token_configuration,
-        index,
-        operation_name(operation),
-        int_err,
-    )
-    .map(Err)
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let token_configuration = token.token_p9_base().token_configuration(context)?;
+            Err(token_update_error_internal_to_external(
+                &token_configuration,
+                index,
+                operation_name(operation),
+                err,
+            )?
+            .into())
+        }
+    }
 }
 
 /// Translate an internal token update error into the externally visible token
 /// update error.
-///
-/// # Arguments
-///
-/// - `token_configuration`: the token configuration used to format amounts and
-///   identify the token in reject details.
-/// - `index`: the operation index in the transaction.
-/// - `operation_type`: the token operation type used in reject messages.
-/// - `err`: the internal error to translate.
-///
-/// # Errors
-///
-/// Returns a [`BlockStateFailure`] when `err` represents an unrecoverable block
-/// state failure.
-///
-/// # Examples
-///
-/// ```ignore
-/// let external = token_update_error_internal_to_external(
-///     &token_configuration,
-///     0,
-///     "transfer",
-///     TokenUpdateErrorInternal::Paused,
-/// )?;
-/// ```
-pub(crate) fn token_update_error_internal_to_external(
+fn token_update_error_internal_to_external(
     token_configuration: &TokenConfiguration,
     index: usize,
     operation_type: &'static str,
@@ -246,7 +227,7 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
 /// Internal variant of `TokenUpdateError` where the reject reason is
 /// not encoded as CBOR
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TokenUpdateErrorInternal {
+enum TokenUpdateErrorInternal {
     #[error("The given account does not exist: {0}")]
     AccountDoesNotExist(#[from] AccountNotFoundByAddressError),
     #[error("The token amount has wrong number of decimals: {0}")]
@@ -432,7 +413,39 @@ fn check_authorized<C: EntityContextTypes>(
 /// Returns [`TokenUpdateErrorInternal::Paused`] if the token is paused, or
 /// [`TokenUpdateErrorInternal::OperationNotPermitted`] if either account is not
 /// permitted to participate in the transfer.
-pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
+pub fn check_transfer_constraints<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    token: &TokenP9Base,
+    sender: &Account,
+    sender_address: AccountAddress,
+    receiver: &Account,
+    receiver_address: AccountAddress,
+    operation_index: usize,
+) -> ResultWithBlockStateFailure<(), TokenUpdateError> {
+    // todo ar reject reason
+    match check_transfer_constraints_internal(
+        context,
+        token,
+        sender,
+        sender_address,
+        receiver,
+        receiver_address,
+    ) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let token_configuration = token.token_configuration(context)?;
+            Err(token_update_error_internal_to_external(
+                &token_configuration,
+                operation_index,
+                "transfer",
+                err,
+            )?
+            .into())
+        }
+    }
+}
+
+fn check_transfer_constraints_internal<C: EntityContextTypes>(
     context: &EntityContext<C>,
     token: &TokenP9Base,
     sender: &Account,
@@ -440,6 +453,7 @@ pub(crate) fn check_transfer_constraints<C: EntityContextTypes>(
     receiver: &Account,
     receiver_address: AccountAddress,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // todo ar map to reject reason here
     check_not_paused(context, token)?;
 
     if token.has_allow_list(context) {
@@ -492,7 +506,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
     let receiver_address = transfer_operation.recipient.address;
     let receiver = context.account_by_address(&receiver_address)?;
 
-    check_transfer_constraints(
+    check_transfer_constraints_internal(
         context,
         token.token_p9_base(),
         sender,
@@ -511,7 +525,8 @@ fn execute_token_transfer<C: EntityContextTypes>(
         receiver_address,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
-    )??;
+    )
+    .nest()??;
     Ok(())
 }
 
@@ -548,7 +563,8 @@ fn execute_token_mint<C: EntityContextTypes>(
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
-    )??;
+    )
+    .nest()??;
     Ok(())
 }
 
@@ -585,7 +601,8 @@ fn execute_token_burn<C: EntityContextTypes>(
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
         raw_amount,
-    )??;
+    )
+    .nest()??;
     Ok(())
 }
 

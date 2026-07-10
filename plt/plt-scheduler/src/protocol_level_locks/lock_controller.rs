@@ -1,6 +1,6 @@
 //! Runtime interface for protocol-level lock controllers.
 
-use crate::failure::WithBlockStateResult;
+use crate::failure::ResultWithBlockStateFailure;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 use concordium_base::protocol_level_tokens::CborHolderAccount;
@@ -102,7 +102,7 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
     cbor_controller: concordium_base::protocol_level_locks::LockController,
-) -> WithBlockStateResult<LockControllerConfig, TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<LockControllerConfig, TransactionRejectReason> {
     let concordium_base::protocol_level_locks::LockController::SimpleV0(cbor_controller) =
         cbor_controller;
 
@@ -121,7 +121,7 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
                 roles: grant.roles,
             })
         })
-        .collect::<WithBlockStateResult<_, TransactionRejectReason>>()?;
+        .collect::<ResultWithBlockStateFailure<_, TransactionRejectReason>>()?;
 
     let tokens = cbor_controller
         .tokens
@@ -137,7 +137,7 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
             // Return canonical token id
             Ok(token.token_p9_base.token_configuration(context)?.token_id)
         })
-        .collect::<WithBlockStateResult<_, TransactionRejectReason>>()?;
+        .collect::<ResultWithBlockStateFailure<_, TransactionRejectReason>>()?;
 
     let lock_controller = LockControllerSimpleV0 {
         grants,

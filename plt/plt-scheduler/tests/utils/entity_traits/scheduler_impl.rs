@@ -12,6 +12,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
+use plt_scheduler::failure::ResultWithBlockStateFailureExt;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
 use plt_scheduler::{failure, protocol_level_tokens};
@@ -87,10 +88,9 @@ impl SchedulerOperations for BlockStateP9 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> Result<RawCbor, LockNotFoundByIdError> {
-        failure::nest(protocol_level_locks::p9::query_lock_info(
-            context, self, lock_id,
-        ))
-        .unwrap()
+        protocol_level_locks::p9::query_lock_info(context, self, lock_id)
+            .nest()
+            .unwrap()
     }
 }
 
@@ -162,9 +162,8 @@ impl SchedulerOperations for BlockStateP11 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> Result<RawCbor, LockNotFoundByIdError> {
-        failure::nest(protocol_level_locks::p11::query_lock_info(
-            context, self, lock_id,
-        ))
-        .unwrap()
+        protocol_level_locks::p11::query_lock_info(context, self, lock_id)
+            .nest()
+            .unwrap()
     }
 }
