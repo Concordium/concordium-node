@@ -1,4 +1,4 @@
-use plt_block_state::entity::block_state::LockNotFoundByIdError;
+use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -30,6 +30,7 @@ pub type ResultWithBlockStateFailure<T, E> = Result<T, WithBlockStateFailure<E>>
 impl HigherLevelProtocolError for TransactionRejectReason {}
 impl HigherLevelProtocolError for LockNotFoundByIdError {}
 impl HigherLevelProtocolError for AccountNotFoundByAddressError {}
+impl HigherLevelProtocolError for TokenNotFoundByIdError {}
 
 /// Extension trait for [`ResultWithBlockStateFailure`]
 pub trait ResultWithBlockStateFailureExt<T, E> {

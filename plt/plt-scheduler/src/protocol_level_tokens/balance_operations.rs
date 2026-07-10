@@ -40,7 +40,6 @@ pub struct MintWouldOverflowError {
 impl HigherLevelProtocolError for InsufficientBalanceError {}
 impl HigherLevelProtocolError for MintWouldOverflowError {}
 
-
 /// Get the available balance for an account.
 ///
 /// For protocol versions without locks this is the total account balance.

@@ -2,6 +2,8 @@ use crate::block_state_polymorph::token::TokenPXRefMut;
 use crate::failure::{
     HigherLevelProtocolError, ResultWithBlockStateFailure, ResultWithBlockStateFailureExt,
 };
+use crate::protocol_level_tokens::balance_operations::MintWouldOverflowError;
+use crate::protocol_level_tokens::token_amount::TokenAmountDecimalsMismatchError;
 use crate::protocol_level_tokens::{balance_operations, token_amount};
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
@@ -9,8 +11,6 @@ use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_scheduler_types::types::events::BlockItemEvent;
-use crate::protocol_level_tokens::balance_operations::MintWouldOverflowError;
-use crate::protocol_level_tokens::token_amount::TokenAmountDecimalsMismatchError;
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]

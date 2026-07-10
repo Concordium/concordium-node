@@ -216,7 +216,7 @@ extern "C" fn ffi_query_token_info(
                 protocol_level_tokens::p11::query_token_info(&context, &block_state, &token_id)
             }
         };
-        match token_info_res {
+        match token_info_res.nest() {
             Ok(Ok(token_info)) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_info),
@@ -337,7 +337,7 @@ extern "C" fn ffi_query_token_authorizations(
                 )
             }
         };
-        match token_auths_res {
+        match token_auths_res.nest() {
             Ok(Ok(token_auths)) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_auths),

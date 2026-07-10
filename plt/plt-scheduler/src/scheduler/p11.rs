@@ -109,7 +109,9 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
                     &token_id,
                     token_operation,
                     &mut events,
-                )? {
+                )
+                .nest()?
+                {
                     Ok(()) => (),
                     Err(reject_reason) => {
                         return Ok(TransactionOutcome::Rejected(reject_reason));

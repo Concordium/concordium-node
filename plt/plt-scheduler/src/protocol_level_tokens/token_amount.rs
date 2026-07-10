@@ -1,7 +1,10 @@
+//! Utilities for handing token amount, specifically conversion between [`TokenAmount`] and
+//! [`RawTokenAmount`].
+
+use crate::failure::HigherLevelProtocolError;
 use concordium_base::protocol_level_tokens::TokenAmount;
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
-use crate::failure::HigherLevelProtocolError;
 
 /// Token amount decimals mismatch
 #[derive(Debug, thiserror::Error)]

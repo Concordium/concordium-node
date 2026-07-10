@@ -1,12 +1,11 @@
 use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
-use crate::failure::ResultWithBlockStateFailureExt;
-use crate::protocol_level_tokens::token_module::TokenUpdateError;
+use crate::failure::{ResultWithBlockStateFailure, ResultWithBlockStateFailureExt};
+use crate::protocol_level_tokens::reject;
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use crate::{TOKEN_MODULE_REF, protocol_level_tokens::token_module};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    DeserializationFailureRejectReason, RawCbor, TokenId, TokenModuleInitializationParameters,
-    TokenModuleRejectReason, TokenOperations, TokenOperationsPayload,
+    RawCbor, TokenId, TokenModuleInitializationParameters, TokenOperations, TokenOperationsPayload,
 };
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
@@ -22,9 +21,7 @@ use plt_scheduler_types::types::execution::{ChainUpdateOutcome, FailureKind, Tra
 use plt_scheduler_types::types::queries::{
     TokenAccountInfo, TokenAccountState, TokenAuthorizations, TokenInfo, TokenState,
 };
-use plt_scheduler_types::types::reject_reasons::{
-    EncodedTokenModuleRejectReason, TransactionRejectReason,
-};
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::TokenAmount;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
@@ -40,11 +37,8 @@ pub fn query_token_info<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP9,
     token_id: &TokenId,
-) -> BlockStateResult<Result<TokenInfo, TokenNotFoundByIdError>> {
-    let token = match block_state.token_by_id(context, token_id)? {
-        Ok(token) => token,
-        Err(err) => return Ok(Err(err)),
-    };
+) -> ResultWithBlockStateFailure<TokenInfo, TokenNotFoundByIdError> {
+    let token = block_state.token_by_id(context, token_id)??;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
     let circulating_supply = token.token_p9_base.token_circulating_supply();
@@ -69,7 +63,7 @@ pub fn query_token_info<C: EntityContextTypes>(
         state: token_state,
     };
 
-    Ok(Ok(token_info))
+    Ok(token_info)
 }
 
 /// Get the list of tokens on an account
@@ -114,20 +108,17 @@ pub fn query_token_authorizations<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP9,
     token_id: &TokenId,
-) -> BlockStateResult<Result<TokenAuthorizations, TokenNotFoundByIdError>> {
-    let token = match block_state.token_by_id(context, token_id)? {
-        Ok(token) => token,
-        Err(err) => return Ok(Err(err)),
-    };
+) -> ResultWithBlockStateFailure<TokenAuthorizations, TokenNotFoundByIdError> {
+    let token = block_state.token_by_id(context, token_id)??;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
 
     let details = concordium_base::protocol_level_tokens::TokenAuthorizations::default();
 
-    Ok(Ok(TokenAuthorizations {
+    Ok(TokenAuthorizations {
         token_id: token_configuration.token_id,
         details: RawCbor::from(cbor::cbor_encode(&details)),
-    }))
+    })
 }
 
 /// Execute a create protocol-level token chain update modifying `block_state` accordingly.
@@ -273,21 +264,8 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
     let operations: TokenOperations = match utils::cbor_decode(payload.operations) {
         Ok(operations) => operations,
         Err(err) => {
-            let reject_reason = TokenModuleRejectReason::DeserializationFailure(
-                DeserializationFailureRejectReason {
-                    cause: Some(err.to_string()),
-                },
-            );
-            let (reason_type, cbor) = reject_reason.encode_reject_reason();
             return Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::TokenUpdateTransactionFailed(
-                    EncodedTokenModuleRejectReason {
-                        // Use the canonical token id from the token configuration
-                        token_id: token_configuration.token_id.clone(),
-                        reason_type: reason_type.to_type_discriminator(),
-                        details: Some(cbor),
-                    },
-                ),
+                reject::deserialization_failure(&token_configuration, err),
             ));
         }
     };
@@ -305,23 +283,8 @@ pub fn execute_token_update_transaction<C: EntityContextTypes>(
         .nest()?
         {
             Ok(()) => (),
-            Err(TokenUpdateError::OutOfEnergy(_)) => {
-                return Ok(TransactionOutcome::Rejected(
-                    TransactionRejectReason::OutOfEnergy,
-                ));
-            }
-            Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-                let (reason_type, cbor) = reject_reason.encode_reject_reason();
-                return Ok(TransactionOutcome::Rejected(
-                    TransactionRejectReason::TokenUpdateTransactionFailed(
-                        EncodedTokenModuleRejectReason {
-                            // Use the canonical token id from the token configuration
-                            token_id: token_configuration.token_id.clone(),
-                            reason_type: reason_type.to_type_discriminator(),
-                            details: Some(cbor),
-                        },
-                    ),
-                ));
+            Err(reject_reason) => {
+                return Ok(TransactionOutcome::Rejected(reject_reason));
             }
         };
     }

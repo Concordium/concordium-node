@@ -2,18 +2,19 @@ use crate::block_state_polymorph::token::{TokenPXRef, TokenPXRefMut};
 use crate::failure::{
     HigherLevelProtocolError, ResultWithBlockStateFailure, ResultWithBlockStateFailureExt,
 };
-use crate::protocol_level_tokens::{balance_operations, token_amount};
+use crate::protocol_level_tokens::balance_operations::{
+    InsufficientBalanceError, MintWouldOverflowError,
+};
+use crate::protocol_level_tokens::token_amount::TokenAmountDecimalsMismatchError;
+use crate::protocol_level_tokens::{balance_operations, reject, token_amount};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
-    MetadataUrl, MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, TokenAdminRole,
-    TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
+    MetadataUrl, TokenAdminRole, TokenListUpdateDetails, TokenListUpdateEventDetails,
     TokenModuleEvent, TokenModuleRejectReason, TokenOperation, TokenPauseEventDetails,
     TokenSupplyUpdateDetails, TokenTransfer, TokenUpdateAdminRolesDetails,
     TokenUpdateAdminRolesEventDetails, TokenUpdateMetadataEventDetails,
-    UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::entity::accounts::{Account, Accounts};
@@ -24,8 +25,7 @@ use plt_block_state::external::AccountNotFoundByAddressError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::events::{BlockItemEvent, EncodedTokenModuleEvent};
-use crate::protocol_level_tokens::balance_operations::{InsufficientBalanceError, MintWouldOverflowError};
-use crate::protocol_level_tokens::token_amount::TokenAmountDecimalsMismatchError;
+use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
@@ -90,11 +90,6 @@ impl HigherLevelProtocolError for TokenUpdateError {}
 ///    - Check that the governance account is the sender.
 ///    - Pause/unpause the token.
 ///
-/// If the state stored in the token module contains data that breaks the invariants
-/// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
-/// is returned. This is an unrecoverable error and should never happen.
-///
-///
 /// # Arguments
 ///
 /// - `transaction_execution`: the transaction execution context
@@ -108,7 +103,7 @@ pub fn execute_token_update_operation_at_index<C: EntityContextTypes>(
     mut token: TokenPXRefMut<'_>,
     index: usize,
     operation: &TokenOperation,
-) -> ResultWithBlockStateFailure<(), TokenUpdateError> {
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     match execute_token_update_operation_internal(
         transaction_execution,
         context,
@@ -137,72 +132,47 @@ fn token_update_error_internal_to_external(
     index: usize,
     operation_type: &'static str,
     err: TokenUpdateErrorInternal,
-) -> BlockStateResult<TokenUpdateError> {
-    Ok(match err {
-        TokenUpdateErrorInternal::AccountDoesNotExist(err) => TokenUpdateError::TokenModuleReject(
-            TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
-                index: index as u64,
-                address: CborHolderAccount::from(err.0),
-            }),
-        ),
-        TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
-            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::DeserializationFailure(
-                DeserializationFailureRejectReason {
-                    cause: Some(err.to_string()),
-                },
-            ))
+) -> BlockStateResult<TransactionRejectReason> {
+    match err {
+        TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
+            Ok(reject::address_not_found(token_configuration, index, err))
         }
-        TokenUpdateErrorInternal::InsufficientBalance(err) => {
-            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::TokenBalanceInsufficient(
-                TokenBalanceInsufficientRejectReason {
-                    index: index as u64,
-                    available_balance: token_amount::to_token_amount(token_configuration, err.available),
-                    required_balance: token_amount::to_token_amount(token_configuration, err.required),
-                },
-            ))
+        TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => Ok(
+            reject::deserialization_failure_amount_decimals_mismatch(token_configuration, err),
+        ),
+        TokenUpdateErrorInternal::InsufficientBalance(err) => Ok(reject::insufficient_balance(
+            token_configuration,
+            index,
+            err,
+        )),
+        TokenUpdateErrorInternal::MintWouldOverflow(err) => {
+            Ok(reject::mint_would_overflow(token_configuration, index, err))
         }
-        TokenUpdateErrorInternal::MintWouldOverflow(err) => TokenUpdateError::TokenModuleReject(
-            TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
-                index: index as u64,
-                requested_amount: token_amount::to_token_amount(token_configuration, err.requested_amount),
-                current_supply: token_amount::to_token_amount(token_configuration, err.current_supply),
-                max_representable_amount: token_amount::to_token_amount(
-                    token_configuration,
-                    err.max_representable_amount,
-                ),
-            }),
-        ),
-        TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
-        TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
-            TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-                index: index as u64,
-                address: None,
-                reason: format!("token operation {operation_type} is paused")
-                    .to_string()
-                    .into(),
-            }),
-        ),
+        TokenUpdateErrorInternal::OutOfEnergy(_) => Ok(TransactionRejectReason::OutOfEnergy),
+        TokenUpdateErrorInternal::Paused => Ok(reject::operation_not_permitted_paused(
+            token_configuration,
+            index,
+            operation_type,
+        )),
         TokenUpdateErrorInternal::OperationNotPermitted {
             account_address,
             reason,
-        } => TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::OperationNotPermitted(
-            OperationNotPermittedRejectReason {
-                index: index as u64,
-                address: account_address.map(Into::into),
-                reason: reason.to_string().into(),
-            },
+        } => Ok(reject::operation_not_permitted(
+            token_configuration,
+            index,
+            account_address,
+            reason.to_string(),
         )),
         TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
-            TokenUpdateError::TokenModuleReject(TokenModuleRejectReason::UnsupportedOperation(
-                UnsupportedOperationRejectReason {
-                    index: index as u64,
-                    operation_type: operation_type.to_string(),
-                    reason: reason.to_string().into(),
-                },
+            Ok(reject::unsupported_operation(
+                token_configuration,
+                index,
+                operation_type,
+                reason.to_string(),
             ))
         }
-        TokenUpdateErrorInternal::BlockStateFailure(err) => return Err(err),
-    })
+        TokenUpdateErrorInternal::BlockStateFailure(err) => Err(err),
+    }
 }
 
 fn operation_name(operation: &TokenOperation) -> &'static str {
@@ -419,8 +389,7 @@ pub fn check_transfer_constraints<C: EntityContextTypes>(
     receiver: &Account,
     receiver_address: AccountAddress,
     operation_index: usize,
-) -> ResultWithBlockStateFailure<(), TokenUpdateError> {
-    // todo ar reject reason
+) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     match check_transfer_constraints_internal(
         context,
         token,
@@ -451,7 +420,6 @@ fn check_transfer_constraints_internal<C: EntityContextTypes>(
     receiver: &Account,
     receiver_address: AccountAddress,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    // todo ar map to reject reason here
     check_not_paused(context, token)?;
 
     if token.has_allow_list(context) {
@@ -497,7 +465,8 @@ fn execute_token_transfer<C: EntityContextTypes>(
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = token_amount::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
+    let raw_amount =
+        token_amount::to_raw_token_amount(&token_configuration, transfer_operation.amount)?;
 
     let sender = transaction_execution.sender_account();
     let sender_address = transaction_execution.sender_account_address();
@@ -525,6 +494,7 @@ fn execute_token_transfer<C: EntityContextTypes>(
         transfer_operation.memo.clone().map(Memo::from),
     )
     .nest()??;
+
     Ok(())
 }
 
@@ -538,7 +508,8 @@ fn execute_token_mint<C: EntityContextTypes>(
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = token_amount::to_raw_token_amount(&token_configuration, mint_operation.amount)?;
+    let raw_amount =
+        token_amount::to_raw_token_amount(&token_configuration, mint_operation.amount)?;
 
     // operation execution
     if !token.token_p9_base().is_mintable(context) {
@@ -563,6 +534,7 @@ fn execute_token_mint<C: EntityContextTypes>(
         raw_amount,
     )
     .nest()??;
+
     Ok(())
 }
 
@@ -576,7 +548,8 @@ fn execute_token_burn<C: EntityContextTypes>(
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
     // preprocessing
-    let raw_amount = token_amount::to_raw_token_amount(&token_configuration, burn_operation.amount)?;
+    let raw_amount =
+        token_amount::to_raw_token_amount(&token_configuration, burn_operation.amount)?;
 
     // operation execution
     if !token.token_p9_base().is_burnable(context) {
@@ -601,6 +574,7 @@ fn execute_token_burn<C: EntityContextTypes>(
         raw_amount,
     )
     .nest()??;
+
     Ok(())
 }
 
