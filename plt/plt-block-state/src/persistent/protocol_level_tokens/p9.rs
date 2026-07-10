@@ -240,7 +240,7 @@ mod test {
     #[test]
     fn test_token_account_state_serial() {
         let state = TokenAccountState {
-            balance: RawTokenAmount(10),
+            balance: RawTokenAmount::from(10),
         };
 
         let bytes = common::to_bytes(&state);

@@ -31,7 +31,7 @@ pub fn to_raw_token_amount(
             found: amount.decimals(),
         })
     } else {
-        Ok(RawTokenAmount(amount.value()))
+        Ok(RawTokenAmount::from(amount.value()))
     }
 }
 
@@ -39,5 +39,5 @@ pub fn to_token_amount(
     token_configuration: &TokenConfiguration,
     amount: RawTokenAmount,
 ) -> TokenAmount {
-    TokenAmount::from_raw(amount.0, token_configuration.decimals)
+    TokenAmount::from_raw(amount.into(), token_configuration.decimals)
 }

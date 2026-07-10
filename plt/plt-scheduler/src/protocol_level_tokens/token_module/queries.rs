@@ -67,7 +67,7 @@ pub fn query_token_module_account_state<C: EntityContextTypes>(
 
     let token_configuration = token_base.token_configuration(context)?;
 
-    let mut total_locked = RawTokenAmount(0);
+    let mut total_locked = RawTokenAmount::from(0);
     let mut locks = Vec::new();
 
     if let TokenPXRef::TokenP11(token_p11) = token {
@@ -75,35 +75,31 @@ pub fn query_token_module_account_state<C: EntityContextTypes>(
             .get_locked_balances_for_account(context, account)?
             .into_iter()
         {
-            if locked_balance == RawTokenAmount(0) {
+            if locked_balance == RawTokenAmount::from(0) {
                 continue;
             }
-            total_locked.0 = total_locked
-                .0
-                .checked_add(locked_balance.0)
-                .ok_or_else(|| {
-                    BlockStateFailure::Invariant("Total locked token balance overflow".to_string())
-                })?;
+            total_locked = total_locked.checked_add(locked_balance).ok_or_else(|| {
+                BlockStateFailure::Invariant("Total locked token balance overflow".to_string())
+            })?;
             locks.push(AccountLockAmount {
                 lock,
-                amount: TokenAmount::from_raw(locked_balance.0, token_configuration.decimals),
+                amount: TokenAmount::from_raw(locked_balance.into(), token_configuration.decimals),
             });
         }
     }
 
-    let available = if total_locked == RawTokenAmount(0) {
+    let available = if total_locked == RawTokenAmount::from(0) {
         None
     } else {
         let available = total_token_balance
-            .0
-            .checked_sub(total_locked.0)
+            .checked_sub(total_locked)
             .ok_or_else(|| {
                 BlockStateFailure::Invariant(
                     "Total locked token balance exceeds account token balance".to_string(),
                 )
             })?;
         Some(TokenAmount::from_raw(
-            available,
+            available.into(),
             token_configuration.decimals,
         ))
     };

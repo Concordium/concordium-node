@@ -89,7 +89,7 @@ pub fn create_and_init_token_p9(
         governance_account: Some(gov_holder_account.clone()),
         allow_list: params.allow_list,
         deny_list: params.deny_list,
-        initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.0, decimals)),
+        initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.into(), decimals)),
         mintable: params.mintable,
         burnable: params.burnable,
     };
@@ -137,7 +137,7 @@ pub fn create_and_init_token_p11(
         governance_account: Some(gov_holder_account.clone()),
         allow_list: params.allow_list,
         deny_list: params.deny_list,
-        initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.0, decimals)),
+        initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.into(), decimals)),
         mintable: params.mintable,
         burnable: params.burnable,
     };
@@ -179,10 +179,10 @@ pub fn increment_account_balance_p11(
     let token_configuration = token.token_p9_base.token_configuration(context).unwrap();
     let operations = vec![
         TokenOperation::Mint(TokenSupplyUpdateDetails {
-            amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+            amount: TokenAmount::from_raw(balance.into(), token_configuration.decimals),
         }),
         TokenOperation::Transfer(TokenTransfer {
-            amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+            amount: TokenAmount::from_raw(balance.into(), token_configuration.decimals),
             recipient: CborHolderAccount::from(
                 context.external.account_canonical_address(account_index),
             ),

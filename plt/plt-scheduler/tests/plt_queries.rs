@@ -73,7 +73,10 @@ fn test_query_token_info() {
     // Assert that the token id returned is in the canonical casing
     assert_eq!(token_info.token_id, token_id);
     assert_eq!(token_info.state.decimals, 4);
-    assert_eq!(token_info.state.total_supply.amount, RawTokenAmount(0));
+    assert_eq!(
+        token_info.state.total_supply.amount,
+        RawTokenAmount::from(0)
+    );
     assert_eq!(token_info.state.total_supply.decimals, 4);
     assert_eq!(token_info.state.token_module_ref, TOKEN_MODULE_REF);
     let token_module_state: TokenModuleState =
@@ -123,14 +126,14 @@ fn test_query_token_account_info() {
         &mut block_state,
         account.account_index(),
         &token_id1,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         account.account_index(),
         &token_id2,
-        RawTokenAmount(2000),
+        RawTokenAmount::from(2000),
     );
 
     // Lookup account token infos
@@ -141,13 +144,13 @@ fn test_query_token_account_info() {
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(
         token_account_infos[0].account_state.balance.amount,
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
     assert_eq!(token_account_infos[0].account_state.balance.decimals, 4);
     assert_eq!(token_account_infos[1].token_id, token_id2);
     assert_eq!(
         token_account_infos[1].account_state.balance.amount,
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
     assert_eq!(token_account_infos[1].account_state.balance.decimals, 4);
 }
@@ -174,7 +177,7 @@ fn test_query_token_account_info_available_with_locked_balance() {
         &mut block_state,
         account.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId {
@@ -199,7 +202,7 @@ fn test_query_token_account_info_available_with_locked_balance() {
         &lock_id,
         account.account_index(),
         &token_id,
-        RawTokenAmount(250),
+        RawTokenAmount::from(250),
     );
 
     let token_account_infos = block_state
@@ -246,7 +249,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         &mut block_state,
         account.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id1 = LockId {
@@ -287,7 +290,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         &lock_id1,
         account.account_index(),
         &token_id,
-        RawTokenAmount(250),
+        RawTokenAmount::from(250),
     );
     utils::lock_balance(
         &mut context,
@@ -295,7 +298,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         &lock_id2,
         account.account_index(),
         &token_id,
-        RawTokenAmount(300),
+        RawTokenAmount::from(300),
     );
 
     let token_account_infos = block_state
@@ -343,7 +346,7 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
         &mut block_state,
         account.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId {
@@ -368,7 +371,7 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
         &lock_id,
         account.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let token_account_infos = block_state
@@ -442,7 +445,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
     assert_eq!(token_account_infos[0].token_id, token_id);
     assert_eq!(
         token_account_infos[0].account_state.balance.amount,
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
     assert_eq!(token_account_infos[0].account_state.balance.decimals, 4);
     let module_state: TokenModuleAccountState = cbor::cbor_decode(

@@ -146,14 +146,14 @@ fn test_multiple_operations() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         receiver.account_index(),
         &token_id,
-        RawTokenAmount(2000),
+        RawTokenAmount::from(2000),
     );
 
     let operations = vec![
@@ -195,11 +195,11 @@ fn test_multiple_operations() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 }
 
@@ -225,7 +225,7 @@ fn test_single_failing_operation() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let operations = vec![
@@ -290,7 +290,7 @@ fn test_energy_charge() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
@@ -349,7 +349,7 @@ fn test_out_of_energy_error() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {

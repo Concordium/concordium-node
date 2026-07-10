@@ -61,7 +61,7 @@ pub fn available_balance<C: EntityContextTypes>(
         return Ok(total);
     };
 
-    let mut total_locked = RawTokenAmount(0);
+    let mut total_locked = RawTokenAmount::from(0);
     for (_, locked_balance) in token
         .get_locked_balances_for_account(context, account.account_index())?
         .into_iter()
@@ -98,16 +98,15 @@ pub fn mint<C: EntityContextTypes>(
     let token_configuration = token.token_configuration(context)?;
 
     // Update total supply
-    let new_circulating_supply = token
-        .token_circulating_supply()
-        .0
-        .checked_add(amount.0)
-        .map(RawTokenAmount)
-        .ok_or(MintWouldOverflowError {
-            requested_amount: amount,
-            current_supply: token.token_circulating_supply(),
-            max_representable_amount: RawTokenAmount::MAX,
-        })?;
+    let new_circulating_supply =
+        token
+            .token_circulating_supply()
+            .checked_add(amount)
+            .ok_or(MintWouldOverflowError {
+                requested_amount: amount,
+                current_supply: token.token_circulating_supply(),
+                max_representable_amount: RawTokenAmount::MAX,
+            })?;
 
     token.set_token_circulating_supply(new_circulating_supply);
 
@@ -184,9 +183,7 @@ pub fn burn<C: EntityContextTypes>(
     let new_circulating_supply = token
         .token_p9_base()
         .token_circulating_supply()
-        .0
-        .checked_sub(amount.0)
-        .map(RawTokenAmount)
+        .checked_sub(amount)
         .ok_or_else(||
         // We should never overflow total supply at burn, since the total circulating supply of the token
         // is always more than any account balance.
@@ -342,7 +339,7 @@ pub fn lock_amount<C: EntityContextTypes>(
         to_lock: Some(lock_id.clone()),
     })));
 
-    Ok(old_locked == RawTokenAmount(0) && new_locked > RawTokenAmount(0))
+    Ok(old_locked == RawTokenAmount::from(0) && new_locked > RawTokenAmount::from(0))
 }
 
 /// Move `amount` of tokens from a lock's control on `source` to `recipient`'s available balance.
@@ -478,11 +475,16 @@ pub fn unlock_balance<C: EntityContextTypes>(
     memo: &Option<Memo>,
 ) -> BlockStateResult<()> {
     let old_balance = token.get_locked_balance_for_account(context, account_index, lock_id)?;
-    if old_balance == RawTokenAmount(0) {
+    if old_balance == RawTokenAmount::from(0) {
         // No locked balance, nothing to do.
         return Ok(());
     }
-    token.set_locked_balance_for_account(context, account_index, lock_id, RawTokenAmount(0))?;
+    token.set_locked_balance_for_account(
+        context,
+        account_index,
+        lock_id,
+        RawTokenAmount::from(0),
+    )?;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
     let account_address = context

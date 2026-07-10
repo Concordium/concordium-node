@@ -235,7 +235,7 @@ mod test {
             from: TokenHolder::Account(AccountAddress([1; 32])),
             to: TokenHolder::Account(AccountAddress([2; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1000),
+                amount: RawTokenAmount::from(1000),
                 decimals: 4,
             },
             memo: None,
@@ -255,7 +255,7 @@ mod test {
             from: TokenHolder::Account(AccountAddress([1; 32])),
             to: TokenHolder::Account(AccountAddress([2; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1000),
+                amount: RawTokenAmount::from(1000),
                 decimals: 4,
             },
             memo: Some(Memo::try_from(vec![1, 2, 3]).unwrap()),
@@ -275,7 +275,7 @@ mod test {
             from: TokenHolder::Account(AccountAddress([1; 32])),
             to: TokenHolder::Account(AccountAddress([2; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1000),
+                amount: RawTokenAmount::from(1000),
                 decimals: 4,
             },
             memo: None,
@@ -298,7 +298,7 @@ mod test {
             from: TokenHolder::Account(AccountAddress([1; 32])),
             to: TokenHolder::Account(AccountAddress([2; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1000),
+                amount: RawTokenAmount::from(1000),
                 decimals: 4,
             },
             memo: None,
@@ -321,7 +321,7 @@ mod test {
             from: TokenHolder::Account(AccountAddress([13; 32])),
             to: TokenHolder::Account(AccountAddress([64; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(u64::MAX),
+                amount: RawTokenAmount::from(u64::MAX),
                 decimals: 255,
             },
             memo: Some(Memo::try_from((0x00..=0xff).collect::<Vec<u8>>()).unwrap()),
@@ -358,7 +358,7 @@ mod test {
             token_id: "tokenid1".parse().unwrap(),
             target: TokenHolder::Account(AccountAddress([1; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1000),
+                amount: RawTokenAmount::from(1000),
                 decimals: 4,
             },
         });
@@ -376,7 +376,7 @@ mod test {
             token_id: "tokenid1".parse().unwrap(),
             target: TokenHolder::Account(AccountAddress([1; 32])),
             amount: TokenAmount {
-                amount: RawTokenAmount(1000),
+                amount: RawTokenAmount::from(1000),
                 decimals: 4,
             },
         });

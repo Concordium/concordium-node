@@ -309,10 +309,10 @@ pub mod test_stub {
                 .balance;
             match amount_delta {
                 RawTokenAmountDelta::Add(add) => {
-                    balance.0 = balance.0.checked_add(add.0).ok_or(OverflowError)?;
+                    *balance = balance.checked_add(add).ok_or(OverflowError)?;
                 }
                 RawTokenAmountDelta::Subtract(subtract) => {
-                    balance.0 = balance.0.checked_sub(subtract.0).ok_or(OverflowError)?;
+                    *balance = balance.checked_sub(subtract).ok_or(OverflowError)?;
                 }
             }
             Ok(())
