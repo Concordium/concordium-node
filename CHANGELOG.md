@@ -4,6 +4,8 @@
 
 ## Unreleased changes (Devnet)
 
+- Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.
+
 - **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
 - Added lock metadata as part of lock configurations
 
