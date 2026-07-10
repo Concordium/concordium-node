@@ -1627,6 +1627,9 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                     minUpdateSequenceNumber
                     id
                     pltUpdateSequenceNumber
+        -- TODO: Add a max-lock-duration update queue and sequence number in the
+        -- update-queue implementation in subsequent PR.
+        UpdateMaxLockDuration -> error "UpdateMaxLockDuration sequence number queue is not implemented"
 
 -- | Enqueue an update in the appropriate queue, incrementing the sequence number of this queue.
 -- Note that incrementing the sequence number of updates to protocol level tokens is handled separately.

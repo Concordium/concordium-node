@@ -337,7 +337,7 @@ makeInitialState ::
 makeInitialState accs seedState rpLen = withIsAuthorizationsVersionFor (protocolVersion @pv) $ do
     initialAccounts <- mapM makeDummyAccount accs
     let chainParams :: ChainParameters pv
-        chainParams = DummyData.dummyChainParameters & cpTimeParameters . tpRewardPeriodLength .~ rpLen
+        chainParams = DummyData.dummyChainParameters @pv & cpTimeParameters . tpRewardPeriodLength .~ rpLen
     initialBS <-
         initialPersistentState
             seedState
