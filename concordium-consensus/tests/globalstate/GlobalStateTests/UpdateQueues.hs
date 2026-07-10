@@ -15,6 +15,7 @@ import Test.Hspec
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState.Parameters as PCP
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as PU
 import Concordium.Types
 
@@ -48,6 +49,33 @@ testCase _ _ pvString = do
         ]
         effects
 
+testMaxLockDurationUpdate :: IO ()
+testMaxLockDurationUpdate = do
+    let effectiveTime = 123 :: TransactionTime
+        newDuration = Duration 123456
+        update = UVMaxLockDuration newDuration
+    (effects, maxLockDuration) <- liftIO . runBlobStoreTemp "." $ do
+        (u0 :: BufferedRef (PU.Updates' 'ChainParametersV3 'AuthorizationsVersion3)) <-
+            refMake
+                =<< PU.initialUpdates
+                    (dummyKeyCollection @'AuthorizationsVersion3)
+                    (dummyChainParameters @'P11)
+        u1 <- PU.enqueueUpdate effectiveTime update u0
+        ars <- refMake dummyArs
+        ips <- refMake dummyIdentityProviders
+        (processedEffects, (u2, _, _)) <- PU.processUpdateQueues (transactionTimeToTimestamp effectiveTime) (u1, ars, ips)
+        updatedParametersRef <- PU.currentParameters <$> refLoad u2
+        updatedParameters <- PCP.persistentChainParametersToChainParametersM =<< refLoad updatedParametersRef
+        return (processedEffects, updatedParameters ^. cpMaxLockDuration)
+    assertEqual
+        "The max lock duration update should be returned"
+        [(effectiveTime, update)]
+        effects
+    assertEqual
+        "The public chain-parameter view should expose the updated max lock duration"
+        (SomeParam (Just newDuration))
+        maxLockDuration
+
 tests :: Spec
 tests = do
     describe "Scheduler.UpdateQueues" $ do
@@ -55,3 +83,4 @@ tests = do
             testCase SChainParametersV0 SAuthorizationsVersion0 "CPV0"
             testCase SChainParametersV1 SAuthorizationsVersion1 "CPV1"
             testCase SChainParametersV2 SAuthorizationsVersion1 "CPV2"
+        specify "Effective max lock duration updates mutate external chain parameters" testMaxLockDurationUpdate
