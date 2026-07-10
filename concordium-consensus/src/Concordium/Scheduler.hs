@@ -2842,6 +2842,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                 RootUpdatePayload (Level2KeysRootUpdateV2 u) -> case sauv of
                                     SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
                                     _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV3 u) -> case sauv of
+                                    SAuthorizationsVersion3 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
                                 Level1UpdatePayload (Level2KeysLevel1Update u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
@@ -2851,6 +2854,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                     _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> case sauv of
                                     SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV3 u) -> case sauv of
+                                    SAuthorizationsVersion3 -> checkSigAndEnqueue $ UVLevel2Keys u
                                     _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
@@ -2877,6 +2883,8 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                             handleCreatePLT uiHeader payload >>= \case
                                                 Left invalidReason -> return $ TxInvalid invalidReason
                                                 Right valid -> buildValidTxSummary' valid
+                                -- TODO: added in subsequent PR
+                                MaxLockDurationUpdatePayload{} -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
