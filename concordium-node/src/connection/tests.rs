@@ -3,8 +3,8 @@ use itertools::Itertools;
 use crate::{
     common::PeerType,
     consensus_ffi::helpers::PacketType,
-    network::NetworkId,
-    p2p::connectivity::send_broadcast_message,
+    network::{NetworkId, PacketDestination},
+    p2p::connectivity::send_message_over_network,
     test_utils::{
         await_handshakes, connect, dummy_regenesis_blocks, make_node_and_sync, next_available_port,
         stop_node_delete_dirs,
@@ -55,12 +55,12 @@ fn basic_connectivity() {
     }
 
     // send a test broadcast from each node
-    for node in &nodes {
-        send_broadcast_message(
-            &node.0,
-            vec![],
+    for (node, _) in &nodes {
+        send_message_over_network(
+            node,
+            PacketDestination::Broadcast(Vec::new()),
             NetworkId::from(NID),
-            Arc::from(&[PacketType::Block as u8][..]), // an empty Block packet
+            Arc::from(&[PacketType::Block as u8][..]),
         );
     }
 
