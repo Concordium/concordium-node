@@ -722,42 +722,13 @@ fn is_valid_broadcast_target(
         && conn.remote_end_networks.contains(&network_id)
 }
 
-/// Send a direct packet with `msg` contents to the specified peer.
 #[inline]
-pub fn send_direct_message(
+pub fn send_message_over_network(
     node: &P2PNode,
-    target_id: RemotePeerId,
-    network_id: NetworkId,
-    msg: Arc<[u8]>,
-) -> usize {
-    send_message_over_network(node, Some(target_id), vec![], network_id, msg)
-}
-
-/// Send a broadcast packet with `msg` contents to the specified peer.
-#[inline]
-pub fn send_broadcast_message(
-    node: &P2PNode,
-    dont_relay_to: Vec<RemotePeerId>,
-    network_id: NetworkId,
-    msg: Arc<[u8]>,
-) -> usize {
-    send_message_over_network(node, None, dont_relay_to, network_id, msg)
-}
-
-#[inline]
-fn send_message_over_network(
-    node: &P2PNode,
-    target_id: Option<RemotePeerId>,
-    dont_relay_to: Vec<RemotePeerId>,
+    destination: PacketDestination,
     network_id: NetworkId,
     message: Arc<[u8]>,
 ) -> usize {
-    let destination = if let Some(target_id) = target_id {
-        PacketDestination::Direct(target_id)
-    } else {
-        PacketDestination::Broadcast(dont_relay_to)
-    };
-
     let message = message.to_vec();
 
     // Create packet.
