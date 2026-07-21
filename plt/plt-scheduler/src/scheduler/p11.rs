@@ -1,6 +1,7 @@
+use crate::failure::ResultWithBlockStateFailureExt;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
-use crate::{TransactionContext, failure, protocol_level_locks, protocol_level_tokens};
+use crate::{TransactionContext, protocol_level_locks, protocol_level_tokens};
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
 };
@@ -108,7 +109,9 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
                     &token_id,
                     token_operation,
                     &mut events,
-                )? {
+                )
+                .nest()?
+                {
                     Ok(()) => (),
                     Err(reject_reason) => {
                         return Ok(TransactionOutcome::Rejected(reject_reason));
@@ -116,14 +119,16 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
                 }
             }
             MetaUpdateOperationKind::Lock(lock_operation) => {
-                match failure::nest(protocol_level_locks::p11::execute_lock_operation(
+                match protocol_level_locks::p11::execute_lock_operation(
                     context,
                     transaction_execution,
                     block_state,
                     index,
                     lock_operation,
                     &mut events,
-                ))? {
+                )
+                .nest()?
+                {
                     Ok(()) => (),
                     Err(reject_reason) => {
                         return Ok(TransactionOutcome::Rejected(reject_reason));

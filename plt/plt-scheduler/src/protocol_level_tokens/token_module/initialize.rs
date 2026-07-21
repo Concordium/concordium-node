@@ -1,15 +1,15 @@
 use crate::block_state_polymorph::token::TokenPXRefMut;
-use crate::protocol_level_tokens::balance_operations;
-use crate::protocol_level_tokens::token_module::errors::{
-    MintWouldOverflowError, TokenAmountDecimalsMismatchError,
+use crate::failure::{
+    HigherLevelProtocolError, ResultWithBlockStateFailure, ResultWithBlockStateFailureExt,
 };
-use crate::protocol_level_tokens::token_module::util;
+use crate::protocol_level_tokens::balance_operations::MintWouldOverflowError;
+use crate::protocol_level_tokens::token_amount::TokenAmountDecimalsMismatchError;
+use crate::protocol_level_tokens::{balance_operations, token_amount};
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenAdminRole, TokenModuleInitializationParameters};
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByAddressError;
-use plt_block_state::failure::BlockStateResult;
 use plt_scheduler_types::types::events::BlockItemEvent;
 
 /// Represents the reasons why [`initialize_token`] can fail.
@@ -27,6 +27,8 @@ pub enum TokenInitializationError {
     MintAmountNotRepresentable(#[from] MintWouldOverflowError),
 }
 
+impl HigherLevelProtocolError for TokenInitializationError {}
+
 /// List roles which are unaffected by which features are enabled.
 const UNIVERSAL_ROLES: &[TokenAdminRole] = &[
     TokenAdminRole::UpdateAdminRoles,
@@ -41,30 +43,24 @@ pub fn initialize_token<C: EntityContextTypes>(
     events: &mut impl Extend<BlockItemEvent>,
     mut token: TokenPXRefMut<'_>,
     init_params: &TokenModuleInitializationParameters,
-) -> BlockStateResult<Result<(), TokenInitializationError>> {
+) -> ResultWithBlockStateFailure<(), TokenInitializationError> {
     let token_configuration = token.token_p9_base().token_configuration(context)?;
 
-    let Some(name) = init_params.name.as_ref() else {
-        return Ok(Err(
-            TokenInitializationError::InvalidInitializationParameters(
-                "Token name is missing".to_string(),
-            ),
-        ));
-    };
-    let Some(metadata) = init_params.metadata.as_ref() else {
-        return Ok(Err(
-            TokenInitializationError::InvalidInitializationParameters(
-                "Token metadata is missing".to_string(),
-            ),
-        ));
-    };
-    let Some(cbor_governance_account) = init_params.governance_account.as_ref() else {
-        return Ok(Err(
-            TokenInitializationError::InvalidInitializationParameters(
-                "Token governance account is missing".to_string(),
-            ),
-        ));
-    };
+    let name = init_params.name.as_ref().ok_or_else(|| {
+        TokenInitializationError::InvalidInitializationParameters(
+            "Token name is missing".to_string(),
+        )
+    })?;
+    let metadata = init_params.metadata.as_ref().ok_or_else(|| {
+        TokenInitializationError::InvalidInitializationParameters(
+            "Token metadata is missing".to_string(),
+        )
+    })?;
+    let cbor_governance_account = init_params.governance_account.as_ref().ok_or_else(|| {
+        TokenInitializationError::InvalidInitializationParameters(
+            "Token governance account is missing".to_string(),
+        )
+    })?;
     token.token_p9_base_mut().set_token_name(context, name)?;
     token
         .token_p9_base_mut()
@@ -91,39 +87,29 @@ pub fn initialize_token<C: EntityContextTypes>(
         enabled_roles.push(TokenAdminRole::Burn);
     }
 
-    let governance_account = match context.account_by_address(&cbor_governance_account.address) {
-        Ok(account) => account,
-        Err(err) => return Ok(Err(err.into())),
-    };
+    let governance_account = context.account_by_address(&cbor_governance_account.address)?;
     let governance_account_index = governance_account.account_index();
     token
         .token_p9_base_mut()
         .set_governance_account(context, governance_account_index)?;
 
     if let Some(initial_supply) = init_params.initial_supply {
-        let mint_amount = match util::to_raw_token_amount(&token_configuration, initial_supply) {
-            Ok(amount) => amount,
-            Err(err) => return Ok(Err(err.into())),
-        };
+        let mint_amount = token_amount::to_raw_token_amount(&token_configuration, initial_supply)?;
 
-        match balance_operations::mint(
+        balance_operations::mint(
             context,
             events,
             token.token_p9_base_mut(),
             &governance_account,
             cbor_governance_account.address,
             mint_amount,
-        )? {
-            Ok(()) => (),
-            Err(err) => {
-                return Ok(Err(err.into()));
-            }
-        };
+        )
+        .map_nested_err(Into::into)?;
     }
 
     if let TokenPXRefMut::TokenP11(token) = token {
         token.assign_account_roles(context, governance_account_index, &enabled_roles)?;
     }
 
-    Ok(Ok(()))
+    Ok(())
 }

@@ -2,8 +2,9 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use crate::failure::ResultWithBlockStateFailureExt;
 use crate::ffi::status;
-use crate::{failure, protocol_level_locks, protocol_level_tokens};
+use crate::{protocol_level_locks, protocol_level_tokens};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_locks::LockId;
@@ -215,7 +216,7 @@ extern "C" fn ffi_query_token_info(
                 protocol_level_tokens::p11::query_token_info(&context, &block_state, &token_id)
             }
         };
-        match token_info_res {
+        match token_info_res.nest() {
             Ok(Ok(token_info)) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_info),
@@ -336,7 +337,7 @@ extern "C" fn ffi_query_token_authorizations(
                 )
             }
         };
-        match token_auths_res {
+        match token_auths_res.nest() {
             Ok(Ok(token_auths)) => (
                 status::FfiStatusCode::Success,
                 common::to_bytes(&token_auths),
@@ -650,7 +651,7 @@ extern "C" fn ffi_query_lock_info(
                 protocol_level_locks::p11::query_lock_info(&context, &block_state, &lock_id)
             }
         };
-        match failure::nest(lock_info_res) {
+        match lock_info_res.nest() {
             Ok(Ok(cbor_bytes)) => (status::FfiStatusCode::Success, cbor_bytes.into()),
             Ok(Err(LockNotFoundByIdError(_))) => (status::FfiStatusCode::Failed, Vec::new()),
             Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
