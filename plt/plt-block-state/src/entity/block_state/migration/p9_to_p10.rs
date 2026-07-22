@@ -46,7 +46,7 @@ mod test {
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
             .token_p9_base
-            .set_token_circulating_supply(RawTokenAmount(100));
+            .set_token_circulating_supply(RawTokenAmount::from(100));
         token1
             .token_p9_base
             .set_deny_list_enabled(&context)
@@ -75,7 +75,7 @@ mod test {
             .unwrap();
         assert_eq!(
             token1.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(100)
+            RawTokenAmount::from(100)
         );
         assert_eq!(
             token1
@@ -98,7 +98,7 @@ mod test {
             .unwrap();
         assert_eq!(
             token2.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(0)
+            RawTokenAmount::from(0)
         );
         assert_eq!(
             token2

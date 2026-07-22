@@ -100,7 +100,7 @@ impl TokenP11 {
             &context.store,
             &state_keys::account_quanta_state_key(account_index, lock_id),
         ) else {
-            return Ok(RawTokenAmount(0));
+            return Ok(RawTokenAmount::from(0));
         };
         common::from_bytes_complete(value).map_err(|err| {
             BlockStateFailure::BlobStoreDecode(format!(
@@ -118,7 +118,7 @@ impl TokenP11 {
         lock_id: &LockId,
         amount: RawTokenAmount,
     ) -> BlockStateResult<()> {
-        if amount == RawTokenAmount(0) {
+        if amount == RawTokenAmount::from(0) {
             self.token_p9_base.mutable_key_value_state.delete_value(
                 &context.store,
                 &state_keys::account_quanta_state_key(account_index, lock_id),

@@ -38,7 +38,7 @@ fn test_plt_transfer() {
         token_id.clone(),
         TokenInitTestParams::default(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let account2 = context.external.create_account();
     let account3 = context.external.create_account();
@@ -79,24 +79,24 @@ fn test_plt_transfer() {
     // Assert circulating supply unchanged
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 
     // Assert balance of sender and receiver
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(3000)
+        RawTokenAmount::from(3000)
     );
 
     // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount.amount, RawTokenAmount(3000));
+        assert_eq!(transfer.amount.amount, RawTokenAmount::from(3000));
         assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, TokenHolder::Account(gov_addr));
         assert_eq!(transfer.to, TokenHolder::Account(account2_addr));
@@ -137,24 +137,24 @@ fn test_plt_transfer() {
     // Assert circulating supply unchanged
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 
     // Assert balance of sender and receiver
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
     assert_eq!(
         account3.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
+        assert_eq!(transfer.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, TokenHolder::Account(account2_addr));
         assert_eq!(transfer.to, TokenHolder::Account(account3_addr));
@@ -174,7 +174,7 @@ fn test_plt_transfer_using_aliases() {
         token_id.clone(),
         TokenInitTestParams::default(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let account2 = context.external.create_account();
 
@@ -214,18 +214,18 @@ fn test_plt_transfer_using_aliases() {
     // Assert balance of sender and receiver
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(3000)
+        RawTokenAmount::from(3000)
     );
 
     // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount.amount, RawTokenAmount(3000));
+        assert_eq!(transfer.amount.amount, RawTokenAmount::from(3000));
         assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, TokenHolder::Account(gov_account_address_alias));
         assert_eq!(transfer.to, TokenHolder::Account(account2_alias_address));
@@ -245,7 +245,7 @@ fn test_plt_transfer_reject() {
         token_id.clone(),
         TokenInitTestParams::default(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let account2 = context.external.create_account();
 
@@ -283,15 +283,15 @@ fn test_plt_transfer_reject() {
     // Assert circulating supply and account balances unchanged
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -316,7 +316,7 @@ fn test_plt_transfer_allow_list_flow() {
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let receiver = context.external.create_account();
 
@@ -380,15 +380,15 @@ fn test_plt_transfer_allow_list_flow() {
 
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -457,21 +457,21 @@ fn test_plt_transfer_allow_list_flow() {
 
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
+        assert_eq!(transfer.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, TokenHolder::Account(gov_addr));
         assert_eq!(transfer.to, TokenHolder::Account(receiver_addr));
@@ -572,20 +572,20 @@ fn test_plt_mint() {
     // Assert circulating supply increased
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Assert account balance increased
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Assert mint event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount.amount, RawTokenAmount(1000));
+        assert_eq!(mint.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, TokenHolder::Account(gov_addr));
     });
@@ -638,20 +638,20 @@ fn test_plt_mint_using_alias() {
     // Assert circulating supply increased
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Assert account balance increased
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Assert mint event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount.amount, RawTokenAmount(1000));
+        assert_eq!(mint.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, TokenHolder::Account(gov_account_address_alias));
     });
@@ -669,7 +669,7 @@ fn test_plt_mint_reject() {
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     let gov_addr = context
@@ -701,11 +701,11 @@ fn test_plt_mint_reject() {
     // Assert circulating supply and account balance unchanged
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -757,11 +757,11 @@ fn test_plt_mint_unauthorized() {
     // Assert circulating supply and account balance unchanged
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
     assert_eq!(
         non_governance_account.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -794,7 +794,7 @@ fn test_plt_burn() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     let gov_addr = context
@@ -826,20 +826,20 @@ fn test_plt_burn() {
     // Assert circulating supply decreased
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
 
     // Assert account balance decreased
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
 
     // Assert burn event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenBurn(burn) => {
         assert_eq!(burn.token_id, token_id);
-        assert_eq!(burn.amount.amount, RawTokenAmount(1000));
+        assert_eq!(burn.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(burn.amount.decimals, 4);
         assert_eq!(burn.target, TokenHolder::Account(gov_addr));
     });
@@ -857,7 +857,7 @@ fn test_plt_burn_using_alias() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     let gov_account_address_alias = context
@@ -892,20 +892,20 @@ fn test_plt_burn_using_alias() {
     // Assert circulating supply decreased
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
 
     // Assert account balance decreased
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
 
     // Assert burn event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenBurn(burn) => {
         assert_eq!(burn.token_id, token_id);
-        assert_eq!(burn.amount.amount, RawTokenAmount(1000));
+        assert_eq!(burn.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(burn.amount.decimals, 4);
         assert_eq!(burn.target, TokenHolder::Account(gov_account_address_alias));
     });
@@ -923,7 +923,7 @@ fn test_plt_burn_reject() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         4,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     let gov_addr = context
@@ -955,11 +955,11 @@ fn test_plt_burn_reject() {
     // Assert circulating supply and account balance unchanged
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
@@ -1026,28 +1026,28 @@ fn test_plt_multiple_operations() {
     // Assert circulating supply and account balances
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(3000)
+        RawTokenAmount::from(3000)
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Assert two events in right order
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount.amount, RawTokenAmount(3000));
+        assert_eq!(mint.amount.amount, RawTokenAmount::from(3000));
         assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, TokenHolder::Account(gov_addr));
     });
     assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
+        assert_eq!(transfer.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, TokenHolder::Account(gov_addr));
         assert_eq!(transfer.to, TokenHolder::Account(account2_addr));
@@ -1245,7 +1245,7 @@ fn test_energy_charge() {
         &mut block_state,
         gov_account.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let gov_addr = context
@@ -1299,7 +1299,7 @@ fn test_energy_charge_at_reject() {
         &mut block_state,
         gov_account.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let gov_addr = context
@@ -1357,7 +1357,7 @@ fn test_out_of_energy_error() {
         &mut block_state,
         gov_account.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let gov_addr = context

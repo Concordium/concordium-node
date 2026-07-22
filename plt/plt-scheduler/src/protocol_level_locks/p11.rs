@@ -82,7 +82,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
             account_index,
             &configuration.lock_id,
         )?;
-        let amount = TokenAmount::from_raw(raw_balance.0, token_configuration.decimals);
+        let amount = TokenAmount::from_raw(raw_balance.into(), token_configuration.decimals);
         funds_by_account
             .entry(account_index)
             .or_default()
@@ -323,7 +323,7 @@ fn execute_lock_send<C: EntityContextTypes>(
     let token_index = token.token_p9_base.token_index();
     block_state.update_token(context, token)?;
 
-    if remaining_locked == RawTokenAmount(0) {
+    if remaining_locked == RawTokenAmount::from(0) {
         remove_lock_balance_ref(
             context,
             block_state,
@@ -401,7 +401,7 @@ fn execute_lock_return<C: EntityContextTypes>(
     let token_index = token.token_p9_base.token_index();
     block_state.update_token(context, token)?;
 
-    if remaining_locked == RawTokenAmount(0) {
+    if remaining_locked == RawTokenAmount::from(0) {
         remove_lock_balance_ref(
             context,
             block_state,

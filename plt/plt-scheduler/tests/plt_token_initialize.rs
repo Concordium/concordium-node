@@ -196,7 +196,7 @@ fn test_initialize_token_default_values() {
         .expect("created token");
     assert_eq!(
         gov_account.account_token_balance(&context, token.token_p9_base.token_index()),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 }
 
@@ -255,7 +255,7 @@ fn test_initialize_token_no_minting() {
         .expect("created token");
     assert_eq!(
         gov_account.account_token_balance(&context, token.token_p9_base.token_index()),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 }
 
@@ -314,11 +314,11 @@ fn test_initialize_token_with_minting() {
         .expect("created token");
     assert_eq!(
         gov_account.account_token_balance(&context, token.token_p9_base.token_index()),
-        RawTokenAmount(500000)
+        RawTokenAmount::from(500000)
     );
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(500000)
+        RawTokenAmount::from(500000)
     );
 }
 

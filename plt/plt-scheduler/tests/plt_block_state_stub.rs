@@ -70,7 +70,7 @@ fn test_account_balance() {
         &mut block_state,
         account0.account_index(),
         &token_id,
-        RawTokenAmount(245),
+        RawTokenAmount::from(245),
     );
 
     let token = block_state
@@ -80,11 +80,11 @@ fn test_account_balance() {
 
     assert_eq!(
         account0.account_token_balance(&context, token.token_p9_base.token_index()),
-        RawTokenAmount(245)
+        RawTokenAmount::from(245)
     );
     assert_eq!(
         account1.account_token_balance(&context, token.token_p9_base.token_index()),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 }
 

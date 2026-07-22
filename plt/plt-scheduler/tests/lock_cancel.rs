@@ -47,7 +47,7 @@ fn test_cancel_by_canceller() {
         plt_x.clone(),
         parameters,
         2,
-        Some(RawTokenAmount(10000)),
+        Some(RawTokenAmount::from(10000)),
     );
 
     let lock_id = LockId {
@@ -106,7 +106,7 @@ fn test_cancel_unauthorized() {
         plt_x.clone(),
         parameters,
         2,
-        Some(RawTokenAmount(10000)),
+        Some(RawTokenAmount::from(10000)),
     );
 
     let lock_id = LockId {
@@ -164,7 +164,7 @@ fn test_cancel_after_expiry() {
         plt_x.clone(),
         parameters,
         2,
-        Some(RawTokenAmount(10000)),
+        Some(RawTokenAmount::from(10000)),
     );
 
     let lock_id = LockId {
@@ -223,7 +223,7 @@ fn test_cancel_with_balances() {
         plt_x.clone(),
         parameters,
         2,
-        Some(RawTokenAmount(10000)),
+        Some(RawTokenAmount::from(10000)),
     );
     let plt_x_gov_acct_address = context
         .account_by_index(plt_x_gov_acct.account_index())
@@ -236,7 +236,7 @@ fn test_cancel_with_balances() {
         plt_y.clone(),
         TokenInitTestParams::default(),
         6,
-        Some(RawTokenAmount(10000000)),
+        Some(RawTokenAmount::from(10000000)),
     );
     let plt_y_gov_acct_address = context
         .account_by_index(plt_y_gov_acct.account_index())
@@ -278,7 +278,7 @@ fn test_cancel_with_balances() {
         &lock_id,
         plt_x_gov_acct.account_index(),
         &plt_x.clone(),
-        RawTokenAmount(500),
+        RawTokenAmount::from(500),
     );
     utils::lock_balance(
         &mut context,
@@ -286,7 +286,7 @@ fn test_cancel_with_balances() {
         &lock_id,
         plt_y_gov_acct.account_index(),
         &plt_y.clone(),
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let transaction_context = plt_scheduler::TransactionContext {
@@ -391,7 +391,7 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
             .burnable()
             .deny_list(),
         2,
-        Some(RawTokenAmount(10000)),
+        Some(RawTokenAmount::from(10000)),
     );
 
     let owner_addr = context
@@ -402,7 +402,7 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(500),
+        RawTokenAmount::from(500),
     );
 
     let lock_id = LockId {

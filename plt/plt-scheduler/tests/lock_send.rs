@@ -99,7 +99,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -161,7 +161,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         assert_eq!(event_token_id, &token_id);
         assert_eq!(from, &TokenHolder::Account(sender_addr));
         assert_eq!(to, &TokenHolder::Account(recipient_addr));
-        assert_eq!(amount.amount, RawTokenAmount(100));
+        assert_eq!(amount.amount, RawTokenAmount::from(100));
         assert_eq!(amount.decimals, 4);
         assert_eq!(from_lock, &Some(lock_id.clone()));
         assert_eq!(to_lock, &None);
@@ -171,7 +171,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         token_account_info!(&context, &block_state, sender.account_index(), &token_id);
     assert_eq!(
         sender_info.account_state.balance.amount,
-        RawTokenAmount(900)
+        RawTokenAmount::from(900)
     );
     let sender_state = token_module_account_state!(&sender_info);
     assert_eq!(sender_state.available.unwrap().value(), 750);
@@ -182,7 +182,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         token_account_info!(&context, &block_state, recipient.account_index(), &token_id);
     assert_eq!(
         recipient_info.account_state.balance.amount,
-        RawTokenAmount(100)
+        RawTokenAmount::from(100)
     );
     let recipient_state = token_module_account_state!(&recipient_info);
     assert!(recipient_state.available.is_none());
@@ -218,7 +218,7 @@ fn test_lock_send_allows_any_recipient() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let owner_addr = context
@@ -303,7 +303,7 @@ fn test_lock_send_rejects_non_recipient() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
@@ -406,7 +406,7 @@ fn test_lock_send_sender_not_in_allow_list() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -519,7 +519,7 @@ fn test_lock_send_recipient_not_in_allow_list() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -606,7 +606,7 @@ fn test_lock_send_sender_in_deny_list() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let sender_addr = context
@@ -705,7 +705,7 @@ fn test_lock_send_recipient_in_deny_list() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let recipient_addr = context
@@ -804,7 +804,7 @@ fn test_lock_send_rejects_when_token_paused() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -898,7 +898,7 @@ fn test_lock_send_rejects_unauthorized_sender() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
@@ -972,7 +972,7 @@ fn test_lock_send_rejects_after_expiry() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);

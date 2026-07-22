@@ -94,7 +94,7 @@ mod test {
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
             .token_p9_base
-            .set_token_circulating_supply(RawTokenAmount(100));
+            .set_token_circulating_supply(RawTokenAmount::from(100));
         token1
             .token_p9_base
             .mutable_key_value_state
@@ -125,7 +125,7 @@ mod test {
             .unwrap();
         assert_eq!(
             token1.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(100)
+            RawTokenAmount::from(100)
         );
         assert_eq!(
             token1.token_p9_base.token_configuration(&context).unwrap(),
@@ -147,7 +147,7 @@ mod test {
             .unwrap();
         assert_eq!(
             token2.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(0)
+            RawTokenAmount::from(0)
         );
         assert_eq!(
             token2.token_p9_base.token_configuration(&context).unwrap(),
@@ -189,7 +189,7 @@ mod test {
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
             .token_p9_base
-            .set_token_circulating_supply(RawTokenAmount(100));
+            .set_token_circulating_supply(RawTokenAmount::from(100));
         token1
             .token_p9_base
             .mutable_key_value_state
@@ -255,7 +255,7 @@ mod test {
             .unwrap();
         assert_eq!(
             token1.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(100)
+            RawTokenAmount::from(100)
         );
         let configuration1 = TokenConfiguration {
             token_id: "token1".parse().unwrap(),
@@ -282,7 +282,7 @@ mod test {
             .unwrap();
         assert_eq!(
             token2.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(0)
+            RawTokenAmount::from(0)
         );
         let configuration2 = TokenConfiguration {
             token_id: "token2".parse().unwrap(),

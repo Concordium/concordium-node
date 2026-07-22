@@ -10,7 +10,7 @@ use concordium_base::contracts_common::AccountAddress;
 ///
 /// Corresponding Haskell type: `Concordium.Types.Tokens.TokenRawAmount`
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
-pub struct RawTokenAmount(pub u64);
+pub struct RawTokenAmount(u64);
 
 impl RawTokenAmount {
     /// Maximum representable raw token amount.
@@ -24,6 +24,23 @@ impl RawTokenAmount {
     /// Checked subtraction of raw token amounts. Returns `None` if the result would overflow.
     pub fn checked_sub(self, other: RawTokenAmount) -> Option<RawTokenAmount> {
         self.0.checked_sub(other.0).map(RawTokenAmount)
+    }
+
+    /// The [`RawTokenAmount`] value.
+    pub fn value(self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for RawTokenAmount {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<RawTokenAmount> for u64 {
+    fn from(value: RawTokenAmount) -> Self {
+        value.0
     }
 }
 
@@ -117,7 +134,7 @@ pub struct TokenAmount {
 impl TokenAmount {
     pub fn from_raw(amount: u64, decimals: u8) -> Self {
         Self {
-            amount: RawTokenAmount(amount),
+            amount: RawTokenAmount::from(amount),
             decimals,
         }
     }
@@ -145,98 +162,98 @@ mod test {
     /// with the property test [`prop_test_raw_token_amount_serial`].
     #[test]
     fn test_raw_token_amount_serial() {
-        let token_amount = RawTokenAmount(0);
+        let token_amount = RawTokenAmount::from(0);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "00");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(1);
+        let token_amount = RawTokenAmount::from(1);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "01");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(2);
+        let token_amount = RawTokenAmount::from(2);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "02");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(127);
+        let token_amount = RawTokenAmount::from(127);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "7f");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128);
+        let token_amount = RawTokenAmount::from(128);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "8100");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(129);
+        let token_amount = RawTokenAmount::from(129);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "8101");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128 * 128 - 1);
+        let token_amount = RawTokenAmount::from(128 * 128 - 1);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "ff7f");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128 * 128);
+        let token_amount = RawTokenAmount::from(128 * 128);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "818000");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128 * 128 + 1);
+        let token_amount = RawTokenAmount::from(128 * 128 + 1);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "818001");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128 * 128 * 128 - 1);
+        let token_amount = RawTokenAmount::from(128 * 128 * 128 - 1);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "ffff7f");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128 * 128 * 128);
+        let token_amount = RawTokenAmount::from(128 * 128 * 128);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "81808000");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(128 * 128 * 128 + 1);
+        let token_amount = RawTokenAmount::from(128 * 128 * 128 + 1);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "81808001");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(u64::MAX - 1);
+        let token_amount = RawTokenAmount::from(u64::MAX - 1);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "81ffffffffffffffff7e");
         let token_amount_deserialized: RawTokenAmount =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
-        let token_amount = RawTokenAmount(u64::MAX);
+        let token_amount = RawTokenAmount::from(u64::MAX);
         let bytes = common::to_bytes(&token_amount);
         assert_eq!(hex::encode(&bytes), "81ffffffffffffffff7f");
         let token_amount_deserialized: RawTokenAmount =
@@ -293,7 +310,7 @@ mod test {
         /// are tested in the test [`test_raw_token_amount_serial`].
         #[test]
         fn prop_test_raw_token_amount_serial(value: u64) {
-            let token_amount = RawTokenAmount(value);
+            let token_amount = RawTokenAmount::from(value);
             let bytes = common::to_bytes(&token_amount);
             let token_amount_deserialized_result: ParseResult<RawTokenAmount> =
                 common::from_bytes_complete(bytes.as_slice());
@@ -306,7 +323,7 @@ mod test {
     #[test]
     fn test_token_amount_serial() {
         let token_amount = TokenAmount {
-            amount: RawTokenAmount(1000),
+            amount: RawTokenAmount::from(1000),
             decimals: 4,
         };
 

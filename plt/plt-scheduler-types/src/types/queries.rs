@@ -82,7 +82,7 @@ mod test {
 
     fn token_amount_fixture(decimals: u8) -> TokenAmount {
         TokenAmount {
-            amount: RawTokenAmount(100),
+            amount: RawTokenAmount::from(100),
             decimals,
         }
     }

@@ -60,7 +60,7 @@ fn test_mint_p10() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Second mint
@@ -83,7 +83,7 @@ fn test_mint_p10() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 }
 
@@ -143,11 +143,11 @@ fn test_unauthorized_mint_p10() {
     // Assert balances remain unchanged.
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
     assert_eq!(
         non_governance_account.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 }
 
@@ -190,7 +190,7 @@ fn test_mint() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 
     // Second mint
@@ -213,7 +213,7 @@ fn test_mint() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 }
 
@@ -273,11 +273,11 @@ fn test_unauthorized_mint() {
     // Assert balances remain unchanged.
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
     assert_eq!(
         non_governance_account.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 }
 
@@ -350,11 +350,17 @@ fn test_mint_overflow() {
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
-        Some(RawTokenAmount(1000)),
+        Some(RawTokenAmount::from(1000)),
     );
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
-        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
+        amount: TokenAmount::from_raw(
+            RawTokenAmount::MAX
+                .checked_sub(RawTokenAmount::from(500))
+                .unwrap()
+                .into(),
+            2,
+        ),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -381,9 +387,9 @@ fn test_mint_overflow() {
             max_representable_amount,
             ..
         }) => {
-            assert_eq!(requested_amount, TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2));
+            assert_eq!(requested_amount, TokenAmount::from_raw(RawTokenAmount::MAX.checked_sub(RawTokenAmount::from(500)).unwrap().into(), 2));
             assert_eq!(current_supply, TokenAmount::from_raw(1000, 2));
-            assert_eq!(max_representable_amount, TokenAmount::from_raw(RawTokenAmount::MAX.0, 2));
+            assert_eq!(max_representable_amount, TokenAmount::from_raw(RawTokenAmount::MAX.into(), 2));
     });
 
     // Supply unchanged
@@ -393,7 +399,7 @@ fn test_mint_overflow() {
         .unwrap();
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 }
 
@@ -515,7 +521,13 @@ fn test_not_mintable() {
     );
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
-        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
+        amount: TokenAmount::from_raw(
+            RawTokenAmount::MAX
+                .checked_sub(RawTokenAmount::from(500))
+                .unwrap()
+                .into(),
+            2,
+        ),
     })];
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
@@ -584,7 +596,7 @@ fn test_mint_event() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount.amount, RawTokenAmount(1000));
+        assert_eq!(mint.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(mint.amount.decimals, 2);
         assert_eq!(mint.target, TokenHolder::Account(gov_account_addr));
     });
@@ -730,10 +742,10 @@ fn test_new_account_with_role_succeeds_mint() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(200)
+        RawTokenAmount::from(200)
     );
 }
