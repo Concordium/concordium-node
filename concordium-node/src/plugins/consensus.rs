@@ -20,10 +20,8 @@ use crate::{
         },
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
-    p2p::{
-        connectivity::{send_broadcast_message, send_direct_message},
-        P2PNode,
-    },
+    network::PacketDestination,
+    p2p::{connectivity::send_message_over_network, P2PNode},
     read_or_die, write_or_die,
 };
 use concordium_base::common::Deserial;
@@ -282,18 +280,18 @@ pub fn handle_consensus_outbound_msg(
         {
             send_consensus_msg_to_net(
                 node,
-                Vec::new(),
-                Some(peer),
-                (message.payload.clone(), message.variant),
+                PacketDestination::Direct(peer),
+                message.payload.clone(),
+                message.variant,
             );
         }
     } else {
-        send_consensus_msg_to_net(
-            node,
-            message.dont_relay_to(),
-            message.target_peer(),
-            (message.payload, message.variant),
-        );
+        let destination = if let Some(target_id) = message.target_peer() {
+            PacketDestination::Direct(target_id)
+        } else {
+            PacketDestination::Broadcast(message.dont_relay_to)
+        };
+        send_consensus_msg_to_net(node, destination, message.payload, message.variant);
     }
     Ok(())
 }
@@ -339,9 +337,9 @@ pub fn handle_consensus_inbound_msg(
     {
         send_consensus_msg_to_net(
             node,
-            request.dont_relay_to(),
-            None,
-            (request.payload, request.variant),
+            PacketDestination::Broadcast(request.dont_relay_to),
+            request.payload,
+            request.variant,
         );
     }
     // Execute any finalizer returned from the consensus layer.
@@ -430,28 +428,23 @@ fn send_msg_to_consensus(
 
 fn send_consensus_msg_to_net(
     node: &P2PNode,
-    dont_relay_to: Vec<RemotePeerId>,
-    target_id: Option<RemotePeerId>,
-    (payload, msg_desc): (Arc<[u8]>, PacketType),
+    destination: PacketDestination,
+    payload: Arc<[u8]>,
+    msg_desc: PacketType,
 ) {
-    let sent = if let Some(target_id) = target_id {
-        send_direct_message(node, target_id, node.config.default_network, payload)
-    } else {
-        send_broadcast_message(
-            node,
-            dont_relay_to.into_iter().collect(),
-            node.config.default_network,
-            payload,
+    let log_message = if let PacketDestination::Direct(id) = destination {
+        format!(
+            "Sent a direct message to peer {} containing a {}",
+            id, msg_desc
         )
+    } else {
+        format!("Sent a broadcast containing a {}", msg_desc)
     };
 
+    let sent = send_message_over_network(node, destination, node.config.default_network, payload);
+
     if sent > 0 {
-        let target_desc = if let Some(id) = target_id {
-            format!("direct message to peer {}", id)
-        } else {
-            "broadcast".to_string()
-        };
-        debug!("Sent a {} containing a {}", target_desc, msg_desc);
+        debug!("{}", log_message);
     }
 }
 
@@ -488,12 +481,15 @@ fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut Peer
     if let Some(id) = peers.next_pending() {
         debug!("Attempting to catch up with peer {}", id);
         peers.catch_up_stamp = get_current_stamp();
-        let sent = send_direct_message(
-            node,
-            id,
-            node.config.default_network,
-            consensus.get_catch_up_status(),
-        );
+        let sent = {
+            let msg = consensus.get_catch_up_status();
+            send_message_over_network(
+                node,
+                PacketDestination::Direct(id),
+                node.config.default_network,
+                msg,
+            )
+        };
         if sent > 0 {
             info!(
                 "Sent a direct message to peer {} containing a {}",
@@ -617,7 +613,7 @@ fn update_peer_states(
         }
     } else if [Block, FinalizationRecord, FinalizationMessage].contains(&request.variant) {
         match request.distribution_mode() {
-            DistributionMode::Direct if consensus_result.is_successful() => {
+            DistributionMode::Direct if consensus_result.is_rebroadcastable(request.variant) => {
                 // Directly sent blocks, finalization records and finalization messages that are
                 // successful (i.e. new and not pending) have special
                 // handling for the purposes of catch-up.
@@ -635,9 +631,9 @@ fn update_peer_states(
                 {
                     send_consensus_msg_to_net(
                         node,
-                        Vec::new(),
-                        Some(non_pending_peer),
-                        (request.payload.clone(), request.variant),
+                        PacketDestination::Direct(non_pending_peer),
+                        request.payload.clone(),
+                        request.variant,
                     );
                 }
             }
