@@ -613,7 +613,7 @@ fn update_peer_states(
         }
     } else if [Block, FinalizationRecord, FinalizationMessage].contains(&request.variant) {
         match request.distribution_mode() {
-            DistributionMode::Direct if consensus_result.is_successful() => {
+            DistributionMode::Direct if consensus_result.is_rebroadcastable(request.variant) => {
                 // Directly sent blocks, finalization records and finalization messages that are
                 // successful (i.e. new and not pending) have special
                 // handling for the purposes of catch-up.
