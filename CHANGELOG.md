@@ -39,7 +39,11 @@
 
 - Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
 
-# 10.0.9
+## 10.0.10
+
+- Fix a bug where pending blocks with unknown parents are relayed to peers.
+
+## 10.0.9
 
 - Upgraded rust version to 1.94
 - Change `FinalizerSet` inner representation to `ShortByteString` to improve performance on deserialize/serialize.
@@ -68,7 +72,7 @@
 
 - Add recovery from corrupted databases that may be created when protocol updates are executed
   twice (due to bugs in 8.1.0 - 10.0.1 versions).
- 
+
 # 10.0.3
 
 - Fix another bug in protocol update state migration that incorrectly migrated PLT state.
