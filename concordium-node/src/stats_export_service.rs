@@ -220,10 +220,10 @@ pub struct StatsExportService {
     /// - `"finalization message"`
     /// - `"catch-up status message"`
     pub sent_consensus_messages: IntCounterVec,
-    /// Total number of times inbound reads were delayed because a peer reached
+    /// Total number of inbound-read delay episodes caused by a peer reaching
     /// its queued inbound byte threshold.
     pub inbound_peer_queue_byte_threshold_delays: IntCounter,
-    /// Total number of times inbound reads were delayed because a peer reached
+    /// Total number of inbound-read delay episodes caused by a peer reaching
     /// its queued inbound message-count limit.
     pub inbound_peer_queue_message_count_limit_delays: IntCounter,
     /// Current number of soft banned peers.
@@ -416,13 +416,13 @@ impl StatsExportService {
 
         let inbound_peer_queue_byte_threshold_delays = IntCounter::with_opts(Opts::new(
             "consensus_inbound_peer_queue_byte_threshold_delays_total",
-            "Total number of times inbound reads were delayed because a peer reached its queued inbound byte threshold",
+            "Total number of inbound-read delay episodes caused by a peer reaching its queued inbound byte threshold",
         ))?;
         registry.register(Box::new(inbound_peer_queue_byte_threshold_delays.clone()))?;
 
         let inbound_peer_queue_message_count_limit_delays = IntCounter::with_opts(Opts::new(
             "consensus_inbound_peer_queue_message_count_limit_delays_total",
-            "Total number of times inbound reads were delayed because a peer reached its queued inbound message-count limit",
+            "Total number of inbound-read delay episodes caused by a peer reaching its queued inbound message-count limit",
         ))?;
         registry.register(Box::new(
             inbound_peer_queue_message_count_limit_delays.clone(),

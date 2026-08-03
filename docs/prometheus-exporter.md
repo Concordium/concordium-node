@@ -135,13 +135,13 @@ Possible values of `message` are:
 
 ### `consensus_inbound_peer_queue_byte_threshold_delays_total`
 
-Total number of times the node delayed reading more inbound messages from a peer because that peer had already reached the configured threshold for queued inbound consensus bytes.
+Total number of inbound-read delay episodes caused by a peer reaching the configured threshold for queued inbound consensus bytes.
 
 This is a backpressure metric, not a drop counter. Repeated increases indicate one or more peers are sustaining enough queued inbound consensus traffic to keep hitting the configured `queued-bytes-per-peer-threshold`.
 
 ### `consensus_inbound_peer_queue_message_count_limit_delays_total`
 
-Total number of times the node delayed reading more inbound messages from a peer because that peer had already reached the configured limit for queued inbound message count.
+Total number of inbound-read delay episodes caused by a peer reaching the configured limit for queued inbound message count.
 
 This is a backpressure metric, not a drop counter. Repeated increases indicate one or more peers are sustaining enough queued inbound consensus traffic to keep hitting the configured `max-queued-messages-per-peer` limit.
 

@@ -5,7 +5,7 @@ pub mod message_handlers;
 #[cfg(test)]
 mod tests;
 
-use anyhow::{bail, ensure, Context};
+use anyhow::{bail, ensure};
 use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use low_level::ConnectionLowLevel;
@@ -417,6 +417,15 @@ impl MessageQueues {
     }
 }
 
+/// The per-peer inbound queue limit currently preventing further socket reads.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InboundReadDelayReason {
+    /// The queued inbound byte threshold has been reached.
+    ByteThreshold,
+    /// The queued inbound message-count limit has been reached.
+    MessageCountLimit,
+}
+
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
@@ -438,8 +447,8 @@ pub struct Connection {
     /// Total bytes currently reserved by this peer across inbound consensus queues.
     /// This is used to prevent memory exhaustion from many large messages.
     pub pending_messages_reserved_bytes: Arc<AtomicUsize>,
-    /// Indicating whether any message has been delayed due to resource limitations.
-    pub unread_pending_messages: bool,
+    /// The resource limit currently delaying further inbound reads, if any.
+    inbound_read_delay: Option<InboundReadDelayReason>,
     /// Semaphore to limit concurrent processing of GetPeers requests.
     pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
@@ -504,7 +513,7 @@ impl Connection {
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
             pending_messages_count: Arc::new(AtomicUsize::new(0)),
             pending_messages_reserved_bytes: Arc::new(AtomicUsize::new(0)),
-            unread_pending_messages: false,
+            inbound_read_delay: None,
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
             get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
@@ -584,6 +593,11 @@ impl Connection {
         Ok(is_duplicate)
     }
 
+    /// Whether an inbound read is deferred until queued resources are released.
+    pub fn has_deferred_read(&self) -> bool {
+        self.inbound_read_delay.is_some()
+    }
+
     /// Keeps reading from the socket as long as there is data to be read, the operation is not blocking
     /// and the sending peer's inbound queue limits have not been exhausted.
     /// The return value indicates if the connection is still open.
@@ -591,35 +605,43 @@ impl Connection {
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
         loop {
             // Check the connection resource limits before reading.
-            if self.pending_messages_reserved_bytes.load(Ordering::Relaxed)
+            let delay_reason = if self.pending_messages_reserved_bytes.load(Ordering::Relaxed)
                 >= self.handler.config.queued_bytes_per_peer_threshold
             {
-                trace!(
-                    "Delaying read from peer `{:?}` as it reached its queued inbound byte threshold",
-                    self.remote_peer
-                );
-                self.handler
-                    .stats
-                    .inbound_peer_queue_byte_threshold_delays
-                    .inc();
-                self.unread_pending_messages = true;
-                return Ok(true);
-            }
-            if self.pending_messages_count.load(Ordering::Relaxed)
+                Some(InboundReadDelayReason::ByteThreshold)
+            } else if self.pending_messages_count.load(Ordering::Relaxed)
                 >= self.handler.config.max_queued_messages_per_peer
             {
+                Some(InboundReadDelayReason::MessageCountLimit)
+            } else {
+                None
+            };
+
+            if let Some(reason) = delay_reason {
+                if self.inbound_read_delay != Some(reason) {
+                    match reason {
+                        InboundReadDelayReason::ByteThreshold => self
+                            .handler
+                            .stats
+                            .inbound_peer_queue_byte_threshold_delays
+                            .inc(),
+                        InboundReadDelayReason::MessageCountLimit => self
+                            .handler
+                            .stats
+                            .inbound_peer_queue_message_count_limit_delays
+                            .inc(),
+                    }
+                }
                 trace!(
-                    "Delaying read from peer `{:?}` as it reached its limit on pending messages",
-                    self.remote_peer
+                    "Delaying read from peer `{:?}` due to `{:?}`",
+                    self.remote_peer,
+                    reason
                 );
-                self.handler
-                    .stats
-                    .inbound_peer_queue_message_count_limit_delays
-                    .inc();
-                self.unread_pending_messages = true;
+                self.inbound_read_delay = Some(reason);
                 return Ok(true);
             }
-            self.unread_pending_messages = false;
+
+            self.inbound_read_delay = None;
             loop {
                 match self.low_level.read_from_socket()? {
                     ReadResult::Complete(msg) => {
@@ -967,42 +989,21 @@ impl ProcessMessagePermit {
         permitted_bytes: usize,
     ) -> anyhow::Result<Self> {
         // Increment the byte counter
-        {
-            let mut current = byte_counter.load(Ordering::Relaxed);
-            loop {
-                let updated = current
-                    .checked_add(permitted_bytes)
-                    .context("Queued inbound byte reservation overflowed")?;
-                match byte_counter.compare_exchange_weak(
-                    current,
-                    updated,
-                    Ordering::AcqRel,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => break,
-                    Err(observed) => current = observed,
-                }
-            }
-        }
+        byte_counter
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(permitted_bytes)
+            })
+            .map_err(|_| anyhow::anyhow!("Queued inbound byte reservation overflowed"))?;
         // Increment the message counter
+        if message_counter
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .is_err()
         {
-            let mut current = message_counter.load(Ordering::Relaxed);
-            loop {
-                let Some(updated) = current.checked_add(1) else {
-                    // Decrement the `byte_counter` before failing.
-                    byte_counter.fetch_sub(permitted_bytes, Ordering::Relaxed);
-                    anyhow::bail!("Queued inbound slot reservation overflowed")
-                };
-                match message_counter.compare_exchange_weak(
-                    current,
-                    updated,
-                    Ordering::AcqRel,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => break,
-                    Err(observed) => current = observed,
-                }
-            }
+            // Decrement the `byte_counter` before failing.
+            byte_counter.fetch_sub(permitted_bytes, Ordering::Relaxed);
+            anyhow::bail!("Queued inbound slot reservation overflowed")
         }
         Ok(Self {
             message_counter,
@@ -1015,8 +1016,8 @@ impl ProcessMessagePermit {
 impl Drop for ProcessMessagePermit {
     fn drop(&mut self) {
         self.byte_counter
-            .fetch_sub(self.permitted_bytes, Ordering::AcqRel);
-        self.message_counter.fetch_sub(1, Ordering::AcqRel);
+            .fetch_sub(self.permitted_bytes, Ordering::Relaxed);
+        self.message_counter.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
