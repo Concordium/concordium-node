@@ -12,6 +12,7 @@ use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
+use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
 use plt_block_state::utils;
 use plt_scheduler_types::types::execution::{
     ChainUpdateOutcome, TransactionExecutionSummary, TransactionOutcome,
@@ -42,6 +43,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
     transaction_context: TransactionContext,
     sender_account: Account,
     payload: Payload,
+    chain_parameters: &PersistentChainParametersP11,
 ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
     let mut execution = TransactionExecution::new(transaction_context, sender_account);
 
@@ -54,9 +56,13 @@ pub fn execute_transaction<C: EntityContextTypes>(
                 payload,
             )?
         }
-        Payload::MetaUpdate { payload } => {
-            execute_meta_update_transaction(context, &mut execution, block_state, payload)?
-        }
+        Payload::MetaUpdate { payload } => execute_meta_update_transaction(
+            context,
+            &mut execution,
+            block_state,
+            payload,
+            chain_parameters,
+        )?,
         _ => return Err(TransactionExecutionError::UnexpectedPayload),
     };
 
@@ -72,6 +78,7 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     payload: MetaUpdatePayload,
+    chain_parameters: &PersistentChainParametersP11,
 ) -> BlockStateResult<TransactionOutcome> {
     // Charge energy
     if let Err(err) =
@@ -120,6 +127,7 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
                     context,
                     transaction_execution,
                     block_state,
+                    chain_parameters.max_lock_duration,
                     index,
                     lock_operation,
                     &mut events,

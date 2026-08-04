@@ -12,6 +12,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
+use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
 use plt_scheduler::{failure, protocol_level_tokens};
@@ -110,6 +111,9 @@ impl SchedulerOperations for BlockStateP11 {
             transaction_context,
             sender_account.clone(),
             payload,
+            &PersistentChainParametersP11 {
+                max_lock_duration: u64::MAX,
+            },
         )
     }
 

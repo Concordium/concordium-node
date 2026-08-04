@@ -39,6 +39,7 @@ import qualified Data.FixedByteString as FixedByteString
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.ContractStateFFIHelpers as FFI
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters as ECP
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as PLTBlockState
 import qualified Concordium.GlobalState.Types as BS
 import qualified Concordium.Scheduler.Environment as EI
@@ -125,8 +126,9 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
         BS.UpdatableBlockState m ->
         m (TransactionExecutionSummary (BS.UpdatableBlockState m))
     executeTransactionInBSOMonad remainingEnergy blockState0 = do
-        -- Get current PLT block state
+        -- Get current PLT block state and P11 external chain parameters.
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
+        externalChainParameters <- BS.bsoGetExternalChainParameters blockState0
 
         -- Put block state in an IORef to allow callbacks to update it.
         blockStateIORef <- BS.liftBlobStore $ liftIO $ IORef.newIORef blockState0
@@ -139,6 +141,7 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
                 executeTransactionInBlobStoreMonad
                     (Types.protocolVersion @(Types.MPV m))
                     pltBlockState0
+                    externalChainParameters
                     queryCallbacks
                     operationCallbacks
                     (fst $ depositContext ^. EI.wtcSenderAccount)
@@ -160,6 +163,8 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
         Types.SProtocolVersion pv ->
         -- Block state to mutate.
         PLTBlockState.ForeignPLTBlockStatePtr pv ->
+        -- Node-owned external chain parameters. Present only for P11.
+        Maybe ECP.ForeignExternalChainParametersPtr ->
         -- Callbacks need for block state queries on the state maintained by Haskell.
         BlockStateQueryCallbacks ->
         -- Callbacks need for block state operations on the state maintained by Haskell.
@@ -175,6 +180,7 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
     executeTransactionInBlobStoreMonad
         spv
         blockState
+        externalChainParameters
         queryCallbacks
         operationCallbacks
         senderAccountIndex
@@ -195,29 +201,36 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
                             incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber $ incrementPltUpdateSequenceNumber operationCallbacks
                             -- Invoke the ffi call
                             statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
-                                FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
-                                    BS.unsafeUseAsCStringLen transactionPayloadByteString $ \(transactionPayloadPtr, transactionPayloadLen) ->
-                                        ffiExecuteTransaction
-                                            loadCallbackPtr
-                                            readTokenAccountBalanceCallbackPtr
-                                            updateTokenAccountBalanceCallbackPtr
-                                            touchTokenAccountCallbackPtr
-                                            incrementPltUpdateSequenceCallbackPtr
-                                            getAccountIndexByAddressCallbackPtr
-                                            getAccountAddressByIndexCallbackPtr
-                                            getTokenAccountStatesCallbackPtr
-                                            blockStatePtr
-                                            (FFI.castPtr transactionPayloadPtr)
-                                            (fromIntegral transactionPayloadLen)
-                                            (fromIntegral senderAccountIndex)
-                                            senderAccountAddressPtr
-                                            (EI._wtcTransactionSequenceNumber depositContext)
-                                            blockTimestamp
-                                            (fromIntegral remainingEnergy)
-                                            resultingBlockStateOutPtr
-                                            usedEnergyOutPtr
-                                            returnDataPtrOutPtr
-                                            returnDataLenOutPtr
+                                let withExternalChainParameters =
+                                        maybe
+                                            (\use -> use FFI.nullPtr)
+                                            (\params use -> ECP.withExternalChainParameters params use)
+                                            externalChainParameters
+                                 in withExternalChainParameters $ \externalChainParametersPtr ->
+                                        FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
+                                            BS.unsafeUseAsCStringLen transactionPayloadByteString $ \(transactionPayloadPtr, transactionPayloadLen) ->
+                                                ffiExecuteTransaction
+                                                    loadCallbackPtr
+                                                    readTokenAccountBalanceCallbackPtr
+                                                    updateTokenAccountBalanceCallbackPtr
+                                                    touchTokenAccountCallbackPtr
+                                                    incrementPltUpdateSequenceCallbackPtr
+                                                    getAccountIndexByAddressCallbackPtr
+                                                    getAccountAddressByIndexCallbackPtr
+                                                    getTokenAccountStatesCallbackPtr
+                                                    blockStatePtr
+                                                    externalChainParametersPtr
+                                                    (FFI.castPtr transactionPayloadPtr)
+                                                    (fromIntegral transactionPayloadLen)
+                                                    (fromIntegral senderAccountIndex)
+                                                    senderAccountAddressPtr
+                                                    (EI._wtcTransactionSequenceNumber depositContext)
+                                                    blockTimestamp
+                                                    (fromIntegral remainingEnergy)
+                                                    resultingBlockStateOutPtr
+                                                    usedEnergyOutPtr
+                                                    returnDataPtrOutPtr
+                                                    returnDataLenOutPtr
                             -- Free the function pointers we have just created
                             -- (loadCallbackPtr is created in another context,
                             -- so we should not free it)
@@ -305,6 +318,8 @@ foreign import ccall "ffi_execute_transaction"
         GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
         FFI.Ptr PLTBlockState.RustPLTBlockState ->
+        -- | Read-only external chain parameters, or null before P11.
+        FFI.Ptr ECP.RustExternalChainParameters ->
         -- | Pointer to transaction payload bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of transaction payload.
