@@ -206,7 +206,7 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
                                             (\use -> use FFI.nullPtr)
                                             (\params use -> ECP.withExternalChainParameters params use)
                                             externalChainParameters
-                                 in withExternalChainParameters $ \externalChainParametersPtr ->
+                                in  withExternalChainParameters $ \externalChainParametersPtr ->
                                         FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
                                             BS.unsafeUseAsCStringLen transactionPayloadByteString $ \(transactionPayloadPtr, transactionPayloadLen) ->
                                                 ffiExecuteTransaction

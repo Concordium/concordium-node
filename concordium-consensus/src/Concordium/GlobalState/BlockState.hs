@@ -93,13 +93,13 @@ import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
+import qualified Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters as ECP
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
     TokenIndex,
     TokenStateKey,
     TokenStateValue,
  )
-import qualified Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters as ECP
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState as RustBS
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)

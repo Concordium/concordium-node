@@ -413,6 +413,8 @@ mod tests {
     };
 
     use super::*;
+    use concordium_base::protocol_level_tokens::{RawCbor, meta_operations::MetaUpdatePayload};
+    use plt_scheduler_types::types::protocol_version::ProtocolVersion;
     use std::ptr;
 
     /// Test ensuring panics are caught and returned properly when providing invalid arguments to `ffi_execute_transaction`.
@@ -454,5 +456,51 @@ mod tests {
         };
         let message = std::str::from_utf8(data).expect("Failed decoding panic message");
         assert_eq!(message, "block_state is a null pointer.");
+    }
+
+    #[test]
+    fn test_p11_transaction_requires_external_chain_parameters() {
+        let block_state = PersistentBlockState::empty(ProtocolVersion::P11);
+        let payload = common::to_bytes(&Payload::MetaUpdate {
+            payload: MetaUpdatePayload {
+                operations: RawCbor::from(vec![]),
+            },
+        });
+        let sender_address = [0; contracts_common::ACCOUNT_ADDRESS_SIZE];
+        let block_state_out = Box::into_raw(Box::new(ptr::null_mut()));
+        let used_energy_out = Box::into_raw(Box::new(0));
+        let data_out = Box::into_raw(Box::new(ptr::null_mut()));
+        let data_out_len = Box::into_raw(Box::new(0));
+
+        let status_code = ffi_execute_transaction(
+            UNIMPLEMENTED_LOAD_CALLBACK,
+            UNIMPLEMENTED_READ_TOKEN_ACCOUNT_BALANCE,
+            UNIMPLEMENTED_UPDATE_TOKEN_ACCOUNT_BALANCE,
+            UNIMPLEMENTED_TOUCH_TOKEN_ACCOUNT,
+            UNIMPLEMENTED_INCREMENT_PLT_UPDATE_SEQUENCE_NUMBER,
+            UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
+            UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
+            UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES,
+            &block_state,
+            ptr::null(),
+            payload.as_ptr(),
+            payload.len(),
+            0,
+            sender_address.as_ptr(),
+            Nonce::from(1),
+            Timestamp::from_timestamp_millis(0),
+            0,
+            block_state_out,
+            used_energy_out,
+            data_out,
+            data_out_len,
+        );
+        assert_eq!(status_code, status::FfiStatusCode::Panic);
+        let data = unsafe { std::slice::from_raw_parts(*data_out, *data_out_len) };
+        let message = std::str::from_utf8(data).expect("Failed decoding panic message");
+        assert_eq!(
+            message,
+            "external_chain_parameters is a null pointer for P11."
+        );
     }
 }
