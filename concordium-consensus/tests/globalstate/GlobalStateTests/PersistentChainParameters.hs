@@ -64,10 +64,10 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Old
 
 -- | Store bytes in the historical layout and load them as the new persistent type.
 loadOldLayoutAsPersistent ::
-    forall cpv auv.
-    (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    ChainParameters' cpv ->
-    MemBlobStoreT IO (PCP.PersistentChainParameters' cpv auv)
+    forall pv.
+    (IsProtocolVersion pv) =>
+    ChainParameters pv ->
+    MemBlobStoreT IO (PCP.PersistentChainParameters pv)
 loadOldLayoutAsPersistent chainParameters = do
     oldRef <- storeRef (OldPersistentChainParametersLayout chainParameters)
     loadRef (BlobRef (theBlobRef oldRef))
@@ -75,24 +75,24 @@ loadOldLayoutAsPersistent chainParameters = do
 -- | Assert that old-layout bytes load as persistent chain parameters and convert
 -- back to the public view without changing ordinary fields.
 assertOldLayoutLoadsAsPersistent ::
-    forall cpv auv.
-    (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    ChainParameters' cpv ->
+    forall pv.
+    (IsProtocolVersion pv) =>
+    ChainParameters pv ->
     Assertion
 assertOldLayoutLoadsAsPersistent chainParameters = runWithNewMemBlobStore $ do
-    persistent <- loadOldLayoutAsPersistent @cpv @auv chainParameters
+    persistent <- loadOldLayoutAsPersistent @pv chainParameters
     let publicView = PCP.persistentChainParametersToChainParameters persistent
     liftIO $ assertEqual "old persistent layout should load as the new persistent type" chainParameters publicView
 
 -- | Assert that hashing pre-P11 persistent chain parameters is unchanged from
 -- hashing the historical persistent byte layout.
 assertOldLayoutHashCompatible ::
-    forall cpv auv.
-    (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    ChainParameters' cpv ->
+    forall pv.
+    (IsProtocolVersion pv) =>
+    ChainParameters pv ->
     Assertion
 assertOldLayoutHashCompatible chainParameters = runWithNewMemBlobStore $ do
-    persistent <- loadOldLayoutAsPersistent @cpv @auv chainParameters
+    persistent <- loadOldLayoutAsPersistent @pv chainParameters
     persistentHash <- getHashM persistent
     let oldHash = H.hash (S.runPut (putOldPersistentChainParametersLayout chainParameters))
     liftIO $ assertEqual "persistent chain-parameter hash should match the historical layout hash" oldHash persistentHash
@@ -114,7 +114,7 @@ assertP10P11MigrationExposesMaxLockDuration :: Assertion
 assertP10P11MigrationExposesMaxLockDuration = runWithNewMemBlobStore $ do
     let duration = Duration 12345
         migration = StateMigrationParametersP10ToP11 (P11.StateMigrationData (p11ProtocolUpdateData duration))
-    persistent0 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'ChainParametersV3 @'AuthorizationsVersion2 p10ChainParameters
+    persistent0 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'P10 p10ChainParameters
     migratedMaybe <- runMaybeT $ Migration.migrateChainParameters migration persistent0
     migrated <- case migratedMaybe of
         Nothing -> liftIO $ assertFailure "P10-to-P11 chain-parameter migration unexpectedly failed"
@@ -159,7 +159,7 @@ assertP11InitialPersistentStateRequiresMaxLockDuration = do
 assertP11RoundtripExposesMaxLockDuration :: Assertion
 assertP11RoundtripExposesMaxLockDuration = runWithNewMemBlobStore $ do
     let duration = Duration 42
-    persistent0 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'ChainParametersV3 @'AuthorizationsVersion3 (p11ChainParameters duration)
+    persistent0 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'P11 (p11ChainParameters duration)
     (hash0 :: H.Hash) <- getHashM persistent0
     persistent1 <- loadRef =<< storeRef persistent0
     (hash1 :: H.Hash) <- getHashM persistent1
@@ -171,8 +171,8 @@ assertP11RoundtripExposesMaxLockDuration = runWithNewMemBlobStore $ do
 
 assertP11HashIncludesExternalChainParameters :: Assertion
 assertP11HashIncludesExternalChainParameters = runWithNewMemBlobStore $ do
-    persistent1 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'ChainParametersV3 @'AuthorizationsVersion3 (p11ChainParameters (Duration 1))
-    persistent2 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'ChainParametersV3 @'AuthorizationsVersion3 (p11ChainParameters (Duration 2))
+    persistent1 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'P11 (p11ChainParameters (Duration 1))
+    persistent2 <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'P11 (p11ChainParameters (Duration 2))
     (hash1 :: H.Hash) <- getHashM persistent1
     (hash2 :: H.Hash) <- getHashM persistent2
     liftIO $ assertBool "P11 persistent chain-parameter hash should include external maxLockDuration" (hash1 /= hash2)
@@ -180,7 +180,7 @@ assertP11HashIncludesExternalChainParameters = runWithNewMemBlobStore $ do
 assertP11ConstructionRequiresMaxLockDuration :: Assertion
 assertP11ConstructionRequiresMaxLockDuration = do
     result <- try $ runWithNewMemBlobStore $ do
-        persistent <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'ChainParametersV3 @'AuthorizationsVersion3 p10ChainParameters
+        persistent <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'P11 p10ChainParameters
         liftIO $ evaluate persistent
     case result of
         Left (_ :: ErrorCall) -> return ()
@@ -189,18 +189,18 @@ assertP11ConstructionRequiresMaxLockDuration = do
 tests :: Spec
 tests = describe "GlobalStateTests.PersistentChainParameters" $ do
     it "loads old CPV0 persistent bytes as node-owned persistent chain parameters" $
-        assertOldLayoutLoadsAsPersistent @'ChainParametersV0 @'AuthorizationsVersion0 dummyChainParameters'
+        assertOldLayoutLoadsAsPersistent @'P1 dummyChainParameters'
     it "loads old CPV1 persistent bytes as node-owned persistent chain parameters" $
-        assertOldLayoutLoadsAsPersistent @'ChainParametersV1 @'AuthorizationsVersion1 dummyChainParameters'
+        assertOldLayoutLoadsAsPersistent @'P4 dummyChainParameters'
     it "loads old CPV2 persistent bytes as node-owned persistent chain parameters" $
-        assertOldLayoutLoadsAsPersistent @'ChainParametersV2 @'AuthorizationsVersion1 dummyChainParameters'
+        assertOldLayoutLoadsAsPersistent @'P6 dummyChainParameters'
     it "loads old pre-P11 CPV3 persistent bytes as node-owned persistent chain parameters" $
-        assertOldLayoutLoadsAsPersistent @'ChainParametersV3 @'AuthorizationsVersion2 p10ChainParameters
+        assertOldLayoutLoadsAsPersistent @'P10 p10ChainParameters
     it "keeps old pre-P11 persistent chain-parameter hashes unchanged" $ do
-        assertOldLayoutHashCompatible @'ChainParametersV0 @'AuthorizationsVersion0 dummyChainParameters'
-        assertOldLayoutHashCompatible @'ChainParametersV1 @'AuthorizationsVersion1 dummyChainParameters'
-        assertOldLayoutHashCompatible @'ChainParametersV2 @'AuthorizationsVersion1 dummyChainParameters'
-        assertOldLayoutHashCompatible @'ChainParametersV3 @'AuthorizationsVersion2 p10ChainParameters
+        assertOldLayoutHashCompatible @'P1 dummyChainParameters'
+        assertOldLayoutHashCompatible @'P4 dummyChainParameters'
+        assertOldLayoutHashCompatible @'P6 dummyChainParameters'
+        assertOldLayoutHashCompatible @'P10 p10ChainParameters
     it "migrates P10 chain parameters to P11 with protocol-update maxLockDuration" $
         assertP10P11MigrationExposesMaxLockDuration
     it "initializes P11 persistent state with genesis maxLockDuration" $

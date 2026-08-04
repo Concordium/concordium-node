@@ -662,13 +662,13 @@ makeBasicPendingUpdates PendingUpdates{..} = withCPVConstraints (chainParameters
     return UQ.PendingUpdates{..}
 
 -- | Current state of updatable parameters and update queues.
-data Updates' (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) = Updates
+data Updates' (pv :: ProtocolVersion) (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) = Updates
     { -- | Current update authorizations.
       currentKeyCollection :: !(HashedBufferedRef (StoreSerialized (UpdateKeysCollection auv))),
       -- | Current protocol update.
       currentProtocolUpdate :: !(Nullable (HashedBufferedRef (StoreSerialized ProtocolUpdate))),
       -- | Current node-owned persistent chain parameters.
-      currentParameters :: !(HashedBufferedRef (PCP.PersistentChainParameters' cpv auv)),
+      currentParameters :: !(HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv)),
       -- | Pending updates.
       pendingUpdates :: !(PendingUpdates cpv auv),
       -- | Sequence number for updates to the protocol level tokens (PLT).
@@ -728,9 +728,9 @@ migrateUpdates migration Updates{..} = do
               pltUpdateSequenceNumber = newPltUpdateSequenceNumber
             }
 
-type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv)
+type Updates (pv :: ProtocolVersion) = Updates' pv (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv)
 
-instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => MHashableTo m H.Hash (Updates' cpv auv) where
+instance (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => MHashableTo m H.Hash (Updates' pv cpv auv) where
     getHashM Updates{..} = do
         hCA <- getHashM currentKeyCollection
         mHCPU <- mapM getHashM currentProtocolUpdate
@@ -752,8 +752,8 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersio
                 put usn
 
 instance
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BlobStorable m (Updates' cpv auv)
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BlobStorable m (Updates' pv cpv auv)
     where
     storeUpdate Updates{..} = do
         (pKC, kC) <- storeUpdate currentKeyCollection
@@ -783,7 +783,7 @@ instance
             pendingUpdates <- mPU
             return Updates{..}
 
-instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => Cacheable m (Updates' cpv auv) where
+instance (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => Cacheable m (Updates' pv cpv auv) where
     cache Updates{..} =
         Updates
             <$> cache currentKeyCollection
@@ -795,25 +795,25 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersio
 -- | An initial 'Updates' with the given initial 'Authorizations'
 --  and 'ChainParameters'.
 initialUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    UpdateKeysCollection auv ->
-    ChainParameters' cpv ->
-    m (Updates' cpv auv)
+    forall m pv.
+    (MonadBlobStore m, IsProtocolVersion pv) =>
+    UpdateKeysCollection (AuthorizationsVersionFor pv) ->
+    ChainParameters pv ->
+    m (Updates pv)
 initialUpdates initialKeyCollection chainParams = do
     currentKeyCollection <- makeHashedBufferedRef (StoreSerialized initialKeyCollection)
     let currentProtocolUpdate = Null
     currentParameters <- makeHashedBufferedRef =<< PCP.makePersistentChainParameters chainParams
     pendingUpdates <- emptyPendingUpdates
-    let pltUpdateSequenceNumber = conditionally (sSupportsCreatePLT (authorizationsVersion @auv)) minUpdateSequenceNumber
+    let pltUpdateSequenceNumber = conditionally (sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv))) minUpdateSequenceNumber
     return Updates{..}
 
 -- | Make a persistent 'Updates' from an in-memory one.
 makePersistentUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    UQ.Updates' cpv auv ->
-    m (Updates' cpv auv)
+    forall m pv.
+    (MonadBlobStore m, IsProtocolVersion pv) =>
+    UQ.Updates' (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ->
+    m (Updates pv)
 makePersistentUpdates UQ.Updates{..} = do
     currentKeyCollection <- refMake (StoreSerialized (_unhashed _currentKeyCollection))
     currentProtocolUpdate <- case _currentProtocolUpdate of
@@ -826,9 +826,9 @@ makePersistentUpdates UQ.Updates{..} = do
 
 -- | Convert a persistent 'Updates' to an in-memory 'UQ.Updates'.
 makeBasicUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    Updates' cpv auv ->
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    Updates' pv cpv auv ->
     m (UQ.Updates' cpv auv)
 makeBasicUpdates Updates{..} = do
     hKC <- getHashM currentKeyCollection
@@ -844,18 +844,18 @@ makeBasicUpdates Updates{..} = do
 
 -- | Load the public/wire view of current chain parameters from the persistent node representation.
 loadChainParametersRef ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    HashedBufferedRef (PCP.PersistentChainParameters' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv) ->
     m (ChainParameters' cpv)
 loadChainParametersRef currentParameters =
     PCP.persistentChainParametersToChainParameters <$> refLoad currentParameters
 
 -- | Store a new chain-parameter value while preserving node-internal external state.
 makeUpdatedChainParametersRef ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    HashedBufferedRef (PCP.PersistentChainParameters' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv) ->
     ChainParameters' cpv ->
-    m (HashedBufferedRef (PCP.PersistentChainParameters' cpv auv))
+    m (HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv))
 makeUpdatedChainParametersRef currentParameters newChainParameters = do
     persistentParameters <- refLoad currentParameters
     refMake $ PCP.updateChainParameters newChainParameters persistentParameters
@@ -886,11 +886,11 @@ processValueUpdates t uq noUpdate doUpdate = case ql of
 
 -- | Process root keys updates.
 processRootKeysUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processRootKeysUpdates t bu = do
     u@Updates{..} <- refLoad bu
     rootKeysQueue <- refLoad (pRootKeysUpdateQueue pendingUpdates)
@@ -908,11 +908,11 @@ processRootKeysUpdates t bu = do
 
 -- | Process level 1 keys updates.
 processLevel1KeysUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processLevel1KeysUpdates t bu = do
     u@Updates{..} <- refLoad bu
     level1KeysQueue <- refLoad (pLevel1KeysUpdateQueue pendingUpdates)
@@ -930,11 +930,11 @@ processLevel1KeysUpdates t bu = do
 
 -- | Process level 2 keys updates.
 processLevel2KeysUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processLevel2KeysUpdates t bu = do
     u@Updates{..} <- refLoad bu
     level2KeysQueue <- refLoad (pLevel2KeysUpdateQueue pendingUpdates)
@@ -952,10 +952,10 @@ processLevel2KeysUpdates t bu = do
 
 -- | Process election difficulty updates.
 processElectionDifficultyUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processElectionDifficultyUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pElectionDifficultyQueue pendingUpdates of
@@ -978,10 +978,10 @@ processElectionDifficultyUpdates t bu = do
 
 -- | Process Euro:energy rate updates.
 processEuroPerEnergyUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processEuroPerEnergyUpdates t bu = do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pEuroPerEnergyQueue pendingUpdates)
@@ -999,10 +999,10 @@ processEuroPerEnergyUpdates t bu = do
 
 -- | Process microGTU:Euro rate updates.
 processMicroGTUPerEuroUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processMicroGTUPerEuroUpdates t bu = do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pMicroGTUPerEuroQueue pendingUpdates)
@@ -1019,10 +1019,10 @@ processMicroGTUPerEuroUpdates t bu = do
                     }
 
 processFoundationAccountUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processFoundationAccountUpdates t bu = do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pFoundationAccountQueue pendingUpdates)
@@ -1039,11 +1039,11 @@ processFoundationAccountUpdates t bu = do
                     }
 
 processMintDistributionUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processMintDistributionUpdates t bu = withIsMintDistributionVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pMintDistributionQueue pendingUpdates)
@@ -1060,10 +1060,10 @@ processMintDistributionUpdates t bu = withIsMintDistributionVersionFor (chainPar
                     }
 
 processTransactionFeeDistributionUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processTransactionFeeDistributionUpdates t bu = do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pTransactionFeeDistributionQueue pendingUpdates)
@@ -1080,11 +1080,11 @@ processTransactionFeeDistributionUpdates t bu = do
                     }
 
 processGASRewardsUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processGASRewardsUpdates t bu = withIsGASRewardsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pGASRewardsQueue pendingUpdates)
@@ -1101,11 +1101,11 @@ processGASRewardsUpdates t bu = withIsGASRewardsVersionFor (chainParametersVersi
                     }
 
 processPoolParamatersUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processPoolParamatersUpdates t bu = withIsPoolParametersVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pPoolParametersQueue pendingUpdates)
@@ -1123,11 +1123,11 @@ processPoolParamatersUpdates t bu = withIsPoolParametersVersionFor (chainParamet
 
 -- | Process cooldown parameters updates.
 processCooldownParametersUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processCooldownParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pCooldownParametersQueue pendingUpdates of
@@ -1148,10 +1148,10 @@ processCooldownParametersUpdates t bu = do
 
 -- | Process time parameters updates.
 processTimeParametersUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processTimeParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pTimeParametersQueue pendingUpdates of
@@ -1175,11 +1175,11 @@ processTimeParametersUpdates t bu = do
 --  update them (if an update was enqueued and its time is now)
 --  and update the 'pendingUpdates' accordingly.
 processTimeoutParametersUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processTimeoutParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pTimeoutParametersQueue pendingUpdates of
@@ -1205,11 +1205,11 @@ processTimeoutParametersUpdates t bu = do
 --  update it (if an update was enqueued and its time is now)
 --  and update the 'pendingUpdates' accordingly.
 processMinBlockTimeUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processMinBlockTimeUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pMinBlockTimeQueue pendingUpdates of
@@ -1235,11 +1235,11 @@ processMinBlockTimeUpdates t bu = do
 --  update it (if an update was enqueued and its time is now)
 --  and update the 'pendingUpdates' accordingly.
 processBlockEnergyLimitUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processBlockEnergyLimitUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pBlockEnergyLimitQueue pendingUpdates of
@@ -1265,11 +1265,11 @@ processBlockEnergyLimitUpdates t bu = do
 --  update them (if an update was enqueued and its time is now)
 --  and update the 'pendingUpdates' accordingly.
 processFinalizationCommitteeParametersUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processFinalizationCommitteeParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pFinalizationCommitteeParametersQueue pendingUpdates of
@@ -1296,11 +1296,11 @@ processFinalizationCommitteeParametersUpdates t bu = do
 --  update them (if an update was enqueued and its time is now)
 --  and update the 'pendingUpdates' accordingly.
 processValidationScoreParametersUpdates ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processValidationScoreParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pValidatorScoreParametersQueue pendingUpdates of
@@ -1325,11 +1325,11 @@ processValidationScoreParametersUpdates t bu = do
 -- | Process the add anonymity revoker update queue.
 --   Ignores updates with duplicate ARs.
 processAddAnonymityRevokerUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
+    BufferedRef (Updates' pv cpv auv) ->
     HashedBufferedRef ARS.AnonymityRevokers ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv), HashedBufferedRef ARS.AnonymityRevokers)
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv), HashedBufferedRef ARS.AnonymityRevokers)
 processAddAnonymityRevokerUpdates t bu hbar = do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pAddAnonymityRevokerQueue pendingUpdates)
@@ -1353,11 +1353,11 @@ processAddAnonymityRevokerUpdates t bu hbar = do
 -- | Process the add identity provider update queue.
 --   Ignores updates with duplicate IPs.
 processAddIdentityProviderUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
+    BufferedRef (Updates' pv cpv auv) ->
     HashedBufferedRef IPS.IdentityProviders ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv), HashedBufferedRef IPS.IdentityProviders)
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv), HashedBufferedRef IPS.IdentityProviders)
 processAddIdentityProviderUpdates t bu hbip = do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pAddIdentityProviderQueue pendingUpdates)
@@ -1410,10 +1410,10 @@ addAndAccumNonduplicateUpdates oldMap getKey toUV = foldM go (Map.empty, oldMap)
 --  FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
 --  elapsed.
 processProtocolUpdates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    BufferedRef (Updates' cpv auv) ->
-    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
 processProtocolUpdates t bu = do
     u@Updates{..} <- refLoad bu
     protQueue <- refLoad (pProtocolQueue pendingUpdates)
@@ -1441,17 +1441,17 @@ processProtocolUpdates t bu = do
         v <- UVProtocol . unStoreSerialized <$> refLoad r
         return $! Map.insert tt v m
 
-type UpdatesWithARsAndIPs (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) =
-    (BufferedRef (Updates' cpv auv), HashedBufferedRef ARS.AnonymityRevokers, HashedBufferedRef IPS.IdentityProviders)
+type UpdatesWithARsAndIPs (pv :: ProtocolVersion) (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) =
+    (BufferedRef (Updates' pv cpv auv), HashedBufferedRef ARS.AnonymityRevokers, HashedBufferedRef IPS.IdentityProviders)
 
 -- | Process all update queues. This returns a list of the updates that occurred, with their times,
 --  ordered by the time.
 processUpdateQueues ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
-    UpdatesWithARsAndIPs cpv auv ->
-    m ([(TransactionTime, UpdateValue cpv auv)], UpdatesWithARsAndIPs cpv auv)
+    UpdatesWithARsAndIPs pv cpv auv ->
+    m ([(TransactionTime, UpdateValue cpv auv)], UpdatesWithARsAndIPs pv cpv auv)
 processUpdateQueues t (u0, ars, ips) = do
     (ms, u1) <-
         combine
@@ -1493,8 +1493,8 @@ processUpdateQueues t (u0, ars, ips) = do
     -- The return value is the final state of updates, and the list of
     -- updates. The list is in **reverse** order of the input list.
     combine ::
-        [BufferedRef (Updates' cpv auv) -> m (r, BufferedRef (Updates' cpv auv))] ->
-        m ([r], BufferedRef (Updates' cpv auv))
+        [BufferedRef (Updates' pv cpv auv) -> m (r, BufferedRef (Updates' pv cpv auv))] ->
+        m ([r], BufferedRef (Updates' pv cpv auv))
     combine =
         foldM
             ( \(ms, updates) action -> do
@@ -1518,11 +1518,12 @@ processUpdateQueues t (u0, ars, ips) = do
 --  on a current 'Updates'.
 futureElectionDifficulty ::
     ( MonadBlobStore m,
+      IsProtocolVersion pv,
       IsChainParametersVersion cpv,
       IsAuthorizationsVersion auv,
       ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0
     ) =>
-    BufferedRef (Updates' cpv auv) ->
+    BufferedRef (Updates' pv cpv auv) ->
     Timestamp ->
     m ElectionDifficulty
 futureElectionDifficulty uref ts = do
@@ -1536,8 +1537,8 @@ futureElectionDifficulty uref ts = do
 -- | Get the protocol update status: either an effective protocol update or
 --  a list of pending future protocol updates.
 protocolUpdateStatus ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     m UQ.ProtocolUpdateStatus
 protocolUpdateStatus uref = do
     Updates{..} <- refLoad uref
@@ -1549,8 +1550,8 @@ protocolUpdateStatus uref = do
 
 -- | Get whether a protocol update is effective
 isProtocolUpdateEffective ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     m Bool
 isProtocolUpdateEffective uref = do
     Updates{..} <- refLoad uref
@@ -1560,9 +1561,9 @@ isProtocolUpdateEffective uref = do
 
 -- | Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     UpdateType ->
     m UpdateSequenceNumber
 lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVersion @cpv) $ do
@@ -1634,12 +1635,12 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
 -- | Enqueue an update in the appropriate queue, incrementing the sequence number of this queue.
 -- Note that incrementing the sequence number of updates to protocol level tokens is handled separately.
 enqueueUpdate ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     TransactionTime ->
     UpdateValue cpv auv ->
-    BufferedRef (Updates' cpv auv) ->
-    m (BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (BufferedRef (Updates' pv cpv auv))
 enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVersion @cpv) $ do
     u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
     newPendingUpdates <- case payload of
@@ -1692,10 +1693,10 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
 -- | Increment the update sequence number for Protocol Level Tokens (PLT).
 -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
 incrementPLTUpdateSequenceNumber ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, SupportsCreatePLT auv ~ 'True) =>
-    BufferedRef (Updates' cpv auv) ->
-    m (BufferedRef (Updates' cpv auv))
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, SupportsCreatePLT auv ~ 'True) =>
+    BufferedRef (Updates' pv cpv auv) ->
+    m (BufferedRef (Updates' pv cpv auv))
 incrementPLTUpdateSequenceNumber updatesRef = do
     currentUpdates <- refLoad updatesRef
     let currentSequenceNumber = uncond $ pltUpdateSequenceNumber currentUpdates
@@ -1705,13 +1706,14 @@ incrementPLTUpdateSequenceNumber updatesRef = do
 --  any pending updates to the election difficulty from the queue.
 overwriteElectionDifficulty ::
     ( MonadBlobStore m,
+      IsProtocolVersion pv,
       IsChainParametersVersion cpv,
       IsAuthorizationsVersion auv,
       ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0
     ) =>
     ElectionDifficulty ->
-    BufferedRef (Updates' cpv auv) ->
-    m (BufferedRef (Updates' cpv auv))
+    BufferedRef (Updates' pv cpv auv) ->
+    m (BufferedRef (Updates' pv cpv auv))
 overwriteElectionDifficulty newDifficulty uref = do
     u@Updates{pendingUpdates = p@PendingUpdates{..}, ..} <- refLoad uref
     cp <- loadChainParametersRef currentParameters
@@ -1722,9 +1724,9 @@ overwriteElectionDifficulty newDifficulty uref = do
 -- | Clear the protocol update and remove any pending protocol updates from
 --  the queue.
 clearProtocolUpdate ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
-    m (BufferedRef (Updates' cpv auv))
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
+    m (BufferedRef (Updates' pv cpv auv))
 clearProtocolUpdate uref = do
     u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
     newPendingUpdates <- clearQueue pProtocolQueue <&> \newQ -> p{pProtocolQueue = newQ}
@@ -1732,8 +1734,8 @@ clearProtocolUpdate uref = do
 
 -- | Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the energy rate.
 lookupExchangeRates ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     m ExchangeRates
 lookupExchangeRates uref = do
     Updates{..} <- refLoad uref
@@ -1742,8 +1744,8 @@ lookupExchangeRates uref = do
 
 -- | Look up the current chain parameters.
 lookupCurrentParameters ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     m (ChainParameters' cpv)
 lookupCurrentParameters uref = do
     Updates{..} <- refLoad uref
@@ -1751,8 +1753,8 @@ lookupCurrentParameters uref = do
 
 -- | Look up the pending changes to the time parameters.
 lookupPendingTimeParameters ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     m [(TransactionTime, TimeParameters)]
 lookupPendingTimeParameters uref = do
     Updates{..} <- refLoad uref
@@ -1762,9 +1764,9 @@ lookupPendingTimeParameters uref = do
 
 -- | Look up the pending changes to the pool parameters.
 lookupPendingPoolParameters ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BufferedRef (Updates' cpv auv) ->
+    forall m pv cpv auv.
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BufferedRef (Updates' pv cpv auv) ->
     m [(TransactionTime, PoolParameters cpv)]
 lookupPendingPoolParameters uref = do
     Updates{..} <- refLoad uref

@@ -11,34 +11,7 @@ use crate::persistent::chain_parameters::PersistentChainParameters;
 use crate::persistent::hash::Hashable;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 
-/// Allocate new empty external chain parameters.
-///
-/// # Safety
-///
-/// - `params_out` must be non-null and valid for writing.
-#[unsafe(no_mangle)]
-extern "C" fn ffi_empty_external_chain_parameters(
-    protocol_version: u64,
-    params_out: *mut *mut PersistentChainParameters,
-) -> status::FfiStatusCode {
-    let panic_message = status::catch_unwind(move || {
-        assert!(!params_out.is_null(), "params_out is a null pointer.");
-        let protocol_version =
-            ProtocolVersion::try_from(protocol_version).expect("Unknown protocol version");
-        unsafe {
-            *params_out =
-                Box::into_raw(Box::new(PersistentChainParameters::empty(protocol_version)));
-        }
-    });
-    if let Some(message) = panic_message {
-        eprintln!("{}", message);
-        status::FfiStatusCode::Panic
-    } else {
-        status::FfiStatusCode::Success
-    }
-}
-
-/// Allocate new P11 external chain parameters with an initial maximum lock duration.
+/// Allocate new external chain parameters with an initial maximum lock duration.
 ///
 /// # Safety
 ///
