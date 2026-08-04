@@ -4,9 +4,8 @@
 
 ## Unreleased changes (Devnet)
 
-- Enforce the P11 `maxLockDuration` parameter when creating PLT locks. Expired requests are rejected with `LockExpired`; requests beyond the inclusive deadline are rejected with `LockDurationTooLong`.
-
 - Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.
+  Expired requests are rejected with `LockExpired`; requests beyond the inclusive deadline are rejected with `LockDurationTooLong`.
 
 - **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
 - Added lock metadata as part of lock configurations
