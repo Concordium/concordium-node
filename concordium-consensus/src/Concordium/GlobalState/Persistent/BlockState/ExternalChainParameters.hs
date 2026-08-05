@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -13,7 +14,6 @@ module Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters (
     RustExternalChainParameters,
     ForeignExternalChainParametersPtr,
     wrapFFIPtr,
-    empty,
     p11NewExternalChainParameters,
     withExternalChainParameters,
     ExternalChainParametersHash (..),
@@ -42,10 +42,10 @@ data RustExternalChainParameters
 -- | Opaque pointer to immutable external chain parameters managed by Rust.
 --
 -- Memory is deallocated using a finalizer.
-newtype ForeignExternalChainParametersPtr = ForeignExternalChainParametersPtr (FFI.ForeignPtr RustExternalChainParameters)
+newtype ForeignExternalChainParametersPtr (pv :: Types.ProtocolVersion) = ForeignExternalChainParametersPtr (FFI.ForeignPtr RustExternalChainParameters)
 
 -- | Convert a raw pointer returned by Rust into a managed pointer.
-wrapFFIPtr :: FFI.Ptr RustExternalChainParameters -> IO ForeignExternalChainParametersPtr
+wrapFFIPtr :: FFI.Ptr RustExternalChainParameters -> IO (ForeignExternalChainParametersPtr pv)
 wrapFFIPtr paramsPtr = ForeignExternalChainParametersPtr <$> FFI.newForeignPtr ffiFreeExternalChainParameters paramsPtr
 
 -- | Deallocate a pointer to external chain parameters.
@@ -55,29 +55,11 @@ foreign import ccall unsafe "&ffi_free_external_chain_parameters"
 -- | Get temporary access to the external chain-parameters pointer.
 --
 -- The pointer must not be leaked from the computation.
-withExternalChainParameters :: ForeignExternalChainParametersPtr -> (FFI.Ptr RustExternalChainParameters -> IO a) -> IO a
+withExternalChainParameters :: ForeignExternalChainParametersPtr pv -> (FFI.Ptr RustExternalChainParameters -> IO a) -> IO a
 withExternalChainParameters (ForeignExternalChainParametersPtr foreignPtr) = FFI.withForeignPtr foreignPtr
 
-p11ProtocolVersion :: FFI.Word64
-p11ProtocolVersion = Types.protocolVersionToWord64 Types.P11
-
--- | Allocate new empty external chain parameters.
-empty :: (BlobStore.MonadBlobStore m) => m ForeignExternalChainParametersPtr
-empty = liftIO $ do
-    FFI.alloca $ \paramsDestPtr -> do
-        status <- ffiEmptyExternalChainParameters p11ProtocolVersion paramsDestPtr
-        Monad.unless (status == 0) $ error "Unexpected panic when creating external chain parameters"
-        params <- FFI.peek paramsDestPtr
-        wrapFFIPtr params
-
-foreign import ccall "ffi_empty_external_chain_parameters"
-    ffiEmptyExternalChainParameters ::
-        FFI.Word64 ->
-        FFI.Ptr (FFI.Ptr RustExternalChainParameters) ->
-        IO FFI.Word8
-
 -- | Allocate new P11 external chain parameters with an initial maximum lock duration.
-p11NewExternalChainParameters :: (BlobStore.MonadBlobStore m) => Duration -> m ForeignExternalChainParametersPtr
+p11NewExternalChainParameters :: (BlobStore.MonadBlobStore m) => Duration -> m (ForeignExternalChainParametersPtr 'Types.P11)
 p11NewExternalChainParameters (Duration maxLockDuration) = liftIO $ do
     FFI.alloca $ \paramsDestPtr -> do
         status <- ffiP11NewExternalChainParameters maxLockDuration paramsDestPtr
@@ -91,14 +73,19 @@ foreign import ccall "ffi_p11_new_external_chain_parameters"
         FFI.Ptr (FFI.Ptr RustExternalChainParameters) ->
         IO FFI.Word8
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignExternalChainParametersPtr where
+instance (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) => BlobStore.BlobStorable m (ForeignExternalChainParametersPtr pv) where
     load = do
         blobRef <- S.get
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
                 FFI.alloca $ \paramsDestPtr -> do
-                    status <- ffiLoadExternalChainParameters loadCallback blobRef p11ProtocolVersion paramsDestPtr
+                    status <-
+                        ffiLoadExternalChainParameters
+                            loadCallback
+                            blobRef
+                            (Types.protocolVersionToWord64 $ Types.demoteProtocolVersion $ Types.protocolVersion @pv)
+                            paramsDestPtr
                     Monad.unless (status == 0) $ error "Unexpected panic when loading external chain parameters"
                     params <- FFI.peek paramsDestPtr
                     wrapFFIPtr params
@@ -125,7 +112,7 @@ foreign import ccall "ffi_store_external_chain_parameters"
         FFI.Ptr RustExternalChainParameters ->
         IO FFI.Word8
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignExternalChainParametersPtr where
+instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m (ForeignExternalChainParametersPtr pv) where
     cache params = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         status <- liftIO $! withExternalChainParameters params (ffiCacheExternalChainParameters loadCallback)
@@ -142,7 +129,7 @@ foreign import ccall "ffi_cache_external_chain_parameters"
 newtype ExternalChainParametersHash = ExternalChainParametersHash {theExternalChainParametersHash :: SHA256.Hash}
     deriving newtype (Eq, Ord, Show, S.Serialize)
 
-instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ExternalChainParametersHash ForeignExternalChainParametersPtr where
+instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ExternalChainParametersHash (ForeignExternalChainParametersPtr pv) where
     getHashM params = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
@@ -161,7 +148,7 @@ foreign import ccall "ffi_hash_external_chain_parameters"
         IO FFI.Word8
 
 -- | Apply a max-lock-duration update to external chain parameters.
-applyMaxLockDurationUpdate :: ForeignExternalChainParametersPtr -> Duration -> IO ()
+applyMaxLockDurationUpdate :: ForeignExternalChainParametersPtr pv -> Duration -> IO ()
 applyMaxLockDurationUpdate params (Duration maxLockDuration) =
     withExternalChainParameters params $ \paramsPtr -> do
         status <- ffiApplyExternalChainParametersMaxLockDurationUpdate paramsPtr maxLockDuration
@@ -174,7 +161,7 @@ foreign import ccall "ffi_apply_external_chain_parameters_max_lock_duration_upda
         IO FFI.Word8
 
 -- | Read the current maximum lock duration from external chain parameters.
-getMaxLockDuration :: ForeignExternalChainParametersPtr -> IO Duration
+getMaxLockDuration :: ForeignExternalChainParametersPtr pv -> IO Duration
 getMaxLockDuration params =
     withExternalChainParameters params $ \paramsPtr ->
         FFI.alloca $ \durationPtr -> do

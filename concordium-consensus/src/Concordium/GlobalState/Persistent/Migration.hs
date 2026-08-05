@@ -266,13 +266,18 @@ migrateChainParametersVersionUnchanged ::
     PersistentChainParameters oldpv ->
     t m (PersistentChainParameters pv)
 migrateChainParametersVersionUnchanged StateMigrationParametersTrivial params = return params
-migrateChainParametersVersionUnchanged StateMigrationParametersP1P2 params = return params
-migrateChainParametersVersionUnchanged StateMigrationParametersP2P3 params = return params
-migrateChainParametersVersionUnchanged StateMigrationParametersP4ToP5 params = return params
-migrateChainParametersVersionUnchanged StateMigrationParametersP6ToP7 params = return params
+migrateChainParametersVersionUnchanged StateMigrationParametersP1P2 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP2P3 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP4ToP5 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP6ToP7 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
 migrateChainParametersVersionUnchanged StateMigrationParametersP8ToP9{} PersistentChainParameters{..} =
     return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
-migrateChainParametersVersionUnchanged StateMigrationParametersP9ToP10{} params = return params
+migrateChainParametersVersionUnchanged StateMigrationParametersP9ToP10{} PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
 migrateChainParametersVersionUnchanged (StateMigrationParametersP10ToP11 migration) PersistentChainParameters{..} = do
     newExternalChainParameters <- CTrue <$> ECP.p11NewExternalChainParameters updateMaxLockDuration
     return PersistentChainParameters{pcpExternalChainParameters = newExternalChainParameters, ..}
