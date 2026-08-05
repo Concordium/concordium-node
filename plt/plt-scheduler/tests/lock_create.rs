@@ -67,7 +67,9 @@ fn execute_lock_create_with_duration(
         },
         Account::from_existing_account(account_index),
         Payload::MetaUpdate { payload },
-        &PersistentChainParametersP11 { max_lock_duration },
+        &PersistentChainParametersP11 {
+            max_lock_duration: max_lock_duration.into(),
+        },
     );
     let lock_exists = matches!(block_state.lock_by_id(&context, &lock_id), Ok(Ok(_)));
     (result, lock_exists)
@@ -327,7 +329,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         Account::from_existing_account(account_index),
         Payload::MetaUpdate { payload },
         &PersistentChainParametersP11 {
-            max_lock_duration: 1_000,
+            max_lock_duration: 1_000.into(),
         },
     )
     .expect("multi-operation lock creation must execute");

@@ -5,6 +5,7 @@ use crate::persistent::blob_store::{
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::chain_parameters::p11::PersistentChainParametersP11;
 use crate::persistent::hash::Hashable;
+use concordium_base::base::SlotDuration;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
@@ -22,12 +23,12 @@ pub enum PersistentChainParameters {
 
 impl PersistentChainParameters {
     /// Construct P11 persistent chain parameters with an initial maximum lock duration.
-    pub fn p11_new_external_chain_parameters(max_lock_duration: u64) -> Self {
+    pub fn p11_new_external_chain_parameters(max_lock_duration: SlotDuration) -> Self {
         Self::P11(PersistentChainParametersP11 { max_lock_duration })
     }
 
     /// Apply a max-lock-duration update to the Rust-managed chain parameters.
-    pub fn apply_max_lock_duration_update(&mut self, max_lock_duration: u64) {
+    pub fn apply_max_lock_duration_update(&mut self, max_lock_duration: SlotDuration) {
         match self {
             Self::P11(params) => params.max_lock_duration = max_lock_duration,
         }
@@ -99,14 +100,16 @@ mod tests {
     #[test]
     fn store_load_roundtrip() {
         let mut store = BlobStoreStub::default();
-        let params = PersistentChainParameters::p11_new_external_chain_parameters(42);
+        let params = PersistentChainParameters::p11_new_external_chain_parameters(42.into());
         let location = blob_store::store_to_store(&mut store, &params);
         let loaded =
             PersistentChainParameters::load_from_store(&store, location, ProtocolVersion::P11)
                 .expect("external chain parameters should load");
 
         match loaded {
-            PersistentChainParameters::P11(params) => assert_eq!(params.max_lock_duration, 42),
+            PersistentChainParameters::P11(params) => {
+                assert_eq!(params.max_lock_duration, 42.into())
+            }
         }
     }
 }

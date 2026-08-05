@@ -25,7 +25,9 @@ extern "C" fn ffi_p11_new_external_chain_parameters(
         assert!(!params_out.is_null(), "params_out is a null pointer.");
         unsafe {
             *params_out = Box::into_raw(Box::new(
-                PersistentChainParameters::p11_new_external_chain_parameters(max_lock_duration),
+                PersistentChainParameters::p11_new_external_chain_parameters(
+                    max_lock_duration.into(),
+                ),
             ));
         }
     });
@@ -187,7 +189,7 @@ extern "C" fn ffi_apply_external_chain_parameters_max_lock_duration_update(
     let panic_message = status::catch_unwind(move || {
         assert!(!params.is_null(), "params is a null pointer.");
         let params = unsafe { &mut *params };
-        params.apply_max_lock_duration_update(max_lock_duration);
+        params.apply_max_lock_duration_update(max_lock_duration.into());
     });
     if let Some(message) = panic_message {
         eprintln!("{}", message);
@@ -216,7 +218,7 @@ extern "C" fn ffi_get_external_chain_parameters_max_lock_duration(
             PersistentChainParameters::P11(params) => params.max_lock_duration,
         };
         unsafe {
-            *duration_out = duration;
+            *duration_out = duration.into();
         }
     });
     if let Some(message) = panic_message {

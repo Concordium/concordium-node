@@ -8,7 +8,7 @@ use crate::protocol_level_tokens::token_module::{
 };
 use crate::protocol_level_tokens::{balance_operations, token_module};
 use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, SlotDuration};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockRecipients as CborLockRecipients;
 use concordium_base::protocol_level_locks::{
@@ -137,7 +137,7 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
-    max_lock_duration: u64,
+    max_lock_duration: SlotDuration,
     operation_index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
@@ -441,7 +441,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
-    max_lock_duration: u64,
+    max_lock_duration: SlotDuration,
     details: MetaLockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> WithBlockStateResult<(), TransactionRejectReason> {
@@ -456,15 +456,17 @@ fn execute_lock_create<C: EntityContextTypes>(
         metadata,
     } = details.config;
 
-    if expiry.is_expired(transaction_execution.timestamp()) {
+    let transaction_timestamp = transaction_execution.timestamp();
+
+    if expiry.is_expired(transaction_timestamp) {
         return Err(TransactionRejectReason::LockExpired(lock_id).into());
     }
 
-    if expiry_exceeds_max_duration(
-        expiry.seconds,
-        transaction_execution.timestamp().timestamp_millis(),
-        max_lock_duration,
-    ) {
+    let Some(expiry_millis) = expiry.seconds.checked_mul(1000) else {
+        return Err(TransactionRejectReason::LockDurationTooLong(lock_id).into());
+    };
+
+    if expiry_millis - transaction_timestamp.timestamp_millis() > max_lock_duration.millis {
         return Err(TransactionRejectReason::LockDurationTooLong(lock_id).into());
     }
 
@@ -580,15 +582,6 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     Ok(())
 }
 
-fn expiry_exceeds_max_duration(
-    expiry_seconds: u64,
-    block_timestamp_millis: u64,
-    max_lock_duration: u64,
-) -> bool {
-    u128::from(expiry_seconds) * 1000
-        > u128::from(block_timestamp_millis) + u128::from(max_lock_duration)
-}
-
 fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
     match &configuration.controller {
         LockControllerConfig::SimpleV0(controller) => controller.keep_alive,
@@ -672,22 +665,4 @@ fn token_balance_insufficient_reject_reason(
         reason_type: reason_type.to_type_discriminator(),
         details: Some(details),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::expiry_exceeds_max_duration;
-
-    #[test]
-    fn max_lock_duration_deadline_is_inclusive_and_overflow_safe() {
-        assert!(!expiry_exceeds_max_duration(2, 1_500, 500));
-        assert!(expiry_exceeds_max_duration(2, 1_500, 499));
-        assert!(!expiry_exceeds_max_duration(0, 0, 0));
-        assert!(!expiry_exceeds_max_duration(
-            u64::MAX / 1000,
-            u64::MAX,
-            u64::MAX,
-        ));
-        assert!(expiry_exceeds_max_duration(u64::MAX, u64::MAX, u64::MAX));
-    }
 }
