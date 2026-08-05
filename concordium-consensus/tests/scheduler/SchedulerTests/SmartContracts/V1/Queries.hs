@@ -78,7 +78,7 @@ keyPair1 :: SigScheme.KeyPair
 keyPair1 = Helpers.keyPairFromSeed 1
 
 blockEnergyRate :: Types.EnergyRate
-blockEnergyRate = dummyChainParameters @'Types.ChainParametersV1 ^. Types.energyRate
+blockEnergyRate = dummyChainParameters' @'Types.ChainParametersV1 ^. Types.energyRate
 
 accountBalanceSourceFile :: FilePath
 accountBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-account-balance.wasm"
@@ -749,8 +749,8 @@ exchangeRatesTestCase spv pvString =
         Wasm.putExchangeRateLE currentEuroPerEnergy
         Wasm.putExchangeRateLE currentAmountPerEnergy
 
-    currentEuroPerEnergy = dummyChainParameters @'Types.ChainParametersV1 ^. Types.euroPerEnergy
-    currentAmountPerEnergy = dummyChainParameters @'Types.ChainParametersV1 ^. Types.microGTUPerEuro
+    currentEuroPerEnergy = dummyChainParameters' @'Types.ChainParametersV1 ^. Types.euroPerEnergy
+    currentAmountPerEnergy = dummyChainParameters' @'Types.ChainParametersV1 ^. Types.microGTUPerEuro
 
 allSourceFile :: FilePath
 allSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-all.wasm"

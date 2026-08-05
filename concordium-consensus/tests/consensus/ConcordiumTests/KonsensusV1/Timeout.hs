@@ -73,7 +73,7 @@ genesisDataV1 sProtocolVersion =
         [ foundationAcct
         ]
         (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
-        Dummy.dummyChainParameters
+        (Dummy.dummyChainParameters @pv)
   where
     foundationAcct =
         Dummy.createCustomAccount
@@ -667,7 +667,7 @@ testExecuteTimeoutMessages sProtocolVersion =
             [ foundationAcct
             ]
             (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
-            Dummy.dummyChainParameters
+            (Dummy.dummyChainParameters @pv)
 
 -- | Tests the 'checkTimeoutCertificate' function.
 testCheckTimeoutCertificate ::

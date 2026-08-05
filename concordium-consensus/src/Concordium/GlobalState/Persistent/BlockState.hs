@@ -65,6 +65,7 @@ import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.Parameters as PCP
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
@@ -2681,7 +2682,7 @@ doUpdateBakerStake pbs ai newStake = do
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldownEpochs <-
-                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized
+                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . PCP.persistentChainParametersToChainParameters
                             <$> refLoad (currentParameters upds)
 
                     bakerStakeThreshold <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
@@ -2740,7 +2741,7 @@ doRemoveBaker pbs ai = do
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldownEpochs <-
-                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized
+                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . PCP.persistentChainParametersToChainParameters
                             <$> refLoad (currentParameters upds)
                     let updAcc =
                             setAccountStakePendingChange $
@@ -3525,7 +3526,7 @@ doGetCurrentElectionDifficulty ::
 doGetCurrentElectionDifficulty pbs = do
     bsp <- loadPBS pbs
     upds <- refLoad (bspUpdates bsp)
-    _cpElectionDifficulty . _cpConsensusParameters . unStoreSerialized <$> refLoad (currentParameters upds)
+    _cpElectionDifficulty . _cpConsensusParameters . PCP.persistentChainParametersToChainParameters <$> refLoad (currentParameters upds)
 
 doGetUpdates :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (UQ.Updates pv)
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
@@ -4993,8 +4994,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.
     let newTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
-    chainParams <- refLoad . currentParameters =<< refLoad newUpdates
-    let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
+    chainParams <- PCP.persistentChainParametersToChainParameters <$> (refLoad . currentParameters =<< refLoad newUpdates)
+    let timeParams = _cpTimeParameters chainParams
     logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails

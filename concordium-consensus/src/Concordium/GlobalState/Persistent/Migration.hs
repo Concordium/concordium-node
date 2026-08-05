@@ -1,17 +1,24 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Concordium.GlobalState.Persistent.Migration where
 
 import Concordium.Genesis.Data
+import qualified Concordium.Genesis.Data.P11 as P11
 import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P8 as P8
 import qualified Concordium.Genesis.Data.P9 as P9
+import Concordium.GlobalState.Persistent.BlobStore (SupportMigration)
+import qualified Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters as ECP
+import Concordium.GlobalState.Persistent.BlockState.Parameters
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 import Concordium.Types.Parameters
 import Concordium.Types.Updates
 
@@ -100,7 +107,13 @@ migrateAuthorizations (StateMigrationParametersP8ToP9 migration) Authorizations{
   where
     P9.ProtocolUpdateData{..} = P9.migrationProtocolUpdateData migration
 migrateAuthorizations StateMigrationParametersP9ToP10{} auths = auths
-migrateAuthorizations StateMigrationParametersP10ToP11{} auths = auths
+migrateAuthorizations (StateMigrationParametersP10ToP11 migration) Authorizations{..} =
+    Authorizations
+        { asTokenParameters = CTrue updateTokenParametersAccessStructure,
+          ..
+        }
+  where
+    P11.ProtocolUpdateData{..} = P11.migrationProtocolUpdateData migration
 
 -- | Apply a state migration to an 'UpdateKeysCollection' structure.
 --
@@ -170,71 +183,107 @@ migrateGASRewards migration = case chainParametersMigrationFor migration of
 --    the GAS finalization proof reward is removed.
 --
 --  [P7 to P8]: the new validator score parameters are given by the migration parameters.
+--
+--  [P10 to P11]: the new max lock duration is given by the migration parameters
 migrateChainParameters ::
-    forall oldpv pv.
+    forall oldpv pv t m.
+    (SupportMigration m t) =>
     StateMigrationParameters oldpv pv ->
-    ChainParameters oldpv ->
-    ChainParameters pv
-migrateChainParameters m = case chainParametersMigrationFor m of
-    ChainParametersMigrationTrivial -> id
-    ChainParametersMigrationCPV0toCPV1 -> \ChainParameters{..} -> case m of
+    PersistentChainParameters oldpv ->
+    t m (PersistentChainParameters pv)
+migrateChainParameters migration = case chainParametersMigrationFor migration of
+    ChainParametersMigrationTrivial -> migrateChainParametersVersionUnchanged migration
+    ChainParametersMigrationCPV0toCPV1 -> \PersistentChainParameters{..} -> case migration of
         StateMigrationParametersP3ToP4 migrationData ->
-            ChainParameters
-                { _cpCooldownParameters = updateCooldownParameters,
-                  _cpTimeParameters = SomeParam updateTimeParameters,
-                  _cpRewardParameters =
-                    RewardParameters
-                        { _rpMintDistribution = migrateMintDistribution m _rpMintDistribution,
-                          _rpGASRewards = migrateGASRewards m _rpGASRewards,
-                          ..
-                        },
-                  _cpPoolParameters = migratePoolParameters m _cpPoolParameters,
-                  _cpFinalizationCommitteeParameters = NoParam,
-                  _cpValidatorScoreParameters = NoParam,
-                  ..
-                }
+            return $
+                PersistentChainParameters
+                    { pcpCooldownParameters = updateCooldownParameters,
+                      pcpTimeParameters = SomeParam updateTimeParameters,
+                      pcpRewardParameters =
+                        RewardParameters
+                            { _rpMintDistribution = migrateMintDistribution migration _rpMintDistribution,
+                              _rpGASRewards = migrateGASRewards migration _rpGASRewards,
+                              ..
+                            },
+                      pcpPoolParameters = migratePoolParameters migration pcpPoolParameters,
+                      pcpFinalizationCommitteeParameters = NoParam,
+                      pcpValidatorScoreParameters = NoParam,
+                      pcpExternalChainParameters = CFalse,
+                      ..
+                    }
           where
-            RewardParameters{..} = _cpRewardParameters
+            RewardParameters{..} = pcpRewardParameters
             P4.ProtocolUpdateData{..} = P4.migrationProtocolUpdateData migrationData
-    ChainParametersMigrationCPV1toCPV2 -> \ChainParameters{..} -> case m of
+    ChainParametersMigrationCPV1toCPV2 -> \PersistentChainParameters{..} -> case migration of
         StateMigrationParametersP5ToP6 migrationData ->
-            ChainParameters
-                { _cpConsensusParameters = updateConsensusParameters,
-                  _cpRewardParameters =
-                    RewardParameters
-                        { _rpMintDistribution = migrateMintDistribution m _rpMintDistribution,
-                          _rpGASRewards = migrateGASRewards m _rpGASRewards,
-                          ..
-                        },
-                  _cpPoolParameters = migratePoolParameters m _cpPoolParameters,
-                  _cpFinalizationCommitteeParameters = SomeParam updateFinalizationCommitteeParameters,
-                  -- We unwrap and wrap here in order to associate the correct cpv
-                  -- with the time parameters.
-                  _cpTimeParameters = SomeParam $ unOParam _cpTimeParameters,
-                  _cpValidatorScoreParameters = NoParam,
-                  ..
-                }
+            return $
+                PersistentChainParameters
+                    { pcpConsensusParameters = updateConsensusParameters,
+                      pcpRewardParameters =
+                        RewardParameters
+                            { _rpMintDistribution = migrateMintDistribution migration _rpMintDistribution,
+                              _rpGASRewards = migrateGASRewards migration _rpGASRewards,
+                              ..
+                            },
+                      pcpPoolParameters = migratePoolParameters migration pcpPoolParameters,
+                      pcpFinalizationCommitteeParameters = SomeParam updateFinalizationCommitteeParameters,
+                      -- We unwrap and wrap here in order to associate the correct cpv
+                      -- with the time parameters.
+                      pcpTimeParameters = SomeParam $ unOParam pcpTimeParameters,
+                      pcpValidatorScoreParameters = NoParam,
+                      pcpExternalChainParameters = CFalse,
+                      ..
+                    }
           where
             P6.ProtocolUpdateData{..} = P6.migrationProtocolUpdateData migrationData
-            RewardParameters{..} = _cpRewardParameters
-    ChainParametersMigrationCPV2toCPV3 -> \ChainParameters{..} -> case m of
+            RewardParameters{..} = pcpRewardParameters
+    ChainParametersMigrationCPV2toCPV3 -> \PersistentChainParameters{..} -> case migration of
         StateMigrationParametersP7ToP8 migrationData ->
-            ChainParameters
-                { _cpValidatorScoreParameters = SomeParam updateValidatorScoreParameters,
-                  _cpTimeParameters = SomeParam $ unOParam _cpTimeParameters,
-                  _cpFinalizationCommitteeParameters = SomeParam $ unOParam _cpFinalizationCommitteeParameters,
-                  _cpPoolParameters = migratePoolParameters m _cpPoolParameters,
-                  _cpRewardParameters =
-                    RewardParameters
-                        { _rpMintDistribution = migrateMintDistribution m _rpMintDistribution,
-                          _rpGASRewards = migrateGASRewards m _rpGASRewards,
-                          ..
-                        },
-                  ..
-                }
+            return $
+                PersistentChainParameters
+                    { pcpValidatorScoreParameters = SomeParam updateValidatorScoreParameters,
+                      pcpTimeParameters = SomeParam $ unOParam pcpTimeParameters,
+                      pcpFinalizationCommitteeParameters = SomeParam $ unOParam pcpFinalizationCommitteeParameters,
+                      pcpPoolParameters = migratePoolParameters migration pcpPoolParameters,
+                      pcpRewardParameters =
+                        RewardParameters
+                            { _rpMintDistribution = migrateMintDistribution migration _rpMintDistribution,
+                              _rpGASRewards = migrateGASRewards migration _rpGASRewards,
+                              ..
+                            },
+                      pcpExternalChainParameters = CFalse,
+                      ..
+                    }
           where
             P8.ProtocolUpdateData{..} = P8.migrationProtocolUpdateData migrationData
-            RewardParameters{..} = _cpRewardParameters
+            RewardParameters{..} = pcpRewardParameters
+
+-- | Migrate persistent chain parameters when the chain parameter version is unchanged.
+migrateChainParametersVersionUnchanged ::
+    forall oldpv pv t m.
+    (SupportMigration m t) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentChainParameters oldpv ->
+    t m (PersistentChainParameters pv)
+migrateChainParametersVersionUnchanged StateMigrationParametersTrivial params = return params
+migrateChainParametersVersionUnchanged StateMigrationParametersP1P2 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP2P3 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP4ToP5 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP6ToP7 PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP8ToP9{} PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged StateMigrationParametersP9ToP10{} PersistentChainParameters{..} =
+    return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
+migrateChainParametersVersionUnchanged (StateMigrationParametersP10ToP11 migration) PersistentChainParameters{..} = do
+    newExternalChainParameters <- CTrue <$> ECP.p11NewExternalChainParameters updateMaxLockDuration
+    return PersistentChainParameters{pcpExternalChainParameters = newExternalChainParameters, ..}
+  where
+    P11.ProtocolUpdateData{..} = P11.migrationProtocolUpdateData migration
+migrateChainParametersVersionUnchanged _ _ = error "migrateChainParametersVersionUnchanged called for non-trivial chain parameter version migration"
 
 -- | Migrate time of the effective change from V0 to V1 accounts. Currently this
 --  translates times relative to genesis to times relative to the unix epoch.

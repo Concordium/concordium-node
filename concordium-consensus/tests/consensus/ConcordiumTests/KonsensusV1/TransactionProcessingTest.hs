@@ -262,7 +262,7 @@ makeTestingGenesisData idps =
             withIsAuthorizationsVersionFor
                 (protocolVersion @pv)
                 (dummyKeyCollection @(AuthorizationsVersionFor pv))
-        genesisChainParameters = dummyChainParameters @(ChainParametersVersionFor pv)
+        genesisChainParameters = dummyChainParameters @pv
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisAccounts = Vec.fromList $ makeFakeBakers 1
     in  case protocolVersion @pv of
@@ -434,7 +434,7 @@ testTransactionVerification _ = describe "transaction verification" $ do
     -- Create a context suitable for verifying a transaction within a 'Individual' context.
     getCtx = do
         _ctxBs <- bpState <$> gets' _lastFinalized
-        let chainParams = dummyChainParameters @(ChainParametersVersionFor pv)
+        let chainParams = dummyChainParameters @pv
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
         return $! Context{_ctxTransactionOrigin = TVer.Individual, ..}
 
