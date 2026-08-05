@@ -18,6 +18,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans
+import Data.Bool.Singletons (SBool (..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Functor
@@ -126,9 +127,14 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
         BS.UpdatableBlockState m ->
         m (TransactionExecutionSummary (BS.UpdatableBlockState m))
     executeTransactionInBSOMonad remainingEnergy blockState0 = do
-        -- Get current PLT block state and P11 external chain parameters.
+        -- Get current PLT block state and external chain parameters when supported.
         pltBlockState0 <- BS.bsoGetRustPLTBlockState blockState0
-        externalChainParameters <- BS.bsoGetExternalChainParameters blockState0
+        externalChainParameters <-
+            ( case Types.sSupportsRustManagedECP (Types.protocolVersion @(Types.MPV m)) of
+                SFalse -> return Nothing
+                STrue -> Just <$> BS.bsoGetExternalChainParameters blockState0
+            ) ::
+                m (Maybe (ECP.ForeignExternalChainParametersPtr (Types.MPV m)))
 
         -- Put block state in an IORef to allow callbacks to update it.
         blockStateIORef <- BS.liftBlobStore $ liftIO $ IORef.newIORef blockState0
@@ -163,8 +169,8 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
         Types.SProtocolVersion pv ->
         -- Block state to mutate.
         PLTBlockState.ForeignPLTBlockStatePtr pv ->
-        -- Node-owned external chain parameters. Present only for P11.
-        Maybe ECP.ForeignExternalChainParametersPtr ->
+        -- Node-owned external chain parameters, present only for P11.
+        Maybe (ECP.ForeignExternalChainParametersPtr pv) ->
         -- Callbacks need for block state queries on the state maintained by Haskell.
         BlockStateQueryCallbacks ->
         -- Callbacks need for block state operations on the state maintained by Haskell.

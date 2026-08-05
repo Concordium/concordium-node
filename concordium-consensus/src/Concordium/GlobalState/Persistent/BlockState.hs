@@ -4782,9 +4782,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
         bsp <- loadPBS pbs
         updates <- refLoad $ bspUpdates bsp
         params <- refLoad $ currentParameters updates
-        return $ case PCP.pcpExternalChainParameters params of
-            CFalse -> Nothing
-            CTrue external -> Just external
+        case PCP.pcpExternalChainParameters params of
+            CTrue external -> return external
     bsoSetRustPLTBlockState pbs pltState = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspProtocolLevelTokens = PLT.makeRustPLTBlockState pltState}

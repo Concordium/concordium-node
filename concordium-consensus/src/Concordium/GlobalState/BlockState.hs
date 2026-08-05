@@ -1772,12 +1772,12 @@ class
         (PVSupportsRustManagedPLT (MPV m)) =>
         UpdatableBlockState m -> m (RustBS.ForeignPLTBlockStatePtr (MPV m))
 
-    -- | Get the node-owned Rust external chain-parameters pointer, if the
-    -- current protocol version has external chain parameters.
+    -- | Get the node-owned Rust external chain-parameters pointer.
     --
     -- This is a low-level interface needed for foreign function interface access.
     bsoGetExternalChainParameters ::
-        UpdatableBlockState m -> m (Maybe ECP.ForeignExternalChainParametersPtr)
+        (PVSupportsRustManagedECP (MPV m)) =>
+        UpdatableBlockState m -> m (ECP.ForeignExternalChainParametersPtr (MPV m))
 
     -- | Set the foreign pointer to the Rust managed PLT state.
     --
