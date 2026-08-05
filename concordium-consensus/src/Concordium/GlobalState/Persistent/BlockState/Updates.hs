@@ -898,7 +898,7 @@ makeBasicUpdates Updates{..} = do
 
 -- | Load the public/wire view of current chain parameters from the persistent node representation.
 loadChainParametersRef ::
-    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv) =>
     HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv) ->
     m (ChainParameters' cpv)
 loadChainParametersRef currentParameters =
@@ -906,7 +906,7 @@ loadChainParametersRef currentParameters =
 
 -- | Store a new chain-parameter value while preserving node-internal external state.
 makeUpdatedChainParametersRef ::
-    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv) =>
     HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv) ->
     ChainParameters' cpv ->
     m (HashedBufferedRef (PCP.PersistentChainParameters' pv cpv auv))

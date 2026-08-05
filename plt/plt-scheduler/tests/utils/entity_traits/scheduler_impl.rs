@@ -112,7 +112,7 @@ impl SchedulerOperations for BlockStateP11 {
             sender_account.clone(),
             payload,
             &PersistentChainParametersP11 {
-                max_lock_duration: u64::MAX,
+                max_lock_duration: u64::MAX.into(),
             },
         )
     }

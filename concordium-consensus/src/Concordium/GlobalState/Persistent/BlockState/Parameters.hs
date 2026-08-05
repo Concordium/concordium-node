@@ -26,7 +26,6 @@ module Concordium.GlobalState.Persistent.BlockState.Parameters (
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
-import Data.Singletons
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Persistent.BlobStore
@@ -37,7 +36,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 
 -- | Persistent node-owned chain parameters.
-data PersistentChainParameters' (pv :: ProtocolVersion) cpv auv = PersistentChainParameters
+data PersistentChainParameters' (pv :: ProtocolVersion) (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) = PersistentChainParameters
     { -- | Consensus parameters.
       pcpConsensusParameters :: !(ConsensusParameters cpv),
       -- | Exchange rates.
@@ -58,8 +57,8 @@ data PersistentChainParameters' (pv :: ProtocolVersion) cpv auv = PersistentChai
       pcpFinalizationCommitteeParameters :: !(OParam 'PTFinalizationCommitteeParameters cpv FinalizationCommitteeParameters),
       -- | Validator score parameters.
       pcpValidatorScoreParameters :: !(OParam 'PTValidatorScoreParameters cpv ValidatorScoreParameters),
-      -- | Rust-managed external chain parameters, present when token parameters are supported.
-      pcpExternalChainParameters :: !(Conditionally (SupportsTokenParameters auv) (ECP.ForeignExternalChainParametersPtr pv))
+      -- | Rust-managed external chain parameters, present when supported by the protocol.
+      pcpExternalChainParameters :: !(Conditionally (SupportsRustManagedECP pv) (ECP.ForeignExternalChainParametersPtr pv))
     }
 
 -- | Protocol-indexed persistent node-owned chain parameters.
@@ -69,7 +68,7 @@ type PersistentChainParameters pv = PersistentChainParameters' pv (ChainParamete
 -- persistent node representation.
 fromChainParameters ::
     ChainParameters' cpv ->
-    Conditionally (SupportsTokenParameters auv) (ECP.ForeignExternalChainParametersPtr pv) ->
+    Conditionally (SupportsRustManagedECP pv) (ECP.ForeignExternalChainParametersPtr pv) ->
     PersistentChainParameters' pv cpv auv
 fromChainParameters ChainParameters{..} pcpExternalChainParameters =
     PersistentChainParameters
@@ -101,7 +100,7 @@ makeInitialExternalChainParameters ::
     forall m pv.
     (MonadBlobStore m, IsProtocolVersion pv) =>
     ChainParameters pv ->
-    m (Conditionally (SupportsTokenParameters (AuthorizationsVersionFor pv)) (ECP.ForeignExternalChainParametersPtr pv))
+    m (Conditionally (SupportsRustManagedECP pv) (ECP.ForeignExternalChainParametersPtr pv))
 makeInitialExternalChainParameters chainParameters = case protocolVersion @pv of
     SP1 -> return CFalse
     SP2 -> return CFalse
@@ -230,7 +229,7 @@ getPersistentChainParametersFields = do
     return ChainParameters{..}
 
 instance
-    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv) =>
     BlobStorable m (PersistentChainParameters' pv cpv auv)
     where
     storeUpdate params@PersistentChainParameters{..} = do
@@ -248,7 +247,7 @@ instance
             )
     load = do
         chainParameters <- getPersistentChainParametersFields
-        mExternal <- conditionallyA (sSupportsTokenParameters (sing @auv)) load
+        mExternal <- conditionallyA (sSupportsRustManagedECP (protocolVersion @pv)) load
         return $ do
             externalChainParameters <- sequenceA mExternal
             return $ fromChainParameters chainParameters externalChainParameters
