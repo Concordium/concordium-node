@@ -21,19 +21,19 @@ import Concordium.Types
 
 -- This tests that chain parameter updates that are scheduled at the same time are not lost
 -- when calling 'PU.processUpdateQueues'.
-testCase :: forall cpv auv. (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => SChainParametersVersion cpv -> SAuthorizationsVersion auv -> String -> IO ()
-testCase _ _ pvString = do
+testCase :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> IO ()
+testCase _ pvString = do
     -- Schedule three updates
     let rootKeyUpdate = UVRootKeys dummyHigherLevelKeys
-    let poolParameterUpdate = UVPoolParameters (dummyChainParameters' @cpv ^. cpPoolParameters)
-    let euroEnergyExchange = UVEuroPerEnergy (_erEuroPerEnergy (dummyChainParameters' @cpv ^. cpExchangeRates))
+    let poolParameterUpdate = UVPoolParameters (dummyChainParameters' @(ChainParametersVersionFor pv) ^. cpPoolParameters)
+    let euroEnergyExchange = UVEuroPerEnergy (_erEuroPerEnergy (dummyChainParameters' @(ChainParametersVersionFor pv) ^. cpExchangeRates))
     -- The first two are scheduled at effectiveTime = 123
     -- The last one is schedule for a millisecond earlier.
     let effectiveTime = 123 :: TransactionTime
     effects <- liftIO . runBlobStoreTemp "." $ do
-        (u1 :: BufferedRef (PU.Updates' cpv auv)) <-
+        (u1 :: BufferedRef (PU.Updates pv)) <-
             refMake
-                =<< PU.initialUpdates (dummyKeyCollection @auv) (dummyChainParameters' @cpv)
+                =<< PU.initialUpdates (dummyKeyCollection @(AuthorizationsVersionFor pv)) (dummyChainParameters' @(ChainParametersVersionFor pv))
         enqueuedState <-
             PU.enqueueUpdate effectiveTime poolParameterUpdate
                 =<< PU.enqueueUpdate (effectiveTime - 1) euroEnergyExchange
@@ -53,9 +53,10 @@ testMaxLockDurationUpdate :: IO ()
 testMaxLockDurationUpdate = do
     let effectiveTime = 123 :: TransactionTime
         newDuration = Duration 123456
+        update :: UpdateValue 'ChainParametersV3 'AuthorizationsVersion3
         update = UVMaxLockDuration newDuration
     (effects, maxLockDuration) <- liftIO . runBlobStoreTemp "." $ do
-        (u0 :: BufferedRef (PU.Updates' 'ChainParametersV3 'AuthorizationsVersion3)) <-
+        (u0 :: BufferedRef (PU.Updates 'P11)) <-
             refMake
                 =<< PU.initialUpdates
                     (dummyKeyCollection @'AuthorizationsVersion3)
@@ -80,7 +81,7 @@ tests :: Spec
 tests = do
     describe "Scheduler.UpdateQueues" $ do
         specify "Correct effects are returned" $ do
-            testCase SChainParametersV0 SAuthorizationsVersion0 "CPV0"
-            testCase SChainParametersV1 SAuthorizationsVersion1 "CPV1"
-            testCase SChainParametersV2 SAuthorizationsVersion1 "CPV2"
+            testCase SP1 "CPV0"
+            testCase SP4 "CPV1"
+            testCase SP6 "CPV2"
         specify "Effective max lock duration updates mutate external chain parameters" testMaxLockDurationUpdate

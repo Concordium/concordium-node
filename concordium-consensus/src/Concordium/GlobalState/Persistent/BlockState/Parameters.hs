@@ -11,7 +11,7 @@
 -- This type is the persistent node representation used by the update state. It
 -- is distinct from the @concordium-base@ public/wire @ChainParameters'@ view.
 -- The aggregate public/wire type is only used at conversion boundaries; the
--- persistent storage model has its own record fields and a P11-and-onwards
+-- persistent storage model has its own record fields and a
 -- Rust-managed external chain-parameters pointer.
 module Concordium.GlobalState.Persistent.BlockState.Parameters (
     PersistentChainParameters,
@@ -24,7 +24,6 @@ module Concordium.GlobalState.Persistent.BlockState.Parameters (
 ) where
 
 import Control.Monad.IO.Class
-import Data.Bool.Singletons
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
 import Data.Singletons
@@ -38,7 +37,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 
 -- | Persistent node-owned chain parameters.
-data PersistentChainParameters' cpv auv = PersistentChainParameters
+data PersistentChainParameters' (pv :: ProtocolVersion) cpv auv = PersistentChainParameters
     { -- | Consensus parameters.
       pcpConsensusParameters :: !(ConsensusParameters cpv),
       -- | Exchange rates.
@@ -59,19 +58,19 @@ data PersistentChainParameters' cpv auv = PersistentChainParameters
       pcpFinalizationCommitteeParameters :: !(OParam 'PTFinalizationCommitteeParameters cpv FinalizationCommitteeParameters),
       -- | Validator score parameters.
       pcpValidatorScoreParameters :: !(OParam 'PTValidatorScoreParameters cpv ValidatorScoreParameters),
-      -- | Rust-managed external chain parameters, present for P11-and-onwards authorization versions.
-      pcpExternalChainParameters :: !(Conditionally (SupportsTokenParameters auv) ECP.ForeignExternalChainParametersPtr)
+      -- | Rust-managed external chain parameters, present when token parameters are supported.
+      pcpExternalChainParameters :: !(Conditionally (SupportsTokenParameters auv) (ECP.ForeignExternalChainParametersPtr pv))
     }
 
 -- | Protocol-indexed persistent node-owned chain parameters.
-type PersistentChainParameters pv = PersistentChainParameters' (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv)
+type PersistentChainParameters pv = PersistentChainParameters' pv (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv)
 
 -- | Convert a public/wire chain-parameter view and external pointer into the
 -- persistent node representation.
 fromChainParameters ::
     ChainParameters' cpv ->
-    Conditionally (SupportsTokenParameters auv) ECP.ForeignExternalChainParametersPtr ->
-    PersistentChainParameters' cpv auv
+    Conditionally (SupportsTokenParameters auv) (ECP.ForeignExternalChainParametersPtr pv) ->
+    PersistentChainParameters' pv cpv auv
 fromChainParameters ChainParameters{..} pcpExternalChainParameters =
     PersistentChainParameters
         { pcpConsensusParameters = _cpConsensusParameters,
@@ -89,28 +88,35 @@ fromChainParameters ChainParameters{..} pcpExternalChainParameters =
 
 -- | Construct persistent chain parameters from the public/wire view.
 makePersistentChainParameters ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsAuthorizationsVersion auv) =>
-    ChainParameters' cpv ->
-    m (PersistentChainParameters' cpv auv)
+    forall m pv.
+    (MonadBlobStore m, IsProtocolVersion pv) =>
+    ChainParameters pv ->
+    m (PersistentChainParameters pv)
 makePersistentChainParameters chainParameters = do
-    externalChainParameters <- makeInitialExternalChainParameters @m @cpv @auv chainParameters
+    externalChainParameters <- makeInitialExternalChainParameters @m @pv chainParameters
     return $ fromChainParameters chainParameters externalChainParameters
 
 -- | Construct initial external chain parameters from the public chain-parameter view.
 makeInitialExternalChainParameters ::
-    forall m cpv auv.
-    (MonadBlobStore m, IsAuthorizationsVersion auv) =>
-    ChainParameters' cpv ->
-    m (Conditionally (SupportsTokenParameters auv) ECP.ForeignExternalChainParametersPtr)
-makeInitialExternalChainParameters ChainParameters{..} =
-    case sSupportsTokenParameters (authorizationsVersion @auv) of
-        SFalse -> return CFalse
-        STrue ->
-            CTrue <$> case _cpMaxLockDuration of
-                SomeParam (Just duration) -> ECP.p11NewExternalChainParameters duration
-                SomeParam Nothing -> error "P11 external chain parameters require max lock duration"
-                NoParam -> error "P11 external chain parameters require max lock duration"
+    forall m pv.
+    (MonadBlobStore m, IsProtocolVersion pv) =>
+    ChainParameters pv ->
+    m (Conditionally (SupportsTokenParameters (AuthorizationsVersionFor pv)) (ECP.ForeignExternalChainParametersPtr pv))
+makeInitialExternalChainParameters chainParameters = case protocolVersion @pv of
+    SP1 -> return CFalse
+    SP2 -> return CFalse
+    SP3 -> return CFalse
+    SP4 -> return CFalse
+    SP5 -> return CFalse
+    SP6 -> return CFalse
+    SP7 -> return CFalse
+    SP8 -> return CFalse
+    SP9 -> return CFalse
+    SP10 -> return CFalse
+    SP11 ->
+        CTrue <$> case _cpMaxLockDuration chainParameters of
+            SomeParam (Just duration) -> ECP.p11NewExternalChainParameters duration
+            SomeParam Nothing -> error "P11 external chain parameters require max lock duration"
 
 -- | Placeholder public-view value for the max-lock-duration field.
 --
@@ -125,9 +131,9 @@ maxLockDurationPlaceholder = \case
 -- | Convert persistent chain parameters to the public/wire view, using the
 -- placeholder external fields.
 persistentChainParametersToChainParameters ::
-    forall cpv auv.
+    forall pv cpv auv.
     (IsChainParametersVersion cpv) =>
-    PersistentChainParameters' cpv auv ->
+    PersistentChainParameters' pv cpv auv ->
     ChainParameters' cpv
 persistentChainParametersToChainParameters params =
     makeChainParametersView params (maxLockDurationPlaceholder (chainParametersVersion @cpv))
@@ -135,9 +141,9 @@ persistentChainParametersToChainParameters params =
 -- | Convert persistent chain parameters to the public/wire view, sourcing
 -- externally-managed fields from the external chain-parameters component when present.
 persistentChainParametersToChainParametersM ::
-    forall m cpv auv.
+    forall m pv cpv auv.
     (MonadIO m, IsChainParametersVersion cpv) =>
-    PersistentChainParameters' cpv auv ->
+    PersistentChainParameters' pv cpv auv ->
     m (ChainParameters' cpv)
 persistentChainParametersToChainParametersM params@PersistentChainParameters{..} = do
     maxLockDuration <- case pcpExternalChainParameters of
@@ -152,7 +158,7 @@ persistentChainParametersToChainParametersM params@PersistentChainParameters{..}
 -- | Construct the public/wire view from persistent fields and a supplied
 -- max-lock-duration value.
 makeChainParametersView ::
-    PersistentChainParameters' cpv auv ->
+    PersistentChainParameters' pv cpv auv ->
     OParam 'PTMaxLockDuration cpv (Maybe Duration) ->
     ChainParameters' cpv
 makeChainParametersView PersistentChainParameters{..} maxLockDuration =
@@ -174,8 +180,8 @@ makeChainParametersView PersistentChainParameters{..} maxLockDuration =
 -- Rust-managed external chain-parameters pointer.
 updateChainParameters ::
     ChainParameters' cpv ->
-    PersistentChainParameters' cpv auv ->
-    PersistentChainParameters' cpv auv
+    PersistentChainParameters' pv cpv auv ->
+    PersistentChainParameters' pv cpv auv
 updateChainParameters newChainParameters PersistentChainParameters{..} =
     fromChainParameters newChainParameters pcpExternalChainParameters
 
@@ -183,8 +189,8 @@ updateChainParameters newChainParameters PersistentChainParameters{..} =
 updateMaxLockDuration ::
     (MonadIO m) =>
     Duration ->
-    PersistentChainParameters' cpv auv ->
-    m (PersistentChainParameters' cpv auv)
+    PersistentChainParameters' pv cpv auv ->
+    m (PersistentChainParameters' pv cpv auv)
 updateMaxLockDuration duration params@PersistentChainParameters{pcpExternalChainParameters = CTrue external} = do
     liftIO $ ECP.applyMaxLockDurationUpdate external duration
     return params
@@ -192,7 +198,7 @@ updateMaxLockDuration _ PersistentChainParameters{pcpExternalChainParameters = C
     error "Max lock duration update requires external chain parameters"
 
 -- | Serialize persistent chain parameters.
-putPersistentChainParameters :: forall cpv auv. (IsChainParametersVersion cpv) => S.Putter (PersistentChainParameters' cpv auv)
+putPersistentChainParameters :: forall pv cpv auv. (IsChainParametersVersion cpv) => S.Putter (PersistentChainParameters' pv cpv auv)
 putPersistentChainParameters PersistentChainParameters{..} = do
     withIsConsensusParametersVersionFor (chainParametersVersion @cpv) $ S.put pcpConsensusParameters
     S.put pcpExchangeRates
@@ -224,8 +230,8 @@ getPersistentChainParametersFields = do
     return ChainParameters{..}
 
 instance
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
-    BlobStorable m (PersistentChainParameters' cpv auv)
+    (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+    BlobStorable m (PersistentChainParameters' pv cpv auv)
     where
     storeUpdate params@PersistentChainParameters{..} = do
         (pExternal :: S.Put, external') <- case pcpExternalChainParameters of
@@ -249,7 +255,7 @@ instance
 
 instance
     (MonadBlobStore m) =>
-    Cacheable m (PersistentChainParameters' cpv auv)
+    Cacheable m (PersistentChainParameters' pv cpv auv)
     where
     cache params@PersistentChainParameters{..} = do
         external' <- traverse cache pcpExternalChainParameters
@@ -257,7 +263,7 @@ instance
 
 instance
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
-    MHashableTo m H.Hash (PersistentChainParameters' cpv auv)
+    MHashableTo m H.Hash (PersistentChainParameters' pv cpv auv)
     where
     getHashM params@PersistentChainParameters{..} = do
         hExternal <- traverse (getHashM @_ @ECP.ExternalChainParametersHash) pcpExternalChainParameters

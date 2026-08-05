@@ -21,16 +21,6 @@ pub enum PersistentChainParameters {
 }
 
 impl PersistentChainParameters {
-    /// Construct empty persistent chain parameters for the given protocol version.
-    pub fn empty(protocol_version: ProtocolVersion) -> Self {
-        match protocol_version {
-            ProtocolVersion::P11 => Self::P11(Default::default()),
-            ProtocolVersion::P9 | ProtocolVersion::P10 => {
-                panic!("No Rust-managed external chain parameters before P11")
-            }
-        }
-    }
-
     /// Construct P11 persistent chain parameters with an initial maximum lock duration.
     pub fn p11_new_external_chain_parameters(max_lock_duration: u64) -> Self {
         Self::P11(PersistentChainParametersP11 { max_lock_duration })
@@ -67,12 +57,12 @@ impl PersistentChainParameters {
         loader: &impl BlobStoreLoad,
         protocol_version: ProtocolVersion,
     ) -> BlockStateResult<Self> {
-        Ok(match protocol_version {
-            ProtocolVersion::P11 => Self::P11(Loadable::load_from_buffer(buffer, loader)?),
+        match protocol_version {
+            ProtocolVersion::P11 => Ok(Self::P11(Loadable::load_from_buffer(buffer, loader)?)),
             ProtocolVersion::P9 | ProtocolVersion::P10 => {
                 panic!("No Rust-managed external chain parameters before P11")
             }
-        })
+        }
     }
 }
 
@@ -96,6 +86,27 @@ impl Hashable for PersistentChainParameters {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         match self {
             PersistentChainParameters::P11(params) => params.hash(loader),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::test_stub::BlobStoreStub;
+
+    #[test]
+    fn store_load_roundtrip() {
+        let mut store = BlobStoreStub::default();
+        let params = PersistentChainParameters::p11_new_external_chain_parameters(42);
+        let location = blob_store::store_to_store(&mut store, &params);
+        let loaded =
+            PersistentChainParameters::load_from_store(&store, location, ProtocolVersion::P11)
+                .expect("external chain parameters should load");
+
+        match loaded {
+            PersistentChainParameters::P11(params) => assert_eq!(params.max_lock_duration, 42),
         }
     }
 }
