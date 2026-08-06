@@ -3,8 +3,8 @@ use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Sto
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
-use concordium_base::base::SlotDuration;
 use concordium_base::common::{Buffer, Get, Put};
+use concordium_base::contracts_common::Duration;
 use concordium_base::hashes::Hash;
 use std::io::Read;
 
@@ -15,7 +15,7 @@ use std::io::Read;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PersistentChainParametersP11 {
     /// Maximum relative duration for protocol-level token locks, in milliseconds.
-    pub max_lock_duration: SlotDuration,
+    pub max_lock_duration: Duration,
 }
 
 impl Loadable for PersistentChainParametersP11 {
@@ -60,7 +60,7 @@ mod tests {
     fn store_load_roundtrip() {
         let mut store = BlobStoreStub::default();
         let params = PersistentChainParametersP11 {
-            max_lock_duration: 42.into(),
+            max_lock_duration: Duration::from_millis(42),
         };
         let location = blob_store::store_to_store(&mut store, &params);
         let loaded: PersistentChainParametersP11 = blob_store::load_from_store(&store, location)
@@ -72,10 +72,10 @@ mod tests {
     fn hash_changes_with_max_lock_duration() {
         let store = BlobStoreStub::default();
         let zero = PersistentChainParametersP11 {
-            max_lock_duration: 0.into(),
+            max_lock_duration: Duration::from_millis(0),
         };
         let non_zero = PersistentChainParametersP11 {
-            max_lock_duration: 42.into(),
+            max_lock_duration: Duration::from_millis(42),
         };
         assert_ne!(
             zero.hash(&store).expect("zero hash"),

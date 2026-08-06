@@ -1,6 +1,6 @@
 use super::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
-use concordium_base::contracts_common::{AccountAddress, Timestamp};
+use concordium_base::contracts_common::{AccountAddress, Duration, Timestamp};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -112,7 +112,7 @@ impl SchedulerOperations for BlockStateP11 {
             sender_account.clone(),
             payload,
             &PersistentChainParametersP11 {
-                max_lock_duration: u64::MAX.into(),
+                max_lock_duration: Duration::from_millis(u64::MAX),
             },
         )
     }

@@ -9,6 +9,7 @@ use crate::persistent::blob_store::BlobStoreLocation;
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::chain_parameters::PersistentChainParameters;
 use crate::persistent::hash::Hashable;
+use concordium_base::contracts_common::Duration;
 use plt_scheduler_types::types::protocol_version::ProtocolVersion;
 
 /// Allocate new external chain parameters with an initial maximum lock duration.
@@ -26,7 +27,7 @@ extern "C" fn ffi_p11_new_external_chain_parameters(
         unsafe {
             *params_out = Box::into_raw(Box::new(
                 PersistentChainParameters::p11_new_external_chain_parameters(
-                    max_lock_duration.into(),
+                    Duration::from_millis(max_lock_duration),
                 ),
             ));
         }
@@ -189,7 +190,7 @@ extern "C" fn ffi_apply_external_chain_parameters_max_lock_duration_update(
     let panic_message = status::catch_unwind(move || {
         assert!(!params.is_null(), "params is a null pointer.");
         let params = unsafe { &mut *params };
-        params.apply_max_lock_duration_update(max_lock_duration.into());
+        params.apply_max_lock_duration_update(Duration::from_millis(max_lock_duration));
     });
     if let Some(message) = panic_message {
         eprintln!("{}", message);
@@ -218,7 +219,7 @@ extern "C" fn ffi_get_external_chain_parameters_max_lock_duration(
             PersistentChainParameters::P11(params) => params.max_lock_duration,
         };
         unsafe {
-            *duration_out = duration.into();
+            *duration_out = duration.millis();
         }
     });
     if let Some(message) = panic_message {
