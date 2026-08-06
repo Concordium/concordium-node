@@ -55,27 +55,37 @@ testMaxLockDurationUpdate = do
         newDuration = Duration 123456
         update :: UpdateValue 'ChainParametersV3 'AuthorizationsVersion3
         update = UVMaxLockDuration newDuration
-    (effects, maxLockDuration) <- liftIO . runBlobStoreTemp "." $ do
+    (effects, oldMaxLockDuration, newMaxLockDuration) <- liftIO . runBlobStoreTemp "." $ do
         (u0 :: BufferedRef (PU.Updates 'P11)) <-
             refMake
                 =<< PU.initialUpdates
                     (dummyKeyCollection @'AuthorizationsVersion3)
                     (dummyChainParameters @'P11)
+        originalParametersRef <- PU.currentParameters <$> refLoad u0
         u1 <- PU.enqueueUpdate effectiveTime update u0
         ars <- refMake dummyArs
         ips <- refMake dummyIdentityProviders
         (processedEffects, (u2, _, _)) <- PU.processUpdateQueues (transactionTimeToTimestamp effectiveTime) (u1, ars, ips)
         updatedParametersRef <- PU.currentParameters <$> refLoad u2
+        originalParameters <- PCP.persistentChainParametersToChainParametersM =<< refLoad originalParametersRef
         updatedParameters <- PCP.persistentChainParametersToChainParametersM =<< refLoad updatedParametersRef
-        return (processedEffects, updatedParameters ^. cpMaxLockDuration)
+        return
+            ( processedEffects,
+              originalParameters ^. cpMaxLockDuration,
+              updatedParameters ^. cpMaxLockDuration
+            )
     assertEqual
         "The max lock duration update should be returned"
         [(effectiveTime, update)]
         effects
     assertEqual
+        "The original chain parameters should remain unchanged"
+        (dummyChainParameters @'P11 ^. cpMaxLockDuration)
+        oldMaxLockDuration
+    assertEqual
         "The public chain-parameter view should expose the updated max lock duration"
         (SomeParam (Just newDuration))
-        maxLockDuration
+        newMaxLockDuration
 
 tests :: Spec
 tests = do
@@ -84,4 +94,4 @@ tests = do
             testCase SP1 "CPV0"
             testCase SP4 "CPV1"
             testCase SP6 "CPV2"
-        specify "Effective max lock duration updates mutate external chain parameters" testMaxLockDurationUpdate
+        specify "Effective max lock duration updates create new external chain parameters" testMaxLockDurationUpdate

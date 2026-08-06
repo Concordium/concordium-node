@@ -1397,7 +1397,9 @@ processMaxLockDurationUpdates t bu = do
                 (UVMaxLockDuration <$> m,) <$> do
                     newpQ <- refMake newQ
                     StoreSerialized newDuration <- refLoad newDurationRef
-                    newPersistentParameters <- PCP.updateMaxLockDuration newDuration =<< refLoad currentParameters
+                    newPersistentParameters <-
+                        PCP.executeExternalChainParameterUpdate (MaxLockDurationUpdatePayload newDuration)
+                            =<< refLoad currentParameters
                     newParameters <- refMake newPersistentParameters
                     refMake
                         u
