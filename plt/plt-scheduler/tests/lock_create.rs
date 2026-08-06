@@ -6,6 +6,7 @@ use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
     common::{cbor, cbor::value::Value, types::TransactionTime},
+    contracts_common::Duration,
     protocol_level_locks::{
         LockConfig, LockController, LockControllerSimpleV0, LockControllerSimpleV0Capability,
         LockControllerSimpleV0Grant, LockId, LockMetadata, LockRecipients,
@@ -68,7 +69,7 @@ fn execute_lock_create_with_duration(
         Account::from_existing_account(account_index),
         Payload::MetaUpdate { payload },
         &PersistentChainParametersP11 {
-            max_lock_duration: max_lock_duration.into(),
+            max_lock_duration: Duration::from_millis(max_lock_duration),
         },
     );
     let lock_exists = matches!(block_state.lock_by_id(&context, &lock_id), Ok(Ok(_)));
@@ -329,7 +330,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         Account::from_existing_account(account_index),
         Payload::MetaUpdate { payload },
         &PersistentChainParametersP11 {
-            max_lock_duration: 1_000.into(),
+            max_lock_duration: Duration::from_millis(1_000),
         },
     )
     .expect("multi-operation lock creation must execute");

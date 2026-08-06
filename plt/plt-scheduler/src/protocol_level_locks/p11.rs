@@ -8,8 +8,9 @@ use crate::protocol_level_tokens::token_module::{
 };
 use crate::protocol_level_tokens::{balance_operations, token_module};
 use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::{AccountIndex, SlotDuration};
+use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
+use concordium_base::contracts_common::Duration;
 use concordium_base::protocol_level_locks::LockRecipients as CborLockRecipients;
 use concordium_base::protocol_level_locks::{
     LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
@@ -137,7 +138,7 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
-    max_lock_duration: SlotDuration,
+    max_lock_duration: Duration,
     operation_index: usize,
     lock_operation: LockOperation,
     events: &mut Vec<BlockItemEvent>,
@@ -441,7 +442,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
-    max_lock_duration: SlotDuration,
+    max_lock_duration: Duration,
     details: MetaLockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> WithBlockStateResult<(), TransactionRejectReason> {
@@ -466,7 +467,7 @@ fn execute_lock_create<C: EntityContextTypes>(
         return Err(TransactionRejectReason::LockDurationTooLong(lock_id).into());
     };
 
-    if expiry_millis - transaction_timestamp.timestamp_millis() > max_lock_duration.millis {
+    if expiry_millis - transaction_timestamp.timestamp_millis() > max_lock_duration.millis() {
         return Err(TransactionRejectReason::LockDurationTooLong(lock_id).into());
     }
 

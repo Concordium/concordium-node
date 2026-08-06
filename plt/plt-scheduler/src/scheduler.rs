@@ -18,7 +18,9 @@ pub enum TransactionExecutionError {
     BlockStateFailure(#[from] BlockStateFailure),
 }
 
-/// Account with given id does not exist
+/// Unrecoverable error executing chain update. This represents the
+/// return value of [`execute_chain_update`] for chain updates that cannot
+/// be correctly executed.
 #[derive(Debug, thiserror::Error)]
 pub enum ChainUpdateExecutionError {
     #[error("Unexpected chain update payload that cannot be handled")]
