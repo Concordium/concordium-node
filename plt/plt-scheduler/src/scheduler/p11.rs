@@ -12,6 +12,7 @@ use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
+use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
 use plt_block_state::utils;
 use plt_scheduler_types::types::execution::{
     ChainUpdateOutcome, TransactionExecutionSummary, TransactionOutcome,
@@ -168,6 +169,30 @@ pub fn execute_chain_update<C: EntityContextTypes>(
     }
 }
 
+/// Execute a chain update modifying P11 external chain parameters.
+///
+/// # Arguments
+///
+/// - `chain_parameters` External chain parameters to update.
+/// - `payload` The chain update payload to execute.
+///
+/// # Errors
+///
+/// Returns [`ChainUpdateExecutionError::UnexpectedPayload`] if the payload is
+/// not a P11 external chain-parameter update.
+pub fn execute_chain_parameters_update(
+    chain_parameters: &mut PersistentChainParametersP11,
+    payload: UpdatePayload,
+) -> Result<(), ChainUpdateExecutionError> {
+    match payload {
+        UpdatePayload::MaxLockDuration(duration) => {
+            chain_parameters.max_lock_duration = duration.millis();
+            Ok(())
+        }
+        _ => Err(ChainUpdateExecutionError::UnexpectedPayload),
+    }
+}
+
 /// A discriminated version of [`MetaUpdateOperation`] for the purpose of
 /// dispatching to the appropriate operation handler.
 #[derive(PartialEq, Debug, Clone)]
@@ -242,7 +267,22 @@ impl From<MetaUpdateOperation> for MetaUpdateOperationKind {
 mod test {
     use super::*;
     use concordium_base::common;
+    use concordium_base::contracts_common::Duration;
     use concordium_base::transactions::Memo;
+
+    #[test]
+    fn execute_max_lock_duration_update() {
+        let mut chain_parameters = PersistentChainParametersP11 {
+            max_lock_duration: 42,
+        };
+        execute_chain_parameters_update(
+            &mut chain_parameters,
+            UpdatePayload::MaxLockDuration(Duration::from_millis(123)),
+        )
+        .expect("max lock duration update should succeed");
+
+        assert_eq!(chain_parameters.max_lock_duration, 123);
+    }
 
     #[test]
     fn test_meta_operation_token_operation_conversion() {

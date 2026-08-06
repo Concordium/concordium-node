@@ -25,6 +25,7 @@ use plt_block_state::ffi::block_state_callbacks::{
 };
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
+use plt_block_state::persistent::chain_parameters::PersistentChainParameters;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 use std::marker::PhantomData;
 
@@ -384,6 +385,52 @@ extern "C" fn ffi_execute_chain_update(
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
+    }
+    return_status
+}
+
+/// C-binding for executing a chain update against external chain parameters.
+///
+/// The current parameters are left unchanged. On success, `params_out` receives
+/// a uniquely owned successor which the caller must free with
+/// `ffi_free_external_chain_parameters`.
+///
+/// # Safety
+///
+/// - `params` must be non-null and point to well-formed [`PersistentChainParameters`].
+/// - `payload` must be non-null and valid for reads of `payload_len` bytes.
+/// - `params_out` must be non-null and valid for writing.
+#[unsafe(no_mangle)]
+extern "C" fn ffi_execute_external_chain_parameters_update(
+    params: *const PersistentChainParameters,
+    payload: *const u8,
+    payload_len: size_t,
+    params_out: *mut *mut PersistentChainParameters,
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(move || {
+        assert!(!params.is_null(), "params is a null pointer.");
+        assert!(!payload.is_null(), "payload is a null pointer.");
+        assert!(!params_out.is_null(), "params_out is a null pointer.");
+        let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+        let payload: UpdatePayload = common::from_bytes_complete(payload_bytes)
+            .expect("Failed decoding external chain parameter update payload");
+        let (result, updated_params) = match unsafe { &*params } {
+            PersistentChainParameters::P11(persistent) => {
+                let mut chain_parameters = persistent.clone();
+                (
+                    scheduler::p11::execute_chain_parameters_update(&mut chain_parameters, payload),
+                    PersistentChainParameters::P11(chain_parameters),
+                )
+            }
+        };
+        result.expect("Unexpected failure during external chain parameter update execution");
+        unsafe {
+            *params_out = Box::into_raw(Box::new(updated_params));
+        }
+        (status::FfiStatusCode::Success, Vec::new())
+    });
+    if !return_data.is_empty() {
+        eprintln!("{}", String::from_utf8_lossy(&return_data));
     }
     return_status
 }

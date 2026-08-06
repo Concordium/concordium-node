@@ -26,13 +26,6 @@ impl PersistentChainParameters {
         Self::P11(PersistentChainParametersP11 { max_lock_duration })
     }
 
-    /// Apply a max-lock-duration update to the Rust-managed chain parameters.
-    pub fn apply_max_lock_duration_update(&mut self, max_lock_duration: u64) {
-        match self {
-            Self::P11(params) => params.max_lock_duration = max_lock_duration,
-        }
-    }
-
     /// Load persistent chain parameters from the blob store.
     pub fn load_from_store(
         loader: &impl BlobStoreLoad,

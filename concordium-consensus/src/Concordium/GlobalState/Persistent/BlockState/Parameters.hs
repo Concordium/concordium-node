@@ -20,7 +20,7 @@ module Concordium.GlobalState.Persistent.BlockState.Parameters (
     persistentChainParametersToChainParameters,
     persistentChainParametersToChainParametersM,
     updateChainParameters,
-    updateMaxLockDuration,
+    executeExternalChainParameterUpdate,
 ) where
 
 import Control.Monad.IO.Class
@@ -35,6 +35,7 @@ import Concordium.Types
 import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
+import qualified Concordium.Types.Updates as Updates
 
 -- | Persistent node-owned chain parameters.
 data PersistentChainParameters' (pv :: ProtocolVersion) cpv auv = PersistentChainParameters
@@ -185,17 +186,24 @@ updateChainParameters ::
 updateChainParameters newChainParameters PersistentChainParameters{..} =
     fromChainParameters newChainParameters pcpExternalChainParameters
 
--- | Apply a max-lock-duration update to the Rust-managed external chain-parameters component.
-updateMaxLockDuration ::
+-- | Execute a chain update against the Rust-managed external chain parameters.
+--
+-- The current parameters are left unchanged. An unexpected payload, absence of
+-- external chain parameters, or a Rust panic terminates execution with an error.
+--
+-- @
+-- updated <- executeExternalChainParameterUpdate (Updates.MaxLockDurationUpdatePayload duration) current
+-- @
+executeExternalChainParameterUpdate ::
     (MonadIO m) =>
-    Duration ->
+    Updates.UpdatePayload ->
     PersistentChainParameters' pv cpv auv ->
     m (PersistentChainParameters' pv cpv auv)
-updateMaxLockDuration duration params@PersistentChainParameters{pcpExternalChainParameters = CTrue external} = do
-    liftIO $ ECP.applyMaxLockDurationUpdate external duration
-    return params
-updateMaxLockDuration _ PersistentChainParameters{pcpExternalChainParameters = CFalse} =
-    error "Max lock duration update requires external chain parameters"
+executeExternalChainParameterUpdate payload params@PersistentChainParameters{pcpExternalChainParameters = CTrue external} = do
+    newExternal <- liftIO $ ECP.executeChainUpdate external payload
+    return params{pcpExternalChainParameters = CTrue newExternal}
+executeExternalChainParameterUpdate _ PersistentChainParameters{pcpExternalChainParameters = CFalse} =
+    error "External chain parameter updates require external chain parameters"
 
 -- | Serialize persistent chain parameters.
 putPersistentChainParameters :: forall pv cpv auv. (IsChainParametersVersion cpv) => S.Putter (PersistentChainParameters' pv cpv auv)
