@@ -45,7 +45,7 @@ impl ExternalBlockStateQuery for ExternalBlockStateQueryCallbacks {
     ) -> RawTokenAmount {
         let value = (self.read_token_account_balance_ptr)(account.index, token.0);
 
-        RawTokenAmount(value)
+        RawTokenAmount::from(value)
     }
 
     fn account_canonical_address_by_account_index(
@@ -131,8 +131,8 @@ impl ExternalBlockStateOperations for ExternalBlockStateOperationCallbacks {
             account.index,
             token.0,
             match amount_delta {
-                RawTokenAmountDelta::Add(amount) => amount.0,
-                RawTokenAmountDelta::Subtract(amount) => amount.0,
+                RawTokenAmountDelta::Add(amount) => amount.value(),
+                RawTokenAmountDelta::Subtract(amount) => amount.value(),
             },
             match amount_delta {
                 RawTokenAmountDelta::Add(_) => 1,

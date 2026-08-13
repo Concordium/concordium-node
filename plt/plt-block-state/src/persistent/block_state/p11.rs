@@ -238,7 +238,7 @@ mod test {
         let mut token1 = block_state.token_by_index(&context, token_index1).unwrap();
         token1
             .token_p9_base
-            .set_token_circulating_supply(RawTokenAmount(100));
+            .set_token_circulating_supply(RawTokenAmount::from(100));
         token1
             .token_p9_base
             .mutable_key_value_state

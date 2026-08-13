@@ -43,7 +43,7 @@ pub(crate) fn create_token<C: EntityContextTypes>(
     let persistent_token = PersistentTokenP9 {
         configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
         key_value_state: HashedCacheableRef::new(smart_contract_trie::PersistentState::empty()),
-        circulating_supply: StoreSerialized(RawTokenAmount(0)),
+        circulating_supply: StoreSerialized(RawTokenAmount::from(0)),
     };
 
     let token_index;

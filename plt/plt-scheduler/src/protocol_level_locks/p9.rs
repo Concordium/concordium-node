@@ -1,4 +1,4 @@
-use crate::failure::{WithBlockStateFailure, WithBlockStateResult};
+use crate::failure::{ResultWithBlockStateFailure, WithBlockStateFailure};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::RawCbor;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
@@ -20,7 +20,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
     _context: &EntityContext<C>,
     _block_state: &BlockStateP9,
     lock_id: &LockId,
-) -> WithBlockStateResult<RawCbor, LockNotFoundByIdError> {
+) -> ResultWithBlockStateFailure<RawCbor, LockNotFoundByIdError> {
     Err(WithBlockStateFailure::Error(LockNotFoundByIdError(
         lock_id.clone(),
     )))

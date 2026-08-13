@@ -14,6 +14,7 @@ pub struct ConsensusMessage {
     pub variant: PacketType,
     pub payload: Arc<[u8]>,
     pub dont_relay_to: Vec<RemotePeerId>,
+    /// Filter out peers with the provided status, `None` meaning no filter.
     pub omit_status: Option<PeerStatus>,
 }
 

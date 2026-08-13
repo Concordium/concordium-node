@@ -97,7 +97,7 @@ fn test_lock_fund_updates_account_and_lock_state() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -143,7 +143,7 @@ fn test_lock_fund_updates_account_and_lock_state() {
         assert_eq!(event_token_id, &token_id);
         assert_eq!(from, &TokenHolder::Account(sender_addr));
         assert_eq!(to, &TokenHolder::Account(sender_addr));
-        assert_eq!(amount.amount, RawTokenAmount(250));
+        assert_eq!(amount.amount, RawTokenAmount::from(250));
         assert_eq!(amount.decimals, 4);
         assert_eq!(from_lock, &None);
         assert_eq!(to_lock, &Some(lock_id.clone()));
@@ -153,7 +153,7 @@ fn test_lock_fund_updates_account_and_lock_state() {
         token_account_info!(&context, &block_state, sender.account_index(), &token_id);
     assert_eq!(
         sender_info.account_state.balance.amount,
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
     let sender_state = token_module_account_state!(&sender_info);
     assert_eq!(sender_state.available.unwrap().value(), 750);
@@ -194,7 +194,7 @@ fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -215,7 +215,7 @@ fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
         &lock_id,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(250),
+        RawTokenAmount::from(250),
     );
 
     let outcome = execute_meta_update!(
@@ -260,7 +260,7 @@ fn test_lock_fund_rejects_unauthorized_sender() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
@@ -317,7 +317,7 @@ fn test_lock_fund_rejects_after_expiry() {
         &mut block_state,
         owner.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);

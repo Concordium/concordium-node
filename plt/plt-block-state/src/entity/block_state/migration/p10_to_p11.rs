@@ -63,7 +63,7 @@ mod test {
             .unwrap();
         token1
             .token_p9_base
-            .set_token_circulating_supply(RawTokenAmount(100));
+            .set_token_circulating_supply(RawTokenAmount::from(100));
         token1
             .token_p9_base
             .set_deny_list_enabled(&context)
@@ -119,7 +119,7 @@ mod test {
         );
         assert_eq!(
             token1.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(100)
+            RawTokenAmount::from(100)
         );
         assert!(token1.token_p9_base.has_deny_list(&migrated_context));
         assert!(token1.token_p9_base.is_burnable(&migrated_context));
@@ -150,7 +150,7 @@ mod test {
         );
         assert_eq!(
             token2.token_p9_base.token_circulating_supply(),
-            RawTokenAmount(0)
+            RawTokenAmount::from(0)
         );
         assert!(token2.token_p9_base.has_allow_list(&migrated_context));
         assert!(token2.token_p9_base.is_mintable(&migrated_context));

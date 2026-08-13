@@ -53,7 +53,7 @@ fn test_migrate_p10_to_p11() {
     assert_eq!(
         token_info.state.total_supply,
         QueryTokenAmount {
-            amount: RawTokenAmount(0),
+            amount: RawTokenAmount::from(0),
             decimals: DECIMALS,
         }
     );

@@ -47,14 +47,14 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
-        Some(RawTokenAmount(0)),
+        Some(RawTokenAmount::from(0)),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         funding_account.account_index(),
         &token_id,
-        RawTokenAmount(123_400),
+        RawTokenAmount::from(123_400),
     );
 
     let lock_id = LockId {
@@ -79,7 +79,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         &lock_id,
         funding_account.account_index(),
         &token_id,
-        RawTokenAmount(100),
+        RawTokenAmount::from(100),
     );
 
     let bytes = block_state
@@ -128,7 +128,7 @@ fn test_query_lock_info_any_recipient() {
         token_id.clone(),
         TokenInitTestParams::default().mintable(),
         2,
-        Some(RawTokenAmount(0)),
+        Some(RawTokenAmount::from(0)),
     );
 
     let lock_id = LockId {

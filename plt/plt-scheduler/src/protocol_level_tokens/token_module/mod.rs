@@ -7,11 +7,9 @@
 
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
-pub mod errors;
 mod initialize;
 mod queries;
 mod update;
-mod util;
 
 pub use initialize::*;
 pub use queries::*;

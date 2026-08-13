@@ -35,7 +35,7 @@ fn test_burn() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     // First burn
@@ -61,7 +61,7 @@ fn test_burn() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
 
     // Second burn
@@ -87,7 +87,7 @@ fn test_burn() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
 }
 
@@ -159,7 +159,7 @@ fn test_burn_insufficient_balance() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
-        Some(RawTokenAmount(1000)),
+        Some(RawTokenAmount::from(1000)),
     );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -205,7 +205,7 @@ fn test_burn_insufficient_available_balance() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
-        Some(RawTokenAmount(1000)),
+        Some(RawTokenAmount::from(1000)),
     );
     let recipient = context.external.create_account();
 
@@ -231,7 +231,7 @@ fn test_burn_insufficient_available_balance() {
         &lock_id,
         gov_account.account_index(),
         &token_id,
-        RawTokenAmount(250),
+        RawTokenAmount::from(250),
     );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -322,7 +322,7 @@ fn test_burn_paused() {
         token_id.clone(),
         TokenInitTestParams::default().burnable().mintable(),
         2,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     utils::pause_token(
@@ -422,7 +422,7 @@ fn test_burn_event() {
         token_id.clone(),
         TokenInitTestParams::default().burnable(),
         2,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -448,7 +448,7 @@ fn test_burn_event() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenBurn(burn) => {
         assert_eq!(burn.token_id, token_id);
-        assert_eq!(burn.amount.amount, RawTokenAmount(1000));
+        assert_eq!(burn.amount.amount, RawTokenAmount::from(1000));
         assert_eq!(burn.amount.decimals, 2);
         assert_eq!(burn.target, TokenHolder::Account(context.external.account_canonical_address(gov_account.account_index())));
     });
@@ -547,7 +547,7 @@ fn test_new_account_with_role_succeeds_burn() {
         &mut block_state,
         gov_account.account_index(),
         &token_id,
-        RawTokenAmount(10000),
+        RawTokenAmount::from(10000),
     );
     let account2 = context.external.create_account();
     utils::increment_account_balance_p11(
@@ -555,7 +555,7 @@ fn test_new_account_with_role_succeeds_burn() {
         &mut block_state,
         account2.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     // Assign burn role to account2.
@@ -608,10 +608,10 @@ fn test_new_account_with_role_succeeds_burn() {
 
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(10000)
+        RawTokenAmount::from(10000)
     );
     assert_eq!(
         account2.account_token_balance(&context, token_index),
-        RawTokenAmount(4800)
+        RawTokenAmount::from(4800)
     );
 }

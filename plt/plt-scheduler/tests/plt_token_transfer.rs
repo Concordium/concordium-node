@@ -44,14 +44,14 @@ fn test_transfer() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         receiver.account_index(),
         &token_id,
-        RawTokenAmount(2000),
+        RawTokenAmount::from(2000),
     );
 
     let receiver_addr = context
@@ -82,11 +82,11 @@ fn test_transfer() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(3000)
+        RawTokenAmount::from(3000)
     );
 }
 
@@ -111,7 +111,7 @@ fn test_transfer_with_memo() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let memo = CborMemo::Cbor(Memo::try_from(cbor::cbor_encode("testvalue")).unwrap());
@@ -143,11 +143,11 @@ fn test_transfer_with_memo() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 }
 
@@ -171,7 +171,7 @@ fn test_transfer_self() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let sender_addr = context
@@ -199,7 +199,7 @@ fn test_transfer_self() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
 }
 
@@ -224,7 +224,7 @@ fn test_transfer_insufficient_balance() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let receiver_addr = context
@@ -282,7 +282,7 @@ fn test_transfer_insufficient_available_balance() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(1000),
+        RawTokenAmount::from(1000),
     );
 
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
@@ -307,7 +307,7 @@ fn test_transfer_insufficient_available_balance() {
         &lock_id,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(250),
+        RawTokenAmount::from(250),
     );
 
     let receiver_addr = context
@@ -365,7 +365,7 @@ fn test_transfer_decimals_mismatch() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let receiver_addr = context
@@ -421,7 +421,7 @@ fn test_transfer_to_non_existing_receiver() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let sender_addr = context
@@ -466,7 +466,7 @@ fn test_transfer_allow_list_success() {
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         2,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let receiver = context.external.create_account();
 
@@ -518,11 +518,11 @@ fn test_transfer_allow_list_success() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(1000)
+        RawTokenAmount::from(1000)
     );
 }
 
@@ -548,14 +548,14 @@ fn test_transfer_deny_list_success() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         receiver.account_index(),
         &token_id,
-        RawTokenAmount(2000),
+        RawTokenAmount::from(2000),
     );
 
     let denied_addr = context
@@ -599,11 +599,11 @@ fn test_transfer_deny_list_success() {
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(4000)
+        RawTokenAmount::from(4000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(3000)
+        RawTokenAmount::from(3000)
     );
 }
 
@@ -619,7 +619,7 @@ fn test_transfer_sender_not_in_allow_list() {
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         2,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let sender = context.external.create_account();
     let receiver = context.external.create_account();
@@ -684,7 +684,7 @@ fn test_transfer_recipient_not_in_allow_list() {
         token_id.clone(),
         TokenInitTestParams::default().allow_list(),
         2,
-        Some(RawTokenAmount(5000)),
+        Some(RawTokenAmount::from(5000)),
     );
     let receiver = context.external.create_account();
 
@@ -738,11 +738,11 @@ fn test_transfer_recipient_not_in_allow_list() {
     );
     assert_eq!(
         gov_account.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(0)
+        RawTokenAmount::from(0)
     );
 }
 
@@ -767,14 +767,14 @@ fn test_transfer_sender_in_deny_list() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         receiver.account_index(),
         &token_id,
-        RawTokenAmount(2000),
+        RawTokenAmount::from(2000),
     );
 
     let sender_addr = context
@@ -825,11 +825,11 @@ fn test_transfer_sender_in_deny_list() {
     );
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
 }
 
@@ -854,14 +854,14 @@ fn test_transfer_recipient_in_deny_list() {
         &mut block_state,
         sender.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
     utils::increment_account_balance_p11(
         &mut context,
         &mut block_state,
         receiver.account_index(),
         &token_id,
-        RawTokenAmount(2000),
+        RawTokenAmount::from(2000),
     );
 
     let receiver_addr = context
@@ -912,11 +912,11 @@ fn test_transfer_recipient_in_deny_list() {
     );
     assert_eq!(
         sender.account_token_balance(&context, token_index),
-        RawTokenAmount(5000)
+        RawTokenAmount::from(5000)
     );
     assert_eq!(
         receiver.account_token_balance(&context, token_index),
-        RawTokenAmount(2000)
+        RawTokenAmount::from(2000)
     );
 }
 
@@ -940,7 +940,7 @@ fn test_transfer_paused() {
         &mut block_state,
         gov_account.account_index(),
         &token_id,
-        RawTokenAmount(5000),
+        RawTokenAmount::from(5000),
     );
 
     let gov_account_addr = context

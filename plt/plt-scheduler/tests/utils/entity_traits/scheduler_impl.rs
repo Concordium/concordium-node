@@ -13,6 +13,7 @@ use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundB
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
+use plt_scheduler::failure::ResultWithBlockStateFailureExt;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
 use plt_scheduler::{failure, protocol_level_tokens};
@@ -56,7 +57,9 @@ impl SchedulerOperations for BlockStateP9 {
         context: &EntityContext<C>,
         token_id: &TokenId,
     ) -> Result<TokenInfo, TokenNotFoundByIdError> {
-        protocol_level_tokens::p9::query_token_info(context, self, token_id).unwrap()
+        protocol_level_tokens::p9::query_token_info(context, self, token_id)
+            .nest()
+            .unwrap()
     }
 
     fn query_token_account_infos<C: EntityContextTypes>(
@@ -76,7 +79,9 @@ impl SchedulerOperations for BlockStateP9 {
         context: &EntityContext<C>,
         token_id: &TokenId,
     ) -> Result<TokenAuthorizations, TokenNotFoundByIdError> {
-        protocol_level_tokens::p9::query_token_authorizations(context, self, token_id).unwrap()
+        protocol_level_tokens::p9::query_token_authorizations(context, self, token_id)
+            .nest()
+            .unwrap()
     }
 
     fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId> {
@@ -88,10 +93,9 @@ impl SchedulerOperations for BlockStateP9 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> Result<RawCbor, LockNotFoundByIdError> {
-        failure::nest(protocol_level_locks::p9::query_lock_info(
-            context, self, lock_id,
-        ))
-        .unwrap()
+        protocol_level_locks::p9::query_lock_info(context, self, lock_id)
+            .nest()
+            .unwrap()
     }
 }
 
@@ -134,7 +138,9 @@ impl SchedulerOperations for BlockStateP11 {
         context: &EntityContext<C>,
         token_id: &TokenId,
     ) -> Result<TokenInfo, TokenNotFoundByIdError> {
-        protocol_level_tokens::p11::query_token_info(context, self, token_id).unwrap()
+        protocol_level_tokens::p11::query_token_info(context, self, token_id)
+            .nest()
+            .unwrap()
     }
 
     fn query_token_account_infos<C: EntityContextTypes>(
@@ -154,7 +160,9 @@ impl SchedulerOperations for BlockStateP11 {
         context: &EntityContext<C>,
         token_id: &TokenId,
     ) -> Result<TokenAuthorizations, TokenNotFoundByIdError> {
-        protocol_level_tokens::p11::query_token_authorizations(context, self, token_id).unwrap()
+        protocol_level_tokens::p11::query_token_authorizations(context, self, token_id)
+            .nest()
+            .unwrap()
     }
 
     fn query_lock_list<C: EntityContextTypes>(&self, context: &EntityContext<C>) -> Vec<LockId> {
@@ -166,9 +174,8 @@ impl SchedulerOperations for BlockStateP11 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> Result<RawCbor, LockNotFoundByIdError> {
-        failure::nest(protocol_level_locks::p11::query_lock_info(
-            context, self, lock_id,
-        ))
-        .unwrap()
+        protocol_level_locks::p11::query_lock_info(context, self, lock_id)
+            .nest()
+            .unwrap()
     }
 }

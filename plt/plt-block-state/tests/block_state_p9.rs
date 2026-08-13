@@ -129,12 +129,12 @@ fn test_circulating_supply() {
 
     // Assert initially 0
     let circulating_supply = token.token_p9_base.token_circulating_supply();
-    assert_eq!(circulating_supply, RawTokenAmount(0));
+    assert_eq!(circulating_supply, RawTokenAmount::from(0));
 
     // Set supply
     token
         .token_p9_base
-        .set_token_circulating_supply(RawTokenAmount(10));
+        .set_token_circulating_supply(RawTokenAmount::from(10));
 
     // Update token
     block_state.update_token(&context, token).unwrap();
@@ -143,7 +143,7 @@ fn test_circulating_supply() {
     let token = block_state.token_by_index(&context, token_index).unwrap();
     assert_eq!(
         token.token_p9_base.token_circulating_supply(),
-        RawTokenAmount(10)
+        RawTokenAmount::from(10)
     );
 }
 
@@ -185,7 +185,7 @@ fn test_token_properties() {
     // Set values
     token
         .token_p9_base
-        .set_token_circulating_supply(RawTokenAmount(10));
+        .set_token_circulating_supply(RawTokenAmount::from(10));
     token.token_p9_base.set_deny_list_enabled(&context).unwrap();
     token
         .token_p9_base
