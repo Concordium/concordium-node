@@ -4778,6 +4778,12 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
     bsoTouchTokenAccount = doTouchTokenAccount
     bsoGetRustPLTBlockState pbs = PLT.getRustPLTBlockState . bspProtocolLevelTokens <$> loadPBS pbs
+    bsoGetExternalChainParameters pbs = do
+        bsp <- loadPBS pbs
+        updates <- refLoad $ bspUpdates bsp
+        params <- refLoad $ currentParameters updates
+        case PCP.pcpExternalChainParameters params of
+            CTrue external -> return external
     bsoSetRustPLTBlockState pbs pltState = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspProtocolLevelTokens = PLT.makeRustPLTBlockState pltState}

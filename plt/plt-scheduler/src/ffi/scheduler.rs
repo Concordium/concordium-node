@@ -25,6 +25,7 @@ use plt_block_state::ffi::block_state_callbacks::{
 };
 use plt_block_state::ffi::memory;
 use plt_block_state::persistent::block_state::PersistentBlockState;
+use plt_block_state::persistent::chain_parameters::PersistentChainParameters;
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionOutcome};
 use std::marker::PhantomData;
 
@@ -52,6 +53,8 @@ pub type FfiSchedulerEntityContext =
 /// - `get_account_index_by_address_callback` External function for getting account index by account address.
 /// - `get_token_account_states_callback` External function for getting token account states.
 /// - `block_state` Shared pointer to a block state to use as input state to execution.
+/// - `external_chain_parameters` Read-only pointer to P11 external chain parameters. It must be
+///   null for P9/P10 and non-null for P11.
 /// - `payload` Shared pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
@@ -77,6 +80,8 @@ pub type FfiSchedulerEntityContext =
 ///   signature of Rust type of the function pointer.
 /// - Argument `block_state` must be a non-null pointer to well-formed [`BlockState`].
 ///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through interior mutability).
+/// - Argument `external_chain_parameters` must be null for P9/P10. For P11 it must be a non-null
+///   pointer to well-formed [`PersistentChainParameters`], valid for the duration of this call.
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
 /// - Argument `block_state_out` must be a non-null and valid pointer for writing
@@ -94,6 +99,7 @@ extern "C" fn ffi_execute_transaction(
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PersistentBlockState,
+    external_chain_parameters: *const PersistentChainParameters,
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
@@ -199,6 +205,12 @@ extern "C" fn ffi_execute_transaction(
                 )
             }
             PersistentBlockState::P11(persistent) => {
+                assert!(
+                    !external_chain_parameters.is_null(),
+                    "external_chain_parameters is a null pointer for P11."
+                );
+                let PersistentChainParameters::P11(p11_chain_parameters) =
+                    unsafe { &*external_chain_parameters };
                 let mut block_state = BlockStateP11 {
                     persistent: persistent.clone(),
                 };
@@ -209,6 +221,7 @@ extern "C" fn ffi_execute_transaction(
                         transaction_context,
                         Account::from_existing_account(sender_account_index),
                         payload,
+                        p11_chain_parameters,
                     ),
                     PersistentBlockState::P11(block_state.persistent),
                 )
@@ -388,6 +401,52 @@ extern "C" fn ffi_execute_chain_update(
     return_status
 }
 
+/// C-binding for executing a chain update against external chain parameters.
+///
+/// The current parameters are left unchanged. On success, `params_out` receives
+/// a uniquely owned successor which the caller must free with
+/// `ffi_free_external_chain_parameters`.
+///
+/// # Safety
+///
+/// - `params` must be non-null and point to well-formed [`PersistentChainParameters`].
+/// - `payload` must be non-null and valid for reads of `payload_len` bytes.
+/// - `params_out` must be non-null and valid for writing.
+#[unsafe(no_mangle)]
+extern "C" fn ffi_execute_external_chain_parameters_update(
+    params: *const PersistentChainParameters,
+    payload: *const u8,
+    payload_len: size_t,
+    params_out: *mut *mut PersistentChainParameters,
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(move || {
+        assert!(!params.is_null(), "params is a null pointer.");
+        assert!(!payload.is_null(), "payload is a null pointer.");
+        assert!(!params_out.is_null(), "params_out is a null pointer.");
+        let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+        let payload: UpdatePayload = common::from_bytes_complete(payload_bytes)
+            .expect("Failed decoding external chain parameter update payload");
+        let (result, updated_params) = match unsafe { &*params } {
+            PersistentChainParameters::P11(persistent) => {
+                let mut chain_parameters = persistent.clone();
+                (
+                    scheduler::p11::execute_chain_parameters_update(&mut chain_parameters, payload),
+                    PersistentChainParameters::P11(chain_parameters),
+                )
+            }
+        };
+        result.expect("Unexpected failure during external chain parameter update execution");
+        unsafe {
+            *params_out = Box::into_raw(Box::new(updated_params));
+        }
+        (status::FfiStatusCode::Success, Vec::new())
+    });
+    if !return_data.is_empty() {
+        eprintln!("{}", String::from_utf8_lossy(&return_data));
+    }
+    return_status
+}
+
 #[cfg(test)]
 mod tests {
     use plt_block_state::ffi::blob_store_callbacks::tests_helpers::UNIMPLEMENTED_LOAD_CALLBACK;
@@ -400,6 +459,8 @@ mod tests {
     };
 
     use super::*;
+    use concordium_base::protocol_level_tokens::{RawCbor, meta_operations::MetaUpdatePayload};
+    use plt_scheduler_types::types::protocol_version::ProtocolVersion;
     use std::ptr;
 
     /// Test ensuring panics are caught and returned properly when providing invalid arguments to `ffi_execute_transaction`.
@@ -417,6 +478,7 @@ mod tests {
             UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
             UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
             UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES,
+            ptr::null(),
             ptr::null(),
             ptr::null(),
             0,
@@ -440,5 +502,51 @@ mod tests {
         };
         let message = std::str::from_utf8(data).expect("Failed decoding panic message");
         assert_eq!(message, "block_state is a null pointer.");
+    }
+
+    #[test]
+    fn test_p11_transaction_requires_external_chain_parameters() {
+        let block_state = PersistentBlockState::empty(ProtocolVersion::P11);
+        let payload = common::to_bytes(&Payload::MetaUpdate {
+            payload: MetaUpdatePayload {
+                operations: RawCbor::from(vec![]),
+            },
+        });
+        let sender_address = [0; contracts_common::ACCOUNT_ADDRESS_SIZE];
+        let block_state_out = Box::into_raw(Box::new(ptr::null_mut()));
+        let used_energy_out = Box::into_raw(Box::new(0));
+        let data_out = Box::into_raw(Box::new(ptr::null_mut()));
+        let data_out_len = Box::into_raw(Box::new(0));
+
+        let status_code = ffi_execute_transaction(
+            UNIMPLEMENTED_LOAD_CALLBACK,
+            UNIMPLEMENTED_READ_TOKEN_ACCOUNT_BALANCE,
+            UNIMPLEMENTED_UPDATE_TOKEN_ACCOUNT_BALANCE,
+            UNIMPLEMENTED_TOUCH_TOKEN_ACCOUNT,
+            UNIMPLEMENTED_INCREMENT_PLT_UPDATE_SEQUENCE_NUMBER,
+            UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
+            UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
+            UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES,
+            &block_state,
+            ptr::null(),
+            payload.as_ptr(),
+            payload.len(),
+            0,
+            sender_address.as_ptr(),
+            Nonce::from(1),
+            Timestamp::from_timestamp_millis(0),
+            0,
+            block_state_out,
+            used_energy_out,
+            data_out,
+            data_out_len,
+        );
+        assert_eq!(status_code, status::FfiStatusCode::Panic);
+        let data = unsafe { std::slice::from_raw_parts(*data_out, *data_out_len) };
+        let message = std::str::from_utf8(data).expect("Failed decoding panic message");
+        assert_eq!(
+            message,
+            "external_chain_parameters is a null pointer for P11."
+        );
     }
 }

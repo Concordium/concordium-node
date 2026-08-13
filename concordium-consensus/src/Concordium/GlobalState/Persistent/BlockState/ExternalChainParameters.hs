@@ -17,17 +17,22 @@ module Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters (
     p11NewExternalChainParameters,
     withExternalChainParameters,
     ExternalChainParametersHash (..),
+    executeChainUpdate,
     getMaxLockDuration,
 ) where
 
 import Control.Monad.Trans (liftIO)
+import qualified Data.ByteString.Unsafe as BS
 import qualified Data.Serialize as S
+import qualified Data.Word as Word
 import qualified Foreign as FFI
+import qualified Foreign.C.Types as FFI
 
 import Concordium.Common.Time (Duration (..))
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.HashableTo as Hashable
+import qualified Concordium.Types.Updates as Updates
 import qualified Control.Monad as Monad
 import qualified Data.FixedByteString as FixedByteString
 
@@ -144,6 +149,38 @@ foreign import ccall "ffi_hash_external_chain_parameters"
         FFI.LoadCallback ->
         FFI.Ptr RustExternalChainParameters ->
         FFI.Ptr FFI.Word8 ->
+        IO FFI.Word8
+
+-- | Execute a chain update against external chain parameters.
+--
+-- The current parameters are left unchanged. On success, this returns a newly
+-- allocated successor state. An unexpected payload or a Rust panic terminates
+-- execution with an error.
+--
+-- @
+-- updated <- executeChainUpdate current (Updates.MaxLockDurationUpdatePayload duration)
+-- @
+executeChainUpdate :: ForeignExternalChainParametersPtr pv -> Updates.UpdatePayload -> IO (ForeignExternalChainParametersPtr pv)
+executeChainUpdate params payload = do
+    let payloadBytes = S.runPut $ Updates.putUpdatePayload payload
+    FFI.alloca $ \paramsDestPtr -> do
+        status <-
+            withExternalChainParameters params $ \paramsPtr ->
+                BS.unsafeUseAsCStringLen payloadBytes $ \(payloadPtr, payloadLen) ->
+                    ffiExecuteExternalChainParametersUpdate
+                        paramsPtr
+                        (FFI.castPtr payloadPtr)
+                        (fromIntegral payloadLen)
+                        paramsDestPtr
+        Monad.unless (status == 0) $ error "Unexpected panic when executing an external chain parameter update"
+        FFI.peek paramsDestPtr >>= wrapFFIPtr
+
+foreign import ccall "ffi_execute_external_chain_parameters_update"
+    ffiExecuteExternalChainParametersUpdate ::
+        FFI.Ptr RustExternalChainParameters ->
+        FFI.Ptr Word.Word8 ->
+        FFI.CSize ->
+        FFI.Ptr (FFI.Ptr RustExternalChainParameters) ->
         IO FFI.Word8
 
 -- | Read the current maximum lock duration from external chain parameters.

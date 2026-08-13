@@ -2883,8 +2883,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                             handleCreatePLT uiHeader payload >>= \case
                                                 Left invalidReason -> return $ TxInvalid invalidReason
                                                 Right valid -> buildValidTxSummary' valid
-                                -- TODO: added in subsequent PR
-                                MaxLockDurationUpdatePayload{} -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                MaxLockDurationUpdatePayload u -> case sSupportsTokenParameters sauv of
+                                    STrue -> checkSigAndEnqueue $ UVMaxLockDuration u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
