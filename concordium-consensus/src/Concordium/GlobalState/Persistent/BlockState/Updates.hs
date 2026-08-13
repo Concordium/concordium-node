@@ -363,16 +363,16 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints oldCPV $
     -- Validator score parameters were introduced in P8.
     newValidatorScoreParametersQueue <- migrateUpdateQueueRefO id pValidatorScoreParametersQueue
     -- Max lock duration was introduced in P11/AUV3.
-    newMaxLockDurationQueue <- case sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @oldpv)) of
-        STrue -> case sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @pv)) of
-            STrue -> case pMaxLockDurationQueue of
-                CTrue hbr -> CTrue <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
-            SFalse -> return CFalse
-        SFalse -> case sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @pv)) of
-            STrue -> do
-                (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
-                return (CTrue hbr)
-            SFalse -> return CFalse
+    let oldSupportsTokenParameters = sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @oldpv))
+        newSupportsTokenParameters = sSupportsTokenParameters (sAuthorizationsVersionFor (protocolVersion @pv))
+    newMaxLockDurationQueue <- case (oldSupportsTokenParameters, newSupportsTokenParameters) of
+        (STrue, STrue) -> case pMaxLockDurationQueue of
+            CTrue queueRef -> CTrue <$> migrateHashedBufferedRef (migrateUpdateQueue id) queueRef
+        (STrue, SFalse) -> return CFalse
+        (SFalse, STrue) -> do
+            (!queueRef, _) <- refFlush =<< refMake emptyUpdateQueue
+            return (CTrue queueRef)
+        (SFalse, SFalse) -> return CFalse
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -1376,8 +1376,6 @@ processValidationScoreParametersUpdates t bu = do
                               pendingUpdates = pendingUpdates{pValidatorScoreParametersQueue = SomeParam newpQ}
                             }
 
--- | Process the add anonymity revoker update queue.
---   Ignores updates with duplicate ARs.
 -- | Process max lock duration updates.
 --  If token-parameter updates are supported then update the Rust-managed
 --  external chain-parameters component and update the pending queue.
@@ -1387,26 +1385,29 @@ processMaxLockDurationUpdates ::
     Timestamp ->
     BufferedRef (Updates' pv cpv auv) ->
     m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' pv cpv auv))
-processMaxLockDurationUpdates t bu = do
-    u@Updates{..} <- refLoad bu
+processMaxLockDurationUpdates timestamp updatesRef = do
+    updates@Updates{..} <- refLoad updatesRef
     case pMaxLockDurationQueue pendingUpdates of
-        CFalse -> return (Map.empty, bu)
-        CTrue qref -> do
-            oldQ <- refLoad qref
-            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newDurationRef newQ m ->
-                (UVMaxLockDuration <$> m,) <$> do
-                    newpQ <- refMake newQ
-                    StoreSerialized newDuration <- refLoad newDurationRef
-                    newPersistentParameters <-
-                        PCP.executeExternalChainParameterUpdate (MaxLockDurationUpdatePayload newDuration)
-                            =<< refLoad currentParameters
-                    newParameters <- refMake newPersistentParameters
+        CFalse -> return (Map.empty, updatesRef)
+        CTrue queueRef -> do
+            queue <- refLoad queueRef
+            processValueUpdates timestamp queue (return (Map.empty, updatesRef)) $ \newDurationRef remainingQueue appliedUpdates -> do
+                newQueueRef <- refMake remainingQueue
+                StoreSerialized newDuration <- refLoad newDurationRef
+                updatedPersistentParameters <-
+                    PCP.executeExternalChainParameterUpdate (MaxLockDurationUpdatePayload newDuration)
+                        =<< refLoad currentParameters
+                updatedParametersRef <- refMake updatedPersistentParameters
+                updatedUpdatesRef <-
                     refMake
-                        u
-                            { currentParameters = newParameters,
-                              pendingUpdates = pendingUpdates{pMaxLockDurationQueue = CTrue newpQ}
+                        updates
+                            { currentParameters = updatedParametersRef,
+                              pendingUpdates = pendingUpdates{pMaxLockDurationQueue = CTrue newQueueRef}
                             }
+                return (UVMaxLockDuration <$> appliedUpdates, updatedUpdatesRef)
 
+-- | Process the add anonymity revoker update queue.
+--   Ignores updates with duplicate ARs.
 processAddAnonymityRevokerUpdates ::
     (MonadBlobStore m, IsProtocolVersion pv, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     Timestamp ->
@@ -1712,8 +1713,6 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                     minUpdateSequenceNumber
                     id
                     pltUpdateSequenceNumber
-        -- TODO: Add a max-lock-duration update queue and sequence number in the
-        -- update-queue implementation in subsequent PR.
         UpdateMaxLockDuration -> case pMaxLockDurationQueue pendingUpdates of
             CFalse -> return minUpdateSequenceNumber
             CTrue queue -> uqNextSequenceNumber <$> refLoad queue
