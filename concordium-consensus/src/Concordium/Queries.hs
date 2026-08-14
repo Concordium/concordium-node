@@ -916,6 +916,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                             SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion2 -> queueMapper PUELevel2KeysV2 _pLevel2KeysUpdateQueue
+                            SAuthorizationsVersion3 -> queueMapper PUELevel2KeysV3 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
                 `merge` queueMapperOptional PUEElectionDifficulty _pElectionDifficultyQueue
@@ -948,6 +949,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
                 `merge` queueMapperOptional PUEFinalizationCommitteeParameters _pFinalizationCommitteeParametersQueue
                 `merge` queueMapperOptional PUEValidatorScoreParameters _pValidatorScoreParametersQueue
+                `merge` queueMapperConditional PUEMaxLockDuration _pMaxLockDurationQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion
@@ -957,6 +959,10 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
             queueMapperOptional :: (a -> PendingUpdateEffect) -> UQ.OUpdateQueue pt cpv a -> [(TransactionTime, PendingUpdateEffect)]
             queueMapperOptional _ NoParam = []
             queueMapperOptional constructor (SomeParam queue) = queueMapper constructor queue
+
+            queueMapperConditional :: (a -> PendingUpdateEffect) -> Conditionally b (UQ.UpdateQueue a) -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapperConditional _ CFalse = []
+            queueMapperConditional constructor (CTrue queue) = queueMapper constructor queue
 
         -- Merge two ascending lists into an ascending list.
         merge ::
@@ -1030,6 +1036,9 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
     mNextSequenceNumber :: UQ.OUpdateQueue pt cpv e -> U.UpdateSequenceNumber
     mNextSequenceNumber NoParam = minUpdateSequenceNumber
     mNextSequenceNumber (SomeParam q) = UQ._uqNextSequenceNumber q
+    cNextSequenceNumber :: Conditionally b (UQ.UpdateQueue e) -> U.UpdateSequenceNumber
+    cNextSequenceNumber CFalse = minUpdateSequenceNumber
+    cNextSequenceNumber (CTrue q) = UQ._uqNextSequenceNumber q
     query bs = do
         updates <- BS.getUpdates bs
         let UQ.PendingUpdates{..} = UQ._pendingUpdates updates
@@ -1056,7 +1065,8 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
                   _nusnBlockEnergyLimit = mNextSequenceNumber _pBlockEnergyLimitQueue,
                   _nusnFinalizationCommitteeParameters = mNextSequenceNumber _pFinalizationCommitteeParametersQueue,
                   _nusnValidatorScoreParameters = mNextSequenceNumber _pValidatorScoreParametersQueue,
-                  _nusnProtocolLevelTokensParameters = maybeConditionally minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates)
+                  _nusnProtocolLevelTokensParameters = maybeConditionally minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates),
+                  _nusnMaxLockDuration = cNextSequenceNumber _pMaxLockDurationQueue
                 }
 
 -- | Get the index of accounts with scheduled releases.

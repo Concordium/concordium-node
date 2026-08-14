@@ -8,6 +8,7 @@ pub mod blob_reference;
 pub mod blob_store;
 pub mod block_state;
 pub mod cacheable;
+pub mod chain_parameters;
 pub mod hash;
 pub mod lfmb_tree;
 pub mod protocol_level_locks;

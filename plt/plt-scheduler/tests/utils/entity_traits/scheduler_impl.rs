@@ -1,6 +1,6 @@
 use super::scheduler::SchedulerOperations;
 use concordium_base::base::{AccountIndex, Energy, Nonce};
-use concordium_base::contracts_common::{AccountAddress, Timestamp};
+use concordium_base::contracts_common::{AccountAddress, Duration, Timestamp};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -12,6 +12,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
+use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
 use plt_scheduler::failure::ResultWithBlockStateFailureExt;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
@@ -114,6 +115,9 @@ impl SchedulerOperations for BlockStateP11 {
             transaction_context,
             sender_account.clone(),
             payload,
+            &PersistentChainParametersP11 {
+                max_lock_duration: Duration::from_millis(u64::MAX),
+            },
         )
     }
 

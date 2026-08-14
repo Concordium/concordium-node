@@ -27,7 +27,7 @@
 --
 --  * 'genesisStateHash' is the state hash of the last finalized block of the previous chain.
 --
---  * 'genesisMigration' is empty as there is no state migration between P10 and P11.
+--  * 'genesisMigration' is derived from the protocol update auxiliary data.
 --
 --  The block state is taken from the last finalized block of the previous chain. It is updated
 --  as part of the state migration, which makes the following changes:
@@ -88,9 +88,10 @@ updateRegenesis ::
       MonadState (TreeState.SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
+    P11.ProtocolUpdateData ->
     BlockPointer 'P10 ->
     m (PVInit m)
-updateRegenesis terminalBlock = do
+updateRegenesis protocolUpdateData terminalBlock = do
     let regenesisTime = blockTimestamp terminalBlock
     gMetadata <- use TreeState.genesisMetadata
     BaseV1.CoreGenesisParametersV1{..} <- gmParameters <$> use TreeState.genesisMetadata
@@ -104,6 +105,9 @@ updateRegenesis terminalBlock = do
         genesisTerminalBlock = getHash terminalBlock
     let regenesisBlockState = bpState terminalBlock
     genesisStateHash <- getStateHash regenesisBlockState
-    let genesisMigration = P11.StateMigrationData
+    let genesisMigration =
+            P11.StateMigrationData
+                { migrationProtocolUpdateData = protocolUpdateData
+                }
     let newGenesis = GenesisData.RGDP11 $ P11.GDP11RegenesisFromP10{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
     return (PVInit newGenesis (GenesisData.StateMigrationParametersP10ToP11 genesisMigration) (bmHeight $ bpInfo terminalBlock))

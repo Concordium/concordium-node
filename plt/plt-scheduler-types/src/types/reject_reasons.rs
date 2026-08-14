@@ -44,6 +44,8 @@ pub enum TransactionRejectReason {
     LockTokenNotPermitted(LockId, TokenId),
     /// The recipient is not permitted to receive funds controlled by the lock.
     LockRecipientNotPermitted(LockId, AccountAddress),
+    /// The requested expiry exceeds the maximum permitted lock duration.
+    LockDurationTooLong(LockId),
 }
 
 impl Serial for TransactionRejectReason {
@@ -104,6 +106,10 @@ impl Serial for TransactionRejectReason {
                 out.put(&64u8);
                 out.put(&lock_id);
                 out.put(&addr);
+            }
+            TransactionRejectReason::LockDurationTooLong(lock_id) => {
+                out.put(&65u8);
+                out.put(&lock_id);
             }
         }
     }
@@ -300,6 +306,17 @@ mod test {
         assert_eq!(
             hex::encode(&bytes),
             "400000000000fedcba00000000000012340000000000000005000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
+    }
+
+    #[test]
+    fn test_lock_duration_too_long_reject_reason_serial() {
+        let reject_reason =
+            TransactionRejectReason::LockDurationTooLong(LockId::new(0xfedcba, 0x1234, 5));
+        let bytes = common::to_bytes(&reject_reason);
+        assert_eq!(
+            hex::encode(&bytes),
+            "410000000000fedcba00000000000012340000000000000005"
         );
     }
 }

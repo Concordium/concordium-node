@@ -75,7 +75,7 @@ testBB1 =
                         SP8 -> read "6f02a3e339abab1af9d23bc74369b6e142ad3b09f4d7042d16e076e225e3753f"
                         SP9 -> read "27ad830abd9d1f456f2a1666365ffff1fb216911d8dab2fbae5d3ad701816733"
                         SP10 -> read "5634a54bfdfb954205b78129c93236fba97b3190ad3fa412b4e2ffbaad6e7324"
-                        SP11 -> read "54d0c1eac303ede359f6f5fae1d92ecd7f6d8413fec5c78c78b6c4dddba02d5c"
+                        SP11 -> read "b17a4151a48f2887083ccc76d5bc7568f539628ca1bf12031fb13bfa90e07f3c"
                     }
         }
   where
@@ -109,7 +109,7 @@ testBB2 =
                         SP8 -> read "b0c8b7a3872b7bb35a9df1f620e47f2b7dad09889b29772d7bc03d713cff862d"
                         SP9 -> read "3017ca78e30e5bfc25a15849c07b1266c46185340b909e26aee439ddc694af7b"
                         SP10 -> read "3017ca78e30e5bfc25a15849c07b1266c46185340b909e26aee439ddc694af7b"
-                        SP11 -> read "ce6422ea14d286970f346aa59025debb89ceb1be99324b7a9f087de4f65e91cb"
+                        SP11 -> read "13964fd0b90be7dccd11fb38557e5ec2db096c3cf7a894c15d5119eac6ed4acb"
                     }
         }
   where
@@ -143,7 +143,7 @@ testBB3 =
                         SP8 -> read "8adf29ed11f4784b4b32dbf84887ff9f5dd38ef2f78dbefe579822b48acd9e51"
                         SP9 -> read "8935d7fb4c2906ecf1e10b225e319fb39933ca7b0970b93084e4b7b6b01a8dca"
                         SP10 -> read "8935d7fb4c2906ecf1e10b225e319fb39933ca7b0970b93084e4b7b6b01a8dca"
-                        SP11 -> read "15279dd38b91f69114e25658e537f12fe3c4839bf56bf0bbb4249f8ba2ebab20"
+                        SP11 -> read "152c02676295c287c1aa51bd264d54e70b49df37adf5fc0ed3df738e822a890d"
                     }
         }
   where
@@ -176,7 +176,7 @@ testBB4 =
                         SP8 -> read "487c4bdf8af054727f0688bd8a7176f6c2a9c85dffc5d8acc1de23e0c3b6ef49"
                         SP9 -> read "fe5c4a3c4943440c34a72884ccf178af8f7b2043f0179b6bbf554574bb4ba581"
                         SP10 -> read "7ccdea365c8283b97af6b5d00fedc17853e84021dcbf1417c34fefbfe7736091"
-                        SP11 -> read "7871e2eace30dda1d602db9438b9a5b7ef90827e10711e0a282017ad421815f1"
+                        SP11 -> read "31cd7c3a4a9fbfc4d7c32d8210506d7e7cbd1afbc925cb81d81b774a25da2d65"
                     }
         }
   where

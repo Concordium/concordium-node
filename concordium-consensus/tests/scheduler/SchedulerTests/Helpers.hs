@@ -173,7 +173,7 @@ createTestBlockStateWithAccountsAndKeys accounts keys = do
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
             keys
-            DummyData.dummyChainParameters
+            (DummyData.dummyChainParameters @pv)
     -- save block state and accounts.
     void $ BS.saveBlockState bs
     void $ BS.saveGlobalMaps bs

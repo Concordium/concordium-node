@@ -27,6 +27,7 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Genesis.Data.P4 as P4
+import qualified Concordium.GlobalState.Persistent.Migration as Migration
 import Concordium.ID.Parameters
 import Concordium.ID.Types hiding (values)
 import qualified Concordium.ID.Types as ID
@@ -36,7 +37,6 @@ import qualified Concordium.Types.Accounts as BaseAccount hiding (bakerPendingCh
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
-import qualified Concordium.Types.Migration as Migration
 
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bakerKeyUpdateToInfo, genesisBakerInfo)

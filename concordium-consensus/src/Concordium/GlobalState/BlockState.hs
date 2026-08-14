@@ -93,6 +93,7 @@ import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
+import qualified Concordium.GlobalState.Persistent.BlockState.ExternalChainParameters as ECP
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
     TokenIndex,
@@ -1771,6 +1772,13 @@ class
         (PVSupportsRustManagedPLT (MPV m)) =>
         UpdatableBlockState m -> m (RustBS.ForeignPLTBlockStatePtr (MPV m))
 
+    -- | Get the node-owned Rust external chain-parameters pointer.
+    --
+    -- This is a low-level interface needed for foreign function interface access.
+    bsoGetExternalChainParameters ::
+        (PVSupportsRustManagedECP (MPV m)) =>
+        UpdatableBlockState m -> m (ECP.ForeignExternalChainParametersPtr (MPV m))
+
     -- | Set the foreign pointer to the Rust managed PLT state.
     --
     -- This is a Low-level interface needed for foreign function interface access.
@@ -2161,6 +2169,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
     bsoTouchTokenAccount s tokIx = lift . bsoTouchTokenAccount s tokIx
     bsoGetRustPLTBlockState pbs = lift $ bsoGetRustPLTBlockState pbs
+    bsoGetExternalChainParameters pbs = lift $ bsoGetExternalChainParameters pbs
     bsoSetRustPLTBlockState pbs pltState = lift $ bsoSetRustPLTBlockState pbs pltState
     withUnliftBSO operation = lift $ withUnliftBSO operation
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
@@ -2228,6 +2237,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoGetRustPLTBlockState #-}
+    {-# INLINE bsoGetExternalChainParameters #-}
     {-# INLINE bsoSetRustPLTBlockState #-}
     {-# INLINE withUnliftBSO #-}
     {-# INLINE bsoSnapshotState #-}

@@ -12,6 +12,7 @@ import qualified SchedulerTests.InitContextTest (tests)
 import qualified SchedulerTests.InitPoliciesTest (tests)
 import qualified SchedulerTests.InitialAccountCreationSpec (tests)
 import qualified SchedulerTests.MaxIncomingAmountsTest (tests)
+import qualified SchedulerTests.MaxLockDurationUpdate (tests)
 import qualified SchedulerTests.MetaUpdateTransactions (tests)
 import qualified SchedulerTests.Payday (tests)
 import qualified SchedulerTests.RandomBakerTransactions (tests)
@@ -121,6 +122,7 @@ main = hspec $ do
     SchedulerTests.KonsensusV1.EpochTransition.tests
     SchedulerTests.TokenModule.tests
     SchedulerTests.TokenCreation.tests
+    SchedulerTests.MaxLockDurationUpdate.tests
     SchedulerTests.TokenHolderTransactions.tests
     SchedulerTests.MetaUpdateTransactions.tests
     SchedulerTests.RustScheduler.tests

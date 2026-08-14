@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.AccountReleaseScheduleTest (tests) where
@@ -85,7 +86,7 @@ createGS = do
             dummyIdentityProviders
             dummyArs
             dummyKeyCollection
-            dummyChainParameters
+            (dummyChainParameters @PV)
     -- save the block state so accounts are written to the lmdb database.
     void $ saveBlockState initState
     addr0 <- BS.accountCanonicalAddress acc0
