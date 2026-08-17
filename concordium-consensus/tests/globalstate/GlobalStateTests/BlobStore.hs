@@ -183,6 +183,7 @@ bsoOKTest = tst Seq.empty 0
         0 <= i && i < n && 0 <= j && j < Seq.length s && tst s n cont
 
 foreign import ccall "dynamic" callLoadCallback :: LoadCallback -> LoadCallbackType
+foreign import ccall "dynamic" callLoadLengthCallback :: LoadLengthCallback -> LoadLengthCallbackType
 foreign import ccall "dynamic" callStoreCallback :: StoreCallback -> StoreCallbackType
 
 foreign import ccall "return_value_to_byte_array" vectorToByteArray :: Ptr Vec -> Ptr CSize -> IO (Ptr Word8)
@@ -192,7 +193,12 @@ foreign import ccall unsafe "box_vec_u8_free" freeVector :: Ptr Vec -> IO ()
 -- | Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore', given:
 --  - A context of 'BlobRef's that have already been written, with their contents.
 --  - A context of callbacks that have already been obtained from calls to 'getCallbacks'.
-runBlobStoreOperation' :: (MonadBlobStore m) => Seq.Seq (BlobRef Void, BS.ByteString) -> Seq.Seq (LoadCallback, StoreCallback) -> BlobStoreOperation -> m ()
+runBlobStoreOperation' ::
+    (MonadBlobStore m) =>
+    Seq.Seq (BlobRef Void, BS.ByteString) ->
+    Seq.Seq BlobStoreCallbacks ->
+    BlobStoreOperation ->
+    m ()
 runBlobStoreOperation' _ _ Done = return ()
 runBlobStoreOperation' s cbks (Store bs cont) = do
     r <- storeRaw bs
@@ -216,12 +222,12 @@ runBlobStoreOperation' s cbks (GetCallbacks cont) = do
     cb <- getCallbacks
     runBlobStoreOperation' s (cb Seq.<| cbks) cont
 runBlobStoreOperation' s cbks (StoreViaCallbacks i bs cont) = do
-    let (_, storeCbk) = Seq.index cbks i
+    let storeCbk = storeCallback $ Seq.index cbks i
     r <- liftIO $ Unsafe.unsafeUseAsCStringLen bs $ \(cs, len) ->
         callStoreCallback storeCbk (castPtr cs) (fromIntegral len)
     runBlobStoreOperation' ((BlobRef r, bs) Seq.<| s) cbks cont
 runBlobStoreOperation' s cbks (LoadViaCallbacks i j cont) = do
-    let (loadCbk, _) = Seq.index cbks i
+    let loadCbk = loadCallback $ Seq.index cbks i
     let (BlobRef r, expect) = Seq.index s j
     liftIO $ do
         vec <- callLoadCallback loadCbk r
@@ -236,6 +242,33 @@ runBlobStoreOperation' s cbks (LoadViaCallbacks i j cont) = do
 -- | Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore'.
 runBlobStoreOperation :: (MonadBlobStore m) => BlobStoreOperation -> m ()
 runBlobStoreOperation = runBlobStoreOperation' Seq.empty Seq.empty
+
+-- | Make sure that the metadata callback returns the exact length and does not
+-- use the complete-value callback. A Rust test separately measures the loaded
+-- payload bytes. This test checks the same callback behavior for both stores.
+checkLengthCallback :: (MonadBlobStore m) => m ()
+checkLengthCallback = do
+    let payload = BS.replicate 4096 7
+    BlobRef reference <- storeRaw payload
+    callbacks <- getCallbacks
+    (status, actualLength) <- liftIO $ alloca $ \outLength -> do
+        status <- callLoadLengthCallback (loadLengthCallback callbacks) reference outLength
+        lengthValue <- peek outLength
+        return (status, lengthValue)
+    liftIO $ do
+        assertEqual "Length callback status" 0 status
+        assertEqual "Stored payload length" (fromIntegral $ BS.length payload) actualLength
+
+checkLengthCallbackException :: IO ()
+checkLengthCallbackException = bracket makeCallback freeHaskellFunPtr $ \callback ->
+    alloca $ \outLength -> do
+        poke outLength 42
+        status <- callLoadLengthCallback callback 0 outLength
+        actualLength <- peek outLength
+        assertEqual "Callback failure status" 1 status
+        assertEqual "Failed callback output" 42 actualLength
+  where
+    makeCallback = createSafeLoadLengthCallback $ \_ -> throwIO $ userError "test failure"
 
 -- | Run a 'BlobStoreOperation' in the 'MemBlobStore'.
 testMemBlobStore :: BlobStoreOperation -> Property
@@ -256,3 +289,7 @@ tests = describe "BlobStore" $ do
     it "MemBlobStore" $ property testMemBlobStore
     -- Test the disk blob store.
     it "BlobStore" $ property testBlobStore
+    it "MemBlobStore metadata length" $
+        bracket newMemBlobStore destroyMemBlobStore (runMemBlobStoreT checkLengthCallback)
+    it "BlobStore metadata length" $ (runBlobStoreTemp "." checkLengthCallback :: IO ())
+    it "Metadata callback contains exceptions" checkLengthCallbackException

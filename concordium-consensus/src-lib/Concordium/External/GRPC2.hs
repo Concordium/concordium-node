@@ -27,6 +27,7 @@ import Lens.Micro.Platform
 import qualified Proto.V2.Concordium.Types as Proto
 import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
+import Concordium.GlobalState.ContractStateFFIHelpers (LoadLengthCallback, loadCallback, loadLengthCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Queries as Q
 import Concordium.Types
@@ -279,7 +280,7 @@ data PersistentStateReceiver
 
 -- | A type of callback that copies the V1 contract persistent state into the
 --  provided receveir.
-type PersistentStateCopier = Ptr PersistentStateReceiver -> Ptr StateV1.PersistentState -> StateV1.LoadCallback -> IO ()
+type PersistentStateCopier = Ptr PersistentStateReceiver -> Ptr StateV1.PersistentState -> StateV1.LoadCallback -> LoadLengthCallback -> IO ()
 
 -- | Boilerplate wrapper to invoke C callbacks.
 foreign import ccall "dynamic" callPersistentStateCopier :: FunPtr PersistentStateCopier -> PersistentStateCopier
@@ -324,7 +325,7 @@ getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash ou
                 Right (ps, sContext) -> do
                     let copier = callPersistentStateCopier msCopierCbk
                     StateV1.withPersistentState ps $ \psPtr -> do
-                        copier outMS psPtr sContext
+                        copier outMS psPtr (loadCallback sContext) (loadLengthCallback sContext)
                     return (queryResultCode QRSuccess)
         _ -> return (queryResultCode QRNotFound)
 

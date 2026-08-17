@@ -1,12 +1,31 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | Helper types and foreign imports to use V1 contract state. This is here and
 --    not in Concordium.GlobalState.ContractStateV1 to have an acyclic module
 --    hierarchy.
-module Concordium.GlobalState.ContractStateFFIHelpers where
+module Concordium.GlobalState.ContractStateFFIHelpers (
+    BlobStoreCallbacks (..),
+    LoadCallback,
+    StoreCallback,
+    LoadLengthCallback,
+    LoadCallbackType,
+    LoadLengthCallbackType,
+    StoreCallbackType,
+    Vec,
+    copyToRustVec,
+    createSafeLoadLengthCallback,
+    createLoadCallback,
+    createStoreCallback,
+    errorLoadCallback,
+    errorBlobStoreCallbacks,
+) where
 
-import Data.Word
-import Foreign.C.Types
-import Foreign.Ptr
-import System.IO.Unsafe (unsafePerformIO)
+import qualified Control.Exception as Control
+import qualified Data.Word as Data
+import qualified Foreign.C.Types as Foreign
+import qualified Foreign.Ptr as Foreign
+import qualified Foreign.Storable as Foreign
+import qualified System.IO.Unsafe as System
 
 -- | Opaque type representing a Rust vector. The vector's lifetime is managed by Rust, in the sense
 --  that the vector will be deallocated by the Rust runtime.
@@ -15,33 +34,75 @@ data Vec
 -- | Callback for reading from the blob store into the provided buffer. The
 --  argument is the location to read from. The return value is (pointer to) a
 --  vector that should be passed to the Rust runtime.
-type LoadCallbackType = Word64 -> IO (Ptr Vec)
+type LoadCallbackType = Data.Word64 -> IO (Foreign.Ptr Vec)
 
-type LoadCallback = FunPtr LoadCallbackType
+type LoadCallback = Foreign.FunPtr LoadCallbackType
+
+-- | Callback that reads the length metadata of a stored blob. The callback
+-- writes the length only after a successful read. It does not let an exception
+-- cross the native boundary.
+type LoadLengthCallbackType = Data.Word64 -> Foreign.Ptr Data.Word64 -> IO Data.Word8
+
+type LoadLengthCallback = Foreign.FunPtr LoadLengthCallbackType
+
+-- | Named operations for V1 contract-state backing storage. The store owns all
+-- function pointers in this record. The store frees the pointers one time when
+-- it is destroyed.
+data BlobStoreCallbacks = BlobStoreCallbacks
+    { loadCallback :: !LoadCallback,
+      loadLengthCallback :: !LoadLengthCallback,
+      storeCallback :: !StoreCallback
+    }
 
 -- | Callback for writing to the blob store from the provided buffer. The
 --  arguments are the buffer where the data is and the amount of data to write.
 --  It is assumed that the buffer has sufficient size. The return value is the
 --  location where data was written.
-type StoreCallbackType = Ptr Word8 -> CSize -> IO Word64
+type StoreCallbackType = Foreign.Ptr Data.Word8 -> Foreign.CSize -> IO Data.Word64
 
-type StoreCallback = FunPtr StoreCallbackType
+type StoreCallback = Foreign.FunPtr StoreCallbackType
 
 -- | Wrappers for making callbacks from Haskell functions or closures.
 foreign import ccall "wrapper" createLoadCallback :: LoadCallbackType -> IO LoadCallback
 
+foreign import ccall "wrapper" createLoadLengthCallback :: LoadLengthCallbackType -> IO LoadLengthCallback
+
 foreign import ccall "wrapper" createStoreCallback :: StoreCallbackType -> IO StoreCallback
 
 -- | Allocate and return a Rust vector that contains the given data.
-foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Ptr Word8 -> CSize -> IO (Ptr Vec)
+foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Foreign.Ptr Data.Word8 -> Foreign.CSize -> IO (Foreign.Ptr Vec)
 
 -- | A callback that always panics. This is used in the basic state
 --  implementation which never stores any data in the backing store. NOINLINE
 --  here ensures that only a single instance of callbacks is allocated.
 {-# NOINLINE errorLoadCallback #-}
 errorLoadCallback :: LoadCallback
-errorLoadCallback = unsafePerformIO $ createLoadCallback (\_location -> error "Error load callback invoked, and it should not have been.")
+errorLoadCallback = System.unsafePerformIO $ createLoadCallback (\_location -> error "Error load callback invoked, and it should not have been.")
 
--- | Deallocate the callbacks. This should generally be called to not leak memory.
-freeErrorCallback :: LoadCallback -> IO ()
-freeErrorCallback = freeHaskellFunPtr
+-- | Metadata callback for contexts that cannot access persisted data.
+{-# NOINLINE errorLoadLengthCallback #-}
+errorLoadLengthCallback :: LoadLengthCallback
+errorLoadLengthCallback = System.unsafePerformIO $ createLoadLengthCallback (\_location _out -> return 1)
+
+{-# NOINLINE errorStoreCallback #-}
+errorStoreCallback :: StoreCallback
+errorStoreCallback = System.unsafePerformIO $ createStoreCallback (\_ptr _size -> error "Error store callback invoked, and it should not have been.")
+
+errorBlobStoreCallbacks :: BlobStoreCallbacks
+errorBlobStoreCallbacks =
+    BlobStoreCallbacks
+        { loadCallback = errorLoadCallback,
+          loadLengthCallback = errorLoadLengthCallback,
+          storeCallback = errorStoreCallback
+        }
+
+-- | Make an exception-safe metadata callback from an IO length query. Return 0
+-- after a successful query. Return 1 if the query throws an exception.
+createSafeLoadLengthCallback :: (Data.Word64 -> IO Data.Word64) -> IO LoadLengthCallback
+createSafeLoadLengthCallback query = createLoadLengthCallback $ \location outLength -> do
+    result <- Control.try (query location)
+    case result of
+        Left (_ :: Control.SomeException) -> return 1
+        Right len -> do
+            Foreign.poke outLength len
+            return 0

@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Fix security bug where V1 contract-state query `entry-size` resulted in a variable amount of work, but for a fixed energy cost. The fix ensures the query runs in constant time.
 - Add a per-peer queued inbound consensus byte backpressure threshold, alongside the existing per-peer queued message limit, to bound retained queue memory from aggressively sending peers.
   The new threshold is configurable with `--queued-bytes-per-peer-threshold` / `CONCORDIUM_NODE_CONNECTION_QUEUED_BYTES_PER_PEER_THRESHOLD`.
 - Expose Prometheus counters for byte-threshold (`consensus_inbound_peer_queue_byte_threshold_delays_total`) and message-count (`consensus_inbound_peer_queue_message_count_limit_delays_total`) backpressure events.
