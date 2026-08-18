@@ -7,8 +7,10 @@
 module SchedulerTests.UpdateCredentials (tests) where
 
 import Control.Monad
+import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map as Map
 import Data.Maybe
+import Lens.Micro.Platform ((^.))
 import Test.HUnit
 import Test.Hspec
 
@@ -18,7 +20,9 @@ import Concordium.GlobalState.DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.ID.Types as ID
+import qualified Concordium.Scheduler as Scheduler
 import Concordium.Scheduler.DummyData
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
@@ -61,6 +65,15 @@ cdi8 = case credential ac8 of
 
 cdi9ID :: CredentialRegistrationID
 cdi9ID = credId (NormalACWP cdi9)
+
+cdi9EmptyArData :: CredentialDeploymentInformation
+cdi9EmptyArData =
+    cdi9
+        { cdiValues =
+            (cdiValues cdi9)
+                { cdvArData = Map.empty
+                }
+        }
 cdi9kp0 :: Sig.KeyPair
 cdi9kp0 = keys cdi9keys Map.! 0
 cdi9kp1 :: Sig.KeyPair
@@ -341,17 +354,106 @@ updateAccountCredentialTest _ pvString =
             }
         ]
 
-    checkKeys :: [(ID.CredentialIndex, ID.CredentialPublicKeys)] -> ID.AccountThreshold -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
-    checkKeys expectedKeys expectedThreshold state = do
-        maybeAccount <- BS.bsoGetAccount state cdi8address
-        case maybeAccount of
-            Nothing -> return $ assertFailure $ "Account with address '" ++ show cdi8address ++ "' not found"
-            Just (_, account) -> do
-                accountInformation <- BS.accountVerificationKeys account
-                credentials <- BS.accountCredentials account
-                return $ do
-                    checkAccountKeys expectedKeys expectedThreshold accountInformation
-                    checkAllCredentialKeys expectedKeys credentials
+emptyArDataUpdate :: Types.Nonce -> Runner.BlockItemDescription
+emptyArDataUpdate nonce =
+    Runner.AccountTx $
+        Runner.TJSON
+            { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9EmptyArData) [] 1,
+              metadata = makeDummyHeader cdi8address nonce 100_000,
+              keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
+            }
+
+validCredentialUpdate :: Types.Nonce -> Runner.BlockItemDescription
+validCredentialUpdate nonce =
+    Runner.AccountTx $
+        Runner.TJSON
+            { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 1,
+              metadata = makeDummyHeader cdi8address nonce 100_000,
+              keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
+            }
+
+-- | Exercise pending-transaction filtering during block construction.
+-- This also verifies that rejecting the malformed update leaves the
+-- account unchanged and does not prevent a subsequent valid update.
+emptyArDataConstructionTest ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+emptyArDataConstructionTest _ pvString =
+    specify (pvString ++ ": empty AR data is rejected during block construction") $
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            [ Helpers.BlockItemAndAssertion
+                { biaaTransaction = emptyArDataUpdate 1,
+                  biaaAssertion = \result state -> do
+                    doCheckKeys <- checkKeys [(0, cdiKeys cdi8)] 1 state
+                    return $ do
+                        Helpers.assertRejectWithReason InvalidCredentials result
+                        doCheckKeys
+                },
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction = validCredentialUpdate 2,
+                  biaaAssertion = \result state -> do
+                    doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 1 state
+                    return $ do
+                        Helpers.assertSuccessWithEvents
+                            [CredentialsUpdated cdi8address [cdi9ID] [] 1]
+                            result
+                        doCheckKeys
+                }
+            ]
+
+-- | Exercise transaction execution for a received block. This independently
+-- verifies that the received-block path rejects the malformed update without
+-- changing the account state or aborting execution.
+emptyArDataBlockExecutionTest ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+emptyArDataBlockExecutionTest _ pvString =
+    specify (pvString ++ ": empty AR data is rejected during block execution") $
+        join $
+            Helpers.runTestBlockState $ do
+                state <- initialBlockState @pv
+                groups <- liftIO $ Runner.processUngroupedBlockItems [emptyArDataUpdate 1]
+                case groups of
+                    [Types.TGAccountTransactions [transaction]] -> do
+                        mutableState <- BS.thawBlockState state
+                        let schedulerState = EI.makeInitialSchedulerState mutableState
+                        (result, finalSchedulerState) <-
+                            EI.runSchedulerT
+                                (Scheduler.runTransactions [(Types.toBlockItem (fst transaction), snd transaction)])
+                                Helpers.defaultContextState
+                                schedulerState
+                        doCheckKeys <- checkKeys [(0, cdiKeys cdi8)] 1 (finalSchedulerState ^. EI.ssBlockState)
+                        return $ do
+                            case result of
+                                Right [(_, summary)] ->
+                                    assertEqual
+                                        "The malformed credential is rejected"
+                                        (Types.TxReject InvalidCredentials)
+                                        (Types.tsResult summary)
+                                other -> assertFailure $ "Unexpected block execution result: " ++ show other
+                            doCheckKeys
+                    _ -> return $ assertFailure "Expected one account transaction group"
+
+checkKeys :: (Types.IsProtocolVersion pv) => [(ID.CredentialIndex, ID.CredentialPublicKeys)] -> ID.AccountThreshold -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
+checkKeys expectedKeys expectedThreshold state = do
+    maybeAccount <- BS.bsoGetAccount state cdi8address
+    case maybeAccount of
+        Nothing -> return $ assertFailure $ "Account with address '" ++ show cdi8address ++ "' not found"
+        Just (_, account) -> do
+            accountInformation <- BS.accountVerificationKeys account
+            credentials <- BS.accountCredentials account
+            return $ do
+                checkAccountKeys expectedKeys expectedThreshold accountInformation
+                checkAllCredentialKeys expectedKeys credentials
 
 -- Checks that the keys in the AccountInformation matches the ones in the list, that there isn't
 -- any other keys than these in the AccountInformation and that the signature threshold matches.
@@ -382,4 +484,7 @@ tests :: Spec
 tests =
     describe "UpdateCredentials" $
         sequence_ $
-            Helpers.forEveryProtocolVersion updateAccountCredentialTest
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                updateAccountCredentialTest spv pvString
+                emptyArDataConstructionTest spv pvString
+                emptyArDataBlockExecutionTest spv pvString
