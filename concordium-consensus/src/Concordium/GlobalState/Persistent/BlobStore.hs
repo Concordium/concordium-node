@@ -404,22 +404,21 @@ readBlobLength storeAccess (BlobRef offset) = do
     case (word64ToInt offset, offset `checkedAddWord64` 8) of
         (Just start, Just dataOffset)
             | dataOffset <= fileSize -> do
-                -- Use the current memory map, or update it if it does not contain the header.
-                mmap0 <- readIORef (blobStoreMMap storeAccess)
-                mmap <-
-                    if start + 8 <= BS.length mmap0
-                        then return mmap0
-                        else do
-                            remapped <- mmapFileByteString (blobStoreFilePath storeAccess) Nothing
-                            writeIORef (blobStoreMMap storeAccess) remapped
-                            return remapped
-                -- Read from the file handle if the updated memory map does not contain the header.
+                -- Use the current memory map if it contains the header.
+                mmap <- readIORef (blobStoreMMap storeAccess)
                 header <-
                     if start + 8 <= BS.length mmap
                         then return $ BS.take 8 $ BS.drop start mmap
-                        else withMVar (blobStoreFile storeAccess) $ \BlobHandle{..} -> do
-                            hSeek bhHandle AbsoluteSeek (fromIntegral offset)
-                            BS.hGet bhHandle 8
+                        else mask $ \restore -> do
+                            -- Fallback to reading from file handle directly.
+                            blobHandle <- takeMVar (blobStoreFile storeAccess)
+                            result <- try $ restore $ do
+                                hSeek (bhHandle blobHandle) AbsoluteSeek (fromIntegral offset)
+                                BS.hGet (bhHandle blobHandle) 8
+                            putMVar (blobStoreFile storeAccess) blobHandle{bhAtEnd = False}
+                            case result :: Either SomeException BS.ByteString of
+                                Left err -> throwIO err
+                                Right bytes -> return bytes
                 -- Decode the payload length from the header.
                 len <- case decode header of
                     Left err -> throwIO $ userError $ "Cannot decode the blob length: " ++ err

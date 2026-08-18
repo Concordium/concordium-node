@@ -259,6 +259,23 @@ checkLengthCallback = do
         assertEqual "Length callback status" 0 status
         assertEqual "Stored payload length" (fromIntegral $ BS.length payload) actualLength
 
+-- | Check that a metadata read does not change the position of the next write.
+checkLengthCallbackPreservesWritePosition :: (MonadBlobStore m) => m ()
+checkLengthCallbackPreservesWritePosition = do
+    let firstPayload = BS.replicate 32 1
+        secondPayload = BS.replicate 32 2
+    BlobRef firstReference <- storeRaw firstPayload
+    callbacks <- getCallbacks
+    status <- liftIO $ alloca $ \outLength ->
+        callLoadLengthCallback (loadLengthCallback callbacks) firstReference outLength
+    liftIO $ assertEqual "Length callback status" 0 status
+    secondReference <- storeRaw secondPayload
+    actualFirstPayload <- loadRaw (BlobRef firstReference)
+    actualSecondPayload <- loadRaw secondReference
+    liftIO $ do
+        assertEqual "First payload after metadata read and write" firstPayload actualFirstPayload
+        assertEqual "Second payload after metadata read" secondPayload actualSecondPayload
+
 checkLengthCallbackException :: IO ()
 checkLengthCallbackException = bracket makeCallback freeHaskellFunPtr $ \callback ->
     alloca $ \outLength -> do
@@ -292,4 +309,6 @@ tests = describe "BlobStore" $ do
     it "MemBlobStore metadata length" $
         bracket newMemBlobStore destroyMemBlobStore (runMemBlobStoreT checkLengthCallback)
     it "BlobStore metadata length" $ (runBlobStoreTemp "." checkLengthCallback :: IO ())
+    it "BlobStore metadata reads preserve the next write position" $
+        (runBlobStoreTemp "." checkLengthCallbackPreservesWritePosition :: IO ())
     it "Metadata callback contains exceptions" checkLengthCallbackException
