@@ -82,6 +82,8 @@ foreign import ccall "lookup_entry_value_mutable_state"
         LoadCallback ->
         -- | Callback for loading byte length of nodes into memory.
         LoadLengthCallback ->
+        -- | Callback for loading partial range of a persistent node into memory.
+        LoadRangeCallback ->
         -- | Location of the key.
         Ptr Word8 ->
         -- | Length of the key.
@@ -101,6 +103,7 @@ lookupMutableState key state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen)
             lookupEntryValueMutableStateFFI
                 (loadCallback $ msContext state)
                 (loadLengthCallback $ msContext state)
+                (loadRangeCallback $ msContext state)
                 (castPtr keyPtr)
                 (fromIntegral keyLen)
                 inner
@@ -127,6 +130,8 @@ foreign import ccall "insert_entry_value_mutable_state"
         LoadCallback ->
         -- | Callback for loading byte length of nodes into memory.
         LoadLengthCallback ->
+        -- | Callback for loading partial range of a persistent node into memory.
+        LoadRangeCallback ->
         -- | Location of the key.
         Ptr Word8 ->
         -- | Length of the key.
@@ -160,6 +165,7 @@ insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, k
                 insertEntryValueMutableStateFFI
                     (loadCallback $ msContext state)
                     (loadLengthCallback $ msContext state)
+                    (loadRangeCallback $ msContext state)
                     (castPtr keyPtr)
                     (fromIntegral keyLen)
                     (castPtr valuePtr)
@@ -183,6 +189,8 @@ foreign import ccall "delete_entry_mutable_state"
         LoadCallback ->
         -- | Callback for loading byte length of nodes into memory.
         LoadLengthCallback ->
+        -- | Callback for loading partial range of a persistent node into memory.
+        LoadRangeCallback ->
         -- | Location of the key.
         Ptr Word8 ->
         -- | Length of the key.
@@ -210,6 +218,7 @@ deleteEntryMutableState key mutableState =
                 deleteEntryMutableStateFFI
                     (loadCallback $ msContext mutableState)
                     (loadLengthCallback $ msContext mutableState)
+                    (loadRangeCallback $ msContext mutableState)
                     (castPtr keyPtr)
                     (fromIntegral keyLen)
                     inner
@@ -246,11 +255,18 @@ emptyPersistentState = do
 --  (that is written to using the provided 'StoreCallback'). The input persistent
 --  state remains valid. The new persistent state is not cached, it is entirely
 --  stored on disk.
-foreign import ccall "migrate_persistent_tree_v1" migratePersistentTree :: LoadCallback -> LoadLengthCallback -> StoreCallback -> Ptr PersistentState -> IO (Ptr PersistentState)
+foreign import ccall "migrate_persistent_tree_v1"
+    migratePersistentTree ::
+        LoadCallback ->
+        LoadLengthCallback ->
+        LoadRangeCallback ->
+        StoreCallback ->
+        Ptr PersistentState ->
+        IO (Ptr PersistentState)
 
 migratePersistentState :: BlobStoreCallbacks -> StoreCallback -> PersistentState -> IO PersistentState
 migratePersistentState callbacks scbk ps = do
-    newPSPtr <- withPersistentState ps $ migratePersistentTree (loadCallback callbacks) (loadLengthCallback callbacks) scbk
+    newPSPtr <- withPersistentState ps $ migratePersistentTree (loadCallback callbacks) (loadLengthCallback callbacks) (loadRangeCallback callbacks) scbk
     newPS <- newForeignPtr freePersistentState newPSPtr
     return (PersistentState newPS)
 
@@ -269,7 +285,11 @@ makePersistent (InMemoryPersistentState st) = st
 --  called to read data from persistent storage.
 foreign import ccall "load_persistent_tree_v1"
     loadPersistentTree ::
-        LoadCallback -> LoadLengthCallback -> BlobRef PersistentState -> IO (Ptr PersistentState)
+        LoadCallback ->
+        LoadLengthCallback ->
+        LoadRangeCallback ->
+        BlobRef PersistentState ->
+        IO (Ptr PersistentState)
 
 foreign import ccall unsafe "&free_persistent_state_v1" freePersistentState :: FunPtr (Ptr PersistentState -> IO ())
 foreign import ccall unsafe "&free_mutable_state_v1" freeMutableState :: FunPtr (Ptr MutableStateInner -> IO ())
@@ -283,7 +303,12 @@ foreign import ccall "store_persistent_tree_v1" storePersistentTree :: StoreCall
 --  to hold 32 bytes.
 foreign import ccall "freeze_mutable_state_v1"
     freezePersistentTree ::
-        LoadCallback -> LoadLengthCallback -> Ptr MutableStateInner -> Ptr Word8 -> IO (Ptr PersistentState)
+        LoadCallback ->
+        LoadLengthCallback ->
+        LoadRangeCallback ->
+        Ptr MutableStateInner ->
+        Ptr Word8 ->
+        IO (Ptr PersistentState)
 
 -- | Make a fresh mutable state from the persistent one.
 foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr PersistentState -> IO (Ptr MutableStateInner)
@@ -292,20 +317,34 @@ foreign import ccall "thaw_persistent_state_v1" thawPersistentTree :: Ptr Persis
 --  entries.
 foreign import ccall "get_new_state_size_v1"
     getNewStateSizeFFI ::
-        LoadCallback -> LoadLengthCallback -> Ptr MutableStateInner -> IO Word64
+        LoadCallback ->
+        LoadLengthCallback ->
+        LoadRangeCallback ->
+        Ptr MutableStateInner ->
+        IO Word64
 
 -- | Compute and retrieve the hash of the persistent state. The function is given
 --  a buffer to write the hash into.
 foreign import ccall "hash_persistent_state_v1"
     hashPersistentState ::
-        LoadCallback -> LoadLengthCallback -> Ptr PersistentState -> Ptr Word8 -> IO ()
+        LoadCallback ->
+        LoadLengthCallback ->
+        LoadRangeCallback ->
+        Ptr PersistentState ->
+        Ptr Word8 ->
+        IO ()
 
 -- | Serialize the persistent state into a byte buffer. The return value is a
 --  pointer to the beginning of the buffer, and the last argument is where the
 --  length of the buffer is written.
 foreign import ccall "serialize_persistent_state_v1"
     serializePersistentState ::
-        LoadCallback -> LoadLengthCallback -> Ptr PersistentState -> Ptr CSize -> IO (Ptr Word8)
+        LoadCallback ->
+        LoadLengthCallback ->
+        LoadRangeCallback ->
+        Ptr PersistentState ->
+        Ptr CSize ->
+        IO (Ptr Word8)
 
 -- | Deserialize state from a byte buffer.
 foreign import ccall "deserialize_persistent_state_v1" deserializePersistentState :: Ptr Word8 -> CSize -> IO (Ptr PersistentState)
@@ -317,7 +356,13 @@ foreign import ccall "deserialize_persistent_state_v1" deserializePersistentStat
 --  may mutate the mutable state so that further operations, in particular
 --  @freeze@ are more efficient.
 getNewStateSize :: MutableState -> Word64
-getNewStateSize ms = unsafePerformIO (withMutableState ms (getNewStateSizeFFI (loadCallback context) (loadLengthCallback context)))
+getNewStateSize ms =
+    unsafePerformIO $
+        withMutableState ms $
+            getNewStateSizeFFI
+                (loadCallback context)
+                (loadLengthCallback context)
+                (loadRangeCallback context)
   where
     context = msContext ms
 
@@ -325,7 +370,16 @@ getNewStateSize ms = unsafePerformIO (withMutableState ms (getNewStateSizeFFI (l
 --  way.
 freeze :: BlobStoreCallbacks -> MutableState -> IO (SHA256.Hash, PersistentState)
 freeze callbacks ms = do
-    (psPtr, hashBytes) <- withMutableState ms $ \msPtr -> FBS.createWith (freezePersistentTree (loadCallback callbacks) (loadLengthCallback callbacks) msPtr)
+    (psPtr, hashBytes) <- withMutableState
+        ms
+        $ \msPtr ->
+            FBS.createWith $
+                freezePersistentTree
+                    (loadCallback callbacks)
+                    (loadLengthCallback callbacks)
+                    (loadRangeCallback callbacks)
+                    msPtr
+
     ps <- newForeignPtr freePersistentState psPtr
     return (SHA256.Hash hashBytes, PersistentState ps)
 
@@ -359,7 +413,14 @@ instance (MonadBlobStore m) => BlobStorable m PersistentState where
         pure $! do
             callbacks <- getCallbacks
             liftIO $
-                PersistentState <$> (newForeignPtr freePersistentState =<< loadPersistentTree (loadCallback callbacks) (loadLengthCallback callbacks) br)
+                PersistentState
+                    <$> ( newForeignPtr freePersistentState
+                            =<< loadPersistentTree
+                                (loadCallback callbacks)
+                                (loadLengthCallback callbacks)
+                                (loadRangeCallback callbacks)
+                                br
+                        )
 
     storeUpdate ps = do
         storeCallback <- storeCallback <$> getCallbacks
@@ -383,13 +444,14 @@ instance (MonadBlobStore m) => MHashableTo m SHA256.Hash PersistentState where
                         . hashPersistentState
                             (loadCallback callbacks)
                             (loadLengthCallback callbacks)
+                            (loadRangeCallback callbacks)
 
         return (SHA256.Hash hsh)
 
 instance HashableTo SHA256.Hash InMemoryPersistentState where
     {-# NOINLINE getHash #-}
     getHash (InMemoryPersistentState ps) = unsafePerformIO $ do
-        ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState (loadCallback errorBlobStoreCallbacks) (loadLengthCallback errorBlobStoreCallbacks))
+        ((), hsh) <- liftIO (withPersistentState ps $ FBS.createWith . hashPersistentState (loadCallback errorBlobStoreCallbacks) (loadLengthCallback errorBlobStoreCallbacks) (loadRangeCallback errorBlobStoreCallbacks))
         return (SHA256.Hash hsh)
 
 instance Serialize InMemoryPersistentState where
@@ -409,6 +471,7 @@ instance Serialize InMemoryPersistentState where
                 serializePersistentState
                     (loadCallback errorBlobStoreCallbacks)
                     (loadLengthCallback errorBlobStoreCallbacks)
+                    (loadRangeCallback errorBlobStoreCallbacks)
                     psPtr
                     sizePtr
             len <- peek sizePtr
@@ -427,6 +490,7 @@ foreign import ccall "persistent_state_v1_lookup"
     persistentStateV1Lookup ::
         LoadCallback ->
         LoadLengthCallback ->
+        LoadRangeCallback ->
         Ptr Word8 ->
         -- | Pointer to the beginning of the key and its length.
         CSize ->
@@ -450,6 +514,7 @@ lookupKey persistentState key = do
                     persistentStateV1Lookup
                         (loadCallback callbacks)
                         (loadLengthCallback callbacks)
+                        (loadRangeCallback callbacks)
                         (castPtr keyPtr)
                         (fromIntegral keyLen)
                         statePtr
@@ -494,6 +559,7 @@ toByteString ps = do
             serializePersistentState
                 (loadCallback callbacks)
                 (loadLengthCallback callbacks)
+                (loadRangeCallback callbacks)
                 psPtr
                 sizePtr
         len <- peek sizePtr

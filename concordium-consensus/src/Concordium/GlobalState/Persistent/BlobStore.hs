@@ -233,6 +233,13 @@ mkCallbacksFromBlobStore bstore = do
         BSUnsafe.unsafeUseAsCStringLen bs $ \(sourcePtr, len) ->
             copyToRustVec (castPtr sourcePtr) (fromIntegral len)
     loadLengthCallback <- createSafeLoadLengthCallback $ \location -> readBlobLength bstore (BlobRef location)
+    loadRangeCallback <-
+        createSafeLoadRangeCallback $ \location offset requestedLength ->
+            readBlobRange
+                bstore
+                (BlobRef location)
+                offset
+                requestedLength
     return BlobStoreCallbacks{..}
 
 -- | Free callbacks that this module made. The owning store calls this function
@@ -241,6 +248,7 @@ freeCallbacks :: BlobStoreCallbacks -> IO ()
 freeCallbacks BlobStoreCallbacks{..} = do
     freeHaskellFunPtr loadCallback
     freeHaskellFunPtr loadLengthCallback
+    freeHaskellFunPtr loadRangeCallback
     freeHaskellFunPtr storeCallback
 
 -- | Create a new blob store at a given location.
@@ -430,12 +438,51 @@ readBlobLength storeAccess (BlobRef offset) = do
         _ -> invalidReference
   where
     invalidReference = throwIO $ userError "The blob reference is outside the blob store."
-    word64ToInt value =
-        let converted = fromIntegral value
-        in  if converted < 0 || fromIntegral converted /= value then Nothing else Just converted
-    checkedAddWord64 a b =
-        let result = a + b
-        in  if result < a then Nothing else Just result
+
+-- | Read a clamped payload range. The operation reads only framing metadata
+-- and the returned payload bytes. It does not materialize the complete blob.
+readBlobRange :: BlobStoreAccess -> BlobRef a -> Word64 -> Int -> IO BS.ByteString
+readBlobRange storeAccess blobReference@(BlobRef reference) requestedOffset requestedLength = do
+    payloadLength <- readBlobLength storeAccess blobReference
+    let clampedOffset = min requestedOffset payloadLength
+        available = payloadLength - clampedOffset
+        clampedLength = min (fromIntegral requestedLength) available
+    count <- case word64ToInt clampedLength of
+        Just count -> return count
+        Nothing -> throwIO $ userError "The blob range is outside the blob store."
+    if count == 0
+        then
+            return BS.empty
+        else do
+            rangeStart <- case reference `checkedAddWord64` 8 >>= (`checkedAddWord64` clampedOffset) of
+                Just rangeStart -> return rangeStart
+                Nothing -> throwIO $ userError "The blob range is outside the blob store."
+            mmap <- readIORef (blobStoreMMap storeAccess)
+            case (word64ToInt rangeStart, rangeStart `checkedAddWord64` clampedLength) of
+                (Just start, Just rangeEnd) | rangeEnd <= fromIntegral (BS.length mmap) ->
+                        return $ BS.take count $ BS.drop start mmap
+                _ -> mask $ \restore -> do
+                    blobHandle <- takeMVar (blobStoreFile storeAccess)
+                    result <- try $ restore $ do
+                        hSeek (bhHandle blobHandle) AbsoluteSeek (fromIntegral rangeStart)
+                        bytes <- BS.hGet (bhHandle blobHandle) count
+                        if BS.length bytes == count
+                            then return bytes
+                            else throwIO $ userError "The blob range is outside the blob store."
+                    putMVar (blobStoreFile storeAccess) blobHandle{bhAtEnd = False}
+                    either throwIO return (result :: Either SomeException BS.ByteString)
+
+-- | Internal helper providing safe convertion from Word64 to Int.
+word64ToInt :: Word64 -> Maybe Int
+word64ToInt value =
+    let converted = fromIntegral value
+    in  if converted < 0 || fromIntegral converted /= value then Nothing else Just converted
+
+-- | Internal helper providing checked addition for Word64.
+checkedAddWord64 :: Word64 -> Word64 -> Maybe Word64
+checkedAddWord64 a b =
+    let result = a + b
+    in  if result < a then Nothing else Just result
 
 -- | Read a bytestring from the blob store at the given offset using the memory map.
 -- The file handle is used as a backstop if the data to be read would be outside the memory map
@@ -780,6 +827,16 @@ loadMemLength mv (BlobRef offset) = do
     invalidReference = throwIO $ userError "The blob reference is outside the blob store."
     checkedAdd a b = let result = a + b in if result < a then Nothing else Just result
 
+-- | Read a clamped range without making the complete lazy payload strict.
+loadMemRange :: MVar LBS.ByteString -> BlobRef a -> Word64 -> Int -> IO BS.ByteString
+loadMemRange mv blobReference@(BlobRef reference) requestedOffset requestedLength = do
+    payloadLength <- loadMemLength mv blobReference
+    bytes <- readMVar mv
+    let clampedOffset = min requestedOffset payloadLength
+        count = min (fromIntegral requestedLength) (payloadLength - clampedOffset)
+        payloadStart = reference + 8 + clampedOffset
+    return $! LBS.toStrict $ LBS.take (fromIntegral count) $ LBS.drop (fromIntegral payloadStart) bytes
+
 -- | Get the callbacks for a 'MemBlobStore'.
 getMemCallbacks :: MemBlobStore -> IO BlobStoreCallbacks
 getMemCallbacks mbs@MemBlobStore{..} =
@@ -794,7 +851,10 @@ getMemCallbacks mbs@MemBlobStore{..} =
                 -- Note, we don't use unsafe because the bytestring may be retained.
                 bs <- BS.packCStringLen (castPtr ptr, fromIntegral size)
                 storeMem theMemBlobStore bs
-            loadLengthCallback <- createSafeLoadLengthCallback $ \location -> loadMemLength theMemBlobStore (BlobRef location)
+            loadLengthCallback <- createSafeLoadLengthCallback $ \location ->
+                loadMemLength theMemBlobStore (BlobRef location)
+            loadRangeCallback <- createSafeLoadRangeCallback $ \location offset requestedLength ->
+                loadMemRange theMemBlobStore (BlobRef location) offset requestedLength
             let callbacks = BlobStoreCallbacks{loadCallback = loadCbk, ..}
             res <- tryPutMVar mbsCallbacks callbacks
             if res

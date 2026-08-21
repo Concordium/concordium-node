@@ -57,7 +57,7 @@ import Foreign.Storable
 import System.IO.Unsafe
 
 import Concordium.Crypto.FFIHelpers (rs_free_array_len)
-import Concordium.GlobalState.ContractStateFFIHelpers (BlobStoreCallbacks (..), LoadCallback, LoadLengthCallback)
+import Concordium.GlobalState.ContractStateFFIHelpers (BlobStoreCallbacks (..), LoadCallback, LoadLengthCallback, LoadRangeCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Wasm
 import Concordium.Types
@@ -217,6 +217,8 @@ foreign import ccall "call_init_v1"
         LoadCallback ->
         -- | Callback that reads only stored payload lengths.
         LoadLengthCallback ->
+        -- | Callback that reads clamped stored payload ranges.
+        LoadRangeCallback ->
         -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
         -- | Length of the artifact.
@@ -254,6 +256,8 @@ foreign import ccall "call_receive_v1"
         LoadCallback ->
         -- | Callback that reads only stored payload lengths.
         LoadLengthCallback ->
+        -- | Callback that reads clamped stored payload ranges.
+        LoadRangeCallback ->
         -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
         -- | Length of the artifact.
@@ -308,6 +312,8 @@ foreign import ccall "resume_receive_v1"
         LoadCallback ->
         -- | Callback that reads only stored payload lengths.
         LoadLengthCallback ->
+        -- | Callback that reads clamped stored payload ranges.
+        LoadRangeCallback ->
         -- | Location where the pointer to interrupted config will be stored.
         Ptr (Ptr ReceiveInterruptedState) ->
         -- | Tag of whether the state has been updated or not. If this is 0 then the state has not been updated, otherwise, it has.
@@ -364,6 +370,7 @@ applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = un
                             call_init
                                 (loadCallback cbk)
                                 (loadLengthCallback cbk)
+                                (loadRangeCallback cbk)
                                 (castPtr wasmArtifactPtr)
                                 (fromIntegral wasmArtifactLen)
                                 (castPtr initCtxBytesPtr)
@@ -736,6 +743,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
                                 call_receive
                                     (loadCallback callbacks)
                                     (loadLengthCallback callbacks)
+                                    (loadRangeCallback callbacks)
                                     (castPtr wasmArtifactPtr)
                                     (fromIntegral wasmArtifactLen)
                                     (castPtr initCtxBytesPtr)
@@ -802,6 +810,7 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
                         resume_receive
                             (loadCallback callbacks)
                             (loadLengthCallback callbacks)
+                            (loadRangeCallback callbacks)
                             isPtr
                             newStateTag
                             statePtrPtr

@@ -8,12 +8,15 @@ module Concordium.GlobalState.ContractStateFFIHelpers (
     LoadCallback,
     StoreCallback,
     LoadLengthCallback,
+    LoadRangeCallback,
     LoadCallbackType,
     LoadLengthCallbackType,
+    LoadRangeCallbackType,
     StoreCallbackType,
     Vec,
     copyToRustVec,
     createSafeLoadLengthCallback,
+    createSafeLoadRangeCallback,
     createLoadCallback,
     createStoreCallback,
     errorLoadCallback,
@@ -21,6 +24,8 @@ module Concordium.GlobalState.ContractStateFFIHelpers (
 ) where
 
 import qualified Control.Exception as Control
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BS
 import qualified Data.Word as Data
 import qualified Foreign.C.Types as Foreign
 import qualified Foreign.Ptr as Foreign
@@ -45,12 +50,19 @@ type LoadLengthCallbackType = Data.Word64 -> Foreign.Ptr Data.Word64 -> IO Data.
 
 type LoadLengthCallback = Foreign.FunPtr LoadLengthCallbackType
 
+-- | Callback that reads a clamped payload range into an allocated Rust vector.
+-- The callback writes the vector only after a successful read.
+type LoadRangeCallbackType = Data.Word64 -> Data.Word64 -> Foreign.CSize -> Foreign.Ptr (Foreign.Ptr Vec) -> IO Data.Word8
+
+type LoadRangeCallback = Foreign.FunPtr LoadRangeCallbackType
+
 -- | Named operations for V1 contract-state backing storage. The store owns all
 -- function pointers in this record. The store frees the pointers one time when
 -- it is destroyed.
 data BlobStoreCallbacks = BlobStoreCallbacks
     { loadCallback :: !LoadCallback,
       loadLengthCallback :: !LoadLengthCallback,
+      loadRangeCallback :: !LoadRangeCallback,
       storeCallback :: !StoreCallback
     }
 
@@ -66,6 +78,8 @@ type StoreCallback = Foreign.FunPtr StoreCallbackType
 foreign import ccall "wrapper" createLoadCallback :: LoadCallbackType -> IO LoadCallback
 
 foreign import ccall "wrapper" createLoadLengthCallback :: LoadLengthCallbackType -> IO LoadLengthCallback
+
+foreign import ccall "wrapper" createLoadRangeCallback :: LoadRangeCallbackType -> IO LoadRangeCallback
 
 foreign import ccall "wrapper" createStoreCallback :: StoreCallbackType -> IO StoreCallback
 
@@ -84,6 +98,11 @@ errorLoadCallback = System.unsafePerformIO $ createLoadCallback (\_location -> e
 errorLoadLengthCallback :: LoadLengthCallback
 errorLoadLengthCallback = System.unsafePerformIO $ createLoadLengthCallback (\_location _out -> return 1)
 
+-- | Range callback for contexts that cannot access persisted data.
+{-# NOINLINE errorLoadRangeCallback #-}
+errorLoadRangeCallback :: LoadRangeCallback
+errorLoadRangeCallback = System.unsafePerformIO $ createLoadRangeCallback (\_location _offset _length _out -> return 1)
+
 {-# NOINLINE errorStoreCallback #-}
 errorStoreCallback :: StoreCallback
 errorStoreCallback = System.unsafePerformIO $ createStoreCallback (\_ptr _size -> error "Error store callback invoked, and it should not have been.")
@@ -93,6 +112,7 @@ errorBlobStoreCallbacks =
     BlobStoreCallbacks
         { loadCallback = errorLoadCallback,
           loadLengthCallback = errorLoadLengthCallback,
+          loadRangeCallback = errorLoadRangeCallback,
           storeCallback = errorStoreCallback
         }
 
@@ -106,3 +126,25 @@ createSafeLoadLengthCallback query = createLoadLengthCallback $ \location outLen
         Right len -> do
             Foreign.poke outLength len
             return 0
+
+-- | Make an exception-safe range callback. Return 0 after a successful query.
+-- Return 1 if the query throws or returns more bytes than requested.
+createSafeLoadRangeCallback :: (Data.Word64 -> Data.Word64 -> Int -> IO BS.ByteString) -> IO LoadRangeCallback
+createSafeLoadRangeCallback query = createLoadRangeCallback $ \location offset requestedLength outVector -> do
+    if toInteger requestedLength > toInteger (maxBound :: Int)
+        then return 1
+        else do
+            let requested = fromIntegral requestedLength
+            result <- Control.try $ do
+                bytes <- query location offset requested
+                if BS.length bytes > requested
+                    then return False
+                    else do
+                        vector <- BS.unsafeUseAsCStringLen bytes $ \(sourcePtr, len) ->
+                            copyToRustVec (Foreign.castPtr sourcePtr) (fromIntegral len)
+                        Foreign.poke outVector vector
+                        return True
+            case result of
+                Left (_ :: Control.SomeException) -> return 1
+                Right False -> return 1
+                Right True -> return 0

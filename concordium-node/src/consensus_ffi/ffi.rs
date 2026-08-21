@@ -327,6 +327,7 @@ type CopyV1ContractStateCallback = extern "C" fn(
     *mut concordium_smart_contract_engine::v1::trie::PersistentState,
     concordium_smart_contract_engine::v1::trie::LoadCallback,
     concordium_smart_contract_engine::v1::trie::LoadLengthCallback,
+    concordium_smart_contract_engine::v1::trie::LoadRangeCallback,
 );
 
 /// Context necessary for Haskell code/Consensus to send notifications on
@@ -3879,6 +3880,7 @@ extern "C" fn copy_v1_contract_state_callback(
     state: *mut concordium_smart_contract_engine::v1::trie::PersistentState,
     load: concordium_smart_contract_engine::v1::trie::LoadCallback,
     load_length: concordium_smart_contract_engine::v1::trie::LoadLengthCallback,
+    load_range: concordium_smart_contract_engine::v1::trie::LoadRangeCallback,
 ) {
     let out = unsafe { &mut *out };
     let v = V1ContractStateReceiver {
@@ -3886,6 +3888,7 @@ extern "C" fn copy_v1_contract_state_callback(
         loader: concordium_smart_contract_engine::v1::trie::BackingStoreLoadCallback::new(
             load,
             load_length,
+            load_range,
         ),
     };
     *out = Some(v);
