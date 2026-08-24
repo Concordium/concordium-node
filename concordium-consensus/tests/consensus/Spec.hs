@@ -25,6 +25,7 @@ import qualified ConcordiumTests.LeaderElectionTest (tests)
 import qualified ConcordiumTests.MerkleProofs (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
 import qualified ConcordiumTests.ReceiveTransactionsTest (test)
+import qualified ConcordiumTests.TimerMonad (tests)
 import qualified ConcordiumTests.Update (test)
 import Data.List (stripPrefix)
 import Data.Semigroup
@@ -54,6 +55,7 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.FinalizationRecover.test
     ConcordiumTests.PassiveFinalization.test
     ConcordiumTests.ReceiveTransactionsTest.test
+    ConcordiumTests.TimerMonad.tests
     ConcordiumTests.LeaderElectionTest.tests
     ConcordiumTests.KonsensusV1.Types.tests
     ConcordiumTests.KonsensusV1.TreeStateTest.tests
