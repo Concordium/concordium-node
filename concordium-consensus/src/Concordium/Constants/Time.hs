@@ -12,6 +12,10 @@ import Concordium.Types
 defaultEarlyBlockThreshold :: Duration
 defaultEarlyBlockThreshold = 30_000
 
+-- | Maximum permitted difference between a received V1 block timestamp and local receive time.
+futureBlockTolerance :: Duration
+futureBlockTolerance = 30_000
+
 -- | Default value for maximum baking delay.
 --  Set to 10 seconds.
 defaultMaxBakingDelay :: Duration

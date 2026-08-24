@@ -25,6 +25,7 @@ import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 
+import Concordium.Constants.Time (futureBlockTolerance)
 import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Crypto.SignatureScheme as Sig
@@ -1419,6 +1420,27 @@ testReceiveEarlyUnknownParent sProtocolVersion =
             res <- uponReceivingBlock $ (signedPB testBB2E){pbReceiveTime = testTime}
             liftIO $ res `shouldBe` BlockResultEarly
 
+-- | Test the fixed future-block admission boundary.
+testReceiveFutureTolerance ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testReceiveFutureTolerance sProtocolVersion = do
+    it "rejects a block above the future tolerance" $
+        runTestMonad noBaker testTime (genesisData sProtocolVersion) $
+            earlyReceiveBlock $
+                futureBlock $
+                    futureBlockTime + 1
+    it "accepts a block at the future tolerance" $
+        runTestMonad noBaker testTime (genesisData sProtocolVersion) $
+            succeedReceiveBlock $
+                futureBlock futureBlockTime
+  where
+    futureBlockTime = addDuration (utcTimeToTimestamp testTime) futureBlockTolerance
+    futureBlock timestamp =
+        (signedPB ((testBB1 @pv){bbTimestamp = timestamp})){pbReceiveTime = testTime}
+
 -- | Test receiving a block with an unknown parent and incorrect signature, followed by the parent
 --  block and the same block with the correct signature.
 testReceiveBadSignatureUnknownParent ::
@@ -2182,6 +2204,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
                 testReceiveBadSignature spv
                 testReceiveWrongBaker spv
                 testReceiveEarlyUnknownParent spv
+                testReceiveFutureTolerance spv
                 testReceiveBadSignatureUnknownParent spv
                 testReceiveFutureEpochUnknownParent spv
                 testReceiveInconsistentQCRound spv
