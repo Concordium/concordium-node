@@ -16,12 +16,19 @@ import Concordium.TimerMonad.Internal
 -- | Register timer scheduling tests.
 tests :: Spec
 tests = describe "TimerMonad" $ do
-    it "does not invoke a far-future ThreadTimer callback early" $ do
+    it "does not invoke a far-future DelayUntil callback early" $ do
         callback <- newEmptyMVar
         now <- getCurrentTime
         -- we put "()" into the callback box, to prove that the timer did not trigger
         timer <- makeThreadTimer (DelayUntil $ addUTCTime farFutureDelay now) (putMVar callback ())
         -- then we wait 100 ms.
+        result <- Timeout.timeout 100_000 $ takeMVar callback
+        cancelThreadTimer timer
+        result `shouldBe` Nothing
+
+    it "does not invoke a far-future DelayFor callback early" $ do
+        callback <- newEmptyMVar
+        timer <- makeThreadTimer (DelayFor farFutureDelay) (putMVar callback ())
         result <- Timeout.timeout 100_000 $ takeMVar callback
         cancelThreadTimer timer
         result `shouldBe` Nothing
