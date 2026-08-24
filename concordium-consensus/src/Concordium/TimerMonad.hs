@@ -12,11 +12,11 @@ module Concordium.TimerMonad (
 import Data.Time
 #if defined(mingw32_HOST_OS)
 import Control.Concurrent
-import Control.Monad
-import Data.IORef
 #else
 import GHC.Event
 #endif
+
+import qualified Concordium.TimerMonad.Internal as Internal
 
 -- | Representation of a waiting period.
 data Timeout
@@ -31,46 +31,44 @@ class (Monad m) => TimerMonad m where
     onTimeout :: Timeout -> m a -> m (Timer m)
     cancelTimer :: Timer m -> m ()
 
-#if defined(mingw32_HOST_OS)
-data ThreadTimer = ThreadTimer !ThreadId !(IORef Bool)
-#else
-data ThreadTimer = ThreadTimer !TimerManager !TimeoutKey
-#endif
+data ThreadTimer = ThreadTimer !Internal.InternalTimer
 
--- | Compute a delay in microseconds. This assumes that the delay will
---  fit into an Int. On 64-bit platforms this means the delay should be no more
---  than 290000 years.
-getDelay :: Timeout -> IO Int
-getDelay (DelayFor d) = return (truncate (d * 1e6))
-getDelay (DelayUntil t) = do
-    now <- getCurrentTime
-    return (truncate ((diffUTCTime t now) * 1e6))
+-- | Normalize a timeout to an absolute deadline at registration time.
+timeoutDeadline :: Timeout -> IO UTCTime
+timeoutDeadline (DelayFor delay) = addUTCTime delay <$> getCurrentTime
+timeoutDeadline (DelayUntil deadline) = pure deadline
 
+-- | Create a platform timer that invokes its action no earlier than the requested timeout.
 makeThreadTimer :: Timeout -> IO () -> IO ThreadTimer
-makeThreadTimer timeout action = do
 #if defined(mingw32_HOST_OS)
-  enabled <- newIORef True
-  thread <- forkIO $ do
-    delay <- getDelay timeout
-    when (delay > 0) $ threadDelay delay
-    continue <- readIORef enabled
-    when continue action
-  return $ ThreadTimer thread enabled
+makeThreadTimer timeout action = do
+    deadline <- timeoutDeadline timeout
+    ThreadTimer
+        <$> Internal.makeInternalTimer
+            Internal.TimerBackend
+                { timerCurrentTime = getCurrentTime,
+                  timerSchedule = \delay callback -> forkIO $ threadDelay delay >> callback,
+                  timerCancel = const $ pure ()
+                }
+            deadline
+            action
 #else
-  manager <- getSystemTimerManager
-  micros <- max 1 <$> getDelay timeout
-  key <- registerTimeout manager micros action
-  return $! ThreadTimer manager key
+makeThreadTimer timeout action = do
+    deadline <- timeoutDeadline timeout
+    manager <- getSystemTimerManager
+    ThreadTimer
+        <$> Internal.makeInternalTimer
+            Internal.TimerBackend
+                { timerCurrentTime = getCurrentTime,
+                  timerSchedule = registerTimeout manager,
+                  timerCancel = unregisterTimeout manager
+                }
+            deadline
+            action
 #endif
 
 -- | Cancel the timer created by 'makeThreadTimer'. Note that if the given
 --  computation (second argument of 'makeThreadTimer') has already started it is
 --  not interrupted.
 cancelThreadTimer :: ThreadTimer -> IO ()
-#if defined(mingw32_HOST_OS)
-cancelThreadTimer (ThreadTimer _ enabled) =
-  writeIORef enabled False
-#else
-cancelThreadTimer (ThreadTimer manager key) =
-  unregisterTimeout manager key
-#endif
+cancelThreadTimer (ThreadTimer timer) = Internal.cancelInternalTimer timer
