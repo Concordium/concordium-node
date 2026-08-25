@@ -29,6 +29,7 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTB
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16.Lazy as B16
+import qualified Data.ByteString.Lazy as LBS
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import Data.Maybe
@@ -326,7 +327,18 @@ testP10P11PLTMigration = runWithNewMemBlobStore . runP10BlobStore $ do
     liftIO $ assertEqual "token configuration" (_pltModule configABC) (TokenQueries.tsTokenModuleRef tokenState')
     liftIO $ assertEqual "token decimals" (_pltDecimals configABC) (TokenQueries.tsDecimals tokenState')
     liftIO $ assertEqual "circulating supply" 123 (TokenQueries.taValue (TokenQueries.tsTotalSupply tokenState'))
-    liftIO $ assertBool "token state" ("migration-value" `BS.isInfixOf` TokenQueries.tsModuleState tokenState')
+    moduleState <- case tokenModuleStateFromBytes $ LBS.fromStrict $ TokenQueries.tsModuleState tokenState' of
+        Left err -> liftIO $ assertFailure $ "could not decode migrated token module state: " ++ err
+        Right state -> return state
+    liftIO $ assertEqual "token name" (Just "migration-value") (tmsName moduleState)
+    liftIO $ assertEqual "token metadata" (Just $ createTokenMetadataUrl "https://migration.token") (tmsMetadata moduleState)
+    liftIO $ assertEqual "token governance account" (Just $ accountTokenHolder $ AccountAddress (FBS.pack $ replicate 32 0)) (tmsGovernanceAccount moduleState)
+    liftIO $ assertEqual "token paused state" (Just False) (tmsPaused moduleState)
+    liftIO $ assertEqual "token allow-list state" (Just False) (tmsAllowList moduleState)
+    liftIO $ assertEqual "token deny-list state" (Just False) (tmsDenyList moduleState)
+    liftIO $ assertEqual "token mintable state" (Just False) (tmsMintable moduleState)
+    liftIO $ assertEqual "token burnable state" (Just False) (tmsBurnable moduleState)
+    liftIO $ assertEqual "additional token state" mempty (tmsAdditional moduleState)
 
 -- | Query the migrated P11 state without constructing an unrelated complete block state.
 -- The fixture has no token holders, so its account callbacks return empty values.
