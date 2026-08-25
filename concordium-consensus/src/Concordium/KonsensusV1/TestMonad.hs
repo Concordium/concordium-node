@@ -70,8 +70,7 @@ data TestContext (pv :: ProtocolVersion) = TestContext
 
 instance HasBlobStore (TestContext pv) where
     blobStore = blobStore . _tcPersistentBlockStateContext
-    blobLoadCallback = blobLoadCallback . _tcPersistentBlockStateContext
-    blobStoreCallback = blobStoreCallback . _tcPersistentBlockStateContext
+    blobCallbacks = blobCallbacks . _tcPersistentBlockStateContext
 
 instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (TestContext pv) where
     projectCache = Cache.projectCache . _tcPersistentBlockStateContext

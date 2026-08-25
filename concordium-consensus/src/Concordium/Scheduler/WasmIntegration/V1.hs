@@ -57,7 +57,7 @@ import Foreign.Storable
 import System.IO.Unsafe
 
 import Concordium.Crypto.FFIHelpers (rs_free_array_len)
-import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
+import Concordium.GlobalState.ContractStateFFIHelpers (BlobStoreCallbacks (..), LoadCallback, LoadLengthCallback, LoadRangeCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Wasm
 import Concordium.Types
@@ -215,6 +215,10 @@ foreign import ccall "call_init_v1"
     call_init ::
         -- | Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
         LoadCallback ->
+        -- | Callback that reads only stored payload lengths.
+        LoadLengthCallback ->
+        -- | Callback that reads clamped stored payload ranges.
+        LoadRangeCallback ->
         -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
         -- | Length of the artifact.
@@ -250,6 +254,10 @@ foreign import ccall "call_receive_v1"
     call_receive ::
         -- | Callback in case any state needs to be loaded from block state storage.
         LoadCallback ->
+        -- | Callback that reads only stored payload lengths.
+        LoadLengthCallback ->
+        -- | Callback that reads clamped stored payload ranges.
+        LoadRangeCallback ->
         -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
         -- | Length of the artifact.
@@ -300,7 +308,12 @@ foreign import ccall "call_receive_v1"
 
 foreign import ccall "resume_receive_v1"
     resume_receive ::
+        -- | Callback in case any state needs to be loaded from block state storage.
         LoadCallback ->
+        -- | Callback that reads only stored payload lengths.
+        LoadLengthCallback ->
+        -- | Callback that reads clamped stored payload ranges.
+        LoadRangeCallback ->
         -- | Location where the pointer to interrupted config will be stored.
         Ptr (Ptr ReceiveInterruptedState) ->
         -- | Tag of whether the state has been updated or not. If this is 0 then the state has not been updated, otherwise, it has.
@@ -327,7 +340,7 @@ foreign import ccall "resume_receive_v1"
 -- | Apply an init function which is assumed to be a part of the module.
 {-# NOINLINE applyInitFun #-}
 applyInitFun ::
-    LoadCallback ->
+    BlobStoreCallbacks ->
     InstrumentedModuleV V1 ->
     -- | Chain information available to the contracts.
     ChainMetadata ->
@@ -355,7 +368,9 @@ applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = un
                     alloca $ \returnValuePtrPtr -> alloca $ \statePtrPtr -> alloca $ \outputLenPtr -> do
                         outPtr <-
                             call_init
-                                cbk
+                                (loadCallback cbk)
+                                (loadLengthCallback cbk)
+                                (loadRangeCallback cbk)
                                 (castPtr wasmArtifactPtr)
                                 (fromIntegral wasmArtifactLen)
                                 (castPtr initCtxBytesPtr)
@@ -509,7 +524,7 @@ cerToRejectReasonInit Trap = Exec.RuntimeFailure
 --  function for the specification of the return value.
 processInitResult ::
     -- | State context.
-    LoadCallback ->
+    BlobStoreCallbacks ->
     -- | Serialized output.
     BS.ByteString ->
     -- | Location where the pointer to the return value is (potentially) stored.
@@ -590,7 +605,7 @@ processReceiveResult ::
     --  is incorrect in some cases. The latter applies to protocols 4 and 5.
     Bool ->
     -- | State context.
-    LoadCallback ->
+    BlobStoreCallbacks ->
     -- | State execution started in.
     StateV1.MutableState ->
     -- | Whether the state was written to.
@@ -726,7 +741,9 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
                             poke stateWrittenToPtr 0
                             outPtr <-
                                 call_receive
-                                    callbacks
+                                    (loadCallback callbacks)
+                                    (loadLengthCallback callbacks)
+                                    (loadRangeCallback callbacks)
                                     (castPtr wasmArtifactPtr)
                                     (fromIntegral wasmArtifactLen)
                                     (castPtr initCtxBytesPtr)
@@ -791,7 +808,9 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
                 alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> do
                     outPtr <-
                         resume_receive
-                            callbacks
+                            (loadCallback callbacks)
+                            (loadLengthCallback callbacks)
+                            (loadRangeCallback callbacks)
                             isPtr
                             newStateTag
                             statePtrPtr
