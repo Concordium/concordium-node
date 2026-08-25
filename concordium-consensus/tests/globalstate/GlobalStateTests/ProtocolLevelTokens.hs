@@ -1,11 +1,15 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module GlobalStateTests.ProtocolLevelTokens where
 
 import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck as QuickCheck
@@ -14,18 +18,25 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types
 import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
+import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
 
 import Concordium.Crypto.SHA256
+import Concordium.Genesis.Data
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
-import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState (ProtocolLevelTokensHash)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16.Lazy as B16
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import Data.Maybe
+import Data.Serialize (encode)
+
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks as Callbacks
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Queries as Queries
+import qualified Concordium.Types.Queries.Tokens as TokenQueries
 
 -- | Generate a 'TokenRawAmount' value.
 genTokenRawAmount :: Gen TokenRawAmount
@@ -61,6 +72,39 @@ configDEF =
 
 emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForPV 'P9)
 emptyPLTPV = emptyProtocolLevelTokensForPV
+
+-- These test-only protocol-version wrappers exercise the production migration
+-- seam without constructing a complete persistent block state.
+newtype P10BlobStore a = P10BlobStore {runP10BlobStore :: MemBlobStoreT IO a}
+    deriving (Functor, Applicative, Monad, MonadIO)
+
+instance MonadBlobStore P10BlobStore where
+    storeRaw = P10BlobStore . storeRaw
+    loadRaw = P10BlobStore . loadRaw
+    flushStore = P10BlobStore flushStore
+    getCallbacks = P10BlobStore getCallbacks
+    withBlobPtr blobPtr = P10BlobStore . withBlobPtr blobPtr
+    loadBlobPtr = P10BlobStore . loadBlobPtr
+
+instance MonadProtocolVersion P10BlobStore where
+    type MPV P10BlobStore = 'P10
+
+newtype P11Migration m a = P11Migration {runP11Migration :: MaybeT m a}
+    deriving (Functor, Applicative, Monad, MonadIO)
+
+instance MonadTrans P11Migration where
+    lift = P11Migration . lift
+
+instance (MonadBlobStore m) => MonadBlobStore (P11Migration m) where
+    storeRaw = lift . storeRaw
+    loadRaw = lift . loadRaw
+    flushStore = lift flushStore
+    getCallbacks = lift getCallbacks
+    withBlobPtr blobPtr = lift . withBlobPtr blobPtr
+    loadBlobPtr = lift . loadBlobPtr
+
+instance MonadProtocolVersion (P11Migration P10BlobStore) where
+    type MPV (P11Migration P10BlobStore) = 'P11
 
 testCreateToken :: Assertion
 testCreateToken = runWithNewMemBlobStore $ do
@@ -254,6 +298,56 @@ fixtureTestLoadEmpty = runWithNewMemBlobStore $ do
         )
 
 -- | Load PLTs state with some simple PLTs from storage fixture, to make sure we stay compatible.
+testP10P11PLTMigration :: Assertion
+testP10P11PLTMigration = runWithNewMemBlobStore . runP10BlobStore $ do
+    (tokenIndex, tokens1 :: ProtocolLevelTokensForPV 'P10) <- createToken configABC =<< emptyProtocolLevelTokensForPV
+    tokens2 <- setTokenCirculatingSupply tokenIndex 123 tokens1
+    tokenState <- getMutableTokenState tokenIndex tokens2
+    _ <- updateTokenState "\NUL\NULname" (Just "migration-value") tokenState
+    _ <- updateTokenState "\NUL\NULmetadata" (Just (tokenMetadataUrlToBytes $ createTokenMetadataUrl "https://migration.token")) tokenState
+    _ <- updateTokenState "\NUL\NULgovernanceAccount" (Just (encode (AccountIndex 0))) tokenState
+    tokens3 <- setTokenState tokenIndex tokenState tokens2
+    persistedTokens <- case tokens3 of
+        ProtocolLevelTokensV0 tokensRef -> ProtocolLevelTokensV0 . fst <$> refFlush tokensRef
+    migrated <-
+        runMaybeT . runP11Migration $
+            migrateProtocolLevelTokensForPV
+                (StateMigrationParametersP10ToP11 (error "PLT migration does not inspect P11 migration data"))
+                persistedTokens
+    migratedTokens <- case migrated of
+        Nothing -> liftIO $ assertFailure "P10-to-P11 PLT migration unexpectedly failed"
+        Just tokens -> return tokens
+    -- The migrated P11 state must remain persistable through the production FFI.
+    p11Reference <- storeRef migratedTokens
+    (reloaded :: ProtocolLevelTokensForPV 'P11) <- loadRef p11Reference
+    tokenInfo <- queryMigratedTokenInfo reloaded tokenABC
+    liftIO $ assertEqual "token identity" tokenABC (TokenQueries.tiTokenId tokenInfo)
+    let tokenState' = TokenQueries.tiTokenState tokenInfo
+    liftIO $ assertEqual "token configuration" (_pltModule configABC) (TokenQueries.tsTokenModuleRef tokenState')
+    liftIO $ assertEqual "token decimals" (_pltDecimals configABC) (TokenQueries.tsDecimals tokenState')
+    liftIO $ assertEqual "circulating supply" 123 (TokenQueries.taValue (TokenQueries.tsTotalSupply tokenState'))
+    liftIO $ assertBool "token state" ("migration-value" `BS.isInfixOf` TokenQueries.tsModuleState tokenState')
+
+-- | Query the migrated P11 state without constructing an unrelated complete block state.
+-- The fixture has no token holders, so its account callbacks return empty values.
+queryMigratedTokenInfo ::
+    (MonadBlobStore m) =>
+    ProtocolLevelTokensForPV 'P11 ->
+    TokenId ->
+    m TokenQueries.TokenInfo
+queryMigratedTokenInfo tokens queriedTokenId = do
+    tokenInfo <-
+        Queries.queryTokenInfoInBlobStoreMonad
+            (getRustPLTBlockState tokens)
+            Callbacks.BlockStateQueryCallbacks
+                { Callbacks.readTokenAccountBalance = \_ _ -> return 0,
+                  Callbacks.getAccountIndexByAddress = \_ -> return Nothing,
+                  Callbacks.getAccountAddressByIndex = \_ -> return $ Just (AccountAddress (FBS.pack (replicate 32 0))),
+                  Callbacks.getTokenAccountStates = \_ -> return []
+                }
+            queriedTokenId
+    maybe (liftIO $ assertFailure "migrated token not found") return tokenInfo
+
 fixtureTestLoadSimple :: Assertion
 fixtureTestLoadSimple = runWithNewMemBlobStore $ do
     mbs1 <- liftIO $ newMemBlobStoreWithBytes $ fromRight undefined $ B16.decode "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155"
@@ -302,4 +396,5 @@ tests = describe "GlobalStateTests.ProtocolLevelTokens" $ do
     it "snapshotHashEmpty" snapshotTestHashEmpty
     it "snapshotHashSimple" snapshotTestHashSimple
     it "fixtureLoadEmpty" fixtureTestLoadEmpty
+    it "migrates persisted P10 PLTs to P11" testP10P11PLTMigration
     it "fixtureLoadSimple" fixtureTestLoadSimple
