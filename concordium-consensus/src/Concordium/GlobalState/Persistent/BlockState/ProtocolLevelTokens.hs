@@ -519,7 +519,7 @@ migrateProtocolLevelTokensForPV migration oldPLTsV0@(ProtocolLevelTokensV0 oldPL
                         id
                         oldBlobRefMaybe
             -- 2. Load it into Rust block state (supports P10)
-            (oldState :: ForeignPLTBlockStatePtr (MPV m)) <- lift $ loadDirect (coerce oldBlobRef)
+            (oldState :: ForeignPLTBlockStatePtr (MPV m)) <- lift $ RustBS.loadFromBlobRef (coerce oldBlobRef)
             -- 3. Migrate Rust block state from P10 to P11
             ProtocolLevelTokensV1 <$> RustBS.migrate oldState
 migrateProtocolLevelTokensForPV migration (ProtocolLevelTokensV1 oldState) =
