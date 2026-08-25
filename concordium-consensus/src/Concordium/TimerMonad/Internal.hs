@@ -49,10 +49,7 @@ makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule
         schedule = do
             now <- getTime
             if now >= deadline
-                then do
-                    -- invoke the action, as we're past the deadline
-                    continue <- withMVar state (pure . fst)
-                    when continue action
+                then scheduleAction
                 else do
                     -- schedule a new (bounded) delay, moving us closer to the deadline,
                     -- if not there/past
@@ -63,6 +60,16 @@ makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule
                                 timer <- scheduleTimer delay schedule
                                 pure ((enabled, Just timer), ())
                             else pure ((enabled, Nothing), ())
+        -- Schedule expired timers too, preserving the asynchronous TimerMonad contract.
+        scheduleAction =
+            void . modifyMVar state $ \(enabled, _) ->
+                if enabled
+                    then do
+                        timer <- scheduleTimer 1 $ do
+                            continue <- withMVar state (pure . fst)
+                            when continue action
+                        pure ((enabled, Just timer), ())
+                    else pure ((enabled, Nothing), ())
         cancel = do
             activeTimer <- modifyMVar state $ \(_, timer) -> pure ((False, Nothing), timer)
             forM_ activeTimer cancelScheduledTimer

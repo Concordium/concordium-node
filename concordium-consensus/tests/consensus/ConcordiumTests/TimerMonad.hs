@@ -45,6 +45,16 @@ tests = describe "TimerMonad" $ do
         readIORef callbackCount `shouldReturn` 0
         setCurrentTime state deadline
         runNextTimer state
+        readIORef callbackCount `shouldReturn` 0
+        runNextTimer state
+        readIORef callbackCount `shouldReturn` 1
+
+    it "schedules expired timers asynchronously" $ do
+        (backend, state) <- newTimerBackend baseTime
+        callbackCount <- newIORef (0 :: Int)
+        _ <- makeInternalTimer backend baseTime (modifyIORef' callbackCount (+ 1))
+        readIORef callbackCount `shouldReturn` 0
+        runNextTimer state
         readIORef callbackCount `shouldReturn` 1
 
     it "does not invoke the action after an early backend wake-up" $ do
@@ -55,6 +65,8 @@ tests = describe "TimerMonad" $ do
         runNextTimer state
         readIORef callbackCount `shouldReturn` 0
         setCurrentTime state deadline
+        runNextTimer state
+        readIORef callbackCount `shouldReturn` 0
         runNextTimer state
         readIORef callbackCount `shouldReturn` 1
 
@@ -67,6 +79,8 @@ tests = describe "TimerMonad" $ do
         runNextTimer state
         readIORef callbackCount `shouldReturn` 0
         setCurrentTime state deadline
+        runNextTimer state
+        readIORef callbackCount `shouldReturn` 0
         runNextTimer state
         readIORef callbackCount `shouldReturn` 1
 
