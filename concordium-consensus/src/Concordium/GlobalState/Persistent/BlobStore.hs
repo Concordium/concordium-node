@@ -459,7 +459,8 @@ readBlobRange storeAccess blobReference@(BlobRef reference) requestedOffset requ
                 Nothing -> throwIO $ userError "The blob range is outside the blob store."
             mmap <- readIORef (blobStoreMMap storeAccess)
             case (word64ToInt rangeStart, rangeStart `checkedAddWord64` clampedLength) of
-                (Just start, Just rangeEnd) | rangeEnd <= fromIntegral (BS.length mmap) ->
+                (Just start, Just rangeEnd)
+                    | rangeEnd <= fromIntegral (BS.length mmap) ->
                         return $ BS.take count $ BS.drop start mmap
                 _ -> mask $ \restore -> do
                     blobHandle <- takeMVar (blobStoreFile storeAccess)
