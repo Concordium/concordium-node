@@ -34,6 +34,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     BlobHandle,
     BlobStoreAccess,
     BlobStore (..),
+    BlobStoreCallbacks (..),
     HasBlobStore (..),
     createBlobStore,
     loadBlobStore,
@@ -210,43 +211,45 @@ data BlobStoreAccess = BlobStoreAccess
 data BlobStore = BlobStore
     { -- | A handle to the underlying storage.
       bscBlobStore :: !BlobStoreAccess,
-      -- | Callbacks for loading parts of the state. This is needed by V1 contract
-      --  state implementation.
-      bscLoadCallback :: !LoadCallback,
-      -- | Callbacks for storing new state. This is needed by V1 contract state
-      --  implementation.
-      bscStoreCallback :: !StoreCallback
+      -- | Long-lived callbacks. This store owns and frees the callbacks.
+      bscCallbacks :: !BlobStoreCallbacks
     }
 
 class HasBlobStore a where
     -- | A handle to access the underlying storage.
     blobStore :: a -> BlobStoreAccess
 
-    -- | Callbacks for loading parts of the state. This is needed by V1 contract
-    --  state implementation, but should otherwise not be used by Haskell code directly.
-    blobLoadCallback :: a -> LoadCallback
-
-    -- | Callbacks for storing new state. This is needed by V1 contract state
-    --  implementation, but should otherwise not be used by Haskell code directly.
-    blobStoreCallback :: a -> StoreCallback
+    -- | Named V1 contract-state storage operations. Other Haskell code must not
+    -- use these operations directly.
+    blobCallbacks :: a -> BlobStoreCallbacks
 
 -- | Construct callbacks for accessing the blob store.
 --  These callbacks must be freed in order that memory is not leaked.
-mkCallbacksFromBlobStore :: BlobStoreAccess -> IO (LoadCallback, StoreCallback)
+mkCallbacksFromBlobStore :: BlobStoreAccess -> IO BlobStoreCallbacks
 mkCallbacksFromBlobStore bstore = do
     storeCallback <- createStoreCallback (\ptr size -> theBlobRef <$> (writeBlobBS bstore =<< BSUnsafe.unsafePackCStringLen (castPtr ptr, fromIntegral size)))
     loadCallback <- createLoadCallback $ \location -> do
         bs <- readBlobBS bstore (BlobRef location)
         BSUnsafe.unsafeUseAsCStringLen bs $ \(sourcePtr, len) ->
             copyToRustVec (castPtr sourcePtr) (fromIntegral len)
-    return (loadCallback, storeCallback)
+    loadLengthCallback <- createSafeLoadLengthCallback $ \location -> readBlobLength bstore (BlobRef location)
+    loadRangeCallback <-
+        createSafeLoadRangeCallback $ \location offset requestedLength ->
+            readBlobRange
+                bstore
+                (BlobRef location)
+                offset
+                requestedLength
+    return BlobStoreCallbacks{..}
 
--- | Free callbacks constructed with 'mkCallbacksFromBlobStore'. This can only be
---  called once for each constructed callback.
-freeCallbacks :: LoadCallback -> StoreCallback -> IO ()
-freeCallbacks fp1 fp2 = do
-    freeHaskellFunPtr fp1
-    freeHaskellFunPtr fp2
+-- | Free callbacks that this module made. The owning store calls this function
+-- one time after it stops all access to the callbacks.
+freeCallbacks :: BlobStoreCallbacks -> IO ()
+freeCallbacks BlobStoreCallbacks{..} = do
+    freeHaskellFunPtr loadCallback
+    freeHaskellFunPtr loadLengthCallback
+    freeHaskellFunPtr loadRangeCallback
+    freeHaskellFunPtr storeCallback
 
 -- | Create a new blob store at a given location.
 --  Fails if a file or directory at that location already exists.
@@ -258,7 +261,7 @@ createBlobStore blobStoreFilePath = do
     blobStoreFile <- newMVar BlobHandle{bhSize = 0, bhAtEnd = True, ..}
     blobStoreMMap <- newIORef BS.empty
     let bscBlobStore = BlobStoreAccess{..}
-    (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+    bscCallbacks <- mkCallbacksFromBlobStore bscBlobStore
     return BlobStore{..}
 
 -- | Load an existing blob store from a file.
@@ -270,7 +273,7 @@ loadBlobStore blobStoreFilePath = do
     blobStoreFile <- newMVar BlobHandle{bhAtEnd = bhSize == 0, ..}
     blobStoreMMap <- newIORef =<< mmapFileByteString blobStoreFilePath Nothing
     let bscBlobStore = BlobStoreAccess{..}
-    (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+    bscCallbacks <- mkCallbacksFromBlobStore bscBlobStore
     return BlobStore{..}
 
 -- | Flush all buffers associated with the blob store,
@@ -286,7 +289,7 @@ closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar (blobStoreFile bscBlobStore)
     writeIORef (blobStoreMMap bscBlobStore) BS.empty
     hClose bhHandle
-    freeCallbacks bscLoadCallback bscStoreCallback
+    freeCallbacks bscCallbacks
 
 -- | Close all references to the blob store and delete the backing file.
 destroyBlobStore :: BlobStore -> IO ()
@@ -316,7 +319,7 @@ runBlobStoreTemp dir a = MonadCatch.bracket openf closef usef
             mv <- newMVar (BlobHandle h True 0)
             mmap <- newIORef BS.empty
             let bscBlobStore = BlobStoreAccess mv fp mmap
-            (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+            bscCallbacks <- mkCallbacksFromBlobStore bscBlobStore
             return BlobStore{..}
         res <- runBlobStoreT a bs
         liftIO $ do
@@ -324,7 +327,7 @@ runBlobStoreTemp dir a = MonadCatch.bracket openf closef usef
                 BlobStoreAccess mv _ mmap = bscBlobStore
             _ <- takeMVar mv
             writeIORef mmap BS.empty
-            freeCallbacks bscLoadCallback bscStoreCallback
+            freeCallbacks bscCallbacks
             return res
 
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
@@ -400,6 +403,87 @@ blobBSFileLength BlobStoreAccess{..} = mask $ \restore -> do
     case eres :: Either SomeException Integer of
         Left e -> throwIO e
         Right x -> return x
+
+-- | Read only the 8-byte length header of a blob. Also, make sure that the payload is in the store.
+readBlobLength :: BlobStoreAccess -> BlobRef a -> IO Word64
+readBlobLength storeAccess (BlobRef offset) = do
+    -- Get the known file size and validate the header location.
+    fileSize <- fromIntegral . bhSize <$> readMVar (blobStoreFile storeAccess)
+    case (word64ToInt offset, offset `checkedAddWord64` 8) of
+        (Just start, Just dataOffset)
+            | dataOffset <= fileSize -> do
+                -- Use the current memory map if it contains the header.
+                mmap <- readIORef (blobStoreMMap storeAccess)
+                header <-
+                    if start + 8 <= BS.length mmap
+                        then return $ BS.take 8 $ BS.drop start mmap
+                        else mask $ \restore -> do
+                            -- Fallback to reading from file handle directly.
+                            blobHandle <- takeMVar (blobStoreFile storeAccess)
+                            result <- try $ restore $ do
+                                hSeek (bhHandle blobHandle) AbsoluteSeek (fromIntegral offset)
+                                BS.hGet (bhHandle blobHandle) 8
+                            putMVar (blobStoreFile storeAccess) blobHandle{bhAtEnd = False}
+                            case result :: Either SomeException BS.ByteString of
+                                Left err -> throwIO err
+                                Right bytes -> return bytes
+                -- Decode the payload length from the header.
+                len <- case decode header of
+                    Left err -> throwIO $ userError $ "Cannot decode the blob length: " ++ err
+                    Right len -> return len
+                -- Make sure that the complete payload is in the file.
+                case dataOffset `checkedAddWord64` len of
+                    Just end | end <= fileSize -> return len
+                    _ -> invalidReference
+        _ -> invalidReference
+  where
+    invalidReference = throwIO $ userError "The blob reference is outside the blob store."
+
+-- | Read a clamped payload range. The operation reads only framing metadata
+-- and the returned payload bytes. It does not materialize the complete blob.
+readBlobRange :: BlobStoreAccess -> BlobRef a -> Word64 -> Int -> IO BS.ByteString
+readBlobRange storeAccess blobReference@(BlobRef reference) requestedOffset requestedLength = do
+    payloadLength <- readBlobLength storeAccess blobReference
+    let clampedOffset = min requestedOffset payloadLength
+        available = payloadLength - clampedOffset
+        clampedLength = min (fromIntegral requestedLength) available
+    count <- case word64ToInt clampedLength of
+        Just count -> return count
+        Nothing -> throwIO $ userError "The blob range is outside the blob store."
+    if count == 0
+        then
+            return BS.empty
+        else do
+            rangeStart <- case reference `checkedAddWord64` 8 >>= (`checkedAddWord64` clampedOffset) of
+                Just rangeStart -> return rangeStart
+                Nothing -> throwIO $ userError "The blob range is outside the blob store."
+            mmap <- readIORef (blobStoreMMap storeAccess)
+            case (word64ToInt rangeStart, rangeStart `checkedAddWord64` clampedLength) of
+                (Just start, Just rangeEnd)
+                    | rangeEnd <= fromIntegral (BS.length mmap) ->
+                        return $ BS.take count $ BS.drop start mmap
+                _ -> mask $ \restore -> do
+                    blobHandle <- takeMVar (blobStoreFile storeAccess)
+                    result <- try $ restore $ do
+                        hSeek (bhHandle blobHandle) AbsoluteSeek (fromIntegral rangeStart)
+                        bytes <- BS.hGet (bhHandle blobHandle) count
+                        if BS.length bytes == count
+                            then return bytes
+                            else throwIO $ userError "The blob range is outside the blob store."
+                    putMVar (blobStoreFile storeAccess) blobHandle{bhAtEnd = False}
+                    either throwIO return (result :: Either SomeException BS.ByteString)
+
+-- | Internal helper providing safe convertion from Word64 to Int.
+word64ToInt :: Word64 -> Maybe Int
+word64ToInt value =
+    let converted = fromIntegral value
+    in  if converted < 0 || fromIntegral converted /= value then Nothing else Just converted
+
+-- | Internal helper providing checked addition for Word64.
+checkedAddWord64 :: Word64 -> Word64 -> Maybe Word64
+checkedAddWord64 a b =
+    let result = a + b
+    in  if result < a then Nothing else Just result
 
 -- | Read a bytestring from the blob store at the given offset using the memory map.
 -- The file handle is used as a backstop if the data to be read would be outside the memory map
@@ -554,11 +638,9 @@ class (MonadIO m) => MonadBlobStore m where
 
     -- | Get callbacks that can be given to foreign code (i.e., passed via FFI)
     --  to access the blob store.
-    getCallbacks :: m (LoadCallback, StoreCallback)
-    default getCallbacks :: (MonadReader r m, HasBlobStore r) => m (LoadCallback, StoreCallback)
-    getCallbacks = do
-        r <- ask
-        return (blobLoadCallback r, blobStoreCallback r)
+    getCallbacks :: m BlobStoreCallbacks
+    default getCallbacks :: (MonadReader r m, HasBlobStore r) => m BlobStoreCallbacks
+    getCallbacks = blobCallbacks <$> ask
 
     -- | Access a blob pointer directly. The function should ONLY READ the memory at the pointer,
     --  and not read beyond the length of the 'BlobPtr'.
@@ -580,8 +662,7 @@ class (MonadIO m) => MonadBlobStore m where
 
 instance HasBlobStore BlobStore where
     blobStore = bscBlobStore
-    blobLoadCallback = bscLoadCallback
-    blobStoreCallback = bscStoreCallback
+    blobCallbacks = bscCallbacks
 
 -- | An auxiliary constraint needed by all functions that migrate state from one
 --  blob store to another. The intended reading of this is that @m@ and @t@
@@ -692,7 +773,7 @@ data MemBlobStore = MemBlobStore
       -- | 'MVar' containing the callbacks. This is initially empty, and the callbacks are created
       --  only when first required. After this has been set, it should only become empty again when
       --  the 'MemBlobStore' is to be disposed of.
-      mbsCallbacks :: !(MVar (LoadCallback, StoreCallback))
+      mbsCallbacks :: !(MVar BlobStoreCallbacks)
     }
 
 -- | Create a fresh, empty 'MemBlobStore'.
@@ -705,7 +786,7 @@ destroyMemBlobStore :: MemBlobStore -> IO ()
 destroyMemBlobStore MemBlobStore{..} = do
     _ <- takeMVar theMemBlobStore
     mcbks <- tryTakeMVar mbsCallbacks
-    forM_ mcbks $ uncurry freeCallbacks
+    forM_ mcbks freeCallbacks
 
 -- | Helper function for implementing storage operations on 'MemBlobStore'.
 storeMem :: MVar LBS.ByteString -> BS.ByteString -> IO Word64
@@ -727,8 +808,38 @@ loadMem mv offset = do
         Left e -> error e
         Right len -> return $! LBS.toStrict (LBS.take (fromIntegral len) (LBS.drop 8 bs'))
 
+-- | Read and validate only the length metadata of a stored blob.
+loadMemLength :: MVar LBS.ByteString -> BlobRef a -> IO Word64
+loadMemLength mv (BlobRef offset) = do
+    bytes <- readMVar mv
+    let total = fromIntegral (LBS.length bytes) :: Word64
+    case offset `checkedAdd` 8 of
+        Nothing -> invalidReference
+        Just dataOffset
+            | dataOffset > total -> invalidReference
+            | otherwise -> do
+                len <- case runGetLazy getWord64be (LBS.take 8 $ LBS.drop (fromIntegral offset) bytes) of
+                    Left err -> throwIO $ userError $ "Cannot decode the blob length: " ++ err
+                    Right len -> return len
+                case dataOffset `checkedAdd` len of
+                    Just end | end <= total -> return len
+                    _ -> invalidReference
+  where
+    invalidReference = throwIO $ userError "The blob reference is outside the blob store."
+    checkedAdd a b = let result = a + b in if result < a then Nothing else Just result
+
+-- | Read a clamped range without making the complete lazy payload strict.
+loadMemRange :: MVar LBS.ByteString -> BlobRef a -> Word64 -> Int -> IO BS.ByteString
+loadMemRange mv blobReference@(BlobRef reference) requestedOffset requestedLength = do
+    payloadLength <- loadMemLength mv blobReference
+    bytes <- readMVar mv
+    let clampedOffset = min requestedOffset payloadLength
+        count = min (fromIntegral requestedLength) (payloadLength - clampedOffset)
+        payloadStart = reference + 8 + clampedOffset
+    return $! LBS.toStrict $ LBS.take (fromIntegral count) $ LBS.drop (fromIntegral payloadStart) bytes
+
 -- | Get the callbacks for a 'MemBlobStore'.
-getMemCallbacks :: MemBlobStore -> IO (LoadCallback, StoreCallback)
+getMemCallbacks :: MemBlobStore -> IO BlobStoreCallbacks
 getMemCallbacks mbs@MemBlobStore{..} =
     tryReadMVar mbsCallbacks >>= \case
         Just cbs -> return cbs
@@ -737,17 +848,22 @@ getMemCallbacks mbs@MemBlobStore{..} =
                 bs <- loadMem theMemBlobStore loc
                 BSUnsafe.unsafeUseAsCStringLen bs $ \(sourcePtr, len) ->
                     copyToRustVec (castPtr sourcePtr) (fromIntegral len)
-            storeCbk <- createStoreCallback $ \ptr size -> do
+            storeCallback <- createStoreCallback $ \ptr size -> do
                 -- Note, we don't use unsafe because the bytestring may be retained.
                 bs <- BS.packCStringLen (castPtr ptr, fromIntegral size)
                 storeMem theMemBlobStore bs
-            res <- tryPutMVar mbsCallbacks (loadCbk, storeCbk)
+            loadLengthCallback <- createSafeLoadLengthCallback $ \location ->
+                loadMemLength theMemBlobStore (BlobRef location)
+            loadRangeCallback <- createSafeLoadRangeCallback $ \location offset requestedLength ->
+                loadMemRange theMemBlobStore (BlobRef location) offset requestedLength
+            let callbacks = BlobStoreCallbacks{loadCallback = loadCbk, ..}
+            res <- tryPutMVar mbsCallbacks callbacks
             if res
-                then return (loadCbk, storeCbk)
+                then return callbacks
                 else do
-                    -- Another thread beat us in setting the callbacks, so clean up ours
-                    freeCallbacks loadCbk storeCbk
-                    -- The read should succeed next time
+                    -- Another thread set the callbacks first. Free these callbacks.
+                    freeCallbacks callbacks
+                    -- The next read must succeed.
                     getMemCallbacks mbs
 
 -- | A monad transformer that provides an instance of 'MonadBlobStore' based on a 'MemBlobStore'.

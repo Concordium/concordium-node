@@ -407,8 +407,8 @@ freezeContractState :: forall v m. (Wasm.IsWasmVersion v, MonadBlobStore m) => U
 freezeContractState cs = case Wasm.getWasmVersion @v of
     Wasm.SV0 -> return (getHash cs, Instances.InstanceStateV0 cs)
     Wasm.SV1 -> do
-        (cbk, _) <- getCallbacks
-        (hsh, persistent) <- liftIO (StateV1.freeze cbk cs)
+        callbacks <- getCallbacks
+        (hsh, persistent) <- liftIO (StateV1.freeze callbacks cs)
         return (hsh, Instances.InstanceStateV1 persistent)
 
 instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (PersistentBirkParameters pv) where
@@ -4469,8 +4469,7 @@ instance LMDBAccountMap.HasDatabaseHandlers (PersistentBlockStateContext pv) whe
 
 instance HasBlobStore (PersistentBlockStateContext av) where
     blobStore = bscBlobStore . pbscBlobStore
-    blobLoadCallback = bscLoadCallback . pbscBlobStore
-    blobStoreCallback = bscStoreCallback . pbscBlobStore
+    blobCallbacks = bscCallbacks . pbscBlobStore
 
 instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (PersistentBlockStateContext pv) where
     projectCache = pbscAccountCache
@@ -4624,11 +4623,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst
-    thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst . fst =<< getCallbacks
+    thawContractState (Instances.InstanceStateV1 inst) = liftIO . flip StateV1.thaw inst =<< getCallbacks
     externalContractState (Instances.InstanceStateV0 inst) = return inst
     externalContractState (Instances.InstanceStateV1 inst) = return inst
     stateSizeV0 (Instances.InstanceStateV0 inst) = return (Wasm.contractStateSize inst)
-    getV1StateContext = asks blobLoadCallback
+    getV1StateContext = asks blobCallbacks
     contractStateToByteString (Instances.InstanceStateV0 st) = return (encode st)
     contractStateToByteString (Instances.InstanceStateV1 st) = runPut . putByteStringLen <$> StateV1.toByteString st
     {-# INLINE thawContractState #-}
@@ -4821,7 +4820,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
             Just hpbsHash -> return HashedPersistentBlockState{..}
             Nothing -> hashBlockState hpbsPointers
 
-    blockStateLoadCallback = asks blobLoadCallback
+    blockStateLoadCallback = asks blobCallbacks
     {-# INLINE blockStateLoadCallback #-}
 
     collapseCaches = do
