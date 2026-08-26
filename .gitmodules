@@ -3,7 +3,7 @@
 	url = ../noiseexplorer_xx.git
 [submodule "concordium-base"]
 	path = concordium-base
-	url = ../concordium-base.git
+	url = ../concordium-base-private.git
 [submodule "concordium-consensus/haskell-lmdb"]
 	path = concordium-consensus/haskell-lmdb
 	url = ../haskell-lmdb.git

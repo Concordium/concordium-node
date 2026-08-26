@@ -509,8 +509,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (SkovT pv h c' m) where
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => HasBlobStore (SkovContext c) where
     blobStore = blobStore . scGSContext
-    blobLoadCallback = blobLoadCallback . scGSContext
-    blobStoreCallback = blobStoreCallback . scGSContext
+    blobCallbacks = blobCallbacks . scGSContext
 
 instance (c ~ SkovConfig pv finconfig handlerconfig, AccountVersionFor pv ~ av) => HasCache (AccountCache av) (SkovContext c) where
     projectCache = projectCache . scGSContext
@@ -520,8 +519,7 @@ instance (c ~ SkovConfig pv finconfig handlerconfig) => HasCache ModuleCache (Sk
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => HasBlobStore (SkovTContext h (SkovContext c)) where
     blobStore = blobStore . srContext
-    blobLoadCallback = blobLoadCallback . srContext
-    blobStoreCallback = blobStoreCallback . srContext
+    blobCallbacks = blobCallbacks . srContext
 
 instance (c ~ SkovConfig pv finconfig handlerconfig, AccountVersionFor pv ~ av) => HasCache (AccountCache av) (SkovTContext h (SkovContext c)) where
     projectCache = projectCache . srContext

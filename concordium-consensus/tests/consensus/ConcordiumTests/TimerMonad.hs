@@ -104,34 +104,31 @@ baseTime = UTCTime (fromGregorian 2024 1 1) 0
 
 newtype DummyTimer = DummyTimer Int
 
+newtype DummyTimerBackend = DummyTimerBackend (IORef DummyTimerState)
+
 data DummyTimerState = DummyTimerState
     { currentTime :: UTCTime,
       nextTimerId :: Int,
       pendingTimers :: Map.Map Int (IO ())
     }
 
-newTimerBackend :: UTCTime -> IO (TimerBackend DummyTimer, IORef DummyTimerState)
+instance TimerBackend DummyTimerBackend DummyTimer where
+    timerCurrentTime (DummyTimerBackend state) = currentTime <$> readIORef state
+    timerSchedule (DummyTimerBackend state) _ action = atomicModifyIORef' state $ \timerState ->
+        let timerId = nextTimerId timerState
+            updatedState =
+                timerState
+                    { nextTimerId = timerId + 1,
+                      pendingTimers = Map.insert timerId action (pendingTimers timerState)
+                    }
+        in  (updatedState, DummyTimer timerId)
+    timerCancel (DummyTimerBackend state) (DummyTimer timerId) =
+        modifyIORef' state $ \timerState -> timerState{pendingTimers = Map.delete timerId (pendingTimers timerState)}
+
+newTimerBackend :: UTCTime -> IO (DummyTimerBackend, IORef DummyTimerState)
 newTimerBackend startTime = do
     state <- newIORef $ DummyTimerState startTime 0 Map.empty
-    let
-        schedule _ action = atomicModifyIORef' state $ \timerState ->
-            let timerId = nextTimerId timerState
-                updatedState =
-                    timerState
-                        { nextTimerId = timerId + 1,
-                          pendingTimers = Map.insert timerId action (pendingTimers timerState)
-                        }
-            in  (updatedState, DummyTimer timerId)
-        cancel (DummyTimer timerId) =
-            modifyIORef' state $ \timerState -> timerState{pendingTimers = Map.delete timerId (pendingTimers timerState)}
-    pure
-        ( TimerBackend
-            { timerCurrentTime = currentTime <$> readIORef state,
-              timerSchedule = schedule,
-              timerCancel = cancel
-            },
-          state
-        )
+    pure (DummyTimerBackend state, state)
 
 setCurrentTime :: IORef DummyTimerState -> UTCTime -> IO ()
 setCurrentTime state newTime = modifyIORef' state $ \timerState -> timerState{currentTime = newTime}

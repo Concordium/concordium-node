@@ -33,6 +33,22 @@ class (Monad m) => TimerMonad m where
 
 data ThreadTimer = ThreadTimer !Internal.InternalTimer
 
+#if defined(mingw32_HOST_OS)
+data ThreadTimerBackend = ThreadTimerBackend
+
+instance Internal.TimerBackend ThreadTimerBackend ThreadId where
+    timerCurrentTime _ = getCurrentTime
+    timerSchedule _ delay callback = forkIO $ threadDelay delay >> callback
+    timerCancel _ _ = pure ()
+#else
+newtype ThreadTimerBackend = ThreadTimerBackend TimerManager
+
+instance Internal.TimerBackend ThreadTimerBackend TimeoutKey where
+    timerCurrentTime _ = getCurrentTime
+    timerSchedule (ThreadTimerBackend manager) = registerTimeout manager
+    timerCancel (ThreadTimerBackend manager) = unregisterTimeout manager
+#endif
+
 -- | Normalize a timeout to an absolute deadline at registration time.
 timeoutDeadline :: Timeout -> IO UTCTime
 timeoutDeadline (DelayFor delay) = addUTCTime delay <$> getCurrentTime
@@ -43,28 +59,12 @@ makeThreadTimer :: Timeout -> IO () -> IO ThreadTimer
 #if defined(mingw32_HOST_OS)
 makeThreadTimer timeout action = do
     deadline <- timeoutDeadline timeout
-    ThreadTimer
-        <$> Internal.makeInternalTimer
-            Internal.TimerBackend
-                { timerCurrentTime = getCurrentTime,
-                  timerSchedule = \delay callback -> forkIO $ threadDelay delay >> callback,
-                  timerCancel = const $ pure ()
-                }
-            deadline
-            action
+    ThreadTimer <$> Internal.makeInternalTimer ThreadTimerBackend deadline action
 #else
 makeThreadTimer timeout action = do
     deadline <- timeoutDeadline timeout
     manager <- getSystemTimerManager
-    ThreadTimer
-        <$> Internal.makeInternalTimer
-            Internal.TimerBackend
-                { timerCurrentTime = getCurrentTime,
-                  timerSchedule = registerTimeout manager,
-                  timerCancel = unregisterTimeout manager
-                }
-            deadline
-            action
+    ThreadTimer <$> Internal.makeInternalTimer (ThreadTimerBackend manager) deadline action
 #endif
 
 -- | Cancel the timer created by 'makeThreadTimer'. Note that if the given

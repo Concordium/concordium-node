@@ -490,6 +490,6 @@ pub enum ContractStateResponse {
     },
     V1 {
         state: concordium_smart_contract_engine::v1::trie::PersistentState,
-        loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
+        loader: concordium_smart_contract_engine::v1::trie::BackingStoreLoadCallback,
     },
 }

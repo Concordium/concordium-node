@@ -13,14 +13,15 @@ import Data.Time
 --
 -- This module is shared by the production timer implementation and its
 -- deterministic tests; it is not part of the public consensus library API.
-data TimerBackend timer = TimerBackend
-    { -- | Get the current time.
-      timerCurrentTime :: IO UTCTime,
-      -- | Schedule an action after a delay in microseconds.
-      timerSchedule :: Int -> IO () -> IO timer,
-      -- | Cancel a scheduled action.
-      timerCancel :: timer -> IO ()
-    }
+class TimerBackend backend timer | backend -> timer where
+    -- | Get the current time.
+    timerCurrentTime :: backend -> IO UTCTime
+
+    -- | Schedule an action after a delay in microseconds.
+    timerSchedule :: backend -> Int -> IO () -> IO timer
+
+    -- | Cancel a scheduled action.
+    timerCancel :: backend -> timer -> IO ()
 
 -- | A cancellable internal timer.
 newtype InternalTimer = InternalTimer (IO ())
@@ -33,21 +34,21 @@ maxTimerDelay = fromIntegral (maxBound :: Int) / 1e6
 --
 -- The deadline is checked again after each chunk, so the conversion to 'Int'
 -- cannot cause a timer to fire before its requested deadline.
-boundedDelay :: TimerBackend timer -> UTCTime -> IO Int
-boundedDelay TimerBackend{timerCurrentTime = getTime} deadline = do
-    now <- getTime
+boundedDelay :: (TimerBackend backend timer) => backend -> UTCTime -> IO Int
+boundedDelay backend deadline = do
+    now <- timerCurrentTime backend
     pure $ max 1 $ truncate (min maxTimerDelay (diffUTCTime deadline now) * 1e6)
 
 -- | Create a timer that invokes its action no earlier than the requested deadline.
 --
 -- Delays outside the platform timer range are scheduled in bounded chunks.
-makeInternalTimer :: TimerBackend timer -> UTCTime -> IO () -> IO InternalTimer
-makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule = scheduleTimer, timerCancel = cancelScheduledTimer} deadline action = do
+makeInternalTimer :: (TimerBackend backend timer) => backend -> UTCTime -> IO () -> IO InternalTimer
+makeInternalTimer backend deadline action = do
     -- Serialize chunk rescheduling with cancellation, so cancellation cannot leave a successor chunk scheduled.
     state <- newMVar (True, Nothing)
     let
         schedule = do
-            now <- getTime
+            now <- timerCurrentTime backend
             if now >= deadline
                 then scheduleAction
                 else do
@@ -57,7 +58,7 @@ makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule
                     void . modifyMVar state $ \(enabled, _) ->
                         if enabled
                             then do
-                                timer <- scheduleTimer delay schedule
+                                timer <- timerSchedule backend delay schedule
                                 pure ((enabled, Just timer), ())
                             else pure ((enabled, Nothing), ())
         -- Schedule expired timers too, preserving the asynchronous TimerMonad contract.
@@ -65,14 +66,14 @@ makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule
             void . modifyMVar state $ \(enabled, _) ->
                 if enabled
                     then do
-                        timer <- scheduleTimer 1 $ do
+                        timer <- timerSchedule backend 1 $ do
                             continue <- withMVar state (pure . fst)
                             when continue action
                         pure ((enabled, Just timer), ())
                     else pure ((enabled, Nothing), ())
         cancel = do
             activeTimer <- modifyMVar state $ \(_, timer) -> pure ((False, Nothing), timer)
-            forM_ activeTimer cancelScheduledTimer
+            forM_ activeTimer (timerCancel backend)
     schedule
     pure $ InternalTimer cancel
 
