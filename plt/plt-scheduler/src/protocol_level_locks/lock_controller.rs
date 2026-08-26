@@ -28,6 +28,22 @@ pub enum LockOperation {
     Cancel(MetaLockCancelDetails),
 }
 
+const CANONICAL_ROLES: [LockControllerSimpleV0Capability; 4] = [
+    LockControllerSimpleV0Capability::Fund,
+    LockControllerSimpleV0Capability::Return,
+    LockControllerSimpleV0Capability::Send,
+    LockControllerSimpleV0Capability::Cancel,
+];
+
+fn canonicalize_roles(
+    roles: Vec<LockControllerSimpleV0Capability>,
+) -> Vec<LockControllerSimpleV0Capability> {
+    CANONICAL_ROLES
+        .into_iter()
+        .filter(|capability| roles.contains(capability))
+        .collect()
+}
+
 /// Approve or reject a lock operation. Returns `Ok(())` if the operation is authorized, or
 /// a `TransactionRejectReason` if it is not.
 ///
@@ -118,7 +134,7 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
 
             Ok(LockControllerSimpleV0Grant {
                 account: account.account_index(),
-                roles: grant.roles,
+                roles: canonicalize_roles(grant.roles),
             })
         })
         .collect::<ResultWithBlockStateFailure<_, TransactionRejectReason>>()?;
@@ -188,4 +204,45 @@ pub fn to_cbor_controller<C: EntityContextTypes>(
             },
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonicalize_roles_removes_duplicates_in_canonical_order() {
+        let roles = vec![
+            LockControllerSimpleV0Capability::Cancel,
+            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Cancel,
+            LockControllerSimpleV0Capability::Send,
+            LockControllerSimpleV0Capability::Return,
+            LockControllerSimpleV0Capability::Fund,
+        ];
+
+        assert_eq!(canonicalize_roles(roles), CANONICAL_ROLES);
+    }
+
+    #[test]
+    fn canonicalize_roles_is_independent_of_input_order() {
+        let roles = vec![
+            LockControllerSimpleV0Capability::Send,
+            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Cancel,
+            LockControllerSimpleV0Capability::Return,
+        ];
+
+        assert_eq!(canonicalize_roles(roles), CANONICAL_ROLES);
+    }
+
+    #[test]
+    fn canonicalize_roles_collapses_256_duplicates() {
+        let roles = vec![LockControllerSimpleV0Capability::Fund; 256];
+
+        assert_eq!(
+            canonicalize_roles(roles),
+            [LockControllerSimpleV0Capability::Fund]
+        );
+    }
 }
