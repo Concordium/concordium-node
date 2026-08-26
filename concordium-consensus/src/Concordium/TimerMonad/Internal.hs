@@ -16,8 +16,10 @@ import Data.Time
 class TimerBackend backend timer | backend -> timer where
     -- | Get the current time.
     timerCurrentTime :: backend -> IO UTCTime
+
     -- | Schedule an action after a delay in microseconds.
     timerSchedule :: backend -> Int -> IO () -> IO timer
+
     -- | Cancel a scheduled action.
     timerCancel :: backend -> timer -> IO ()
 
@@ -32,7 +34,7 @@ maxTimerDelay = fromIntegral (maxBound :: Int) / 1e6
 --
 -- The deadline is checked again after each chunk, so the conversion to 'Int'
 -- cannot cause a timer to fire before its requested deadline.
-boundedDelay :: TimerBackend backend timer => backend -> UTCTime -> IO Int
+boundedDelay :: (TimerBackend backend timer) => backend -> UTCTime -> IO Int
 boundedDelay backend deadline = do
     now <- timerCurrentTime backend
     pure $ max 1 $ truncate (min maxTimerDelay (diffUTCTime deadline now) * 1e6)
@@ -40,7 +42,7 @@ boundedDelay backend deadline = do
 -- | Create a timer that invokes its action no earlier than the requested deadline.
 --
 -- Delays outside the platform timer range are scheduled in bounded chunks.
-makeInternalTimer :: TimerBackend backend timer => backend -> UTCTime -> IO () -> IO InternalTimer
+makeInternalTimer :: (TimerBackend backend timer) => backend -> UTCTime -> IO () -> IO InternalTimer
 makeInternalTimer backend deadline action = do
     -- Serialize chunk rescheduling with cancellation, so cancellation cannot leave a successor chunk scheduled.
     state <- newMVar (True, Nothing)

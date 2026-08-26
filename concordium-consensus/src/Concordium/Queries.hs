@@ -1334,7 +1334,10 @@ getInstanceInfoHelper caddr bs = do
 --  requested block does not exist, or the instance does not exist in that
 --  block), @Just . Left@ if the instance is a V0 instance, and @Just . Right@ if
 --  the instance is a V1 instance.
-getInstanceState :: BlockHashInput -> ContractAddress -> MVR finconf (BHIQueryResponse (Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback))))
+getInstanceState ::
+    BlockHashInput ->
+    ContractAddress ->
+    MVR finconf (BHIQueryResponse (Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.BlobStoreCallbacks))))
 getInstanceState bhi caddr = do
     liftSkovQueryStateBHI
         (\bs -> mkII =<< BS.getContractInstance bs caddr)
