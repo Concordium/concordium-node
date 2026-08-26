@@ -34,20 +34,20 @@ maxTimerDelay = fromIntegral (maxBound :: Int) / 1e6
 -- The deadline is checked again after each chunk, so the conversion to 'Int'
 -- cannot cause a timer to fire before its requested deadline.
 boundedDelay :: TimerBackend timer -> UTCTime -> IO Int
-boundedDelay TimerBackend{timerCurrentTime = getTime} deadline = do
-    now <- getTime
+boundedDelay TimerBackend{..} deadline = do
+    now <- timerCurrentTime
     pure $ max 1 $ truncate (min maxTimerDelay (diffUTCTime deadline now) * 1e6)
 
 -- | Create a timer that invokes its action no earlier than the requested deadline.
 --
 -- Delays outside the platform timer range are scheduled in bounded chunks.
 makeInternalTimer :: TimerBackend timer -> UTCTime -> IO () -> IO InternalTimer
-makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule = scheduleTimer, timerCancel = cancelScheduledTimer} deadline action = do
+makeInternalTimer backend@TimerBackend{..} deadline action = do
     -- Serialize chunk rescheduling with cancellation, so cancellation cannot leave a successor chunk scheduled.
     state <- newMVar (True, Nothing)
     let
         schedule = do
-            now <- getTime
+            now <- timerCurrentTime
             if now >= deadline
                 then do
                     -- invoke the action, as we're past the deadline
@@ -60,12 +60,12 @@ makeInternalTimer backend@TimerBackend{timerCurrentTime = getTime, timerSchedule
                     void . modifyMVar state $ \(enabled, _) ->
                         if enabled
                             then do
-                                timer <- scheduleTimer delay schedule
+                                timer <- timerSchedule delay schedule
                                 pure ((enabled, Just timer), ())
                             else pure ((enabled, Nothing), ())
         cancel = do
             activeTimer <- modifyMVar state $ \(_, timer) -> pure ((False, Nothing), timer)
-            forM_ activeTimer cancelScheduledTimer
+            forM_ activeTimer timerCancel
     schedule
     pure $ InternalTimer cancel
 
