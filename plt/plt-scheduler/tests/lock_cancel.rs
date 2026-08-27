@@ -57,10 +57,10 @@ fn test_cancel_by_canceller() {
     };
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![account_index_1],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: account_index_2,
-            roles: vec![LockControllerSimpleV0Capability::Cancel],
-        }],
+        grants: vec![LockControllerSimpleV0Grant::new(
+            account_index_2,
+            vec![LockControllerSimpleV0Capability::Cancel],
+        )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
         keep_alive: false,
@@ -116,10 +116,10 @@ fn test_cancel_unauthorized() {
     };
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![account_index_1],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: account_index_1,
-            roles: vec![LockControllerSimpleV0Capability::Cancel],
-        }],
+        grants: vec![LockControllerSimpleV0Grant::new(
+            account_index_1,
+            vec![LockControllerSimpleV0Capability::Cancel],
+        )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
         keep_alive: false,
@@ -174,10 +174,10 @@ fn test_cancel_after_expiry() {
     };
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![account_index_1],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: account_index_2,
-            roles: vec![LockControllerSimpleV0Capability::Cancel],
-        }],
+        grants: vec![LockControllerSimpleV0Grant::new(
+            account_index_2,
+            vec![LockControllerSimpleV0Capability::Cancel],
+        )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
         keep_alive: false,
@@ -251,21 +251,21 @@ fn test_cancel_with_balances() {
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![account_index_1],
         grants: vec![
-            LockControllerSimpleV0Grant {
-                account: account_index_2,
-                roles: vec![LockControllerSimpleV0Capability::Cancel],
-            },
-            LockControllerSimpleV0Grant {
-                account: plt_x_gov_acct.account_index(),
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            },
-            LockControllerSimpleV0Grant {
-                account: plt_y_gov_acct.account_index(),
-                roles: vec![
+            LockControllerSimpleV0Grant::new(
+                account_index_2,
+                vec![LockControllerSimpleV0Capability::Cancel],
+            ),
+            LockControllerSimpleV0Grant::new(
+                plt_x_gov_acct.account_index(),
+                vec![LockControllerSimpleV0Capability::Fund],
+            ),
+            LockControllerSimpleV0Grant::new(
+                plt_y_gov_acct.account_index(),
+                vec![
                     LockControllerSimpleV0Capability::Fund,
                     LockControllerSimpleV0Capability::Send,
                 ],
-            },
+            ),
         ],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
@@ -413,14 +413,14 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![owner.account_index()],
         grants: vec![
-            LockControllerSimpleV0Grant {
-                account: owner.account_index(),
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            },
-            LockControllerSimpleV0Grant {
-                account: canceller.account_index(),
-                roles: vec![LockControllerSimpleV0Capability::Cancel],
-            },
+            LockControllerSimpleV0Grant::new(
+                owner.account_index(),
+                vec![LockControllerSimpleV0Capability::Fund],
+            ),
+            LockControllerSimpleV0Grant::new(
+                canceller.account_index(),
+                vec![LockControllerSimpleV0Capability::Cancel],
+            ),
         ],
         tokens: vec![token_id.clone()],
         expiry: 1000,

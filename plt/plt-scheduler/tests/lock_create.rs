@@ -77,7 +77,7 @@ fn execute_lock_create_with_duration(
 }
 
 #[test]
-fn test_create_simple_lock_canonicalizes_controller_roles() {
+fn test_create_simple_lock() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -180,8 +180,8 @@ fn test_create_simple_lock_canonicalizes_controller_roles() {
         controller,
     ) = &stored_configuration.controller;
     assert_eq!(
-        controller.grants[0].roles,
-        vec![
+        controller.grants[0].roles(),
+        [
             LockControllerSimpleV0Capability::Fund,
             LockControllerSimpleV0Capability::Return,
             LockControllerSimpleV0Capability::Send,
@@ -246,8 +246,8 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         controller,
     ) = reloaded.controller;
     assert_eq!(
-        controller.grants[0].roles,
-        vec![LockControllerSimpleV0Capability::Fund]
+        controller.grants[0].roles(),
+        [LockControllerSimpleV0Capability::Fund]
     );
 }
 
