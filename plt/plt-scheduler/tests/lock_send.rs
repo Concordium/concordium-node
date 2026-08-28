@@ -105,13 +105,13 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -309,13 +309,13 @@ fn test_lock_send_rejects_non_recipient() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: owner.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            owner.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -412,13 +412,13 @@ fn test_lock_send_sender_not_in_allow_list() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -525,13 +525,13 @@ fn test_lock_send_recipient_not_in_allow_list() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -615,13 +615,13 @@ fn test_lock_send_sender_in_deny_list() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -714,13 +714,13 @@ fn test_lock_send_recipient_in_deny_list() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -810,13 +810,13 @@ fn test_lock_send_rejects_when_token_paused() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -904,10 +904,10 @@ fn test_lock_send_rejects_unauthorized_sender() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: owner.account_index(),
-            roles: vec![LockControllerSimpleV0Capability::Fund],
-        }],
+        grants: vec![LockControllerSimpleV0Grant::new(
+            owner.account_index(),
+            vec![LockControllerSimpleV0Capability::Fund],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -978,13 +978,13 @@ fn test_lock_send_rejects_after_expiry() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: owner.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            owner.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Send,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 10,
         keep_alive: false,

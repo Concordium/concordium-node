@@ -116,10 +116,10 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
                 },
             )?;
 
-            Ok(LockControllerSimpleV0Grant {
-                account: account.account_index(),
-                roles: grant.roles,
-            })
+            Ok(LockControllerSimpleV0Grant::new(
+                account.account_index(),
+                grant.roles,
+            ))
         })
         .collect::<ResultWithBlockStateFailure<_, TransactionRejectReason>>()?;
 
@@ -162,7 +162,7 @@ pub fn to_cbor_controller<C: EntityContextTypes>(
         .grants
         .iter()
         .map(|grant| {
-            let with_addr = context.account_by_index(grant.account).map_err(
+            let with_addr = context.account_by_index(grant.account()).map_err(
                 |err: AccountNotFoundByIndexError| {
                     BlockStateFailure::Invariant(format!(
                         "Account persisted in lock controller grants not found: {}",
@@ -173,7 +173,7 @@ pub fn to_cbor_controller<C: EntityContextTypes>(
             Ok(
                 concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                     account: CborHolderAccount::from(with_addr.canonical_account_address),
-                    roles: grant.roles.clone(),
+                    roles: grant.roles().to_vec(),
                 },
             )
         })

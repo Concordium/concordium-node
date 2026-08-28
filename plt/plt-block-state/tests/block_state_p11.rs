@@ -264,13 +264,13 @@ fn test_create_lock() {
         recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
         expiry: TransactionTime::from(100u64),
         controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant {
-                account: AccountIndex::from(1),
-                roles: vec![
+            grants: vec![LockControllerSimpleV0Grant::new(
+                AccountIndex::from(1),
+                vec![
                     LockControllerSimpleV0Capability::Cancel,
                     LockControllerSimpleV0Capability::Fund,
                 ],
-            }],
+            )],
             tokens: vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
             keep_alive: true,
             memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),

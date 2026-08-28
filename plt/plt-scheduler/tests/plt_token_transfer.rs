@@ -292,10 +292,10 @@ fn test_transfer_insufficient_available_balance() {
         &lock_id,
         utils::CreateLockSimpleConfig {
             recipients: vec![receiver.account_index()],
-            grants: vec![LockControllerSimpleV0Grant {
-                account: sender.account_index(),
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            }],
+            grants: vec![LockControllerSimpleV0Grant::new(
+                sender.account_index(),
+                vec![LockControllerSimpleV0Capability::Fund],
+            )],
             tokens: vec![token_id.clone()],
             expiry: 1_804_806_000,
             keep_alive: false,
