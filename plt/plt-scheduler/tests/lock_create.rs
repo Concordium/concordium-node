@@ -180,7 +180,7 @@ fn test_create_simple_lock() {
         controller,
     ) = &stored_configuration.controller;
     assert_eq!(
-        controller.grants[0].roles(),
+        controller.grants()[0].roles(),
         [
             LockControllerSimpleV0Capability::Fund,
             LockControllerSimpleV0Capability::Return,
@@ -246,7 +246,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         controller,
     ) = reloaded.controller;
     assert_eq!(
-        controller.grants[0].roles(),
+        controller.grants()[0].roles(),
         [LockControllerSimpleV0Capability::Fund]
     );
 }

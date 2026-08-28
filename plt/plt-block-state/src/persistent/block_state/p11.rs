@@ -88,20 +88,27 @@ mod test {
         };
         let configuration1 = LockConfiguration {
             lock_id: lock_id1.clone(),
-            recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
+            recipients: LockRecipients::try_from(vec![
+                AccountIndex::from(1),
+                AccountIndex::from(2),
+            ])
+            .unwrap(),
             expiry: TransactionTime::from(100u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![LockControllerSimpleV0Grant::new(
-                    AccountIndex::from(1),
-                    vec![
-                        LockControllerSimpleV0Capability::Cancel,
-                        LockControllerSimpleV0Capability::Fund,
-                    ],
-                )],
-                tokens: vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-                keep_alive: true,
-                memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-            }),
+            controller: LockControllerConfig::SimpleV0(
+                LockControllerSimpleV0::new(
+                    vec![LockControllerSimpleV0Grant::new(
+                        AccountIndex::from(1),
+                        vec![
+                            LockControllerSimpleV0Capability::Cancel,
+                            LockControllerSimpleV0Capability::Fund,
+                        ],
+                    )],
+                    vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                    true,
+                    Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                )
+                .unwrap(),
+            ),
             metadata: None,
         };
 
@@ -122,14 +129,11 @@ mod test {
         };
         let configuration2 = LockConfiguration {
             lock_id: lock_id2.clone(),
-            recipients: LockRecipients::from(vec![]),
+            recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(0u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: Vec::new(),
-                tokens: Vec::new(),
-                keep_alive: false,
-                memo: None,
-            }),
+            controller: LockControllerConfig::SimpleV0(
+                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+            ),
             metadata: None,
         };
         block_state
@@ -144,14 +148,11 @@ mod test {
         };
         let configuration3 = LockConfiguration {
             lock_id: lock_id3.clone(),
-            recipients: LockRecipients::from(vec![]),
+            recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(0u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: Vec::new(),
-                tokens: Vec::new(),
-                keep_alive: false,
-                memo: None,
-            }),
+            controller: LockControllerConfig::SimpleV0(
+                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+            ),
             metadata: None,
         };
         block_state.create_lock(&context, configuration3).unwrap();
@@ -265,20 +266,27 @@ mod test {
         };
         let configuration1 = LockConfiguration {
             lock_id: lock_id1.clone(),
-            recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
+            recipients: LockRecipients::try_from(vec![
+                AccountIndex::from(1),
+                AccountIndex::from(2),
+            ])
+            .unwrap(),
             expiry: TransactionTime::from(100u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![LockControllerSimpleV0Grant::new(
-                    AccountIndex::from(1),
-                    vec![
-                        LockControllerSimpleV0Capability::Cancel,
-                        LockControllerSimpleV0Capability::Fund,
-                    ],
-                )],
-                tokens: vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-                keep_alive: true,
-                memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-            }),
+            controller: LockControllerConfig::SimpleV0(
+                LockControllerSimpleV0::new(
+                    vec![LockControllerSimpleV0Grant::new(
+                        AccountIndex::from(1),
+                        vec![
+                            LockControllerSimpleV0Capability::Cancel,
+                            LockControllerSimpleV0Capability::Fund,
+                        ],
+                    )],
+                    vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                    true,
+                    Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                )
+                .unwrap(),
+            ),
             metadata: None,
         };
         block_state.create_lock(&context, configuration1).unwrap();
@@ -296,14 +304,11 @@ mod test {
         };
         let configuration2 = LockConfiguration {
             lock_id: lock_id2.clone(),
-            recipients: LockRecipients::from(vec![]),
+            recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(0u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: Vec::new(),
-                tokens: Vec::new(),
-                keep_alive: false,
-                memo: None,
-            }),
+            controller: LockControllerConfig::SimpleV0(
+                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+            ),
             metadata: None,
         };
         block_state.create_lock(&context, configuration2).unwrap();

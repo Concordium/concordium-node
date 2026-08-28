@@ -261,20 +261,24 @@ fn test_create_lock() {
     let metadata = RawCbor::from(vec![0xa1]); // The node does not care what is in the metadata
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::from(vec![AccountIndex::from(1), AccountIndex::from(2)]),
+        recipients: LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
+            .unwrap(),
         expiry: TransactionTime::from(100u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant::new(
-                AccountIndex::from(1),
-                vec![
-                    LockControllerSimpleV0Capability::Cancel,
-                    LockControllerSimpleV0Capability::Fund,
-                ],
-            )],
-            tokens: vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-            keep_alive: true,
-            memo: Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-        }),
+        controller: LockControllerConfig::SimpleV0(
+            LockControllerSimpleV0::new(
+                vec![LockControllerSimpleV0Grant::new(
+                    AccountIndex::from(1),
+                    vec![
+                        LockControllerSimpleV0Capability::Cancel,
+                        LockControllerSimpleV0Capability::Fund,
+                    ],
+                )],
+                vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                true,
+                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+            )
+            .unwrap(),
+        ),
         metadata: Some(metadata),
     };
 
@@ -307,14 +311,11 @@ fn test_lock_by_id() {
     };
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::from(vec![]),
+        recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: Vec::new(),
-            tokens: Vec::new(),
-            keep_alive: false,
-            memo: None,
-        }),
+        controller: LockControllerConfig::SimpleV0(
+            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        ),
         metadata: None,
     };
 
@@ -357,14 +358,11 @@ fn test_lock_balance_refs() {
     };
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::from(vec![]),
+        recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: Vec::new(),
-            tokens: Vec::new(),
-            keep_alive: false,
-            memo: None,
-        }),
+        controller: LockControllerConfig::SimpleV0(
+            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        ),
         metadata: None,
     };
 
@@ -412,14 +410,11 @@ fn test_create_and_delete_lock() {
     };
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::from(vec![]),
+        recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: Vec::new(),
-            tokens: Vec::new(),
-            keep_alive: false,
-            memo: None,
-        }),
+        controller: LockControllerConfig::SimpleV0(
+            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        ),
         metadata: None,
     };
 
@@ -470,14 +465,11 @@ fn test_lock_list() {
     };
     let configuration_a = LockConfiguration {
         lock_id: lock_id_a.clone(),
-        recipients: LockRecipients::from(vec![]),
+        recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: Vec::new(),
-            tokens: Vec::new(),
-            keep_alive: false,
-            memo: None,
-        }),
+        controller: LockControllerConfig::SimpleV0(
+            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        ),
         metadata: None,
     };
 
@@ -488,14 +480,11 @@ fn test_lock_list() {
     };
     let configuration_b = LockConfiguration {
         lock_id: lock_id_b.clone(),
-        recipients: LockRecipients::from(vec![]),
+        recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: Vec::new(),
-            tokens: Vec::new(),
-            keep_alive: false,
-            memo: None,
-        }),
+        controller: LockControllerConfig::SimpleV0(
+            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        ),
         metadata: None,
     };
     block_state.create_lock(&context, configuration_a).unwrap();
