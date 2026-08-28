@@ -51,10 +51,12 @@ pub fn create_lock(
     let grants = config
         .grants
         .iter()
-        .map(|grant| LockControllerSimpleV0Grant {
-            account: resolve_account(&grant.account),
-            roles: grant.roles.clone(),
-        })
+        .map(
+            |grant| concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                account: resolve_account(&grant.account()),
+                roles: grant.roles().to_vec(),
+            },
+        )
         .collect();
     let operations = MetaUpdateOperations {
         operations: vec![lock_create(LockConfig {

@@ -64,10 +64,10 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
     };
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: funding_account.account_index(),
-            roles: vec![LockControllerSimpleV0Capability::Fund],
-        }],
+        grants: vec![LockControllerSimpleV0Grant::new(
+            funding_account.account_index(),
+            vec![LockControllerSimpleV0Capability::Fund],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,

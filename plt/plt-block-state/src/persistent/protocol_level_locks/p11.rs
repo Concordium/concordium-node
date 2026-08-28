@@ -254,6 +254,13 @@ impl LockControllerSimpleV0 {
     }
 }
 
+const CANONICAL_ROLES: [LockControllerSimpleV0Capability; 4] = [
+    LockControllerSimpleV0Capability::Fund,
+    LockControllerSimpleV0Capability::Return,
+    LockControllerSimpleV0Capability::Send,
+    LockControllerSimpleV0Capability::Cancel,
+];
+
 /// A grant of capabilities to a specific account for a SimpleV0 lock
 /// controller.
 ///
@@ -263,10 +270,31 @@ impl LockControllerSimpleV0 {
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct LockControllerSimpleV0Grant {
     /// The account receiving the grant.
-    pub account: AccountIndex,
+    account: AccountIndex,
     /// The capabilities granted to the account.
     #[size_length = 1]
-    pub roles: Vec<LockControllerSimpleV0Capability>,
+    roles: Vec<LockControllerSimpleV0Capability>,
+}
+
+impl LockControllerSimpleV0Grant {
+    /// Construct a grant, removing duplicate roles and storing them in canonical order.
+    pub fn new(account: AccountIndex, roles: Vec<LockControllerSimpleV0Capability>) -> Self {
+        let roles = CANONICAL_ROLES
+            .into_iter()
+            .filter(|capability| roles.contains(capability))
+            .collect();
+        Self { account, roles }
+    }
+
+    /// Return the account receiving the grant.
+    pub fn account(&self) -> AccountIndex {
+        self.account
+    }
+
+    /// Return the capabilities granted to the account in canonical order.
+    pub fn roles(&self) -> &[LockControllerSimpleV0Capability] {
+        &self.roles
+    }
 }
 
 #[cfg(test)]
@@ -292,10 +320,10 @@ mod test {
             ]),
             expiry: TransactionTime::from(1000u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![LockControllerSimpleV0Grant {
-                    account: AccountIndex::from(1u64),
-                    roles: vec![LockControllerSimpleV0Capability::Fund],
-                }],
+                grants: vec![LockControllerSimpleV0Grant::new(
+                    AccountIndex::from(1u64),
+                    vec![LockControllerSimpleV0Capability::Fund],
+                )],
                 tokens: vec!["token1".parse().unwrap()],
                 keep_alive: true,
                 memo: None,
@@ -438,13 +466,13 @@ mod test {
 
     #[test]
     fn test_lock_controller_simple_v0_grant_serial() {
-        let grant = LockControllerSimpleV0Grant {
-            account: AccountIndex::from(42u64),
-            roles: vec![
+        let grant = LockControllerSimpleV0Grant::new(
+            AccountIndex::from(42u64),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Return,
             ],
-        };
+        );
 
         let bytes = common::to_bytes(&grant);
         assert_eq!(hex::encode(&bytes), "000000000000002a020001");
@@ -457,10 +485,10 @@ mod test {
     #[test]
     fn test_lock_controller_simple_v0_serial() {
         let controller = LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant {
-                account: AccountIndex::from(1u64),
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            }],
+            grants: vec![LockControllerSimpleV0Grant::new(
+                AccountIndex::from(1u64),
+                vec![LockControllerSimpleV0Capability::Fund],
+            )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
             keep_alive: true,
             memo: Some(CborMemo::Raw(
@@ -499,10 +527,10 @@ mod test {
     #[test]
     fn test_lock_controller_serial() {
         let controller = LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant {
-                account: AccountIndex::from(1u64),
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            }],
+            grants: vec![LockControllerSimpleV0Grant::new(
+                AccountIndex::from(1u64),
+                vec![LockControllerSimpleV0Capability::Fund],
+            )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
             keep_alive: true,
             memo: None,
