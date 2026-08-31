@@ -282,13 +282,6 @@ impl LockControllerSimpleV0 {
     ///
     /// Returns [`ContainerSizeOverflow`] when `grants` or `tokens` exceeds the
     /// two-byte serialized length prefix.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0;
-    /// let controller = LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap();
-    /// ```
     pub fn new(
         grants: Vec<LockControllerSimpleV0Grant>,
         tokens: Vec<TokenId>,
