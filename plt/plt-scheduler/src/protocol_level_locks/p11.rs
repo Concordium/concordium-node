@@ -474,7 +474,8 @@ fn execute_lock_create<C: EntityContextTypes>(
                     },
                 )
                 .collect::<Result<Vec<_>, TransactionRejectReason>>()?;
-            LockRecipients::from(recipients)
+            LockRecipients::try_from(recipients)
+                .map_err(|_| TransactionRejectReason::SerializationFailure)?
         }
     };
     let configuration = LockConfiguration {

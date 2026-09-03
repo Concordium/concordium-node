@@ -135,6 +135,27 @@ impl Hashable for PersistentLockP11 {
     }
 }
 
+/// Error returned when a persistent container exceeds its serialized capacity.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ContainerSizeOverflow {
+    pub field: &'static str,
+    pub length: usize,
+    pub max_length: usize,
+}
+
+const U16_MAX_LENGTH: usize = u16::MAX as usize;
+
+fn check_u16_length(field: &'static str, length: usize) -> Result<(), ContainerSizeOverflow> {
+    if length > U16_MAX_LENGTH {
+        return Err(ContainerSizeOverflow {
+            field,
+            length,
+            max_length: U16_MAX_LENGTH,
+        });
+    }
+    Ok(())
+}
+
 // Represents a list of lock recipients. This type enforces that the inner list is always sorted
 // to enable binary search.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -145,9 +166,10 @@ pub struct LockRecipientsList {
 
 impl LockRecipientsList {
     /// Create a new list of lock recipients from the given account index list
-    pub fn new(mut recipients: Vec<AccountIndex>) -> Self {
+    pub fn new(mut recipients: Vec<AccountIndex>) -> Result<Self, ContainerSizeOverflow> {
+        check_u16_length("LockRecipientsList.recipients", recipients.len())?;
         recipients.sort();
-        Self { recipients }
+        Ok(Self { recipients })
     }
 
     /// Get an iterator of the account indices in the list
@@ -195,9 +217,10 @@ impl LockRecipients {
     }
 }
 
-impl From<Vec<AccountIndex>> for LockRecipients {
-    fn from(recipients: Vec<AccountIndex>) -> Self {
-        Self::Limited(LockRecipientsList::new(recipients))
+impl TryFrom<Vec<AccountIndex>> for LockRecipients {
+    type Error = ContainerSizeOverflow;
+    fn try_from(recipients: Vec<AccountIndex>) -> Result<Self, Self::Error> {
+        Ok(Self::Limited(LockRecipientsList::new(recipients)?))
     }
 }
 
@@ -233,11 +256,11 @@ pub enum LockControllerConfig {
 pub struct LockControllerSimpleV0 {
     /// Capability grants to accounts.
     #[size_length = 2]
-    pub grants: Vec<LockControllerSimpleV0Grant>,
+    grants: Vec<LockControllerSimpleV0Grant>,
     /// Tokens affected by this lock controller.
     #[size_length = 2]
     // todo change to TokenIndex?
-    pub tokens: Vec<TokenId>,
+    tokens: Vec<TokenId>,
     /// Whether the lock should be kept alive after all funds are
     /// returned.
     pub keep_alive: bool,
@@ -246,6 +269,45 @@ pub struct LockControllerSimpleV0 {
 }
 
 impl LockControllerSimpleV0 {
+    /// Create a persistent SimpleV0 lock controller.
+    ///
+    /// # Arguments
+    ///
+    /// * `grants` - Capability grants to store.
+    /// * `tokens` - Tokens affected by the controller.
+    /// * `keep_alive` - Whether to retain the lock after all funds are returned.
+    /// * `memo` - Optional memo attached to the lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContainerSizeOverflow`] when `grants` or `tokens` exceeds the
+    /// two-byte serialized length prefix.
+    pub fn new(
+        grants: Vec<LockControllerSimpleV0Grant>,
+        tokens: Vec<TokenId>,
+        keep_alive: bool,
+        memo: Option<CborMemo>,
+    ) -> Result<Self, ContainerSizeOverflow> {
+        check_u16_length("LockControllerSimpleV0.grants", grants.len())?;
+        check_u16_length("LockControllerSimpleV0.tokens", tokens.len())?;
+        Ok(Self {
+            grants,
+            tokens,
+            keep_alive,
+            memo,
+        })
+    }
+
+    /// Return the controller's capability grants.
+    pub fn grants(&self) -> &[LockControllerSimpleV0Grant] {
+        &self.grants
+    }
+
+    /// Return the tokens affected by the controller.
+    pub fn tokens(&self) -> &[TokenId] {
+        &self.tokens
+    }
+
     /// Check if an account has a specified role.
     pub fn has_role(&self, account: AccountIndex, role: LockControllerSimpleV0Capability) -> bool {
         self.grants
@@ -314,10 +376,11 @@ mod test {
                 sequence_number: 2,
                 creation_order: 0,
             },
-            recipients: LockRecipients::from(vec![
+            recipients: LockRecipients::try_from(vec![
                 AccountIndex::from(1u64),
                 AccountIndex::from(2u64),
-            ]),
+            ])
+            .unwrap(),
             expiry: TransactionTime::from(1000u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![LockControllerSimpleV0Grant::new(
@@ -352,7 +415,7 @@ mod test {
                 sequence_number: 2,
                 creation_order: 0,
             },
-            recipients: LockRecipients::from(vec![]),
+            recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(500u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
                 grants: vec![],
@@ -411,11 +474,13 @@ mod test {
     #[test]
     fn test_lock_recipients_limited_sorts_accounts() {
         let recipients =
-            LockRecipients::from(vec![AccountIndex::from(2u64), AccountIndex::from(1u64)]);
+            LockRecipients::try_from(vec![AccountIndex::from(2u64), AccountIndex::from(1u64)])
+                .unwrap();
 
         assert_eq!(
             recipients,
-            LockRecipients::from(vec![AccountIndex::from(1u64), AccountIndex::from(2u64)])
+            LockRecipients::try_from(vec![AccountIndex::from(1u64), AccountIndex::from(2u64)])
+                .unwrap()
         );
     }
 
@@ -522,6 +587,99 @@ mod test {
         let deserialized: LockControllerSimpleV0 =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, controller);
+    }
+
+    #[test]
+    fn grant_roles_are_canonicalized() {
+        let grant = LockControllerSimpleV0Grant::new(
+            AccountIndex::from(0),
+            vec![
+                LockControllerSimpleV0Capability::Cancel,
+                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Fund,
+            ],
+        );
+        assert_eq!(
+            grant.roles(),
+            [
+                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Cancel,
+            ]
+        );
+    }
+
+    #[test]
+    fn persistent_container_capacity_limits() {
+        assert!(LockRecipients::try_from(vec![AccountIndex::from(0); U16_MAX_LENGTH]).is_ok());
+        assert_eq!(
+            LockRecipients::try_from(vec![AccountIndex::from(0); U16_MAX_LENGTH + 1]),
+            Err(ContainerSizeOverflow {
+                field: "LockRecipientsList.recipients",
+                length: U16_MAX_LENGTH + 1,
+                max_length: U16_MAX_LENGTH,
+            })
+        );
+        let grant = LockControllerSimpleV0Grant::new(
+            AccountIndex::from(0),
+            vec![LockControllerSimpleV0Capability::Fund],
+        );
+        assert!(
+            LockControllerSimpleV0::new(
+                vec![grant.clone(); U16_MAX_LENGTH],
+                Vec::new(),
+                false,
+                None
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            LockControllerSimpleV0::new(
+                vec![grant.clone(); U16_MAX_LENGTH + 1],
+                Vec::new(),
+                false,
+                None,
+            ),
+            Err(ContainerSizeOverflow {
+                field: "LockControllerSimpleV0.grants",
+                length: U16_MAX_LENGTH + 1,
+                max_length: U16_MAX_LENGTH,
+            })
+        );
+        assert!(
+            LockControllerSimpleV0::new(
+                Vec::new(),
+                vec!["token".parse().unwrap(); U16_MAX_LENGTH],
+                false,
+                None,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            LockControllerSimpleV0::new(
+                Vec::new(),
+                vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
+                false,
+                None,
+            ),
+            Err(ContainerSizeOverflow {
+                field: "LockControllerSimpleV0.tokens",
+                length: U16_MAX_LENGTH + 1,
+                max_length: U16_MAX_LENGTH,
+            })
+        );
+        assert_eq!(
+            LockControllerSimpleV0::new(
+                vec![grant; U16_MAX_LENGTH + 1],
+                vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
+                false,
+                None,
+            ),
+            Err(ContainerSizeOverflow {
+                field: "LockControllerSimpleV0.grants",
+                length: U16_MAX_LENGTH + 1,
+                max_length: U16_MAX_LENGTH,
+            })
+        );
     }
 
     #[test]
