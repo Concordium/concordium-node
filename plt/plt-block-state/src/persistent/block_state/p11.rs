@@ -87,7 +87,6 @@ mod test {
             creation_order: 0,
         };
         let configuration1 = LockConfiguration {
-            lock_id: lock_id1.clone(),
             recipients: LockRecipients::try_from(vec![
                 AccountIndex::from(1),
                 AccountIndex::from(2),
@@ -112,23 +111,23 @@ mod test {
             metadata: None,
         };
 
-        block_state
-            .create_lock(&context, configuration1.clone())
+        let mut locks = block_state.locks(&context).unwrap();
+        locks
+            .create(&context, &lock_id1, configuration1.clone())
             .unwrap();
-        let mut lock1 = block_state
-            .lock_by_id(&context, &lock_id1)
+        let mut lock1 = locks
+            .by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
         lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
         lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
-        block_state.update_lock(&context, lock1).unwrap();
+        locks.update(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
             sequence_number: 7,
             creation_order: 0,
         };
         let configuration2 = LockConfiguration {
-            lock_id: lock_id2.clone(),
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(0u64),
             controller: LockControllerConfig::SimpleV0(
@@ -136,8 +135,8 @@ mod test {
             ),
             metadata: None,
         };
-        block_state
-            .create_lock(&context, configuration2.clone())
+        locks
+            .create(&context, &lock_id2, configuration2.clone())
             .unwrap();
 
         // Create a third lock and then delete it
@@ -147,7 +146,6 @@ mod test {
             creation_order: 0,
         };
         let configuration3 = LockConfiguration {
-            lock_id: lock_id3.clone(),
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(0u64),
             controller: LockControllerConfig::SimpleV0(
@@ -155,9 +153,10 @@ mod test {
             ),
             metadata: None,
         };
-        block_state.create_lock(&context, configuration3).unwrap();
-        let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
+        locks.create(&context, &lock_id3, configuration3).unwrap();
+        let was_deleted = locks.delete(&context, &lock_id3).unwrap();
         assert!(was_deleted, "lock3 should be deleted");
+        block_state.commit_locks(&context, locks);
 
         // Store and load block state
         let blob_ref = blob_store::store_to_store(&mut context.store, block_state.persistent);
@@ -208,14 +207,14 @@ mod test {
         let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "db35d91962f8f0315adb99d687d65c796ac67f2956b02e80fb667589f64efcb5"
+            "d84a104f55bddbfba65cfe902175f9337db147b8f93507de58a141225e59434c"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &persistent_block_state);
         assert_eq!(
             hex::encode(context.store.0),
-            "0000000000000008000000000000000000000000000000080000000000000000000000000000001000000000000000000000000000000010"
+            "00000000000000080000000000000000000000000000000100000000000000001000000000000000000000000000000010"
         );
     }
 
@@ -265,7 +264,6 @@ mod test {
             creation_order: 0,
         };
         let configuration1 = LockConfiguration {
-            lock_id: lock_id1.clone(),
             recipients: LockRecipients::try_from(vec![
                 AccountIndex::from(1),
                 AccountIndex::from(2),
@@ -289,21 +287,21 @@ mod test {
             ),
             metadata: None,
         };
-        block_state.create_lock(&context, configuration1).unwrap();
-        let mut lock1 = block_state
-            .lock_by_id(&context, &lock_id1)
+        let mut locks = block_state.locks(&context).unwrap();
+        locks.create(&context, &lock_id1, configuration1).unwrap();
+        let mut lock1 = locks
+            .by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
         lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
         lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
-        block_state.update_lock(&context, lock1).unwrap();
+        locks.update(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
             sequence_number: 7,
             creation_order: 0,
         };
         let configuration2 = LockConfiguration {
-            lock_id: lock_id2.clone(),
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(0u64),
             controller: LockControllerConfig::SimpleV0(
@@ -311,20 +309,21 @@ mod test {
             ),
             metadata: None,
         };
-        block_state.create_lock(&context, configuration2).unwrap();
+        locks.create(&context, &lock_id2, configuration2).unwrap();
+        block_state.commit_locks(&context, locks);
 
         // Assert hash
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "a58ed4fdc2d127e1cdaf3fdb4cad4dc0819e6c66943f2b85592adbb471e44c01"
+            "087291ee0596eb189674d6fca89fa020c31d147b0b434f3f8ca1e859c56418ae"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000005d0000000000000001000000000000000100000000000000000100020000000000000001000000000000000200000000000000640000010000000000000001020003000208746f6b656e69643108746f6b656e696432010100000200010000000000000000310100000000000000020000000000000000000000000000000000000000000000010000000000000001000000000000018f00000000000000090000000000000001f4000000000000002b000000000000000200000000000000070000000000000000010000000000000000000000000000000000000000000000000011010000000000000000000000000000023e000000000000000900000000000000027100000000000000210000000000000002010000000000000000000000000000022d000000000000028a00000000000000100000000000000166000000000000029b"
+            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000004e2bb048177e32a285acbafc8731e45062038a9d1793e5a8ec4f80c800ad75fc1160000000000000000700000000000000001b00000000000000000100000000000000000000000000000000000000000000000000006d000000000000000200000000000000000000000000000000000000000000000100000000000000010100020000000000000001000000000000000200000000000000640000010000000000000001020003000208746f6b656e69643108746f6b656e6964320101000002000100000000000000005b9b0ba94873aa0311787743d5f066d2e3f1ee25edf6afcf5a01907621a92ca2fe6000000000000000010000000000000000ff5e53bf51600ef190e4b7cd2ff0b7c185d7073f6bdd9b311fd7b05d08e0af731700000000000001e500000000000000003c0ad4825a72ed1a8bd0c55105819eecf2883d9d92a223b1645b868b4a6fda866c0f00000000000000000201000000000000025a02000000000000018f00000000000000090100000000000002bd000000000000001000000000000001660000000000000301"
         );
     }
 }

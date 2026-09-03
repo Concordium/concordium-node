@@ -260,7 +260,6 @@ fn test_create_lock() {
     };
     let metadata = RawCbor::from(vec![0xa1]); // The node does not care what is in the metadata
     let configuration = LockConfiguration {
-        lock_id: lock_id.clone(),
         recipients: LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
             .unwrap(),
         expiry: TransactionTime::from(100u64),
@@ -282,9 +281,11 @@ fn test_create_lock() {
         metadata: Some(metadata),
     };
 
-    block_state
-        .create_lock(&context, configuration.clone())
+    let mut locks = block_state.locks(&context).unwrap();
+    locks
+        .create(&context, &lock_id, configuration.clone())
         .unwrap();
+    block_state.commit_locks(&context, locks);
 
     // Read configuration
     let read_configuration = block_state
@@ -295,6 +296,20 @@ fn test_create_lock() {
         .unwrap()
         .into_owned();
     assert_eq!(read_configuration, configuration);
+
+    let mut locks = block_state.locks(&context).unwrap();
+    let duplicate = locks.create(&context, &lock_id, configuration.clone());
+    assert!(duplicate.is_err(), "creating a duplicate lock ID must fail");
+    assert_eq!(
+        block_state
+            .lock_by_id(&context, &lock_id)
+            .unwrap()
+            .unwrap()
+            .lock_configuration(&context)
+            .unwrap()
+            .into_owned(),
+        configuration
+    );
 }
 
 /// Test getting lock by id.
@@ -310,7 +325,6 @@ fn test_lock_by_id() {
         creation_order: 0,
     };
     let configuration = LockConfiguration {
-        lock_id: lock_id.clone(),
         recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
         controller: LockControllerConfig::SimpleV0(
@@ -319,17 +333,16 @@ fn test_lock_by_id() {
         metadata: None,
     };
 
-    block_state.create_lock(&context, configuration).unwrap();
+    let mut locks = block_state.locks(&context).unwrap();
+    locks.create(&context, &lock_id, configuration).unwrap();
+    block_state.commit_locks(&context, locks);
 
     // Get lock by id
     let lock = block_state
         .lock_by_id(&context, &lock_id)
         .unwrap()
         .expect("lock should exist");
-    assert_eq!(
-        &lock.lock_configuration(&context).unwrap().lock_id,
-        &lock_id
-    );
+    assert_eq!(lock.lock_id(), &lock_id);
 
     // Get non-existing lock by id
     let non_existing_lock_id = LockId {
@@ -357,7 +370,6 @@ fn test_lock_balance_refs() {
         creation_order: 0,
     };
     let configuration = LockConfiguration {
-        lock_id: lock_id.clone(),
         recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
         controller: LockControllerConfig::SimpleV0(
@@ -366,9 +378,10 @@ fn test_lock_balance_refs() {
         metadata: None,
     };
 
-    block_state.create_lock(&context, configuration).unwrap();
-    let mut lock = block_state
-        .lock_by_id(&context, &lock_id)
+    let mut locks = block_state.locks(&context).unwrap();
+    locks.create(&context, &lock_id, configuration).unwrap();
+    let mut lock = locks
+        .by_id(&context, &lock_id)
         .unwrap()
         .expect("lock should exist");
 
@@ -380,7 +393,8 @@ fn test_lock_balance_refs() {
     lock.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
 
     // Update lock
-    block_state.update_lock(&context, lock).unwrap();
+    locks.update(&context, lock).unwrap();
+    block_state.commit_locks(&context, locks);
 
     // Read balance refs
     let lock = block_state
@@ -409,7 +423,6 @@ fn test_create_and_delete_lock() {
         creation_order: 0,
     };
     let configuration = LockConfiguration {
-        lock_id: lock_id.clone(),
         recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
         controller: LockControllerConfig::SimpleV0(
@@ -418,7 +431,9 @@ fn test_create_and_delete_lock() {
         metadata: None,
     };
 
-    block_state.create_lock(&context, configuration).unwrap();
+    let mut locks = block_state.locks(&context).unwrap();
+    locks.create(&context, &lock_id, configuration).unwrap();
+    block_state.commit_locks(&context, locks);
 
     // Verify lock exists
     block_state
@@ -427,7 +442,9 @@ fn test_create_and_delete_lock() {
         .expect("lock should exist after creation");
 
     // Delete lock
-    let was_deleted = block_state.delete_lock(&context, &lock_id).unwrap();
+    let mut locks = block_state.locks(&context).unwrap();
+    let was_deleted = locks.delete(&context, &lock_id).unwrap();
+    block_state.commit_locks(&context, locks);
     assert!(
         was_deleted,
         "delete_lock should return true for an existing lock"
@@ -440,7 +457,8 @@ fn test_create_and_delete_lock() {
         .expect_err("lock should not exist after deletion");
 
     // Deleting again should return false
-    let was_deleted_again = block_state.delete_lock(&context, &lock_id).unwrap();
+    let mut locks = block_state.locks(&context).unwrap();
+    let was_deleted_again = locks.delete(&context, &lock_id).unwrap();
     assert!(
         !was_deleted_again,
         "delete_lock should return false for a non-existing lock"
@@ -464,7 +482,6 @@ fn test_lock_list() {
         creation_order: 0,
     };
     let configuration_a = LockConfiguration {
-        lock_id: lock_id_a.clone(),
         recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
         controller: LockControllerConfig::SimpleV0(
@@ -479,7 +496,6 @@ fn test_lock_list() {
         creation_order: 0,
     };
     let configuration_b = LockConfiguration {
-        lock_id: lock_id_b.clone(),
         recipients: LockRecipients::try_from(vec![]).unwrap(),
         expiry: TransactionTime::from(0u64),
         controller: LockControllerConfig::SimpleV0(
@@ -487,11 +503,14 @@ fn test_lock_list() {
         ),
         metadata: None,
     };
-    block_state.create_lock(&context, configuration_a).unwrap();
-    block_state.create_lock(&context, configuration_b).unwrap();
+    let mut locks = block_state.locks(&context).unwrap();
+    locks.create(&context, &lock_id_a, configuration_a).unwrap();
+    locks.create(&context, &lock_id_b, configuration_b).unwrap();
+    assert!(locks.delete(&context, &lock_id_a).unwrap());
+    block_state.commit_locks(&context, locks);
 
     // Read lock list and sort for a stable comparison (lock_list order is not guaranteed).
     let mut locks = block_state.lock_list(&context).unwrap();
     locks.sort();
-    assert_eq!(locks, vec![lock_id_a, lock_id_b]);
+    assert_eq!(locks, vec![lock_id_b]);
 }
