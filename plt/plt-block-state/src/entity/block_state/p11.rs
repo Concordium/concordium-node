@@ -1,5 +1,5 @@
 use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
-use crate::entity::protocol_level_locks::p11::LockP11;
+use crate::entity::protocol_level_locks::p11::{LockP11, LocksP11};
 use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{
     EntityContext, EntityContextTypes, protocol_level_locks, protocol_level_tokens,
@@ -26,8 +26,8 @@ impl BlockStateP11 {
     pub fn locks<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<protocol_level_locks::p11::LocksP11> {
-        Ok(protocol_level_locks::p11::LocksP11::from_persistent(
+    ) -> BlockStateResult<LocksP11> {
+        Ok(LocksP11::from_persistent(
             self.persistent.locks.value(&context.store)?.into_owned(),
         ))
     }
@@ -36,7 +36,7 @@ impl BlockStateP11 {
     pub fn commit_locks<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
-        locks: protocol_level_locks::p11::LocksP11,
+        locks: LocksP11,
     ) {
         if let Some(locks) = locks.commit(context) {
             self.persistent.locks = HashedCacheableRef::new(locks);

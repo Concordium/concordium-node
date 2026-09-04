@@ -8,7 +8,7 @@ use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use crate::persistent::smart_contract_trie::PersistentState;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Serialize};
+use concordium_base::common::{Buffer, Serialize, from_bytes_complete, to_bytes};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
@@ -107,33 +107,28 @@ impl Hashable for PersistentLockP11 {
 
 /// Serialize a lock ID for use as a persistent trie key.
 pub(crate) fn lock_id_key(lock_id: &LockId) -> Vec<u8> {
-    concordium_base::common::to_bytes(lock_id)
+    to_bytes(lock_id)
 }
 
 /// Decode a canonical serialized lock ID from a persistent trie key.
 pub(crate) fn lock_id_from_key(key: &[u8]) -> BlockStateResult<LockId> {
-    let lock_id = concordium_base::common::from_bytes_complete(key).map_err(|err| {
+    from_bytes_complete(key).map_err(|err| {
         BlockStateFailure::BlobStoreDecode(format!("Stored lock ID key cannot be decoded: {err}"))
-    })?;
-    Ok(lock_id)
+    })
 }
 
 /// Serialize a persistent lock for use as a persistent trie value.
 pub(crate) fn persistent_lock_value(lock: &PersistentLockP11) -> Vec<u8> {
-    concordium_base::common::to_bytes(&(
-        lock.locked_balances.0.clone(),
-        lock.configuration.0.clone(),
-    ))
+    to_bytes(&(lock.locked_balances.0.clone(), lock.configuration.0.clone()))
 }
 
 /// Decode a persistent lock from a persistent trie value.
 pub(crate) fn persistent_lock_from_value(value: &[u8]) -> BlockStateResult<PersistentLockP11> {
-    let (locked_balances, configuration) = concordium_base::common::from_bytes_complete(value)
-        .map_err(|err| {
-            BlockStateFailure::BlobStoreDecode(format!(
-                "Stored persistent lock value cannot be decoded: {err}"
-            ))
-        })?;
+    let (locked_balances, configuration) = from_bytes_complete(value).map_err(|err| {
+        BlockStateFailure::BlobStoreDecode(format!(
+            "Stored persistent lock value cannot be decoded: {err}"
+        ))
+    })?;
     Ok(PersistentLockP11 {
         locked_balances: StoreSerialized(locked_balances),
         configuration: StoreSerialized(configuration),
