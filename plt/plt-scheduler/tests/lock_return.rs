@@ -104,13 +104,13 @@ fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Return,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -211,13 +211,13 @@ fn test_lock_return_keeps_empty_lock_when_keep_alive_is_true() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: sender.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            sender.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Return,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: true,
@@ -293,10 +293,10 @@ fn test_lock_return_rejects_unauthorized_sender() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: owner.account_index(),
-            roles: vec![LockControllerSimpleV0Capability::Fund],
-        }],
+        grants: vec![LockControllerSimpleV0Grant::new(
+            owner.account_index(),
+            vec![LockControllerSimpleV0Capability::Fund],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
         keep_alive: false,
@@ -363,13 +363,13 @@ fn test_lock_return_rejects_after_expiry() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant {
-            account: owner.account_index(),
-            roles: vec![
+        grants: vec![LockControllerSimpleV0Grant::new(
+            owner.account_index(),
+            vec![
                 LockControllerSimpleV0Capability::Fund,
                 LockControllerSimpleV0Capability::Return,
             ],
-        }],
+        )],
         tokens: vec![token_id.clone()],
         expiry: 10,
         keep_alive: false,

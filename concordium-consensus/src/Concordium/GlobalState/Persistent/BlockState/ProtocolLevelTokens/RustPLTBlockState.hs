@@ -12,6 +12,7 @@ module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTB
     ForeignPLTBlockStatePtr,
     wrapFFIPtr,
     empty,
+    loadFromBlobRef,
     withPLTBlockState,
     migrate,
     ProtocolLevelTokensHash (..),
@@ -88,25 +89,31 @@ foreign import ccall "ffi_empty_plt_block_state"
         -- | Status code
         IO FFI.Word8
 
+-- | Load a PLT block state directly from an existing blob-store location.
+loadFromBlobRef ::
+    forall m pv.
+    (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
+    BlobStore.BlobRef RustPLTBlockState ->
+    m (ForeignPLTBlockStatePtr pv)
+loadFromBlobRef blobRef = do
+    loadCallback <- fst <$> BlobStore.getCallbacks
+    liftIO $! do
+        FFI.alloca $ \blockStateDestPtr -> do
+            status <-
+                ffiLoadPLTBlockState
+                    loadCallback
+                    blobRef
+                    (sProtocolVersionToWord64 $ Types.protocolVersion @pv)
+                    blockStateDestPtr
+            Monad.unless (status == 0) $ error "Unexpected panic when loading a block state"
+            blockState <- FFI.peek blockStateDestPtr
+            wrapFFIPtr blockState
+
 instance
     (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) =>
     BlobStore.BlobStorable m (ForeignPLTBlockStatePtr pv)
     where
-    load = do
-        blobRef <- S.get
-        pure $! do
-            loadCallback <- fst <$> BlobStore.getCallbacks
-            liftIO $! do
-                FFI.alloca $ \blockStateDestPtr -> do
-                    status <-
-                        ffiLoadPLTBlockState
-                            loadCallback
-                            blobRef
-                            (sProtocolVersionToWord64 $ Types.protocolVersion @pv)
-                            blockStateDestPtr
-                    Monad.unless (status == 0) $ error "Unexpected panic when loading a block state"
-                    blockState <- FFI.peek blockStateDestPtr
-                    wrapFFIPtr blockState
+    load = S.get >>= pure . loadFromBlobRef
     storeUpdate pltBlockState = do
         storeCallback <- snd <$> BlobStore.getCallbacks
         blobRef <- liftIO $ FFI.alloca $ \blobRefDestPtr -> do

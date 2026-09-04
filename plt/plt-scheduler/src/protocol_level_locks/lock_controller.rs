@@ -53,7 +53,7 @@ pub fn validate_operation(
                     sender_address,
                 ));
             }
-            if !controller_config.tokens.contains(&fund_details.token) {
+            if !controller_config.tokens().contains(&fund_details.token) {
                 return Err(TransactionRejectReason::LockTokenNotPermitted(
                     fund_details.lock.clone(),
                     fund_details.token.clone(),
@@ -116,10 +116,10 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
                 },
             )?;
 
-            Ok(LockControllerSimpleV0Grant {
-                account: account.account_index(),
-                roles: grant.roles,
-            })
+            Ok(LockControllerSimpleV0Grant::new(
+                account.account_index(),
+                grant.roles,
+            ))
         })
         .collect::<ResultWithBlockStateFailure<_, TransactionRejectReason>>()?;
 
@@ -139,12 +139,13 @@ pub fn from_cbor_controller<C: EntityContextTypes>(
         })
         .collect::<ResultWithBlockStateFailure<_, TransactionRejectReason>>()?;
 
-    let lock_controller = LockControllerSimpleV0 {
+    let lock_controller = LockControllerSimpleV0::new(
         grants,
         tokens,
-        keep_alive: cbor_controller.keep_alive,
-        memo: cbor_controller.memo,
-    };
+        cbor_controller.keep_alive,
+        cbor_controller.memo,
+    )
+    .map_err(|_| TransactionRejectReason::SerializationFailure)?;
 
     Ok(LockControllerConfig::SimpleV0(lock_controller))
 }
@@ -159,10 +160,10 @@ pub fn to_cbor_controller<C: EntityContextTypes>(
     let LockControllerConfig::SimpleV0(controller_config) = controller_config;
 
     let grants = controller_config
-        .grants
+        .grants()
         .iter()
         .map(|grant| {
-            let with_addr = context.account_by_index(grant.account).map_err(
+            let with_addr = context.account_by_index(grant.account()).map_err(
                 |err: AccountNotFoundByIndexError| {
                     BlockStateFailure::Invariant(format!(
                         "Account persisted in lock controller grants not found: {}",
@@ -173,7 +174,7 @@ pub fn to_cbor_controller<C: EntityContextTypes>(
             Ok(
                 concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                     account: CborHolderAccount::from(with_addr.canonical_account_address),
-                    roles: grant.roles.clone(),
+                    roles: grant.roles().to_vec(),
                 },
             )
         })
@@ -182,10 +183,46 @@ pub fn to_cbor_controller<C: EntityContextTypes>(
         concordium_base::protocol_level_locks::LockController::SimpleV0(
             concordium_base::protocol_level_locks::LockControllerSimpleV0 {
                 grants,
-                tokens: controller_config.tokens.clone(),
+                tokens: controller_config.tokens().to_vec(),
                 keep_alive: controller_config.keep_alive,
                 memo: controller_config.memo.clone(),
             },
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::failure::WithBlockStateFailure;
+    use plt_block_state::entity::entity_test_stub;
+
+    #[test]
+    fn oversized_lock_controller_configuration_is_a_serialization_failure() {
+        let mut context = entity_test_stub::new_stubbed_context();
+        let account_index = context.external.create_account().account_index();
+        let account = context.external.account_canonical_address(account_index);
+        let block_state = BlockStateP11::default();
+        let controller = concordium_base::protocol_level_locks::LockController::SimpleV0(
+            concordium_base::protocol_level_locks::LockControllerSimpleV0 {
+                grants: vec![
+                    concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                        account: CborHolderAccount::from(account),
+                        roles: Vec::new(),
+                    };
+                    u16::MAX as usize + 1
+                ],
+                tokens: Vec::new(),
+                keep_alive: false,
+                memo: None,
+            },
+        );
+
+        assert!(matches!(
+            from_cbor_controller(&context, &block_state, controller),
+            Err(WithBlockStateFailure::Error(
+                TransactionRejectReason::SerializationFailure
+            ))
+        ));
+    }
 }
