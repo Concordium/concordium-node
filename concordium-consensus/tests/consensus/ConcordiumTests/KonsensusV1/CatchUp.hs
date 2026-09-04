@@ -426,7 +426,7 @@ hashesRound4Block sProtocolVersion = case sBlockHashVersionFor sProtocolVersion 
                 spv
                     | TestBlocks.blockResultHashAsP9 spv ->
                         read "93837fbd7183afca6f32723f44f13f68a980b30e832ff93b5ed1c7a5e19ecdaa"
-                SP11 -> read "768ae2f059966bc0eef30974e51c172b33d61f9088366b7c853f84d08a5fc091"
+                SP11 -> read "2395c92cf06b9fc6f0657983fca1babd291fb51d78802436e0c64aa4d810fcbb"
                 spv -> TestBlocks.dummyBRH spv 0xc04
             }
 

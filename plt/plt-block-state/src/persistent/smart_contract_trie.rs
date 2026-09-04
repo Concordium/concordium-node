@@ -21,6 +21,25 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[derive(Debug)]
 pub struct PersistentState(RwLock<trie::PersistentState>);
 
+impl Clone for PersistentState {
+    fn clone(&self) -> Self {
+        Self(RwLock::new(self.lock_read().clone()))
+    }
+}
+
+/// Common read-only operations supported by frozen and mutable tries.
+pub(crate) trait TrieState {
+    /// Return a copied value for `key`, or `None` when the key is absent.
+    fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>>;
+
+    /// Return keys with `prefix` without loading values; iteration can fail.
+    fn keys_with_prefix(
+        &self,
+        loader: &impl BlobStoreLoad,
+        prefix: &[u8],
+    ) -> BlockStateResult<Vec<Vec<u8>>>;
+}
+
 impl PersistentState {
     /// Create empty trie.
     pub fn empty() -> Self {
@@ -36,7 +55,7 @@ impl PersistentState {
     }
 
     /// Iterate entries whose keys start with the given prefix. Returns an iterator over
-    /// key-value pairs.
+    /// key-value pairs. Use [`Self::keys_with_prefix`] when only keys are needed.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,
@@ -50,6 +69,26 @@ impl PersistentState {
         })?;
 
         Ok(PrefixIterator {
+            loader,
+            trie: trie.clone(),
+            trie_iter,
+        })
+    }
+
+    /// Iterate keys that start with the given prefix without loading their values.
+    pub fn keys_with_prefix<'a, L: BlobStoreLoad>(
+        &self,
+        loader: &'a L,
+        prefix: &[u8],
+    ) -> BlockStateResult<impl Iterator<Item = Vec<u8>> + use<'a, L>> {
+        let mut loader_adapter = LoaderAdapter(loader);
+        let mut mutable_state = self.lock_read().thaw();
+        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
+        let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
+            BlockStateFailure::Invariant(format!("Error iterating keys in MutableTrie: {err}"))
+        })?;
+
+        Ok(KeyPrefixIterator {
             loader,
             trie: trie.clone(),
             trie_iter,
@@ -100,6 +139,37 @@ impl BlobStoreMovable for PersistentState {
     }
 }
 
+struct KeyPrefixIterator<'a, L> {
+    loader: &'a L,
+    trie: trie::MutableTrie,
+    trie_iter: Option<trie::low_level::Iterator>,
+}
+
+impl<L> Drop for KeyPrefixIterator<'_, L> {
+    fn drop(&mut self) {
+        if let Some(trie_iter) = self.trie_iter.as_ref() {
+            self.trie.delete_iter(trie_iter);
+        }
+    }
+}
+
+impl<L: BlobStoreLoad> Iterator for KeyPrefixIterator<'_, L> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let trie_iter = self.trie_iter.as_mut()?;
+        let mut loader = LoaderAdapter(self.loader);
+        match self
+            .trie
+            .next(&mut loader, trie_iter, &mut trie::EmptyCounter)
+        {
+            Ok(Some(_)) => Some(trie_iter.get_key().to_vec()),
+            Ok(None) => None,
+            Err(counter_err) => match counter_err {},
+        }
+    }
+}
+
 struct PrefixIterator<'a, L> {
     loader: &'a L,
     trie: trie::MutableTrie,
@@ -140,6 +210,20 @@ where
     }
 }
 
+impl TrieState for PersistentState {
+    fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
+        self.lookup_value(loader, key)
+    }
+
+    fn keys_with_prefix(
+        &self,
+        loader: &impl BlobStoreLoad,
+        prefix: &[u8],
+    ) -> BlockStateResult<Vec<Vec<u8>>> {
+        Ok(self.keys_with_prefix(loader, prefix)?.collect())
+    }
+}
+
 /// Mutable trie. This is the thawed/mutable dual to [`PersistentState`].
 #[derive(Debug)]
 pub struct MutableState {
@@ -168,7 +252,7 @@ impl MutableState {
     }
 
     /// Iterate entries whose keys start with the given prefix. Returns an iterator over
-    /// key-value pairs.
+    /// key-value pairs. Use [`Self::keys_with_prefix`] when only keys are needed.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,
@@ -182,6 +266,26 @@ impl MutableState {
         })?;
 
         Ok(PrefixIterator {
+            loader,
+            trie,
+            trie_iter,
+        })
+    }
+
+    /// Iterate keys that start with the given prefix without loading their values.
+    pub fn keys_with_prefix<'a, L: BlobStoreLoad>(
+        &self,
+        loader: &'a L,
+        prefix: &[u8],
+    ) -> BlockStateResult<impl Iterator<Item = Vec<u8>> + use<'a, L>> {
+        let mut loader_adapter = LoaderAdapter(loader);
+        let mut mutable_state = self.lock();
+        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock().clone();
+        let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
+            BlockStateFailure::Invariant(format!("Error iterating keys in MutableTrie: {err}"))
+        })?;
+
+        Ok(KeyPrefixIterator {
             loader,
             trie,
             trie_iter,
@@ -235,6 +339,20 @@ impl MutableState {
 
     fn get_mut(&mut self) -> &mut trie::MutableState {
         self.inner.get_mut().expect("MutableState lock poisoned")
+    }
+}
+
+impl TrieState for MutableState {
+    fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
+        self.lookup_value(loader, key)
+    }
+
+    fn keys_with_prefix(
+        &self,
+        loader: &impl BlobStoreLoad,
+        prefix: &[u8],
+    ) -> BlockStateResult<Vec<Vec<u8>>> {
+        Ok(self.keys_with_prefix(loader, prefix)?.collect())
     }
 }
 

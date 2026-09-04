@@ -1,5 +1,5 @@
 use crate::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
-use crate::entity::protocol_level_locks::p11::LockP11;
+use crate::entity::protocol_level_locks::p11::{LockP11, LocksP11};
 use crate::entity::protocol_level_tokens::p11::TokenP11;
 use crate::entity::{
     EntityContext, EntityContextTypes, protocol_level_locks, protocol_level_tokens,
@@ -8,7 +8,6 @@ use crate::external::ExternalBlockStateOperations;
 use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
-use crate::persistent::protocol_level_locks::p11::LockConfiguration;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -21,6 +20,28 @@ pub struct BlockStateP11 {
 }
 
 impl BlockStateP11 {
+    /// Create transaction-local locks from the current persistent state.
+    ///
+    /// Returns a block-state failure if the persistent lock state cannot be loaded.
+    pub fn locks<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<LocksP11> {
+        Ok(LocksP11::from_persistent(
+            self.persistent.locks.value(&context.store)?.into_owned(),
+        ))
+    }
+
+    /// Replace persistent locks after a successful transaction if they were modified.
+    pub fn commit_locks<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+        locks: LocksP11,
+    ) {
+        if let Some(locks) = locks.commit(context) {
+            self.persistent.locks = HashedCacheableRef::new(locks);
+        }
+    }
     /// Get the [`TokenId`]s of all protocol-level tokens.
     pub fn plt_list<C: EntityContextTypes>(
         &self,
@@ -127,58 +148,16 @@ impl BlockStateP11 {
         context.external.increment_plt_update_sequence_number()
     }
 
-    /// Create a new PLT lock with the given configuration. The initial state will be empty.
-    /// Returns [`BlockStateFailure::Invariant`] if a lock with the given id already exists.
-    ///
-    /// # Arguments
-    ///
-    /// - `lock_id` The ID of the PLT lock.
-    /// - `configuration` The configuration for the PLT lock.
-    pub fn create_lock<C: EntityContextTypes>(
-        &mut self,
-        context: &EntityContext<C>,
-        configuration: LockConfiguration,
-    ) -> BlockStateResult<()> {
-        let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
-        protocol_level_locks::p11::create_lock(context, &mut new_locks, configuration)?;
-
-        self.persistent.locks = HashedCacheableRef::new(new_locks);
-
-        Ok(())
-    }
-
-    /// Delete the lock with the given [`LockId`] if it exists. Returns `true` if it existed, or
-    /// `false` if it did not exist.
-    ///
-    /// # Arguments
-    /// - `lock_id` The ID of the PLT lock to delete.
-    pub fn delete_lock<C: EntityContextTypes>(
-        &mut self,
-        context: &EntityContext<C>,
-        lock_id: &LockId,
-    ) -> BlockStateResult<bool> {
-        let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
-        let existing = protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
-        if existing {
-            // We only need to update the locks if a lock was actually deleted,
-            // otherwise we would be unnecessarily updating the block state.
-            self.persistent.locks = HashedCacheableRef::new(new_locks);
-        }
-        Ok(existing)
-    }
-
     /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the
     /// end of the block.
     pub fn lock_list<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
     ) -> BlockStateResult<Vec<LockId>> {
-        Ok(protocol_level_locks::p11::lock_list(
+        protocol_level_locks::p11::lock_list(
             context,
-            &*self.persistent.locks.value(&context.store)?,
+            &self.persistent.locks.value(&context.store)?.locks,
         )
-        .cloned()
-        .collect())
     }
 
     /// Get the lock associated with a [`LockId`] (if it exists).
@@ -191,26 +170,11 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> BlockStateResult<Result<LockP11, LockNotFoundByIdError>> {
-        let lock_option = protocol_level_locks::p11::lock_by_id(
+        protocol_level_locks::p11::lock_by_id(
             context,
-            &*self.persistent.locks.value(&context.store)?,
+            &self.persistent.locks.value(&context.store)?.locks,
             lock_id.clone(),
-        )?;
-
-        Ok(lock_option.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))
-    }
-
-    /// Update the lock in the block state. Any modifications
-    /// to [`LockP11`] are only applied when the lock is updated.
-    pub fn update_lock<C: EntityContextTypes>(
-        &mut self,
-        context: &EntityContext<C>,
-        lock: LockP11,
-    ) -> BlockStateResult<()> {
-        let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
-        protocol_level_locks::p11::update_lock(context, &mut new_locks, lock)?;
-        self.persistent.locks = HashedCacheableRef::new(new_locks);
-
-        Ok(())
+        )
+        .map(|lock| lock.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))
     }
 }

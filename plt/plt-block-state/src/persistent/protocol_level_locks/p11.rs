@@ -1,73 +1,43 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
-use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::{self, Hashable};
-use crate::persistent::lfmb_tree::{LfmbTree, LfmbTreeKey};
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
+use crate::persistent::smart_contract_trie::PersistentState;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Serialize};
+use concordium_base::common::{Buffer, Serialize, from_bytes_complete, to_bytes};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
 use std::collections::BTreeSet;
 use std::io::Read;
 
-/// Index of the protocol-level lock in the block state map of locks.
-///
-/// This type is the internal identifier of the lock in the block state and should never be exposed
-/// in the API, events or used in state hashing.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct LockIndex(pub u64);
-
-impl LfmbTreeKey for LockIndex {
-    fn to_u64(self) -> u64 {
-        self.0
-    }
-
-    fn from_u64(key: u64) -> Self {
-        Self(key)
-    }
+/// Block state for protocol level locks on P11 and later protocols that uses the same representation.
+#[derive(Debug, Clone)]
+pub struct PersistentLocksP11 {
+    /// Persistent trie of serialized [`LockId`] keys and [`PersistentLockP11`] values.
+    pub(crate) locks: PersistentState,
 }
 
-/// Block state for protocol level locks on P11 and later protocols that uses the same representation.
-#[derive(Debug, Clone, Default)]
-pub struct PersistentLocksP11 {
-    /// Persistent map of lock index to locks.
-    ///
-    /// Here `None` represents a lock which has been deleted and acts as tombstone, preventing new
-    /// locks from using the same index.
-    pub(crate) locks: LfmbTree<LockIndex, Option<PersistentLockP11>>,
-    /// Index for mapping Lock ID to the internal lock index used above.
-    ///
-    /// Deleted locks are absent from this index.
-    pub(crate) lock_id_map: im::HashMap<LockId, LockIndex>,
+impl Default for PersistentLocksP11 {
+    fn default() -> Self {
+        Self {
+            locks: PersistentState::empty(),
+        }
+    }
 }
 
 impl Loadable for PersistentLocksP11 {
     fn load_from_buffer(
-        mut buffer: impl Read,
+        buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> Result<Self, BlockStateFailure> {
-        let locks: LfmbTree<LockIndex, Option<PersistentLockP11>> =
-            Loadable::load_from_buffer(&mut buffer, loader)?;
-        // To construct the full lock id to lock index map, we need to read the LFMBTree from
-        // the blob store. This is not ideal. If the state is to be cached after loading, we would
-        // rather wait until it is cached in memory before constructing the map.
-        let mut lock_id_map = im::HashMap::new();
-        for item in locks.values(loader) {
-            let (lock_index, lock) = item?;
-            // Skip the deleted locks.
-            let Some(lock) = lock.as_ref() else {
-                continue;
-            };
-            let conf = lock.configuration.value(loader)?;
-            lock_id_map.insert(conf.0.lock_id.clone(), lock_index);
-        }
-        Ok(Self { locks, lock_id_map })
+        Ok(Self {
+            locks: Loadable::load_from_buffer(buffer, loader)?,
+        })
     }
 }
 
@@ -97,7 +67,7 @@ pub struct PersistentLockP11 {
     /// Note the entire collection will be written to disk every time this struct is written to disk.
     pub locked_balances: StoreSerialized<BTreeSet<(AccountIndex, TokenIndex)>>,
     /// The configuration parameters for the lock.
-    pub configuration: HashedCacheableRef<StoreSerialized<LockConfiguration>>,
+    pub configuration: StoreSerialized<LockConfiguration>,
 }
 
 impl Loadable for PersistentLockP11 {
@@ -122,8 +92,8 @@ impl Storable for PersistentLockP11 {
 }
 
 impl Cacheable for PersistentLockP11 {
-    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.configuration.cache_reference_values(loader)
+    fn cache_reference_values(&self, _loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        Ok(())
     }
 }
 
@@ -133,6 +103,36 @@ impl Hashable for PersistentLockP11 {
         let configuration = self.configuration.hash(loader)?;
         Ok(hash::hash_of_hashes(locked_balances, configuration))
     }
+}
+
+/// Serialize a lock ID for use as a persistent trie key.
+pub(crate) fn lock_id_key(lock_id: &LockId) -> Vec<u8> {
+    to_bytes(lock_id)
+}
+
+/// Decode a canonical serialized lock ID from a persistent trie key.
+pub(crate) fn lock_id_from_key(key: &[u8]) -> BlockStateResult<LockId> {
+    from_bytes_complete(key).map_err(|err| {
+        BlockStateFailure::BlobStoreDecode(format!("Stored lock ID key cannot be decoded: {err}"))
+    })
+}
+
+/// Serialize a persistent lock for use as a persistent trie value.
+pub(crate) fn persistent_lock_value(lock: &PersistentLockP11) -> Vec<u8> {
+    to_bytes(&(lock.locked_balances.0.clone(), lock.configuration.0.clone()))
+}
+
+/// Decode a persistent lock from a persistent trie value.
+pub(crate) fn persistent_lock_from_value(value: &[u8]) -> BlockStateResult<PersistentLockP11> {
+    let (locked_balances, configuration) = from_bytes_complete(value).map_err(|err| {
+        BlockStateFailure::BlobStoreDecode(format!(
+            "Stored persistent lock value cannot be decoded: {err}"
+        ))
+    })?;
+    Ok(PersistentLockP11 {
+        locked_balances: StoreSerialized(locked_balances),
+        configuration: StoreSerialized(configuration),
+    })
 }
 
 /// Error returned when a persistent container exceeds its serialized capacity.
@@ -227,8 +227,6 @@ impl TryFrom<Vec<AccountIndex>> for LockRecipients {
 /// Lock configuration at the block state level.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct LockConfiguration {
-    /// Identifier of the lock.
-    pub lock_id: LockId,
     /// Accounts that can receive funds from this lock.
     pub recipients: LockRecipients,
     /// Expiry time of the lock (seconds since epoch).
@@ -362,6 +360,9 @@ impl LockControllerSimpleV0Grant {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::test_stub::BlobStoreStub;
+    use crate::persistent::hash::Hashable;
     use concordium_base::common;
     use concordium_base::transactions::Memo;
 
@@ -371,11 +372,6 @@ mod test {
         use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 
         let lock_config = LockConfiguration {
-            lock_id: LockId {
-                account_index: 50,
-                sequence_number: 2,
-                creation_order: 0,
-            },
             recipients: LockRecipients::try_from(vec![
                 AccountIndex::from(1u64),
                 AccountIndex::from(2u64),
@@ -397,7 +393,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000032000000000000000200000000000000000100020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e31010000"
+            "0100020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e31010000"
         );
 
         let deserialized: LockConfiguration =
@@ -410,11 +406,6 @@ mod test {
         use concordium_base::common::types::TransactionTime;
 
         let lock_config = LockConfiguration {
-            lock_id: LockId {
-                account_index: 50,
-                sequence_number: 2,
-                creation_order: 0,
-            },
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(500u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -429,7 +420,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "00000000000000320000000000000002000000000000000001000000000000000001f40000000000000000"
+            "01000000000000000001f40000000000000000"
         );
 
         let deserialized: LockConfiguration =
@@ -442,11 +433,6 @@ mod test {
         use concordium_base::common::types::TransactionTime;
 
         let lock_config = LockConfiguration {
-            lock_id: LockId {
-                account_index: 50,
-                sequence_number: 2,
-                creation_order: 0,
-            },
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -463,12 +449,89 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000032000000000000000200000000000000000000000000000001f400000000000000010000000ba1646e616d656474657374"
+            "0000000000000001f400000000000000010000000ba1646e616d656474657374"
         );
 
         let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
+    }
+
+    #[test]
+    fn lock_state_store_load_round_trip_preserves_entries_and_hash() {
+        let mut store = BlobStoreStub::default();
+        let lock_id = LockId::new(50, 2, 0);
+        let lock = PersistentLockP11 {
+            locked_balances: StoreSerialized(BTreeSet::from([(
+                AccountIndex::from(1),
+                TokenIndex(2),
+            )])),
+            configuration: StoreSerialized(LockConfiguration {
+                recipients: LockRecipients::Any,
+                expiry: TransactionTime::from(1000),
+                controller: LockControllerConfig::SimpleV0(
+                    LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+                ),
+                metadata: None,
+            }),
+        };
+        let mut locks = PersistentLocksP11::default();
+        let mut mutable_locks = locks.locks.thaw();
+        mutable_locks
+            .insert_value(&store, &lock_id_key(&lock_id), persistent_lock_value(&lock))
+            .unwrap();
+        locks.locks = mutable_locks.freeze(&store);
+        let hash = locks.hash(&store).unwrap();
+        assert_eq!(locks.hash(&store).unwrap(), hash);
+
+        let location = blob_store::store_to_store(&mut store, &locks);
+        let loaded: PersistentLocksP11 = blob_store::load_from_store(&store, location).unwrap();
+        assert_eq!(loaded.hash(&store).unwrap(), hash);
+        let loaded_lock = persistent_lock_from_value(
+            &loaded
+                .locks
+                .lookup_value(&store, &lock_id_key(&lock_id))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(loaded_lock.locked_balances, lock.locked_balances);
+        assert_eq!(loaded_lock.configuration, lock.configuration);
+    }
+
+    #[test]
+    fn lock_trie_key_and_value_round_trip() {
+        let lock_id = LockId::new(50, 2, 0);
+        let lock = PersistentLockP11 {
+            locked_balances: StoreSerialized(BTreeSet::from([(
+                AccountIndex::from(1),
+                TokenIndex(2),
+            )])),
+            configuration: StoreSerialized(LockConfiguration {
+                recipients: LockRecipients::Any,
+                expiry: TransactionTime::from(1000),
+                controller: LockControllerConfig::SimpleV0(
+                    LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+                ),
+                metadata: None,
+            }),
+        };
+
+        assert_eq!(lock_id_from_key(&lock_id_key(&lock_id)).unwrap(), lock_id);
+        let decoded = persistent_lock_from_value(&persistent_lock_value(&lock)).unwrap();
+        assert_eq!(decoded.locked_balances, lock.locked_balances);
+        assert_eq!(decoded.configuration, lock.configuration);
+    }
+
+    #[test]
+    fn malformed_lock_trie_key_and_value_are_decode_failures() {
+        assert!(matches!(
+            lock_id_from_key(&[0]),
+            Err(BlockStateFailure::BlobStoreDecode(_))
+        ));
+        assert!(matches!(
+            persistent_lock_from_value(&[0]),
+            Err(BlockStateFailure::BlobStoreDecode(_))
+        ));
     }
 
     #[test]
@@ -489,11 +552,6 @@ mod test {
         use concordium_base::common::types::TransactionTime;
 
         let lock_config = LockConfiguration {
-            lock_id: LockId {
-                account_index: 50,
-                sequence_number: 2,
-                creation_order: 0,
-            },
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
             controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
@@ -518,10 +576,7 @@ mod test {
         );
 
         let bytes = common::to_bytes(&lock_config);
-        assert_eq!(
-            hex::encode(&bytes),
-            "0000000000000032000000000000000200000000000000000000000000000001f40000000000000000"
-        );
+        assert_eq!(hex::encode(&bytes), "0000000000000001f40000000000000000");
 
         let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();

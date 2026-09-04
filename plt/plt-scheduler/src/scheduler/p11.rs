@@ -1,7 +1,9 @@
+use crate::TransactionContext;
 use crate::failure::ResultWithBlockStateFailureExt;
+use crate::protocol_level_locks::p11::{LockOperationContext, execute_lock_operation};
+use crate::protocol_level_tokens::p11::{self, execute_token_update_operation};
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
-use crate::{TransactionContext, protocol_level_locks, protocol_level_tokens};
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
 };
@@ -11,6 +13,7 @@ use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::protocol_level_locks::p11::LocksP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
@@ -50,20 +53,23 @@ pub fn execute_transaction<C: EntityContextTypes>(
 
     let outcome = match payload {
         Payload::TokenUpdate { payload } => {
-            protocol_level_tokens::p11::execute_token_update_transaction(
+            p11::execute_token_update_transaction(context, &mut execution, block_state, payload)?
+        }
+        Payload::MetaUpdate { payload } => {
+            let mut locks_state = block_state.locks(context)?;
+            let outcome = execute_meta_update_transaction(
                 context,
                 &mut execution,
                 block_state,
+                &mut locks_state,
                 payload,
-            )?
+                chain_parameters,
+            )?;
+            if matches!(outcome, TransactionOutcome::Success(_)) {
+                block_state.commit_locks(context, locks_state);
+            }
+            outcome
         }
-        Payload::MetaUpdate { payload } => execute_meta_update_transaction(
-            context,
-            &mut execution,
-            block_state,
-            payload,
-            chain_parameters,
-        )?,
         _ => return Err(TransactionExecutionError::UnexpectedPayload),
     };
 
@@ -78,6 +84,7 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
+    locks_state: &mut LocksP11,
     payload: MetaUpdatePayload,
     chain_parameters: &PersistentChainParametersP11,
 ) -> BlockStateResult<TransactionOutcome> {
@@ -108,7 +115,7 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
     for (index, operation) in operations.into_iter().enumerate() {
         match MetaUpdateOperationKind::from(operation) {
             MetaUpdateOperationKind::Token(token_id, token_operation) => {
-                match protocol_level_tokens::p11::execute_token_update_operation(
+                match execute_token_update_operation(
                     context,
                     transaction_execution,
                     block_state,
@@ -126,14 +133,19 @@ fn execute_meta_update_transaction<C: EntityContextTypes>(
                 }
             }
             MetaUpdateOperationKind::Lock(lock_operation) => {
-                match protocol_level_locks::p11::execute_lock_operation(
+                let lock_context = LockOperationContext {
+                    max_lock_duration: chain_parameters.max_lock_duration,
+                    operation_index: index,
+                    operation: lock_operation,
+                    events: &mut events,
+                };
+
+                match execute_lock_operation(
                     context,
                     transaction_execution,
                     block_state,
-                    chain_parameters.max_lock_duration,
-                    index,
-                    lock_operation,
-                    &mut events,
+                    locks_state,
+                    lock_context,
                 )
                 .nest()?
                 {
@@ -169,16 +181,13 @@ pub fn execute_chain_update<C: EntityContextTypes>(
     block_state: &mut BlockStateP11,
     payload: UpdatePayload,
 ) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
-    match payload {
+    let outcome = match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            Ok(protocol_level_tokens::p11::execute_create_plt_chain_update(
-                context,
-                block_state,
-                create_plt,
-            )?)
+            p11::execute_create_plt_chain_update(context, block_state, create_plt)?
         }
-        _ => Err(ChainUpdateExecutionError::UnexpectedPayload),
-    }
+        _ => return Err(ChainUpdateExecutionError::UnexpectedPayload),
+    };
+    Ok(outcome)
 }
 
 /// Execute a chain update modifying P11 external chain parameters.

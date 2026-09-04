@@ -23,6 +23,7 @@ use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::protocol_level_locks::p11::LocksP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
@@ -77,12 +78,8 @@ pub fn query_lock_info<C: EntityContextTypes>(
 
         // for each locked balance record for the lock, get the locked token amount recorded in the
         // account state of the token.
-        let raw_balance = token_module::query_locked_balance(
-            context,
-            &token,
-            account_index,
-            &configuration.lock_id,
-        )?;
+        let raw_balance =
+            token_module::query_locked_balance(context, &token, account_index, lock.lock_id())?;
         let amount = TokenAmount::from_raw(raw_balance.into(), token_configuration.decimals);
         funds_by_account
             .entry(account_index)
@@ -113,7 +110,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
         .collect::<Result<_, BlockStateFailure>>()?;
 
     let lock_info = LockInfo {
-        lock: configuration.lock_id.clone(),
+        lock: lock.lock_id().clone(),
         recipients,
         expiry: configuration.expiry,
         controller,
@@ -124,52 +121,71 @@ pub fn query_lock_info<C: EntityContextTypes>(
     Ok(RawCbor::from(cbor::cbor_encode(&lock_info)))
 }
 
+/// Context shared by a lock operation within a meta update.
+pub struct LockOperationContext<'a> {
+    /// Maximum permitted duration for a newly created lock.
+    pub max_lock_duration: Duration,
+    /// Zero-based index of the operation in the meta update.
+    pub operation_index: usize,
+    /// the lock operation to execute.
+    pub operation: LockOperation,
+    /// Events emitted by the operation.
+    pub events: &'a mut Vec<BlockItemEvent>,
+}
+
 /// Execute [`LockOperation`].
 pub fn execute_lock_operation<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
-    max_lock_duration: Duration,
-    operation_index: usize,
-    lock_operation: LockOperation,
-    events: &mut Vec<BlockItemEvent>,
+    locks_state: &mut LocksP11,
+    lock_context: LockOperationContext<'_>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    match lock_operation {
+    match lock_context.operation {
         LockOperation::Fund(details) => execute_lock_fund(
             context,
             transaction_execution,
             block_state,
-            operation_index,
+            locks_state,
+            lock_context.operation_index,
             details,
-            events,
+            lock_context.events,
         ),
         LockOperation::Send(details) => execute_lock_send(
             context,
             transaction_execution,
             block_state,
-            operation_index,
+            locks_state,
+            lock_context.operation_index,
             details,
-            events,
+            lock_context.events,
         ),
         LockOperation::Return(details) => execute_lock_return(
             context,
             transaction_execution,
             block_state,
-            operation_index,
+            locks_state,
+            lock_context.operation_index,
             details,
-            events,
+            lock_context.events,
         ),
         LockOperation::Create(details) => execute_lock_create(
             context,
             transaction_execution,
             block_state,
-            max_lock_duration,
+            locks_state,
+            lock_context.max_lock_duration,
             details,
-            events,
+            lock_context.events,
         ),
-        LockOperation::Cancel(details) => {
-            execute_lock_cancel(context, transaction_execution, block_state, details, events)
-        }
+        LockOperation::Cancel(details) => execute_lock_cancel(
+            context,
+            transaction_execution,
+            block_state,
+            locks_state,
+            details,
+            lock_context.events,
+        ),
     }
 }
 
@@ -177,13 +193,14 @@ fn execute_lock_fund<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
+    locks_state: &mut LocksP11,
     operation_index: usize,
     details: MetaLockFundDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let mut lock = block_state
-        .lock_by_id(context, &details.lock)?
+    let mut lock = locks_state
+        .by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
@@ -191,9 +208,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
-        );
+        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
     lock_controller::validate_operation(
@@ -219,7 +234,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         &mut token,
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
-        &lock_configuration.lock_id,
+        lock.lock_id(),
         raw_amount,
         memo,
     )
@@ -235,7 +250,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
             transaction_execution.sender_account().account_index(),
             token_index,
         );
-        block_state.update_lock(context, lock)?;
+        locks_state.update(context, lock)?;
     }
     Ok(())
 }
@@ -244,13 +259,14 @@ fn execute_lock_send<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
+    locks_state: &mut LocksP11,
     operation_index: usize,
     details: MetaLockSendDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let lock = block_state
-        .lock_by_id(context, &details.lock)?
+    let lock = locks_state
+        .by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
@@ -258,9 +274,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
-        );
+        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
     let source_address = details.source.address;
@@ -292,7 +306,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         .is_recipient(&recipient.account_index())
     {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
-            lock_configuration.lock_id.clone(),
+            lock.lock_id().clone(),
             recipient_address,
         )
         .into());
@@ -319,7 +333,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         source_address,
         &recipient,
         recipient_address,
-        &lock_configuration.lock_id,
+        lock.lock_id(),
         raw_amount,
         memo,
     )
@@ -333,7 +347,7 @@ fn execute_lock_send<C: EntityContextTypes>(
     if remaining_locked == RawTokenAmount::from(0) {
         remove_lock_balance_ref(
             context,
-            block_state,
+            locks_state,
             events,
             lock_configuration_keeps_alive(&lock_configuration),
             lock,
@@ -350,13 +364,14 @@ fn execute_lock_return<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
+    locks_state: &mut LocksP11,
     operation_index: usize,
     details: MetaLockReturnDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let lock = block_state
-        .lock_by_id(context, &details.lock)?
+    let lock = locks_state
+        .by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
@@ -364,9 +379,7 @@ fn execute_lock_return<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
-        );
+        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
     let source_address = details.source.address;
@@ -397,7 +410,7 @@ fn execute_lock_return<C: EntityContextTypes>(
         &mut token,
         source.account_index(),
         source_address,
-        &lock_configuration.lock_id,
+        lock.lock_id(),
         raw_amount,
         memo,
     )
@@ -411,7 +424,7 @@ fn execute_lock_return<C: EntityContextTypes>(
     if remaining_locked == RawTokenAmount::from(0) {
         remove_lock_balance_ref(
             context,
-            block_state,
+            locks_state,
             events,
             lock_configuration_keeps_alive(&lock_configuration),
             lock,
@@ -428,6 +441,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
+    locks_state: &mut LocksP11,
     max_lock_duration: Duration,
     details: MetaLockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
@@ -479,7 +493,6 @@ fn execute_lock_create<C: EntityContextTypes>(
         }
     };
     let configuration = LockConfiguration {
-        lock_id: lock_id.clone(),
         recipients,
         expiry,
         controller,
@@ -493,7 +506,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     };
     events.push(BlockItemEvent::LockCreated(event));
 
-    block_state.create_lock(context, configuration)?;
+    locks_state.create(context, &lock_id, configuration)?;
     Ok(())
 }
 
@@ -501,12 +514,13 @@ fn execute_lock_cancel<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
+    locks_state: &mut LocksP11,
     details: MetaLockCancelDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
-    let lock = block_state
-        .lock_by_id(context, &details.lock)?
+    let lock = locks_state
+        .by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
@@ -530,14 +544,14 @@ fn execute_lock_cancel<C: EntityContextTypes>(
             events,
             &mut token,
             account_index,
-            &lock_configuration.lock_id,
+            lock.lock_id(),
             &memo,
         )?;
         block_state.update_token(context, token)?;
     }
-    block_state.delete_lock(context, &lock_configuration.lock_id)?;
+    locks_state.delete(context, lock.lock_id())?;
     let event = events::LockDestroyEvent {
-        lock_id: lock_configuration.lock_id.clone(),
+        lock_id: lock.lock_id().clone(),
     };
     events.push(BlockItemEvent::LockDestroyed(event));
     Ok(())
@@ -546,7 +560,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
 #[allow(clippy::too_many_arguments)]
 fn remove_lock_balance_ref<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    block_state: &mut BlockStateP11,
+    locks: &mut LocksP11,
     events: &mut Vec<BlockItemEvent>,
     lock_keeps_alive: bool,
     mut lock: plt_block_state::entity::protocol_level_locks::p11::LockP11,
@@ -560,12 +574,12 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
         return Ok(());
     }
     if lock.lock_balance_refs().is_empty() && !lock_keeps_alive {
-        block_state.delete_lock(context, &lock_id)?;
+        locks.delete(context, &lock_id)?;
         events.push(BlockItemEvent::LockDestroyed(events::LockDestroyEvent {
             lock_id,
         }));
     } else {
-        block_state.update_lock(context, lock)?;
+        locks.update(context, lock)?;
     }
     Ok(())
 }
