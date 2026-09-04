@@ -65,8 +65,6 @@ impl<T> Deref for Cow<'_, T> {
 /// Decode given CBOR using decode options set to suit the token module. The decode options
 /// will generally be strict.
 pub fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationResult<T> {
-    let decode_options = SerializationOptions {
-        unknown_map_keys: UnknownMapKeys::Fail,
-    };
+    let decode_options = SerializationOptions::default().unknown_map_keys(UnknownMapKeys::Fail);
     cbor::cbor_decode_with_options(cbor, decode_options)
 }
