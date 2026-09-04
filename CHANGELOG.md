@@ -2,6 +2,46 @@
 
 ## Unreleased changes
 
+## Unreleased changes (Devnet)
+
+- Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.
+  Expired requests are rejected with `LockExpired`; requests beyond the inclusive deadline are rejected with `LockDurationTooLong`.
+
+- **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
+- Added lock metadata as part of lock configurations
+
+## 11.2.2 (Devnet)
+
+- Add support for lock configurations with "any" specified for the `recipients` field.
+- `tokenTransfer` and `tokenBurn` operations now correctly check the available balance of the token on the account.
+
+## 11.2.1 (Devnet)
+
+- Add support for the following "meta update" operations:
+  - `lockFund`: move protocol-level tokens from an account's available balance into a PLT Lock.
+  - `lockSend`: move protocol-level tokens from a PLT Lock to a recipient account's available balance.
+  - `lockReturn`: release protocol-level tokens from a PLT Lock back to the owner's available balance.
+  - `lockCancel`: cancel a PLT Lock, releasing all funds to their owners.
+- Populate the protocol-level token account `module_state` returned by `GetAccountInfo` with available balance and lock details.
+
+## 11.2.0 (Devnet)
+
+- Extend gRPC API with `GetLockList` (streaming `LockId`) and `GetLockInfo` (single CBOR-encoded `LockInfo`) v2 endpoints for inspecting protocol-level locks.
+- Added support for the new "meta update" transaction, which supports the same operations as any "token update" transaction
+  and additionally supports the following operations:
+  - `lockCreate`: create a PLT Lock from a given lock configuration
+
+# 11.1.0 (Devnet)
+
+- Support token operations in P11:
+  - `assignAdminRoles` and `revokeAdminRoles` for managing admin roles for a protocol-level token.
+  - `updateMetadata` for setting the metadata URL and checksum of a protocol-level token.
+- Extend gRPC API with `getTokenAuthorizations` query for listing accounts holding roles for a given protocol-level token.
+
+# 11.0.0 (DevNet)
+
+- Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
+
 ## 10.0.10
 
 - Fix a bug where pending blocks with unknown parents are relayed to peers.
@@ -24,7 +64,7 @@
 
 - Prohibit peers from sending unsolicited PeerList messages
 - Enhance node performance by limiting inbound queue saturation from peers that send messages aggressively by using backpressure.
-- Introduce a background queue for processing messages that don't require the global block state lock. 
+- Introduce a background queue for processing messages that don't require the global block state lock.
 
 # 10.0.5
 

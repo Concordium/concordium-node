@@ -540,7 +540,29 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
-    /// Get information about a specific account in a given block.
+    /// Get information about a specific token in a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `token_id` - Pointer to the token identifier.
+    /// * `token_id_len` - Length of the token identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writing the output.
+    pub fn getTokenInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        token_id: *const u8,
+        token_id_len: u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get information about the token authorizations in a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
@@ -551,12 +573,57 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
-    pub fn getTokenInfoV2(
+    pub fn getTokenAuthorizationsV2(
         consensus: *mut consensus_runner,
         block_id_type: u8,
         block_id: *const u8,
         token_id: *const u8,
         token_id_len: u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Stream the list of all PLT Lock IDs that exist in the given block.
+    ///
+    /// Individual Lock IDs are enqueued using the provided callback.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getLockListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the proto-encoded `LockInfo` message for a single lock in a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `lock_id` - Pointer to 24 bytes containing the serialized `LockId` (three
+    ///   big-endian `u64` fields: `account_index`, `sequence_number`, `creation_order`).
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the proto-encoded `plt.LockInfo` bytes.
+    /// * `copier` - Callback for writing the output.
+    pub fn getLockInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        lock_id: *const [u8; 24],
         out_hash: *mut u8,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
@@ -2413,6 +2480,48 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get the authorizations for a protocol-level token in a block, introduced as part of P11.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the token cannot be found then a [tonic::Status::not_found] is
+    /// returned.
+    pub fn get_token_authorizations_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        token_id: &crate::grpc2::types::plt::TokenId,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let token_id_len = token_id.value.len();
+        if token_id_len > 255 {
+            return Err(tonic::Status::invalid_argument(
+                "TokenId: length must be at most 255 bytes",
+            ));
+        }
+        let token_id_len = token_id_len as u8;
+        let token_id_ptr = token_id.value.as_ptr();
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getTokenAuthorizationsV2(
+                consensus,
+                block_id_type,
+                block_hash.as_ptr(),
+                token_id_ptr,
+                token_id_len,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("tokenId or block")?;
+        Ok((out_hash, out_data))
+    }
+
     /// Get the best guess as to what the next account sequence number should
     /// be. If all account transactions are finalized, then this information
     /// is reliable. Otherwise, this is the best guess, assuming all other
@@ -2582,6 +2691,85 @@ impl ConsensusContainer {
         } else {
             Ok(buf)
         }
+    }
+
+    /// Look up locks in the given block, and return a stream of their
+    /// `LockId`s.
+    ///
+    /// Mirrors [`Self::get_token_list_v2`]. The return value is a block hash
+    /// used for the query.
+    ///
+    /// If the requested block does not exist a [tonic::Status::not_found] is returned.
+    pub fn get_lock_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let sender_ptr = Box::into_raw(sender);
+
+        let response: ConsensusQueryResponse = unsafe {
+            getLockListV2(
+                consensus,
+                sender_ptr,
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+
+        if let Err(e) = response.ensure_ok("block") {
+            let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
+            Err(e)
+        } else {
+            Ok(buf)
+        }
+    }
+
+    /// Get the `plt.LockInfo` proto-encoded payload for a single lock in a given
+    /// block. The Haskell side performs the proto encoding; this method returns the
+    /// wire bytes for the gRPC handler to forward through `RawCodec`.
+    ///
+    /// If the lock cannot be found a [tonic::Status::not_found] is returned.
+    pub fn get_lock_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        lock_id: &crate::grpc2::types::plt::LockId,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+
+        let lock_id = crate::grpc2::types::lock_id_to_ffi(lock_id);
+
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+
+        let response: ConsensusQueryResponse = unsafe {
+            getLockInfoV2(
+                consensus,
+                block_id_type,
+                block_hash.as_ptr(),
+                &lock_id,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+
+        response.ensure_ok("lockId or block")?;
+        Ok((out_hash, out_data))
     }
 
     /// Get a list of all smart contract modules. The stream will end

@@ -1,0 +1,69 @@
+name: PLT scheduler build and run tests
+
+on:
+  push:
+    branches:
+    - main
+    paths:
+    - '.github/workflows/plt-build-test.yaml'
+    - 'concordium-base'
+    - 'plt/**'
+
+  pull_request:
+    paths:
+    - '.github/workflows/plt-build-test.yaml'
+    - 'concordium-base'
+    - 'plt/**'
+
+env:
+  CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
+
+jobs:
+  rustfmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Run rustfmt
+        working-directory: plt
+        run: |
+          rustup component add rustfmt
+          cargo fmt --check
+
+  clippy_test:
+    name: Run Clippy and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install tools
+        working-directory: plt
+        run: |
+          rustup component add clippy llvm-tools
+          cargo install cargo-llvm-cov --locked
+      - name: Clippy
+        working-directory: plt
+        run: |
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Test
+        working-directory: plt
+        run: |
+          cargo llvm-cov test --locked --all-targets --all-features --no-report
+      - name: Generate a report of the tests above.
+        working-directory: plt
+        run: |
+          cargo llvm-cov report --lcov --output-path plt_lcov.info
+        # Options documented here: https://github.com/codecov/codecov-action
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_telem: true
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          files: plt/plt_lcov.info

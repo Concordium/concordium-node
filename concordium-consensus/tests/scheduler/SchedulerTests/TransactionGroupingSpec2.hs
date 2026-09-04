@@ -19,7 +19,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.Environment as Types
 import Concordium.Scheduler.Runner
 import Concordium.Scheduler.Types (Amount, Energy, FailureKind (..), Nonce)
 import qualified Concordium.Scheduler.Types as Types

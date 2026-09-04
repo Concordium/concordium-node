@@ -1,0 +1,85 @@
+use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
+use crate::transaction_execution::TransactionExecution;
+use crate::{TransactionContext, protocol_level_tokens};
+use concordium_base::transactions::Payload;
+use concordium_base::updates::UpdatePayload;
+use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::block_state::p9::BlockStateP9;
+use plt_block_state::entity::{EntityContext, EntityContextTypes};
+use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
+
+/// Execute a transaction payload modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a reject reason. Additionally, the
+/// amount of energy used by the execution is returned. The returned values are represented
+/// via the type [`TransactionExecutionSummary`].
+///
+/// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
+///
+/// # Arguments
+///
+/// - `sender_account` The account initiating the transaction (signer of the transaction)
+/// - `transaction_context` Transacstion context containing sender, energy limit etc.
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The transaction payload to execute
+///
+/// # Errors
+///
+/// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
+///   Returning this error will terminate the scheduler.
+pub fn execute_transaction<C: EntityContextTypes>(
+    context: &mut EntityContext<C>,
+    block_state: &mut BlockStateP9,
+    transaction_context: TransactionContext,
+    sender_account: Account,
+    payload: Payload,
+) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
+    let mut execution = TransactionExecution::new(transaction_context, sender_account);
+
+    let outcome = match payload {
+        Payload::TokenUpdate { payload } => {
+            protocol_level_tokens::p9::execute_token_update_transaction(
+                context,
+                &mut execution,
+                block_state,
+                payload,
+            )?
+        }
+        _ => return Err(TransactionExecutionError::UnexpectedPayload),
+    };
+
+    Ok(TransactionExecutionSummary {
+        outcome,
+        energy_used: execution.energy_used(),
+    })
+}
+
+/// Execute a chain update modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a failure kind.
+///
+/// NOTICE: The caller must ensure to rollback state changes in case a failure kind is returned.
+///
+/// # Arguments
+///
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The chain update payload to execute
+///
+/// # Errors
+///
+/// - [`ChainUpdateExecutionError`] If executing the chain update failed in an unrecoverable way.
+///   Returning this error will terminate the scheduler.
+pub fn execute_chain_update<C: EntityContextTypes>(
+    context: &mut EntityContext<C>,
+    block_state: &mut BlockStateP9,
+    payload: UpdatePayload,
+) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
+    match payload {
+        UpdatePayload::CreatePlt(create_plt) => {
+            Ok(protocol_level_tokens::p9::execute_create_plt_chain_update(
+                context,
+                block_state,
+                create_plt,
+            )?)
+        }
+        _ => Err(ChainUpdateExecutionError::UnexpectedPayload),
+    }
+}

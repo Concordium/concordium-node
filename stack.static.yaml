@@ -1,0 +1,16 @@
+resolver: lts-24.0
+
+packages:
+- ./concordium-base
+- ./concordium-consensus
+- ./concordium-consensus/haskell-lmdb
+
+extra-deps:
+
+extra-lib-dirs:
+- ./concordium-base/lib
+- ./concordium-consensus/lib
+
+ghc-options:
+    # `simpl-tick-factor` parameter here is necessary due to a bug in the ghc: https://gitlab.haskell.org/ghc/ghc/-/issues/14637#note_413425
+    "$everything": -fPIC -fsimpl-tick-factor=10000

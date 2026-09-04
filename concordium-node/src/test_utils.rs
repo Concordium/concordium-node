@@ -37,7 +37,7 @@ pub fn next_available_port() -> u16 {
     while available_port.is_none() {
         let port = PORT_OFFSET.fetch_add(1, Ordering::SeqCst) as u16 + PORT_START_NODE;
         available_port = TcpListener::bind(("127.0.0.1", port)).map(|_| port).ok();
-        assert!(port < std::u16::MAX);
+        assert!(port < u16::MAX);
     }
 
     available_port.unwrap()

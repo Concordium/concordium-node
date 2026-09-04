@@ -13,7 +13,7 @@ set -euxo pipefail
 
 extra_features=${EXTRA_FEATURES:-""}
 
-REQUIRED_PARAMETERS=("PROTOC_VERSION" "FLATBUFFERS_VERSION" "RUST_TOOLCHAIN_VERSION")
+REQUIRED_PARAMETERS=("PROTOC_VERSION" "FLATBUFFERS_VERSION")
 
 # Loop through the required variables and check if they are set
 for VAR in "${REQUIRED_PARAMETERS[@]}"; do
@@ -50,7 +50,6 @@ rm protoc.zip
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 rustup set profile minimal
-rustup default "$RUST_TOOLCHAIN_VERSION"
 
 ASSETS_URL="https://github.com/google/flatbuffers/releases/expanded_assets/v${FLATBUFFERS_VERSION}"
 GCC_VERSION=$(curl -s "$ASSETS_URL" | grep -oP 'Linux\.flatc\.binary\.g\+\+\-\K[0-9]+' | head -n 1)

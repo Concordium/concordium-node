@@ -1,0 +1,134 @@
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use assert_matches::assert_matches;
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::common::cbor;
+use concordium_base::common::types::TransactionTime;
+use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::meta_operations::{
+    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
+};
+use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
+use concordium_base::transactions::Payload;
+use plt_block_state::entity::EntityContext;
+use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
+use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
+use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+/// Simple configuration for creating a lock in tests.
+#[derive(Debug, Clone)]
+pub struct CreateLockSimpleConfig {
+    pub recipients: Vec<AccountIndex>,
+    pub grants: Vec<LockControllerSimpleV0Grant>,
+    pub tokens: Vec<TokenId>,
+    pub expiry: u64,
+    pub keep_alive: bool,
+}
+
+/// Create a lock in the block state.
+pub fn create_lock(
+    context: &mut StubbedEntityContext,
+    block_state: &mut BlockStateP11,
+    lock_id: &LockId,
+    config: CreateLockSimpleConfig,
+) {
+    use concordium_base::protocol_level_locks::*;
+    use concordium_base::protocol_level_tokens::meta_operations::*;
+    let sender = context
+        .account_by_index(lock_id.account_index())
+        .expect("sender account must exist");
+    let resolve_account = |index: &AccountIndex| {
+        CborHolderAccount::from(
+            context
+                .account_by_index(*index)
+                .unwrap_or_else(|_| panic!("account index {} does not exist", *index))
+                .canonical_account_address,
+        )
+    };
+    let recipients =
+        LockRecipients::Limited(config.recipients.iter().map(resolve_account).collect());
+    let grants = config
+        .grants
+        .iter()
+        .map(
+            |grant| concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                account: resolve_account(&grant.account()),
+                roles: grant.roles().to_vec(),
+            },
+        )
+        .collect();
+    let operations = MetaUpdateOperations {
+        operations: vec![lock_create(LockConfig {
+            recipients,
+            expiry: TransactionTime::from(config.expiry),
+            controller: LockController::SimpleV0(LockControllerSimpleV0 {
+                grants,
+                tokens: config.tokens,
+                keep_alive: config.keep_alive,
+                memo: None,
+            }),
+            metadata: None,
+        })],
+    };
+
+    block_state
+        .execute_transaction(
+            context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: sender.canonical_account_address,
+                transaction_sequence_number: lock_id.sequence_number(),
+                block_timestamp: 0.into(),
+            },
+            sender.account.account_index(),
+            Payload::MetaUpdate {
+                payload: MetaUpdatePayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                },
+            },
+        )
+        .expect("create lock transaction must succeed");
+}
+
+/// Track a `(account, token)` balance reference under the given lock and record the
+/// locked `amount` for the account in the token-module key-value state.
+///
+/// TODO: (COR-2305) Once lock-operation transaction payloads land (the ones that
+/// move balances into / out of locks), this helper should drive those payloads
+/// through `scheduler::execute_transaction` (mirroring `increment_account_balance`)
+/// instead of poking the block state and key-value store directly. At that point
+/// the constants duplicated above can also be removed.
+pub fn lock_balance(
+    context: &mut StubbedEntityContext,
+    block_state: &mut BlockStateP11,
+    lock_id: &LockId,
+    funder_account: AccountIndex,
+    token_id: &TokenId,
+    amount: RawTokenAmount,
+) {
+    // Get the token and determine its index
+    let token = block_state
+        .token_by_id(context, token_id)
+        .unwrap()
+        .expect("token must exist");
+    let token_index = token.token_p9_base.token_index();
+
+    // Register the (account, token) pair in the lock state
+    let mut lock = block_state
+        .lock_by_id(context, lock_id)
+        .unwrap()
+        .expect("lock must exist");
+    lock.add_lock_balance_ref(funder_account, token_index);
+    block_state.update_lock(context, lock).unwrap();
+
+    // Set the locked amount in the token module KV state
+    let mut token = block_state
+        .token_by_id(context, token_id)
+        .unwrap()
+        .expect("token must exist");
+    token
+        .set_locked_balance_for_account(context, funder_account, lock_id, amount)
+        .unwrap();
+    block_state.update_token(context, token).unwrap();
+}

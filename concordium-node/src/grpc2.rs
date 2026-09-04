@@ -229,6 +229,17 @@ pub mod types {
         }
     }
 
+    // Serialize the LockId as three big-endian u64 fields, exactly 24 bytes.
+    // This matches the Haskell `SerializedLockId` type and the FFI input contract
+    // documented on `getLockInfoV2`.
+    pub(crate) fn lock_id_to_ffi(lock_id: &plt::LockId) -> [u8; 24] {
+        let mut lock_id_bytes = [0u8; 24];
+        lock_id_bytes[0..8].copy_from_slice(&lock_id.account_index.to_be_bytes());
+        lock_id_bytes[8..16].copy_from_slice(&lock_id.sequence_number.to_be_bytes());
+        lock_id_bytes[16..24].copy_from_slice(&lock_id.creation_order.to_be_bytes());
+        lock_id_bytes
+    }
+
     impl From<Amount> for concordium_base::common::types::Amount {
         fn from(n: Amount) -> Self {
             Self::from_micro_ccd(n.value)
@@ -919,9 +930,15 @@ struct ServiceConfig {
     #[serde(default)]
     get_token_list: bool,
     #[serde(default)]
+    get_lock_list: bool,
+    #[serde(default)]
     get_account_info: bool,
     #[serde(default)]
     get_token_info: bool,
+    #[serde(default)]
+    get_token_authorizations: bool,
+    #[serde(default)]
+    get_lock_info: bool,
     #[serde(default)]
     get_module_list: bool,
     #[serde(default)]
@@ -1048,8 +1065,11 @@ impl ServiceConfig {
             get_blocks: true,
             get_account_list: true,
             get_token_list: true,
+            get_lock_list: true,
             get_account_info: true,
             get_token_info: true,
+            get_token_authorizations: true,
+            get_lock_info: true,
             get_module_list: true,
             get_module_source: true,
             get_instance_list: true,
@@ -1215,7 +1235,7 @@ pub mod server {
             },
             messaging::{ConsensusMessage, MessageType},
         },
-        health,
+        grpc2, health,
         p2p::P2PNode,
     };
     use anyhow::Context;
@@ -1729,13 +1749,15 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetTokenList' method.
         type GetTokenListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetLockList' method.
+        type GetLockListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
+            _request: tonic::Request<grpc2::types::Empty>,
         ) -> Result<tonic::Response<Self::GetBlocksStream>, tonic::Status> {
             if !self.service_config.get_blocks {
                 return Err(tonic::Status::unimplemented("`GetBlocks` is not enabled."));
@@ -1757,7 +1779,7 @@ pub mod server {
 
         async fn get_finalized_blocks(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
+            _request: tonic::Request<grpc2::types::Empty>,
         ) -> Result<tonic::Response<Self::GetFinalizedBlocksStream>, tonic::Status> {
             if !self.service_config.get_finalized_blocks {
                 return Err(tonic::Status::unimplemented(
@@ -1781,7 +1803,7 @@ pub mod server {
 
         async fn get_account_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::AccountInfoRequest>,
+            request: tonic::Request<grpc2::types::AccountInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_account_info {
                 return Err(tonic::Status::unimplemented(
@@ -1804,7 +1826,7 @@ pub mod server {
 
         async fn get_token_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::TokenInfoRequest>,
+            request: tonic::Request<grpc2::types::TokenInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_token_info {
                 return Err(tonic::Status::unimplemented(
@@ -1825,9 +1847,32 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_token_authorizations(
+            &self,
+            request: tonic::Request<grpc2::types::TokenAuthorizationsRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_token_authorizations {
+                return Err(tonic::Status::unimplemented(
+                    "`GetTokenAuthorizations` is not enabled.",
+                ));
+            }
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let token_identifier = request.token_id.as_ref().require()?;
+                    consensus.get_token_authorizations_v2(block_hash, token_identifier)
+                })
+                .await?;
+
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
         async fn get_account_list(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetAccountListStream>, tonic::Status> {
             if !self.service_config.get_account_list {
                 return Err(tonic::Status::unimplemented(
@@ -1847,7 +1892,7 @@ pub mod server {
 
         async fn get_token_list(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetTokenListStream>, tonic::Status> {
             if !self.service_config.get_token_list {
                 return Err(tonic::Status::unimplemented(
@@ -1865,9 +1910,52 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_lock_list(
+            &self,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetLockListStream>, tonic::Status> {
+            if !self.service_config.get_lock_list {
+                return Err(tonic::Status::unimplemented(
+                    "`GetLockList` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_lock_list_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_lock_info(
+            &self,
+            request: tonic::Request<grpc2::types::LockInfoRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_lock_info {
+                return Err(tonic::Status::unimplemented(
+                    "`GetLockInfo` is not enabled.",
+                ));
+            }
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let lock_id = request.lock_id.as_ref().require()?;
+                    consensus.get_lock_info_v2(block_hash, lock_id)
+                })
+                .await?;
+
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
         async fn get_module_list(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetModuleListStream>, tonic::Status> {
             if !self.service_config.get_module_list {
                 return Err(tonic::Status::unimplemented(
@@ -1887,7 +1975,7 @@ pub mod server {
 
         async fn get_module_source(
             &self,
-            request: tonic::Request<crate::grpc2::types::ModuleSourceRequest>,
+            request: tonic::Request<grpc2::types::ModuleSourceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_module_source {
                 return Err(tonic::Status::unimplemented(
@@ -1909,7 +1997,7 @@ pub mod server {
 
         async fn get_instance_list(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetInstanceListStream>, tonic::Status> {
             if !self.service_config.get_instance_list {
                 return Err(tonic::Status::unimplemented(
@@ -1929,7 +2017,7 @@ pub mod server {
 
         async fn get_instance_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+            request: tonic::Request<grpc2::types::InstanceInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_instance_info {
                 return Err(tonic::Status::unimplemented(
@@ -1951,7 +2039,7 @@ pub mod server {
 
         async fn get_instance_state(
             &self,
-            request: tonic::Request<crate::grpc2::types::InstanceInfoRequest>,
+            request: tonic::Request<grpc2::types::InstanceInfoRequest>,
         ) -> Result<tonic::Response<Self::GetInstanceStateStream>, tonic::Status> {
             if !self.service_config.get_instance_state {
                 return Err(tonic::Status::unimplemented(
@@ -2053,7 +2141,7 @@ pub mod server {
 
         async fn get_next_account_sequence_number(
             &self,
-            request: tonic::Request<crate::grpc2::types::AccountAddress>,
+            request: tonic::Request<grpc2::types::AccountAddress>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_next_account_sequence_number {
                 return Err(tonic::Status::unimplemented(
@@ -2070,7 +2158,7 @@ pub mod server {
 
         async fn get_consensus_info(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
+            _request: tonic::Request<grpc2::types::Empty>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_consensus_info {
                 return Err(tonic::Status::unimplemented(
@@ -2085,7 +2173,7 @@ pub mod server {
 
         async fn get_consensus_detailed_status(
             &self,
-            request: tonic::Request<crate::grpc2::types::ConsensusDetailedStatusQuery>,
+            request: tonic::Request<grpc2::types::ConsensusDetailedStatusQuery>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_consensus_detailed_status {
                 return Err(tonic::Status::unimplemented(
@@ -2103,7 +2191,7 @@ pub mod server {
 
         async fn get_ancestors(
             &self,
-            request: tonic::Request<crate::grpc2::types::AncestorsRequest>,
+            request: tonic::Request<grpc2::types::AncestorsRequest>,
         ) -> Result<tonic::Response<Self::GetAncestorsStream>, tonic::Status> {
             if !self.service_config.get_ancestors {
                 return Err(tonic::Status::unimplemented(
@@ -2126,7 +2214,7 @@ pub mod server {
 
         async fn get_block_item_status(
             &self,
-            request: tonic::Request<crate::grpc2::types::TransactionHash>,
+            request: tonic::Request<grpc2::types::TransactionHash>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_block_item_status {
                 return Err(tonic::Status::unimplemented(
@@ -2143,7 +2231,7 @@ pub mod server {
 
         async fn invoke_instance(
             &self,
-            mut request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
+            mut request: tonic::Request<grpc2::types::InvokeInstanceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.invoke_instance {
                 return Err(tonic::Status::unimplemented(
@@ -2154,7 +2242,7 @@ pub mod server {
             if let Some(nrg) = request.get_ref().energy.as_ref() {
                 max_energy = std::cmp::min(max_energy, nrg.value);
             }
-            request.get_mut().energy = Some(crate::grpc2::types::Energy { value: max_energy });
+            request.get_mut().energy = Some(grpc2::types::Energy { value: max_energy });
             let (hash, response) = self
                 .run_blocking(move |consensus| consensus.invoke_instance_v2(request.get_ref()))
                 .await?;
@@ -2165,9 +2253,8 @@ pub mod server {
 
         async fn get_cryptographic_parameters(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
-        ) -> Result<tonic::Response<crate::grpc2::types::CryptographicParameters>, tonic::Status>
-        {
+            request: tonic::Request<grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<grpc2::types::CryptographicParameters>, tonic::Status> {
             if !self.service_config.get_cryptographic_parameters {
                 return Err(tonic::Status::unimplemented(
                     "`GetCryptographicParameters` is not enabled.",
@@ -2185,7 +2272,7 @@ pub mod server {
 
         async fn get_block_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_block_info {
                 return Err(tonic::Status::unimplemented(
@@ -2202,7 +2289,7 @@ pub mod server {
 
         async fn get_baker_list(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBakerListStream>, tonic::Status> {
             if !self.service_config.get_baker_list {
                 return Err(tonic::Status::unimplemented(
@@ -2222,7 +2309,7 @@ pub mod server {
 
         async fn get_pool_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::PoolInfoRequest>,
+            request: tonic::Request<grpc2::types::PoolInfoRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_pool_info {
                 return Err(tonic::Status::unimplemented(
@@ -2239,7 +2326,7 @@ pub mod server {
 
         async fn get_passive_delegation_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_passive_delegation_info {
                 return Err(tonic::Status::unimplemented(
@@ -2258,7 +2345,7 @@ pub mod server {
 
         async fn get_blocks_at_height(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlocksAtHeightRequest>,
+            request: tonic::Request<grpc2::types::BlocksAtHeightRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_blocks_at_height {
                 return Err(tonic::Status::unimplemented(
@@ -2274,7 +2361,7 @@ pub mod server {
 
         async fn get_tokenomics_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_tokenomics_info {
                 return Err(tonic::Status::unimplemented(
@@ -2291,7 +2378,7 @@ pub mod server {
 
         async fn get_pool_delegators(
             &self,
-            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
+            request: tonic::Request<grpc2::types::GetPoolDelegatorsRequest>,
         ) -> Result<tonic::Response<Self::GetPoolDelegatorsStream>, tonic::Status> {
             if !self.service_config.get_pool_delegators {
                 return Err(tonic::Status::unimplemented(
@@ -2311,7 +2398,7 @@ pub mod server {
 
         async fn get_pool_delegators_reward_period(
             &self,
-            request: tonic::Request<crate::grpc2::types::GetPoolDelegatorsRequest>,
+            request: tonic::Request<grpc2::types::GetPoolDelegatorsRequest>,
         ) -> Result<tonic::Response<Self::GetPoolDelegatorsRewardPeriodStream>, tonic::Status>
         {
             if !self.service_config.get_pool_delegators_reward_period {
@@ -2332,7 +2419,7 @@ pub mod server {
 
         async fn get_passive_delegators(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetPassiveDelegatorsStream>, tonic::Status> {
             if !self.service_config.get_passive_delegators {
                 return Err(tonic::Status::unimplemented(
@@ -2352,7 +2439,7 @@ pub mod server {
 
         async fn get_passive_delegators_reward_period(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetPassiveDelegatorsRewardPeriodStream>, tonic::Status>
         {
             if !self.service_config.get_passive_delegators_reward_period {
@@ -2373,7 +2460,7 @@ pub mod server {
 
         async fn get_branches(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
+            _request: tonic::Request<grpc2::types::Empty>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_branches {
                 return Err(tonic::Status::unimplemented(
@@ -2388,7 +2475,7 @@ pub mod server {
 
         async fn get_election_info(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_election_info {
                 return Err(tonic::Status::unimplemented(
@@ -2405,7 +2492,7 @@ pub mod server {
 
         async fn get_identity_providers(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetIdentityProvidersStream>, tonic::Status> {
             if !self.service_config.get_identity_providers {
                 return Err(tonic::Status::unimplemented(
@@ -2425,7 +2512,7 @@ pub mod server {
 
         async fn get_anonymity_revokers(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetAnonymityRevokersStream>, tonic::Status> {
             if !self.service_config.get_anonymity_revokers {
                 return Err(tonic::Status::unimplemented(
@@ -2445,7 +2532,7 @@ pub mod server {
 
         async fn get_account_non_finalized_transactions(
             &self,
-            request: tonic::Request<crate::grpc2::types::AccountAddress>,
+            request: tonic::Request<grpc2::types::AccountAddress>,
         ) -> Result<tonic::Response<Self::GetAccountNonFinalizedTransactionsStream>, tonic::Status>
         {
             if !self.service_config.get_account_non_finalized_transactions {
@@ -2464,7 +2551,7 @@ pub mod server {
 
         async fn get_block_transaction_events(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockTransactionEventsStream>, tonic::Status> {
             if !self.service_config.get_block_transaction_events {
                 return Err(tonic::Status::unimplemented(
@@ -2484,7 +2571,7 @@ pub mod server {
 
         async fn get_block_special_events(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockSpecialEventsStream>, tonic::Status> {
             if !self.service_config.get_block_special_events {
                 return Err(tonic::Status::unimplemented(
@@ -2504,7 +2591,7 @@ pub mod server {
 
         async fn get_block_pending_updates(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockPendingUpdatesStream>, tonic::Status> {
             if !self.service_config.get_block_pending_updates {
                 return Err(tonic::Status::unimplemented(
@@ -2524,7 +2611,7 @@ pub mod server {
 
         async fn get_next_update_sequence_numbers(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_next_update_sequence_numbers {
                 return Err(tonic::Status::unimplemented(
@@ -2543,7 +2630,7 @@ pub mod server {
 
         async fn get_scheduled_release_accounts(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetScheduledReleaseAccountsStream>, tonic::Status>
         {
             if !self.service_config.get_scheduled_release_accounts {
@@ -2564,7 +2651,7 @@ pub mod server {
 
         async fn get_cooldown_accounts(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetCooldownAccountsStream>, tonic::Status> {
             if !self.service_config.get_cooldown_accounts {
                 return Err(tonic::Status::unimplemented(
@@ -2584,7 +2671,7 @@ pub mod server {
 
         async fn get_pre_cooldown_accounts(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetPreCooldownAccountsStream>, tonic::Status> {
             if !self.service_config.get_pre_cooldown_accounts {
                 return Err(tonic::Status::unimplemented(
@@ -2604,7 +2691,7 @@ pub mod server {
 
         async fn get_pre_pre_cooldown_accounts(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetPrePreCooldownAccountsStream>, tonic::Status> {
             if !self.service_config.get_pre_pre_cooldown_accounts {
                 return Err(tonic::Status::unimplemented(
@@ -2624,7 +2711,7 @@ pub mod server {
 
         async fn get_block_chain_parameters(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_block_chain_parameters {
                 return Err(tonic::Status::unimplemented(
@@ -2643,7 +2730,7 @@ pub mod server {
 
         async fn get_block_finalization_summary(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_block_finalization_summary {
                 return Err(tonic::Status::unimplemented(
@@ -2662,7 +2749,7 @@ pub mod server {
 
         async fn get_bakers_reward_period(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBakersRewardPeriodStream>, tonic::Status> {
             if !self.service_config.get_bakers_reward_period {
                 return Err(tonic::Status::unimplemented(
@@ -2682,7 +2769,7 @@ pub mod server {
 
         async fn get_baker_earliest_win_time(
             &self,
-            request: tonic::Request<crate::grpc2::types::BakerId>,
+            request: tonic::Request<grpc2::types::BakerId>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_baker_earliest_win_time {
                 return Err(tonic::Status::unimplemented(
@@ -2700,13 +2787,13 @@ pub mod server {
 
         async fn shutdown(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            _request: tonic::Request<grpc2::types::Empty>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.shutdown {
                 return Err(tonic::Status::unimplemented("`Shutdown` is not enabled."));
             }
             match self.node.close() {
-                Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                Ok(_) => Ok(tonic::Response::new(grpc2::types::Empty {})),
                 Err(e) => Err(tonic::Status::internal(format!(
                     "Unable to shutdown server {}.",
                     e
@@ -2716,8 +2803,8 @@ pub mod server {
 
         async fn peer_connect(
             &self,
-            request: tonic::Request<crate::grpc2::types::IpSocketAddress>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            request: tonic::Request<grpc2::types::IpSocketAddress>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.peer_connect {
                 return Err(tonic::Status::unimplemented(
                     "`PeerConnect` is not enabled.",
@@ -2737,7 +2824,7 @@ pub mod server {
                             peer_type: crate::common::PeerType::Node,
                             given: true,
                         });
-                    Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+                    Ok(tonic::Response::new(grpc2::types::Empty {}))
                 } else {
                     Err(tonic::Status::invalid_argument("Invalid IP address."))
                 }
@@ -2746,8 +2833,8 @@ pub mod server {
 
         async fn peer_disconnect(
             &self,
-            request: tonic::Request<crate::grpc2::types::IpSocketAddress>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            request: tonic::Request<grpc2::types::IpSocketAddress>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.peer_disconnect {
                 return Err(tonic::Status::unimplemented(
                     "`PeerDisconnect` is not enabled.",
@@ -2762,7 +2849,7 @@ pub mod server {
                 if let Ok(ip) = peer_connect.ip.require()?.value.parse::<std::net::IpAddr>() {
                     let addr = SocketAddr::new(ip, peer_connect.port.require()?.value as u16);
                     if self.node.drop_addr(addr) {
-                        Ok(tonic::Response::new(crate::grpc2::types::Empty {}))
+                        Ok(tonic::Response::new(grpc2::types::Empty {}))
                     } else {
                         Err(tonic::Status::not_found("The peer was not found."))
                     }
@@ -2774,8 +2861,8 @@ pub mod server {
 
         async fn get_banned_peers(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
-        ) -> Result<tonic::Response<crate::grpc2::types::BannedPeers>, tonic::Status> {
+            _request: tonic::Request<grpc2::types::Empty>,
+        ) -> Result<tonic::Response<grpc2::types::BannedPeers>, tonic::Status> {
             if !self.service_config.get_banned_peers {
                 return Err(tonic::Status::unimplemented(
                     "`GetBannedPeers` is not enabled.",
@@ -2788,14 +2875,12 @@ pub mod server {
                         let ip_address = match banned_peer {
                             crate::p2p::bans::PersistedBanId::Ip(addr) => addr.to_string(),
                         };
-                        crate::grpc2::types::BannedPeer {
-                            ip_address: Some(crate::grpc2::types::IpAddress { value: ip_address }),
+                        grpc2::types::BannedPeer {
+                            ip_address: Some(grpc2::types::IpAddress { value: ip_address }),
                         }
                     })
                     .collect();
-                Ok(tonic::Response::new(crate::grpc2::types::BannedPeers {
-                    peers,
-                }))
+                Ok(tonic::Response::new(grpc2::types::BannedPeers { peers }))
             } else {
                 Err(tonic::Status::internal("Could not load banned peers."))
             }
@@ -2803,15 +2888,15 @@ pub mod server {
 
         async fn ban_peer(
             &self,
-            request: tonic::Request<crate::grpc2::types::PeerToBan>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            request: tonic::Request<grpc2::types::PeerToBan>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.ban_peer {
                 return Err(tonic::Status::unimplemented("`BanPeer` is not enabled."));
             }
             let ip = request.into_inner().ip_address.require()?;
             match ip.value.parse::<std::net::IpAddr>() {
                 Ok(ip_addr) => match self.node.drop_by_ip_and_ban(ip_addr) {
-                    Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                    Ok(_) => Ok(tonic::Response::new(grpc2::types::Empty {})),
                     Err(e) => Err(tonic::Status::internal(format!(
                         "Could not ban peer {}.",
                         e
@@ -2826,8 +2911,8 @@ pub mod server {
 
         async fn unban_peer(
             &self,
-            request: tonic::Request<crate::grpc2::types::BannedPeer>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            request: tonic::Request<grpc2::types::BannedPeer>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.unban_peer {
                 return Err(tonic::Status::unimplemented("`UnbanPeer` is not enabled."));
             }
@@ -2841,7 +2926,7 @@ pub mod server {
                 Ok(ip_addr) => {
                     let banned_id = crate::p2p::bans::PersistedBanId::Ip(ip_addr);
                     match self.node.unban_node(banned_id) {
-                        Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                        Ok(_) => Ok(tonic::Response::new(grpc2::types::Empty {})),
                         Err(e) => Err(tonic::Status::internal(format!(
                             "Could not unban peer {}.",
                             e
@@ -2858,8 +2943,8 @@ pub mod server {
         #[cfg(feature = "network_dump")]
         async fn dump_start(
             &self,
-            request: tonic::Request<crate::grpc2::types::DumpRequest>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            request: tonic::Request<grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.dump_start {
                 return Err(tonic::Status::unimplemented("`DumpStart` is not enabled."));
             }
@@ -2870,7 +2955,7 @@ pub mod server {
                 ))
             } else {
                 match self.node.activate_dump(&file_path, request.get_ref().raw) {
-                    Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                    Ok(_) => Ok(tonic::Response::new(grpc2::types::Empty {})),
                     Err(e) => Err(tonic::Status::internal(format!(
                         "Could not start network dump {}",
                         e
@@ -2882,8 +2967,8 @@ pub mod server {
         #[cfg(not(feature = "network_dump"))]
         async fn dump_start(
             &self,
-            _request: tonic::Request<crate::grpc2::types::DumpRequest>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            _request: tonic::Request<grpc2::types::DumpRequest>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.dump_start {
                 return Err(tonic::Status::unimplemented("`DumpStart` is not enabled."));
             }
@@ -2895,13 +2980,13 @@ pub mod server {
         #[cfg(feature = "network_dump")]
         async fn dump_stop(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            _request: tonic::Request<grpc2::types::Empty>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.dump_stop {
                 return Err(tonic::Status::unimplemented("`DumpStop` is not enabled."));
             }
             match self.node.stop_dump() {
-                Ok(_) => Ok(tonic::Response::new(crate::grpc2::types::Empty {})),
+                Ok(_) => Ok(tonic::Response::new(grpc2::types::Empty {})),
                 Err(e) => Err(tonic::Status::internal(format!(
                     "Could not stop network dump {}",
                     e
@@ -2912,8 +2997,8 @@ pub mod server {
         #[cfg(not(feature = "network_dump"))]
         async fn dump_stop(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
-        ) -> Result<tonic::Response<crate::grpc2::types::Empty>, tonic::Status> {
+            _request: tonic::Request<grpc2::types::Empty>,
+        ) -> Result<tonic::Response<grpc2::types::Empty>, tonic::Status> {
             if !self.service_config.dump_stop {
                 return Err(tonic::Status::unimplemented("`DumpStop` is not enabled."));
             }
@@ -2924,8 +3009,8 @@ pub mod server {
 
         async fn get_peers_info(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
-        ) -> Result<tonic::Response<crate::grpc2::types::PeersInfo>, tonic::Status> {
+            _request: tonic::Request<grpc2::types::Empty>,
+        ) -> Result<tonic::Response<grpc2::types::PeersInfo>, tonic::Status> {
             if !self.service_config.get_peers_info {
                 return Err(tonic::Status::unimplemented(
                     "`GetPeersInfo` is not enabled.",
@@ -2939,7 +3024,7 @@ pub mod server {
                 .into_iter()
                 .map(|peer_stats| {
                     // Collect the network statistics
-                    let network_stats = Some(crate::grpc2::types::peers_info::peer::NetworkStats {
+                    let network_stats = Some(grpc2::types::peers_info::peer::NetworkStats {
                         packets_sent: peer_stats.msgs_sent,
                         packets_received: peer_stats.msgs_received,
                         latency: peer_stats.latency,
@@ -2950,39 +3035,39 @@ pub mod server {
                         crate::common::PeerType::Node => {
                             let catchup_status = match peer_statuses.get(&peer_stats.local_id) {
                                 Some(crate::consensus_ffi::catch_up::PeerStatus::CatchingUp) => {
-                                    crate::grpc2::types::peers_info::peer::CatchupStatus::Catchingup
+                                    grpc2::types::peers_info::peer::CatchupStatus::Catchingup
                                 }
                                 Some(crate::consensus_ffi::catch_up::PeerStatus::UpToDate) => {
-                                    crate::grpc2::types::peers_info::peer::CatchupStatus::Uptodate
+                                    grpc2::types::peers_info::peer::CatchupStatus::Uptodate
                                 }
-                                _ => crate::grpc2::types::peers_info::peer::CatchupStatus::Pending,
+                                _ => grpc2::types::peers_info::peer::CatchupStatus::Pending,
                             };
-                            crate::grpc2::types::peers_info::peer::ConsensusInfo::NodeCatchupStatus(
+                            grpc2::types::peers_info::peer::ConsensusInfo::NodeCatchupStatus(
                                 catchup_status.into(),
                             )
                         }
                         // Bootstrappers do not have a catchup status as they are not participating
                         // in the consensus protocol.
                         crate::common::PeerType::Bootstrapper => {
-                            crate::grpc2::types::peers_info::peer::ConsensusInfo::Bootstrapper(
-                                crate::grpc2::types::Empty::default(),
+                            grpc2::types::peers_info::peer::ConsensusInfo::Bootstrapper(
+                                grpc2::types::Empty::default(),
                             )
                         }
                     };
                     // Get the catchup status of the peer.
-                    let socket_address = crate::grpc2::types::IpSocketAddress {
-                        ip: Some(crate::grpc2::types::IpAddress {
+                    let socket_address = grpc2::types::IpSocketAddress {
+                        ip: Some(grpc2::types::IpAddress {
                             value: peer_stats.external_address().ip().to_string(),
                         }),
-                        port: Some(crate::grpc2::types::Port {
+                        port: Some(grpc2::types::Port {
                             value: peer_stats.external_port as u32,
                         }),
                     };
                     // Wrap the peer id.
-                    let peer_id = crate::grpc2::types::PeerId {
+                    let peer_id = grpc2::types::PeerId {
                         value: format!("{}", peer_stats.self_id),
                     };
-                    crate::grpc2::types::peers_info::Peer {
+                    grpc2::types::peers_info::Peer {
                         peer_id: Some(peer_id),
                         socket_address: Some(socket_address),
                         consensus_info: Some(consensus_info),
@@ -2990,14 +3075,12 @@ pub mod server {
                     }
                 })
                 .collect();
-            Ok(tonic::Response::new(crate::grpc2::types::PeersInfo {
-                peers,
-            }))
+            Ok(tonic::Response::new(grpc2::types::PeersInfo { peers }))
         }
 
         async fn get_node_info(
             &self,
-            _request: tonic::Request<crate::grpc2::types::Empty>,
+            _request: tonic::Request<grpc2::types::Empty>,
         ) -> Result<tonic::Response<types::NodeInfo>, tonic::Status> {
             if !self.service_config.get_node_info {
                 return Err(tonic::Status::unimplemented(
@@ -3123,8 +3206,8 @@ pub mod server {
 
         async fn send_block_item(
             &self,
-            request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
-        ) -> Result<tonic::Response<crate::grpc2::types::TransactionHash>, tonic::Status> {
+            request: tonic::Request<grpc2::types::SendBlockItemRequest>,
+        ) -> Result<tonic::Response<grpc2::types::TransactionHash>, tonic::Status> {
             use ConsensusFfiResponse::*;
             if !self.service_config.send_block_item {
                 return Err(tonic::Status::unimplemented(
@@ -3186,7 +3269,7 @@ pub mod server {
                             ));
                         }
                     };
-                    Ok(tonic::Response::new(crate::grpc2::types::TransactionHash {
+                    Ok(tonic::Response::new(grpc2::types::TransactionHash {
                         value: transaction_hash.to_vec(),
                     }))
                 }
@@ -3223,8 +3306,8 @@ pub mod server {
 
         async fn get_account_transaction_sign_hash(
             &self,
-            request: tonic::Request<crate::grpc2::types::PreAccountTransaction>,
-        ) -> Result<tonic::Response<crate::grpc2::types::AccountTransactionSignHash>, tonic::Status>
+            request: tonic::Request<grpc2::types::PreAccountTransaction>,
+        ) -> Result<tonic::Response<grpc2::types::AccountTransactionSignHash>, tonic::Status>
         {
             if !self.service_config.get_account_transaction_sign_hash {
                 return Err(tonic::Status::unimplemented(
@@ -3242,7 +3325,7 @@ pub mod server {
 
         async fn get_block_items(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockItemsStream>, tonic::Status> {
             if !self.service_config.get_block_items {
                 return Err(tonic::Status::unimplemented(
@@ -3262,7 +3345,7 @@ pub mod server {
 
         async fn get_block_certificates(
             &self,
-            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+            request: tonic::Request<grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_block_certificates {
                 return Err(tonic::Status::unimplemented(
@@ -3281,8 +3364,8 @@ pub mod server {
 
         async fn get_first_block_epoch(
             &self,
-            request: tonic::Request<crate::grpc2::types::EpochRequest>,
-        ) -> Result<tonic::Response<crate::grpc2::types::BlockHash>, tonic::Status> {
+            request: tonic::Request<grpc2::types::EpochRequest>,
+        ) -> Result<tonic::Response<grpc2::types::BlockHash>, tonic::Status> {
             if !self.service_config.get_first_block_epoch {
                 return Err(tonic::Status::unimplemented(
                     "`GetFirstBlockEpoch` is not enabled.",
@@ -3300,7 +3383,7 @@ pub mod server {
 
         async fn get_winning_bakers_epoch(
             &self,
-            request: tonic::Request<crate::grpc2::types::EpochRequest>,
+            request: tonic::Request<grpc2::types::EpochRequest>,
         ) -> Result<tonic::Response<Self::GetWinningBakersEpochStream>, tonic::Status> {
             if !self.service_config.get_winning_bakers_epoch {
                 return Err(tonic::Status::unimplemented(
@@ -3317,7 +3400,7 @@ pub mod server {
 
         async fn dry_run(
             &self,
-            request: tonic::Request<tonic::Streaming<crate::grpc2::types::DryRunRequest>>,
+            request: tonic::Request<tonic::Streaming<grpc2::types::DryRunRequest>>,
         ) -> Result<tonic::Response<Self::DryRunStream>, tonic::Status> {
             if !self.service_config.dry_run {
                 return Err(tonic::Status::unimplemented("`DryRun` is not enabled."));
@@ -3441,9 +3524,9 @@ pub mod server {
     }
 }
 
-#[expect(clippy::result_large_err)]
 /// Add a block hash to the metadata of a response. Used for returning the block
 /// hash.
+#[expect(clippy::result_large_err)]
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
     let value = tonic::metadata::MetadataValue::try_from(hex::encode(hash))
         .map_err(|_| tonic::Status::internal("Cannot add metadata hash."))?;
