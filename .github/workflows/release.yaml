@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_PAT }}
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_PAT }}
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
 
       - name: Extrapolate artifact name
@@ -206,7 +206,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_PAT }}
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
@@ -258,7 +258,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_PAT }}
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Install dependencies
         run: |
@@ -403,7 +403,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_PAT }}
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Extrapolate artifact name
         run: |
@@ -566,7 +566,7 @@ jobs:
          uses: actions/checkout@v4
          with:
            submodules: recursive
-           token: ${{ secrets.SUBMODULE_PAT }}
+           # token: ${{ secrets.SUBMODULE_PAT }}
 
        - name: Checkout Genesis Repository
          uses: actions/checkout@v4
@@ -680,7 +680,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.SUBMODULE_PAT }}
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Setup genesis deployment key
         run: echo "${{ env.GENESIS_DATA_KEY }}" > id_rsa
