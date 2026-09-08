@@ -25,6 +25,7 @@ env:
   RUST_VERSION: '1.94.0'
   STACK_VERSION: '3.7.1'
   FLATBUFFERS_VERSION: '23.5.26'
+  LMDB_VERSION: '0.9.35'
   GHC_VERSION: '9.10.2'
   PROTOC_VERSION: '28.3'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
@@ -428,13 +429,18 @@ jobs:
           sudo mv bin/protoc /usr/local/bin/
           sudo mv include/* /usr/local/include/
 
-      - name: Install Homebrew Packages
+      - name: Install LMDB
         run: |
-          brew install lmdb llvm
+          curl -fsSL https://git.openldap.org/openldap/openldap/-/archive/LMDB_${{ env.LMDB_VERSION }}/openldap-LMDB_${{ env.LMDB_VERSION }}.tar.bz2 -o lmdb.tar.bz2
+          echo "98e28ab0a5c23fb2eb8ad12c12d7ad5fc5e4c3563f41d0b91e9420a075974d6f  lmdb.tar.bz2" | shasum -a 256 -c -
+          tar -xjf lmdb.tar.bz2
+          make -C openldap-LMDB_${{ env.LMDB_VERSION }}/libraries/liblmdb SOEXT=.dylib LDFLAGS="-Wl,-install_name,/usr/local/lib/liblmdb.dylib"
+          sudo make -C openldap-LMDB_${{ env.LMDB_VERSION }}/libraries/liblmdb SOEXT=.dylib install
+
+      - name: Install Homebrew Packages
+        run: brew install llvm
 
       - name: Build macOS Package
-        env:
-          RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
         run: printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
 
   generate-node-matrix:
