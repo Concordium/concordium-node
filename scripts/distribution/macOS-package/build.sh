@@ -295,9 +295,9 @@ function collectDylibs() {
     readonly stackLibDirs
 
     logInfo " -- Processing concordium-node"
-    collectDylibsFor "$payloadDir/Library/Concordium Node/concordium-node"
+    collectDylibsFor "$payloadDir/Library/Concordium Node/concordium-node" > /dev/null
     logInfo " -- Processing node-collector"
-    collectDylibsFor "$payloadDir/Library/Concordium Node/node-collector"
+    collectDylibsFor "$payloadDir/Library/Concordium Node/node-collector" > /dev/null
 
     logInfo "Done"
 }
