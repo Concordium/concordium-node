@@ -9,7 +9,8 @@ use concordium_base::common::cbor::value::Value;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockController, LockControllerSimpleV0Capability, LockId, LockMetadata, LockRecipients,
+    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockMetadata,
+    LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaUpdateOperations, MetaUpdatePayload, lock_create,
@@ -90,11 +91,25 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
 
     assert_eq!(decoded.lock, lock_id);
     assert_eq!(
-        decoded.recipients,
-        LockRecipients::Limited(vec![CborHolderAccount::from(recipient_addr)])
+        decoded.config,
+        LockConfig::SimpleV0(LockConfigSimpleV0 {
+            recipients: LockRecipients::Limited(vec![CborHolderAccount::from(recipient_addr)]),
+            expiry: TransactionTime::from(1_804_806_000),
+            grants: vec![
+                concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                    account: CborHolderAccount::from(funding_addr),
+                    roles: vec![LockControllerSimpleV0Capability::Fund]
+                }
+            ],
+            tokens: vec![token_id.clone()],
+            keep_alive: false,
+            memo: None,
+            metadata: None
+        })
     );
-    assert_eq!(decoded.expiry, TransactionTime::from(1_804_806_000));
-    assert_matches!(decoded.controller, LockController::SimpleV0(simple) => {
+    assert_matches!(decoded.config, LockConfig::SimpleV0(simple) => {
+        assert_eq!(simple.expiry, TransactionTime::from(1_804_806_000));
+        assert_eq!(simple.recipients, LockRecipients::Limited(vec![CborHolderAccount::from(recipient_addr)]));
         assert_eq!(simple.grants.len(), 1);
         assert_eq!(simple.grants[0].account, CborHolderAccount::from(funding_addr));
         assert_eq!(simple.grants[0].roles, vec![LockControllerSimpleV0Capability::Fund]);
@@ -146,24 +161,22 @@ fn test_query_lock_info_any_recipient() {
     };
     let operations = MetaUpdateOperations {
         operations: vec![lock_create(
-            concordium_base::protocol_level_locks::LockConfig {
-                recipients: LockRecipients::Any,
-                expiry: TransactionTime::from(1_804_806_000u64),
-                controller: LockController::SimpleV0(
-                    concordium_base::protocol_level_locks::LockControllerSimpleV0 {
-                        grants: vec![
-                            concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
-                                account: CborHolderAccount::from(sender_addr),
-                                roles: vec![LockControllerSimpleV0Capability::Fund],
-                            },
-                        ],
-                        tokens: vec![token_id.clone()],
-                        keep_alive: false,
-                        memo: None,
-                    },
-                ),
-                metadata: Some(metadata.encode_raw_cbor()),
-            },
+            concordium_base::protocol_level_locks::LockConfig::SimpleV0(
+                concordium_base::protocol_level_locks::LockConfigSimpleV0 {
+                    recipients: LockRecipients::Any,
+                    expiry: TransactionTime::from(1_804_806_000u64),
+                    grants: vec![
+                        concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
+                            account: CborHolderAccount::from(sender_addr),
+                            roles: vec![LockControllerSimpleV0Capability::Fund],
+                        },
+                    ],
+                    tokens: vec![token_id.clone()],
+                    keep_alive: false,
+                    memo: None,
+                    metadata: Some(metadata.encode_raw_cbor()),
+                },
+            ),
         )],
     };
     block_state
@@ -190,8 +203,10 @@ fn test_query_lock_info_any_recipient() {
     let decoded: LockInfo =
         cbor::cbor_decode(&bytes).expect("CBOR encoding produced by query_lock_info must decode");
 
-    assert_eq!(decoded.recipients, LockRecipients::Any);
-    assert_eq!(decoded.metadata, Some(metadata.encode_raw_cbor()));
+    assert_matches!(decoded.config, LockConfig::SimpleV0(simple) => {
+        assert_eq!(simple.recipients, LockRecipients::Any);
+        assert_eq!(simple.metadata, Some(metadata.encode_raw_cbor()));
+    });
 }
 
 #[test]

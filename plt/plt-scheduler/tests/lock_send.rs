@@ -7,7 +7,7 @@ use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockConfig, LockController, LockControllerSimpleV0, LockControllerSimpleV0Capability,
+    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability,
     LockControllerSimpleV0Grant as CborLockControllerSimpleV0Grant, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::{
@@ -230,23 +230,21 @@ fn test_lock_send_allows_any_recipient() {
 
     let lock_id = LockId::new(owner.account_index(), 1u64, 0); // 1 matches the seq number given by `execute_meta_update`
     let operations = vec![
-        lock_create(LockConfig {
+        lock_create(LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: 1_804_806_000.into(),
-            controller: LockController::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![CborLockControllerSimpleV0Grant {
-                    account: CborHolderAccount::from(owner_addr),
-                    roles: vec![
-                        LockControllerSimpleV0Capability::Fund,
-                        LockControllerSimpleV0Capability::Send,
-                    ],
-                }],
-                tokens: vec![token_id.clone()],
-                keep_alive: false,
-                memo: None,
-            }),
+            grants: vec![CborLockControllerSimpleV0Grant {
+                account: CborHolderAccount::from(owner_addr),
+                roles: vec![
+                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Send,
+                ],
+            }],
+            tokens: vec![token_id.clone()],
+            keep_alive: false,
+            memo: None,
             metadata: None,
-        }),
+        })),
         lock_fund(
             token_id.clone(),
             lock_id.clone(),
@@ -278,7 +276,24 @@ fn test_lock_send_allows_any_recipient() {
             .expect("lock info query must succeed"),
     )
     .expect("lock info must decode");
-    assert_eq!(lock_info.recipients, LockRecipients::Any);
+    assert_eq!(
+        lock_info.config,
+        LockConfig::SimpleV0(LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: 1_804_806_000.into(),
+            grants: vec![CborLockControllerSimpleV0Grant {
+                account: CborHolderAccount::from(owner_addr),
+                roles: vec![
+                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Send
+                ]
+            }],
+            tokens: vec![token_id.clone()],
+            keep_alive: false,
+            memo: None,
+            metadata: None
+        })
+    );
 }
 
 #[test]
