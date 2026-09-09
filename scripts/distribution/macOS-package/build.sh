@@ -308,9 +308,11 @@ function collectDylibs() {
 # dylibbundler rewrites each dependency to an explicit @executable_path path.
 #
 # Mach-O files may already have ad-hoc signatures from the linker. Mutating
-# them invalidates those signatures, so remove them first and restore an ad-hoc
-# signature afterward. Ad-hoc signing requires no certificate; signBinaries
-# replaces it with the Developer ID signature in signed release builds.
+# them invalidates those signatures, so restore an ad-hoc signature afterward.
+# Do not remove signatures first: codesign leaves some x86_64 GHC dylibs with
+# sparse __LINKEDIT data that install_name_tool refuses to process. Ad-hoc
+# signing requires no certificate; signBinaries replaces it with the Developer
+# ID signature in signed release builds.
 function removeRpaths() {
     logInfo "Removing bundled RPATHs..."
     while IFS= read -r -d '' file; do
@@ -319,7 +321,6 @@ function removeRpaths() {
             continue
         fi
 
-        codesign --remove-signature "$file" 2> /dev/null || true
         # -delete_rpath removes one matching command, so repeat for duplicates.
         while rpath=$(otool -l "$file" | awk '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2; exit }') && [[ -n "$rpath" ]]; do
             install_name_tool -delete_rpath "$rpath" "$file"
