@@ -107,12 +107,13 @@ pub fn validate_operation(
         });
     }
     if let LockOperation::Fund(details) = operation
-        && !config.tokens().contains(&details.token) {
-            return Err(TransactionRejectReason::LockTokenNotPermitted(
-                details.lock.clone(),
-                details.token.clone(),
-            ));
-        }
+        && !config.tokens().contains(&details.token)
+    {
+        return Err(TransactionRejectReason::LockTokenNotPermitted(
+            details.lock.clone(),
+            details.token.clone(),
+        ));
+    }
     Ok(())
 }
 
