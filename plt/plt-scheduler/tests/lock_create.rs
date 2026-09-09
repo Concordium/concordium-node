@@ -8,7 +8,7 @@ use concordium_base::{
     common::{cbor, cbor::value::Value, types::TransactionTime},
     contracts_common::Duration,
     protocol_level_locks::{
-        LockConfig, LockController, LockControllerSimpleV0, LockControllerSimpleV0Capability,
+        LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability,
         LockControllerSimpleV0Grant, LockId, LockMetadata, LockRecipients,
     },
     protocol_level_tokens::{
@@ -43,17 +43,15 @@ fn execute_lock_create_with_duration(
     let account_index = context.external.create_account().account_index();
     let account = context.external.account_canonical_address(account_index);
     let lock_id = LockId::new(account_index, 1, 0);
-    let config = LockConfig {
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(expiry_seconds),
-        controller: LockController::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![],
-            tokens: vec![],
-            keep_alive: false,
-            memo: None,
-        }),
+        grants: vec![],
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
         metadata: None,
-    };
+    });
     let payload = MetaUpdatePayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![lock_create(config)])),
     };
@@ -111,29 +109,27 @@ fn test_create_simple_lock() {
         description: Some("Lock created in scheduler test".to_string()),
         additional: HashMap::from([("issuer".to_string(), Value::Text("Concordium".to_string()))]),
     };
-    let config = LockConfig {
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Limited(vec![account_1.into()]),
         expiry: TransactionTime::from_seconds(1000),
-        controller: LockController::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant {
-                account: account_1.into(),
-                roles: vec![
-                    LockControllerSimpleV0Capability::Cancel,
-                    LockControllerSimpleV0Capability::Fund,
-                    LockControllerSimpleV0Capability::Cancel,
-                    LockControllerSimpleV0Capability::Send,
-                    LockControllerSimpleV0Capability::Return,
-                    LockControllerSimpleV0Capability::Fund,
-                ],
-            }],
-            tokens: vec![plt_x],
-            keep_alive: false,
-            memo: None,
-        }),
+        grants: vec![LockControllerSimpleV0Grant {
+            account: account_1.into(),
+            roles: vec![
+                LockControllerSimpleV0Capability::Cancel,
+                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Cancel,
+                LockControllerSimpleV0Capability::Send,
+                LockControllerSimpleV0Capability::Return,
+                LockControllerSimpleV0Capability::Fund,
+            ],
+        }],
+        tokens: vec![plt_x],
+        keep_alive: false,
+        memo: None,
         metadata: Some(metadata.encode_raw_cbor()),
-    };
+    });
     let mut canonical_config = config.clone();
-    let LockController::SimpleV0(controller) = &mut canonical_config.controller;
+    let LockConfig::SimpleV0(controller) = &mut canonical_config;
     controller.grants[0].roles = vec![
         LockControllerSimpleV0Capability::Fund,
         LockControllerSimpleV0Capability::Return,
@@ -161,6 +157,13 @@ fn test_create_simple_lock() {
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
     assert_eq!(events.len(), 1);
+    let BlockItemEvent::LockCreated(event) = &events[0] else {
+        panic!("expected lock-created event")
+    };
+    assert_eq!(
+        hex::encode(&event.lock_config),
+        "a16873696d706c655630a566657870697279c11903e8666772616e747381a265726f6c6573846466756e646672657475726e6473656e646663616e63656c676163636f756e74d99d73a201d99d71a101190397035820000000000000000000000000000000000000000000000000000000000000000066746f6b656e738164706c7458686d65746164617461584ea3646e616d656954657374206c6f636b666973737565726a436f6e636f726469756d6b6465736372697074696f6e781e4c6f636b206372656174656420696e207363686564756c657220746573746a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
+    );
     let lock_id = LockId::new(account_index_1, 1, 0);
     assert_eq!(
         events[0],
@@ -173,12 +176,15 @@ fn test_create_simple_lock() {
     let stored_lock = block_state.lock_by_id(&context, &lock_id).unwrap().unwrap();
     let stored_configuration = stored_lock.lock_configuration(&context).unwrap();
     assert_eq!(
-        stored_configuration.metadata,
+        match &stored_configuration.config {
+            plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(
+                config,
+            ) => config.metadata.clone(),
+        },
         Some(metadata.encode_raw_cbor())
     );
-    let plt_block_state::persistent::protocol_level_locks::p11::LockControllerConfig::SimpleV0(
-        controller,
-    ) = &stored_configuration.controller;
+    let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
+        &stored_configuration.config;
     assert_eq!(
         controller.grants()[0].roles(),
         [
@@ -197,20 +203,18 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
     let account_index = context.external.create_account().account_index();
     let account = context.external.account_canonical_address(account_index);
     let lock_id = LockId::new(account_index, 1, 0);
-    let config = LockConfig {
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(1_000),
-        controller: LockController::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant {
-                account: account.into(),
-                roles: vec![LockControllerSimpleV0Capability::Fund; 256],
-            }],
-            tokens: vec![],
-            keep_alive: false,
-            memo: None,
-        }),
+        grants: vec![LockControllerSimpleV0Grant {
+            account: account.into(),
+            roles: vec![LockControllerSimpleV0Capability::Fund; 256],
+        }],
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
         metadata: None,
-    };
+    });
     let payload = MetaUpdatePayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![lock_create(config)])),
     };
@@ -242,9 +246,8 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             .expect("canonical lock configuration must reload completely");
 
     assert_eq!(reloaded, *stored_configuration);
-    let plt_block_state::persistent::protocol_level_locks::p11::LockControllerConfig::SimpleV0(
-        controller,
-    ) = reloaded.controller;
+    let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
+        reloaded.config;
     assert_eq!(
         controller.grants()[0].roles(),
         [LockControllerSimpleV0Capability::Fund]
@@ -281,20 +284,18 @@ fn test_create_any_recipient_lock() {
         .execute_chain_update(&mut context, payload)
         .expect("create pltX");
 
-    let config = LockConfig {
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(1000),
-        controller: LockController::SimpleV0(LockControllerSimpleV0 {
-            grants: vec![LockControllerSimpleV0Grant {
-                account: account_1.into(),
-                roles: vec![LockControllerSimpleV0Capability::Fund],
-            }],
-            tokens: vec![plt_x],
-            keep_alive: false,
-            memo: None,
-        }),
+        grants: vec![LockControllerSimpleV0Grant {
+            account: account_1.into(),
+            roles: vec![LockControllerSimpleV0Capability::Fund],
+        }],
+        tokens: vec![plt_x],
+        keep_alive: false,
+        memo: None,
         metadata: None,
-    };
+    });
     let operations = vec![lock_create(config.clone())];
     let payload = MetaUpdatePayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
@@ -330,7 +331,9 @@ fn test_create_any_recipient_lock() {
     let configuration = lock
         .lock_configuration(&context)
         .expect("lock configuration must load");
-    assert!(configuration.recipients.is_any());
+    assert!(
+        matches!(&configuration.config, plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
+    );
 }
 
 #[test]
@@ -384,16 +387,16 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
     let mut block_state = BlockStateLatest::default();
     let account_index = context.external.create_account().account_index();
     let account = context.external.account_canonical_address(account_index);
-    let config = |expiry| LockConfig {
-        recipients: LockRecipients::Any,
-        expiry: TransactionTime::from_seconds(expiry),
-        controller: LockController::SimpleV0(LockControllerSimpleV0 {
+    let config = |expiry| {
+        LockConfig::SimpleV0(LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from_seconds(expiry),
             grants: vec![],
             tokens: vec![],
             keep_alive: false,
             memo: None,
-        }),
-        metadata: None,
+            metadata: None,
+        })
     };
     let payload = MetaUpdatePayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![
