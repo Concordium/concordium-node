@@ -302,6 +302,33 @@ function collectDylibs() {
     logInfo "Done"
 }
 
+# Remove all LC_RPATH commands from packaged Mach-O files.
+# dylibbundler rewrites every original RPATH to the same @executable_path/libs/
+# value, producing duplicates rejected by dyld. RPATHs are unnecessary after
+# dylibbundler rewrites each dependency to an explicit @executable_path path.
+#
+# Mach-O files may already have ad-hoc signatures from the linker. Mutating
+# them invalidates those signatures, so remove them first and restore an ad-hoc
+# signature afterward. Ad-hoc signing requires no certificate; signBinaries
+# replaces it with the Developer ID signature in signed release builds.
+function removeRpaths() {
+    logInfo "Removing bundled RPATHs..."
+    while IFS= read -r -d '' file; do
+        # Ignore non-Mach-O files in the payload.
+        if ! otool -l "$file" &> /dev/null; then
+            continue
+        fi
+
+        codesign --remove-signature "$file" 2> /dev/null || true
+        # -delete_rpath removes one matching command, so repeat for duplicates.
+        while rpath=$(otool -l "$file" | awk '$1 == "cmd" && $2 == "LC_RPATH" { getline; getline; print $2; exit }') && [[ -n "$rpath" ]]; do
+            install_name_tool -delete_rpath "$rpath" "$file"
+        done
+        codesign --force --sign - "$file"
+    done < <(find "$payloadDir/Library/Concordium Node" -type f -print0)
+    logInfo "Done"
+}
+
 # Verify that binaries load their bundled dynamic libraries from the assembled payload.
 function smokeTestBinaries() {
     logInfo "Smoke testing packaged binaries..."
@@ -316,10 +343,10 @@ function signBinaries() {
     # Find and sign all the binaries and dylibs.
     find "$payloadDir/Library" \
         -type f \
-        -execdir sudo codesign -f --entitlement "$buildDir/entitlements.plist" --options runtime -s "$developerIdApplication" {} \;
+        -execdir codesign -f --entitlement "$buildDir/entitlements.plist" --options runtime -s "$developerIdApplication" {} \;
 
     # Sign the installer plugin.
-    sudo codesign -f --options runtime -s "$developerIdApplication" \
+    codesign -f --options runtime -s "$developerIdApplication" \
         "$buildDir/plugins/NodeConfigurationInstallerPlugin.bundle"
 
     logInfo "Done"
@@ -398,6 +425,7 @@ function staple() {
 
 function signBuildAndNotarizeInstaller() {
     signBinaries
+    smokeTestBinaries
     buildPackage
     buildProduct
     signProduct
@@ -407,6 +435,7 @@ function signBuildAndNotarizeInstaller() {
 }
 
 function buildInstaller() {
+    smokeTestBinaries
     buildPackage
     buildProduct
     logInfo "Build complete"
@@ -435,7 +464,7 @@ function main() {
     copyCompiledItemsToBuildDir
     getDylibbundler
     collectDylibs
-    smokeTestBinaries
+    removeRpaths
     promptToSignOrJustBuild
 }
 
