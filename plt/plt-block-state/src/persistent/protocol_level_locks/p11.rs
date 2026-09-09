@@ -264,6 +264,21 @@ pub struct LockConfigSimpleV0 {
 
 impl LockConfigSimpleV0 {
     /// Create a persistent SimpleV0 lock configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `recipients` - Accounts eligible to receive locked funds.
+    /// * `expiry` - Time at which the lock expires.
+    /// * `grants` - Capability grants controlling lock operations.
+    /// * `tokens` - Tokens that may be funded into the lock.
+    /// * `keep_alive` - Whether to retain an empty lock.
+    /// * `memo` - Optional lock memo.
+    /// * `metadata` - Optional opaque CBOR metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContainerSizeOverflow`] when `grants` or `tokens` exceeds the serialized size
+    /// bound.
     pub fn new(
         recipients: LockRecipients,
         expiry: TransactionTime,
@@ -286,12 +301,15 @@ impl LockConfigSimpleV0 {
         })
     }
 
+    /// Return capability grants in persistent order.
     pub fn grants(&self) -> &[LockControllerSimpleV0Grant] {
         &self.grants
     }
+    /// Return tokens that may be funded into the lock.
     pub fn tokens(&self) -> &[TokenId] {
         &self.tokens
     }
+    /// Return whether an account has the requested lock capability.
     pub fn has_role(&self, account: AccountIndex, role: LockControllerSimpleV0Capability) -> bool {
         self.grants
             .iter()

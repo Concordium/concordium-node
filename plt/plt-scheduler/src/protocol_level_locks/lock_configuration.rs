@@ -22,6 +22,9 @@ use plt_block_state::persistent::protocol_level_locks::p11::{
 };
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 
+/// Convert persistent recipients to their external CBOR representation.
+///
+/// Returns an invariant failure if a persisted account index does not exist.
 pub fn get_recipients<C: EntityContextTypes>(
     context: &EntityContext<C>,
     config: &LockConfigSimpleV0,
@@ -45,6 +48,10 @@ pub fn get_recipients<C: EntityContextTypes>(
     }
 }
 
+/// Resolve external CBOR recipients to persistent account indices.
+///
+/// Returns an invalid-account rejection for an unknown address or a serialization rejection when
+/// the recipient list exceeds the persistent size bound.
 pub fn from_cbor_recipients<C: EntityContextTypes>(
     context: &EntityContext<C>,
     recipients: LockRecipients,
@@ -69,14 +76,23 @@ pub fn from_cbor_recipients<C: EntityContextTypes>(
     }
 }
 
+/// Lock operation requiring authorization against a lock configuration.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LockOperation {
+    /// Fund a lock with a token amount.
     Fund(MetaLockFundDetails),
+    /// Send locked funds to an eligible recipient.
     Send(MetaLockSendDetails),
+    /// Return locked funds to their source account.
     Return(MetaLockReturnDetails),
+    /// Cancel a lock and return all remaining funds.
     Cancel(MetaLockCancelDetails),
 }
 
+/// Validate that the sender may perform an operation under the lock configuration.
+///
+/// Returns the operation-specific authorization rejection, or a token-not-permitted rejection
+/// when a fund operation uses a token outside the configuration.
 pub fn validate_operation(
     config: &LockConfig,
     sender_address: AccountAddress,
@@ -117,6 +133,11 @@ pub fn validate_operation(
     Ok(())
 }
 
+/// Convert an external CBOR lock configuration to persistent state.
+///
+/// Resolves account addresses and token identifiers through the supplied context and block state.
+/// Returns a transaction rejection when a referenced account or token does not exist or when a
+/// persistent collection exceeds its serialization bound.
 pub fn from_cbor_config<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
@@ -165,6 +186,9 @@ pub fn from_cbor_config<C: EntityContextTypes>(
     ))
 }
 
+/// Convert a persistent lock configuration to its external CBOR representation.
+///
+/// Returns an invariant failure if a persisted grant or recipient references a missing account.
 pub fn to_cbor_config<C: EntityContextTypes>(
     context: &EntityContext<C>,
     config: &LockConfig,
