@@ -400,7 +400,7 @@ jobs:
           path: ${{ env.ARTIFACT_NAME }}
 
   node-macos:
-    runs-on: macos-latest-large
+    runs-on: macos-15-large # TODO: COR-2633: update to macos-latest-large
     environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)

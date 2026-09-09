@@ -302,6 +302,14 @@ function collectDylibs() {
     logInfo "Done"
 }
 
+# Verify that binaries load their bundled dynamic libraries from the assembled payload.
+function smokeTestBinaries() {
+    logInfo "Smoke testing packaged binaries..."
+    "$payloadDir/Library/Concordium Node/concordium-node" --version
+    "$payloadDir/Library/Concordium Node/node-collector" --version
+    logInfo "Done"
+}
+
 function signBinaries() {
     logInfo "Signing binaries..."
 
@@ -427,6 +435,7 @@ function main() {
     copyCompiledItemsToBuildDir
     getDylibbundler
     collectDylibs
+    smokeTestBinaries
     promptToSignOrJustBuild
 }
 
