@@ -1,4 +1,4 @@
-//! Tests for returning funds from protocol-level token locks.
+//! Tests for releasing funds from protocol-level token locks.
 
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
@@ -8,7 +8,7 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperations, MetaUpdatePayload, lock_fund, lock_return,
+    MetaUpdateOperations, MetaUpdatePayload, lock_fund, lock_release,
 };
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
@@ -78,7 +78,7 @@ macro_rules! token_module_account_state {
 }
 
 #[test]
-fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
+fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -108,7 +108,7 @@ fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
             sender.account_index(),
             vec![
                 LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Return,
+                LockControllerSimpleV0Capability::Release,
             ],
         )],
         tokens: vec![token_id.clone()],
@@ -137,7 +137,7 @@ fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_return(
+        vec![lock_release(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -185,7 +185,7 @@ fn test_lock_return_deletes_empty_lock_when_keep_alive_is_false() {
     );
 }
 #[test]
-fn test_lock_return_keeps_empty_lock_when_keep_alive_is_true() {
+fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -215,7 +215,7 @@ fn test_lock_return_keeps_empty_lock_when_keep_alive_is_true() {
             sender.account_index(),
             vec![
                 LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Return,
+                LockControllerSimpleV0Capability::Release,
             ],
         )],
         tokens: vec![token_id.clone()],
@@ -244,7 +244,7 @@ fn test_lock_return_keeps_empty_lock_when_keep_alive_is_true() {
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_return(
+        vec![lock_release(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -267,7 +267,7 @@ fn test_lock_return_keeps_empty_lock_when_keep_alive_is_true() {
 }
 
 #[test]
-fn test_lock_return_rejects_unauthorized_sender() {
+fn test_lock_release_rejects_unauthorized_sender() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -323,7 +323,7 @@ fn test_lock_return_rejects_unauthorized_sender() {
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_return(
+        vec![lock_release(
             token_id,
             lock_id.clone(),
             owner_addr,
@@ -332,12 +332,12 @@ fn test_lock_return_rejects_unauthorized_sender() {
         )],
     );
     assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
-        assert_eq!(reason, TransactionRejectReason::LockReturnNotAuthorized(lock_id, owner_addr));
+        assert_eq!(reason, TransactionRejectReason::LockReleaseNotAuthorized(lock_id, owner_addr));
     });
 }
 
 #[test]
-fn test_lock_return_rejects_after_expiry() {
+fn test_lock_release_rejects_after_expiry() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -367,7 +367,7 @@ fn test_lock_return_rejects_after_expiry() {
             owner.account_index(),
             vec![
                 LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Return,
+                LockControllerSimpleV0Capability::Release,
             ],
         )],
         tokens: vec![token_id.clone()],
@@ -396,7 +396,7 @@ fn test_lock_return_rejects_after_expiry() {
         &mut block_state,
         owner.account_index(),
         20_000,
-        vec![lock_return(
+        vec![lock_release(
             token_id,
             lock_id.clone(),
             owner_addr,

@@ -319,7 +319,7 @@ impl LockConfigSimpleV0 {
 
 const CANONICAL_ROLES: [LockControllerSimpleV0Capability; 4] = [
     LockControllerSimpleV0Capability::Fund,
-    LockControllerSimpleV0Capability::Return,
+    LockControllerSimpleV0Capability::Release,
     LockControllerSimpleV0Capability::Send,
     LockControllerSimpleV0Capability::Cancel,
 ];
@@ -533,7 +533,7 @@ mod test {
             AccountIndex::from(42u64),
             vec![
                 LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Return,
+                LockControllerSimpleV0Capability::Release,
             ],
         );
 

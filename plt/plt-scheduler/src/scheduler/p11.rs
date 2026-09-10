@@ -268,7 +268,9 @@ impl From<MetaUpdateOperation> for MetaUpdateOperationKind {
             }
             MetaUpdateOperation::LockFund(details) => Self::Lock(LockOperation::Fund(details)),
             MetaUpdateOperation::LockSend(details) => Self::Lock(LockOperation::Send(details)),
-            MetaUpdateOperation::LockReturn(details) => Self::Lock(LockOperation::Return(details)),
+            MetaUpdateOperation::LockRelease(details) => {
+                Self::Lock(LockOperation::Release(details))
+            }
             MetaUpdateOperation::LockCreate(details) => Self::Lock(LockOperation::Create(details)),
             MetaUpdateOperation::LockCancel(details) => Self::Lock(LockOperation::Cancel(details)),
         }
