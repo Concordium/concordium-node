@@ -6,7 +6,7 @@ use crate::{
         PeerType,
     },
     configuration::{is_compatible_version, is_compatible_wire_version, MAX_PEER_NETWORKS},
-    connection::{ConnChange, Connection},
+    connection::{ConnChange, Connection, ProcessMessagePermit},
     network::{
         Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
         PacketDestination,
@@ -15,14 +15,13 @@ use crate::{
     read_or_die,
 };
 use anyhow::{bail, ensure};
-use tokio::sync::OwnedSemaphorePermit;
 
 impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(
         &mut self,
         msg: NetworkMessage,
-        permit: OwnedSemaphorePermit,
+        permit: ProcessMessagePermit,
         conn_stats: &[PeerStats],
     ) -> anyhow::Result<()> {
         // the handshake should be the first incoming network message
@@ -168,7 +167,7 @@ impl Connection {
     fn handle_incoming_packet(
         &self,
         pac: NetworkPacket,
-        permit: OwnedSemaphorePermit,
+        permit: ProcessMessagePermit,
         peer_id: RemotePeerId,
     ) -> anyhow::Result<()> {
         let is_broadcast = matches!(pac.destination, PacketDestination::Broadcast(..));

@@ -578,6 +578,17 @@ pub struct ConnectionConfig {
     )]
     pub max_queued_messages_per_peer: usize,
     #[structopt(
+        long = "queued-bytes-per-peer-threshold",
+        help = "Queued inbound consensus byte threshold per peer. Once the retained queued bytes \
+        for a peer reach this threshold, the node will delay reading additional incoming \
+        messages from that peer.",
+        // 10 * PROTOCOL_MAX_MESSAGE_SIZE to allow a small burst of protocol-max-sized
+        // inbound consensus messages per peer while still bounding retained queue memory.
+        default_value = "209715200",
+        env = "CONCORDIUM_NODE_CONNECTION_QUEUED_BYTES_PER_PEER_THRESHOLD"
+    )]
+    pub queued_bytes_per_peer_threshold: usize,
+    #[structopt(
         long = "max-allowed-nodes",
         help = "Maximum nodes to allow a connection to",
         env = "CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES"
@@ -1032,6 +1043,12 @@ pub fn parse_config() -> anyhow::Result<Config> {
             && ((f64::from(conf.cli.baker.maximum_block_size) * 0.9).ceil()) as u32
                 <= PROTOCOL_MAX_MESSAGE_SIZE,
         "Maximum block size set higher than 90% of network protocol max size ({})",
+        PROTOCOL_MAX_MESSAGE_SIZE
+    );
+
+    ensure!(
+        conf.connection.queued_bytes_per_peer_threshold >= PROTOCOL_MAX_MESSAGE_SIZE as usize,
+        "Queued bytes per peer threshold must be at least the network protocol max size ({})",
         PROTOCOL_MAX_MESSAGE_SIZE
     );
 

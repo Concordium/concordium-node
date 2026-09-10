@@ -10,6 +10,7 @@ import qualified ConcordiumTests.Afgjort.WMVBA (tests)
 import qualified ConcordiumTests.EndToEnd.CredentialDeploymentTests (tests)
 import qualified ConcordiumTests.EndToEnd.TransactionTableIntegrationTest (tests)
 import qualified ConcordiumTests.FinalizationRecover (test)
+import qualified ConcordiumTests.GlobalState.Statistics (tests)
 import qualified ConcordiumTests.KonsensusV1.CatchUp (tests)
 import qualified ConcordiumTests.KonsensusV1.Consensus (tests)
 import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks (tests)
@@ -25,6 +26,7 @@ import qualified ConcordiumTests.LeaderElectionTest (tests)
 import qualified ConcordiumTests.MerkleProofs (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
 import qualified ConcordiumTests.ReceiveTransactionsTest (test)
+import qualified ConcordiumTests.TimerMonad (tests)
 import qualified ConcordiumTests.Update (test)
 import Data.List (stripPrefix)
 import Data.Semigroup
@@ -54,6 +56,8 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.FinalizationRecover.test
     ConcordiumTests.PassiveFinalization.test
     ConcordiumTests.ReceiveTransactionsTest.test
+    ConcordiumTests.TimerMonad.tests
+    ConcordiumTests.GlobalState.Statistics.tests
     ConcordiumTests.LeaderElectionTest.tests
     ConcordiumTests.KonsensusV1.Types.tests
     ConcordiumTests.KonsensusV1.TreeStateTest.tests

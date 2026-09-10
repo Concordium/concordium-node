@@ -303,8 +303,8 @@ getMutableTokenState ::
     m StateV1.MutableState
 getMutableTokenState index pvPLTs = do
     plt <- lookupPLT index pvPLTs
-    loadCallback <- fst <$> getCallbacks
-    liftIO $ StateV1.thaw loadCallback (_pltState plt)
+    callbacks <- getCallbacks
+    liftIO $ StateV1.thaw callbacks (_pltState plt)
 
 -- | Convert the mutable state to a persistent one, setting it as the state of the provided token
 -- index.
@@ -325,8 +325,8 @@ setTokenState index mutableState pvPLTs = do
         Just (_, newTable) -> storePLTs plts{_pltTable = newTable}
   where
     upd plt = do
-        loadCallback <- fst <$> getCallbacks
-        (_hash, persistentState) <- liftIO $ StateV1.freeze loadCallback mutableState
+        callbacks <- getCallbacks
+        (_hash, persistentState) <- liftIO $ StateV1.freeze callbacks mutableState
         return ((), plt{_pltState = persistentState})
 
 -- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token does not
@@ -439,11 +439,11 @@ migrateProtocolLevelTokens ProtocolLevelTokens{..} = do
   where
     migratePLT PLT{..} = do
         newConfig <- migrateHashedBufferedRefKeepHash _pltConfiguration
-        (oldLoadCallback, _) <- lift getCallbacks
-        (_, newStoreCallback) <- getCallbacks
+        oldCallbacks <- lift getCallbacks
+        newStoreCallback <- storeCallback <$> getCallbacks
         newState <-
             liftIO $
-                StateV1.migratePersistentState oldLoadCallback newStoreCallback _pltState
+                StateV1.migratePersistentState oldCallbacks newStoreCallback _pltState
         return
             PLT
                 { _pltConfiguration = newConfig,

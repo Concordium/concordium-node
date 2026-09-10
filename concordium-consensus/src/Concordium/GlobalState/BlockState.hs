@@ -88,7 +88,6 @@ import qualified Concordium.Types.UpdateQueues as UQ
 
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference)
-import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
@@ -368,7 +367,7 @@ class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     --
     --  V0 state is a simple byte-array which is copied over the FFI boundary, so
     --  it does not require an analogous construct.
-    getV1StateContext :: m LoadCallback
+    getV1StateContext :: m BlobStoreCallbacks
 
     -- | Size of the persistent V0 state. The way charging is done for V0
     --  contracts requires us to get this information when loading the state __at
@@ -1812,7 +1811,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
 
     -- | Retrieve the callback that is needed to read state that is not in
     --  memory. This is needed for using V1 contract state.
-    blockStateLoadCallback :: m LoadCallback
+    blockStateLoadCallback :: m BlobStoreCallbacks
 
     -- | Shut down any caches used by the block state. This is used to free
     --  up the memory in the case where the block state is no longer being

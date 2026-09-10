@@ -79,6 +79,7 @@ jobs:
       uses: actions/checkout@v2
       with:
         submodules: recursive
+        # token: ${{ secrets.SUBMODULE_PAT }}
 
     # Since fourmolu uses the project cabal file to find default language extensions, this step is
     # needed to generate a cabal file from the package.yaml.
@@ -106,6 +107,7 @@ jobs:
       with:
         # token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
+        # token: ${{ secrets.SUBMODULE_PAT }}
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -145,6 +147,7 @@ jobs:
       with:
         #token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
+        # token: ${{ secrets.SUBMODULE_PAT }}
     - name: Install system packages and protoc
       run: |
         sudo apt-get update && sudo apt-get -y install liblmdb-dev gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64

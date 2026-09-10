@@ -10,7 +10,6 @@ use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use low_level::ConnectionLowLevel;
 use mio::{net::TcpStream, Interest, Token};
-use tokio::sync::OwnedSemaphorePermit;
 
 use crate::consensus_ffi::helpers::PacketType;
 #[cfg(feature = "network_dump")]
@@ -41,7 +40,7 @@ use std::{
     ops::{Index, IndexMut},
     str::FromStr,
     sync::{
-        atomic::{AtomicI64, AtomicU64, Ordering},
+        atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
         Arc, RwLock,
     },
 };
@@ -418,6 +417,15 @@ impl MessageQueues {
     }
 }
 
+/// The per-peer inbound queue limit currently preventing further socket reads.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InboundReadDelayReason {
+    /// The queued inbound byte threshold has been reached.
+    ByteThreshold,
+    /// The queued inbound message-count limit has been reached.
+    MessageCountLimit,
+}
+
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
@@ -433,16 +441,14 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
-    /// Semaphore for pending messages across all incoming messages processing queues.
-    /// When this semaphore reaches 0, new messages from this peer
-    /// will not be read until the pending messages have been dequeued.
-    /// This prevents a single peer from disproportionately filling up the queue.
-    pub pending_messages_semaphore: Arc<tokio::sync::Semaphore>,
-    /// The value will be set to `true` when above semaphore reaches 0,
-    /// allowing the node to re-check at every read polling cycle
-    /// if a semaphore permit got released so remaining incoming messages
-    /// can be read from the peer's socket.
-    pub pending_messages_semaphore_reached: bool,
+    /// Counter of pending messages across all incoming messages processing queues.
+    /// This is used to prevent a single peer from disproportionately filling up the queue.
+    pub pending_messages_count: Arc<AtomicUsize>,
+    /// Total bytes currently reserved by this peer across inbound consensus queues.
+    /// This is used to prevent memory exhaustion from many large messages.
+    pub pending_messages_reserved_bytes: Arc<AtomicUsize>,
+    /// The resource limit currently delaying further inbound reads, if any.
+    inbound_read_delay: Option<InboundReadDelayReason>,
     /// Semaphore to limit concurrent processing of GetPeers requests.
     pub get_peers_list_semaphore: Arc<tokio::sync::Semaphore>,
 }
@@ -505,10 +511,9 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
-            pending_messages_semaphore: Arc::new(tokio::sync::Semaphore::new(
-                handler.config.max_queued_messages_per_peer,
-            )),
-            pending_messages_semaphore_reached: false,
+            pending_messages_count: Arc::new(AtomicUsize::new(0)),
+            pending_messages_reserved_bytes: Arc::new(AtomicUsize::new(0)),
+            inbound_read_delay: None,
             // semaphore starts at 1 to cater for bootstrapper node sending peers list unsolicitedly
             get_peers_list_semaphore: Arc::new(tokio::sync::Semaphore::new(1)),
         })
@@ -551,7 +556,7 @@ impl Connection {
     }
 
     #[inline]
-    fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> anyhow::Result<bool> {
+    fn is_packet_duplicate(&self, packet: &NetworkPacket) -> anyhow::Result<bool> {
         use super::network::PacketDestination;
         let packet_type = if let Some(tag) = packet.message.first().copied() {
             PacketType::try_from(tag)?
@@ -588,46 +593,70 @@ impl Connection {
         Ok(is_duplicate)
     }
 
+    /// Whether an inbound read is deferred until queued resources are released.
+    pub fn has_deferred_read(&self) -> bool {
+        self.inbound_read_delay.is_some()
+    }
+
     /// Keeps reading from the socket as long as there is data to be read, the operation is not blocking
-    /// and the sending peer's `pending_messages_semaphore` value hasn't be exhausted.
+    /// and the sending peer's inbound queue limits have not been exhausted.
     /// The return value indicates if the connection is still open.
     #[inline]
     pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> anyhow::Result<bool> {
-        // Acquire an owned permit
-        let mut permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
-            Ok(permit) => permit,
-            Err(_) => {
+        loop {
+            // Check the connection resource limits before reading.
+            let delay_reason = if self.pending_messages_reserved_bytes.load(Ordering::Relaxed)
+                >= self.handler.config.queued_bytes_per_peer_threshold
+            {
+                Some(InboundReadDelayReason::ByteThreshold)
+            } else if self.pending_messages_count.load(Ordering::Relaxed)
+                >= self.handler.config.max_queued_messages_per_peer
+            {
+                Some(InboundReadDelayReason::MessageCountLimit)
+            } else {
+                None
+            };
+
+            if let Some(reason) = delay_reason {
+                if self.inbound_read_delay != Some(reason) {
+                    match reason {
+                        InboundReadDelayReason::ByteThreshold => self
+                            .handler
+                            .stats
+                            .inbound_peer_queue_byte_threshold_delays
+                            .inc(),
+                        InboundReadDelayReason::MessageCountLimit => self
+                            .handler
+                            .stats
+                            .inbound_peer_queue_message_count_limit_delays
+                            .inc(),
+                    }
+                }
                 trace!(
-            "Delaying read from peer `{:?}` as it reached its `pending_messages_semaphore` limit",
-            self.remote_peer
-        );
-                self.pending_messages_semaphore_reached = true;
+                    "Delaying read from peer `{:?}` due to `{:?}`",
+                    self.remote_peer,
+                    reason
+                );
+                self.inbound_read_delay = Some(reason);
                 return Ok(true);
             }
-        };
-        self.pending_messages_semaphore_reached = false;
 
-        loop {
-            match self.low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => {
-                    self.process_message(Arc::from(msg), permit, conn_stats)?;
-
-                    // Acquire an owned permit again for the next loop cycle
-                    permit = match self.pending_messages_semaphore.clone().try_acquire_owned() {
-                        Ok(permit) => permit,
-                        Err(_) => {
-                            trace!(
-            "Delaying read from peer `{:?}` as it reached its `pending_messages_semaphore` limit",
-            self.remote_peer
-        );
-                            self.pending_messages_semaphore_reached = true;
-                            return Ok(true);
-                        }
-                    };
+            self.inbound_read_delay = None;
+            loop {
+                match self.low_level.read_from_socket()? {
+                    ReadResult::Complete(msg) => {
+                        let permit = ProcessMessagePermit::reserve(
+                            Arc::clone(&self.pending_messages_count),
+                            Arc::clone(&self.pending_messages_reserved_bytes),
+                            msg.len(),
+                        )?;
+                        self.process_message(msg, permit, conn_stats)?;
+                        break;
+                    }
+                    ReadResult::Incomplete => {}
+                    ReadResult::WouldBlock => return Ok(true),
+                    ReadResult::Closed => return Ok(false),
                 }
-                ReadResult::Incomplete => {}
-                ReadResult::WouldBlock => return Ok(true),
-                ReadResult::Closed => return Ok(false),
             }
         }
     }
@@ -635,30 +664,32 @@ impl Connection {
     #[inline]
     fn process_message(
         &mut self,
-        bytes: Arc<[u8]>,
-        permit: OwnedSemaphorePermit,
+        message: Vec<u8>,
+        permit: ProcessMessagePermit,
         conn_stats: &[PeerStats],
     ) -> anyhow::Result<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats
             .bytes_received
-            .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            .fetch_add(message.len() as u64, Ordering::Relaxed);
         self.handler
             .connection_handler
             .total_received
             .fetch_add(1, Ordering::Relaxed);
         self.handler.stats.packets_received.inc();
-        self.handler.stats.received_bytes.inc_by(bytes.len() as u64);
+        self.handler
+            .stats
+            .received_bytes
+            .inc_by(message.len() as u64);
 
+        let message: Arc<[u8]> = Arc::from(message);
         #[cfg(feature = "network_dump")]
         {
-            self.send_to_dump(bytes.clone(), true);
+            self.send_to_dump(Arc::clone(&message), true);
         }
-
-        let mut message = NetworkMessage::deserialize(&bytes)?;
-
-        if let NetworkPayload::NetworkPacket(ref mut packet) = message.payload {
+        let message = NetworkMessage::deserialize(&message)?;
+        if let NetworkPayload::NetworkPacket(ref packet) = message.payload {
             // disregard packets when in bootstrapper mode
             if self.handler.self_peer.peer_type == PeerType::Bootstrapper {
                 return Ok(());
@@ -669,7 +700,6 @@ impl Connection {
             }
         }
 
-        // process the incoming message
         self.handle_incoming_message(message, permit, conn_stats)
     }
 
@@ -939,4 +969,119 @@ impl Drop for Connection {
 #[inline]
 fn dedup_with(message: &[u8], queue: &mut dyn DeduplicationQueue) -> anyhow::Result<bool> {
     queue.check_and_insert(message)
+}
+
+/// A reservation against a connection's queued inbound resource budget.
+pub struct ProcessMessagePermit {
+    /// The connection counter for pending messages
+    message_counter: Arc<AtomicUsize>,
+    /// The connection byte counter for pending messages
+    byte_counter: Arc<AtomicUsize>,
+    /// The message byte size reserved.
+    permitted_bytes: usize,
+}
+
+impl ProcessMessagePermit {
+    /// Update counters and construct the permit. Errors if any of the counters overflow.
+    fn reserve(
+        message_counter: Arc<AtomicUsize>,
+        byte_counter: Arc<AtomicUsize>,
+        permitted_bytes: usize,
+    ) -> anyhow::Result<Self> {
+        // Increment the byte counter
+        byte_counter
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(permitted_bytes)
+            })
+            .map_err(|_| anyhow::anyhow!("Queued inbound byte reservation overflowed"))?;
+        // Increment the message counter
+        if message_counter
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .is_err()
+        {
+            // Decrement the `byte_counter` before failing.
+            byte_counter.fetch_sub(permitted_bytes, Ordering::Relaxed);
+            anyhow::bail!("Queued inbound slot reservation overflowed")
+        }
+        Ok(Self {
+            message_counter,
+            byte_counter,
+            permitted_bytes,
+        })
+    }
+}
+
+impl Drop for ProcessMessagePermit {
+    fn drop(&mut self) {
+        self.byte_counter
+            .fetch_sub(self.permitted_bytes, Ordering::Relaxed);
+        self.message_counter.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod process_message_permit_tests {
+    use super::ProcessMessagePermit;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    #[test]
+    fn reserve_increments_message_and_byte_counters() {
+        let message_counter = Arc::new(AtomicUsize::new(0));
+        let byte_counter = Arc::new(AtomicUsize::new(0));
+
+        let permit =
+            ProcessMessagePermit::reserve(message_counter.clone(), byte_counter.clone(), 42)
+                .unwrap();
+
+        assert_eq!(message_counter.load(Ordering::Relaxed), 1);
+        assert_eq!(byte_counter.load(Ordering::Relaxed), 42);
+
+        drop(permit);
+    }
+
+    #[test]
+    fn drop_releases_message_and_byte_counters() {
+        let message_counter = Arc::new(AtomicUsize::new(0));
+        let byte_counter = Arc::new(AtomicUsize::new(0));
+
+        let permit =
+            ProcessMessagePermit::reserve(message_counter.clone(), byte_counter.clone(), 42)
+                .unwrap();
+
+        drop(permit);
+
+        assert_eq!(message_counter.load(Ordering::Relaxed), 0);
+        assert_eq!(byte_counter.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn reserve_fails_on_byte_overflow_without_changing_counters() {
+        let message_counter = Arc::new(AtomicUsize::new(7));
+        let byte_counter = Arc::new(AtomicUsize::new(usize::MAX));
+
+        let result =
+            ProcessMessagePermit::reserve(message_counter.clone(), byte_counter.clone(), 1);
+
+        assert!(result.is_err());
+        assert_eq!(message_counter.load(Ordering::Relaxed), 7);
+        assert_eq!(byte_counter.load(Ordering::Relaxed), usize::MAX);
+    }
+
+    #[test]
+    fn reserve_fails_on_message_overflow_and_rolls_back_bytes() {
+        let message_counter = Arc::new(AtomicUsize::new(usize::MAX));
+        let byte_counter = Arc::new(AtomicUsize::new(11));
+
+        let result =
+            ProcessMessagePermit::reserve(message_counter.clone(), byte_counter.clone(), 31);
+
+        assert!(result.is_err());
+        assert_eq!(message_counter.load(Ordering::Relaxed), usize::MAX);
+        assert_eq!(byte_counter.load(Ordering::Relaxed), 11);
+    }
 }

@@ -25,6 +25,8 @@ env:
   RUST_VERSION: '1.94.0'
   STACK_VERSION: '3.7.1'
   FLATBUFFERS_VERSION: '23.5.26'
+  LMDB_VERSION: '0.9.35'
+  WINDOWS_LMDB_VERSION: '0.9.33-1'
   GHC_VERSION: '9.10.2'
   PROTOC_VERSION: '28.3'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
@@ -101,6 +103,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -141,6 +144,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # token: ${{ secrets.SUBMODULE_PAT }}
+
 
       - name: Extrapolate artifact name
         run: |
@@ -203,6 +208,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
@@ -254,6 +260,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Install dependencies
         run: |
@@ -350,7 +357,11 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
 
       - name: Install LMDB
-        run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
+        run: |
+          $package = "mingw-w64-x86_64-lmdb-${{ env.WINDOWS_LMDB_VERSION }}-any.pkg.tar.zst"
+          curl.exe -fsSLO "https://repo.msys2.org/mingw/mingw64/$package"
+          if ((Get-FileHash $package -Algorithm SHA256).Hash -ne "39013CE86FF77E04354A51DC7E846F5EB304760AE3D01BDAE2E7293CEBA2B578") { throw "LMDB package checksum mismatch" }
+          stack exec -- pacman -U --noconfirm $package
 
       - name: Build and Sign Windows Node
         env:
@@ -398,6 +409,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Extrapolate artifact name
         run: |
@@ -459,15 +471,22 @@ jobs:
           sudo mv bin/protoc /usr/local/bin/
           sudo mv include/* /usr/local/include/
 
-      - name: Install Homebrew Packages
+      - name: Install LMDB
         run: |
-          brew install lmdb llvm
+          curl -fsSL https://git.openldap.org/openldap/openldap/-/archive/LMDB_${{ env.LMDB_VERSION }}/openldap-LMDB_${{ env.LMDB_VERSION }}.tar.bz2 -o lmdb.tar.bz2
+          echo "98e28ab0a5c23fb2eb8ad12c12d7ad5fc5e4c3563f41d0b91e9420a075974d6f  lmdb.tar.bz2" | shasum -a 256 -c -
+          tar -xjf lmdb.tar.bz2
+          make -C openldap-LMDB_${{ env.LMDB_VERSION }}/libraries/liblmdb SOEXT=.dylib LDFLAGS="-Wl,-install_name,/usr/local/lib/liblmdb.dylib"
+          sudo make -C openldap-LMDB_${{ env.LMDB_VERSION }}/libraries/liblmdb SOEXT=.dylib install
+
+      - name: Install Homebrew Packages
+        run: brew install llvm
 
       - name: Build macOS Package
         env:
           # Apple code signing variables:
           APPLEIDPASS: ${{ secrets.APPLEIDPASS }}
-          APPLEID: ${{ secrets.APPLEID }}        
+          APPLEID: ${{ secrets.APPLEID }}
         run: |
           printf "Y\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
           cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}.pkg ./${{ env.ARTIFACT_NAME }}
@@ -560,6 +579,7 @@ jobs:
          uses: actions/checkout@v4
          with:
            submodules: recursive
+           # token: ${{ secrets.SUBMODULE_PAT }}
 
        - name: Checkout Genesis Repository
          uses: actions/checkout@v4
@@ -673,6 +693,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # token: ${{ secrets.SUBMODULE_PAT }}
 
       - name: Setup genesis deployment key
         run: echo "${{ env.GENESIS_DATA_KEY }}" > id_rsa

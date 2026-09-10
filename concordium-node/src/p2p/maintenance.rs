@@ -60,6 +60,7 @@ pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub max_queued_messages_per_peer: usize,
+    pub queued_bytes_per_peer_threshold: usize,
     pub no_bootstrap_dns: bool,
     /// Clear persistent bans on startup.
     pub clear_bans: bool,
@@ -373,6 +374,7 @@ impl P2PNode {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             max_queued_messages_per_peer: conf.connection.max_queued_messages_per_peer,
+            queued_bytes_per_peer_threshold: conf.connection.queued_bytes_per_peer_threshold,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
             clear_bans: conf.connection.clear_bans,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,

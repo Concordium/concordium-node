@@ -3010,7 +3010,9 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                     Nothing -> return False
                     Just ipInfo -> case ar of
                         Nothing -> return False
-                        Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) (Right senderAddress)
+                        Just arInfos
+                            | null arInfos -> return False
+                            | otherwise -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) (Right senderAddress)
         -- check all the credential proofs.
         -- This is only done if all the previous checks have succeeded since this is by far the most computationally expensive part.
         checkProofs <- foldM (\check cdi -> if check then checkCDI cdi else return False) (firstCredNotRemoved && thresholdCheck && removalCheck && null existingCredIds) cdis

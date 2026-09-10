@@ -220,6 +220,12 @@ pub struct StatsExportService {
     /// - `"finalization message"`
     /// - `"catch-up status message"`
     pub sent_consensus_messages: IntCounterVec,
+    /// Total number of inbound-read delay episodes caused by a peer reaching
+    /// its queued inbound byte threshold.
+    pub inbound_peer_queue_byte_threshold_delays: IntCounter,
+    /// Total number of inbound-read delay episodes caused by a peer reaching
+    /// its queued inbound message-count limit.
+    pub inbound_peer_queue_message_count_limit_delays: IntCounter,
     /// Current number of soft banned peers.
     pub soft_banned_peers: IntGauge,
     /// The total number of soft banned peers since startup.
@@ -408,6 +414,20 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(sent_consensus_messages.clone()))?;
 
+        let inbound_peer_queue_byte_threshold_delays = IntCounter::with_opts(Opts::new(
+            "consensus_inbound_peer_queue_byte_threshold_delays_total",
+            "Total number of inbound-read delay episodes caused by a peer reaching its queued inbound byte threshold",
+        ))?;
+        registry.register(Box::new(inbound_peer_queue_byte_threshold_delays.clone()))?;
+
+        let inbound_peer_queue_message_count_limit_delays = IntCounter::with_opts(Opts::new(
+            "consensus_inbound_peer_queue_message_count_limit_delays_total",
+            "Total number of inbound-read delay episodes caused by a peer reaching its queued inbound message-count limit",
+        ))?;
+        registry.register(Box::new(
+            inbound_peer_queue_message_count_limit_delays.clone(),
+        ))?;
+
         let soft_banned_peers = IntGauge::with_opts(Opts::new(
             "network_soft_banned_peers",
             "Current number of soft banned peers",
@@ -518,6 +538,8 @@ impl StatsExportService {
             finalized_baked_blocks,
             received_consensus_messages,
             sent_consensus_messages,
+            inbound_peer_queue_byte_threshold_delays,
+            inbound_peer_queue_message_count_limit_delays,
             soft_banned_peers,
             soft_banned_peers_total,
             total_peers,
