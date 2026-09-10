@@ -1,6 +1,5 @@
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::failure::{BlockStateFailure, BlockStateResult};
-use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_locks::p11::{
     LockConfiguration, PersistentLockP11, PersistentLocksP11, lock_id_from_key, lock_id_key,
     persistent_lock_from_value, persistent_lock_value,
@@ -26,7 +25,7 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     }
     let persistent = PersistentLockP11 {
         locked_balances: Default::default(),
-        configuration: StoreSerialized(configuration),
+        configuration,
     };
     locks.insert_value(&context.store, &key, persistent_lock_value(&persistent))?;
     persistent_locks.locks = locks.freeze(&context.store);
@@ -114,7 +113,7 @@ impl LockP11 {
         &self,
         _context: &EntityContext<C>,
     ) -> BlockStateResult<utils::Cow<'_, LockConfiguration>> {
-        Ok(utils::Cow::Borrowed(&self.persistent.configuration.0))
+        Ok(utils::Cow::Borrowed(&self.persistent.configuration))
     }
 
     /// Get the set of account/token balances currently tracked under the lock.
@@ -123,7 +122,7 @@ impl LockP11 {
     /// hold a non-zero locked balance. The corresponding amount is tracked in the
     /// token module state.
     pub fn lock_balance_refs(&self) -> Vec<(AccountIndex, TokenIndex)> {
-        self.persistent.locked_balances.0.iter().cloned().collect()
+        self.persistent.locked_balances.iter().cloned().collect()
     }
 
     /// Track that the lock holds a balance for the given account and token.
@@ -138,7 +137,6 @@ impl LockP11 {
     pub fn add_lock_balance_ref(&mut self, account_index: AccountIndex, token_index: TokenIndex) {
         self.persistent
             .locked_balances
-            .0
             .insert((account_index, token_index));
     }
 
@@ -161,7 +159,6 @@ impl LockP11 {
     ) -> bool {
         self.persistent
             .locked_balances
-            .0
             .remove(&(account_index, token_index))
     }
 }

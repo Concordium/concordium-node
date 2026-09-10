@@ -1,9 +1,7 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
-use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreStore, Loadable, Storable, StoreSerialized,
-};
+use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
 use crate::persistent::cacheable::Cacheable;
-use crate::persistent::hash::{self, Hashable};
+use crate::persistent::hash::Hashable;
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use crate::persistent::smart_contract_trie::PersistentState;
 use concordium_base::base::AccountIndex;
@@ -65,44 +63,9 @@ pub struct PersistentLockP11 {
     /// Contains references to the tokens with balances locked within this lock.
     ///
     /// Note the entire collection will be written to disk every time this struct is written to disk.
-    pub locked_balances: StoreSerialized<BTreeSet<(AccountIndex, TokenIndex)>>,
+    pub locked_balances: BTreeSet<(AccountIndex, TokenIndex)>,
     /// The configuration parameters for the lock.
-    pub configuration: StoreSerialized<LockConfiguration>,
-}
-
-impl Loadable for PersistentLockP11 {
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-    ) -> Result<Self, BlockStateFailure> {
-        let locked_balances = Loadable::load_from_buffer(&mut buffer, loader)?;
-        let configuration = Loadable::load_from_buffer(&mut buffer, loader)?;
-        Ok(Self {
-            locked_balances,
-            configuration,
-        })
-    }
-}
-
-impl Storable for PersistentLockP11 {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        self.locked_balances.store_to_buffer(&mut buffer, storer);
-        self.configuration.store_to_buffer(&mut buffer, storer);
-    }
-}
-
-impl Cacheable for PersistentLockP11 {
-    fn cache_reference_values(&self, _loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        Ok(())
-    }
-}
-
-impl Hashable for PersistentLockP11 {
-    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        let locked_balances = self.locked_balances.hash(loader)?;
-        let configuration = self.configuration.hash(loader)?;
-        Ok(hash::hash_of_hashes(locked_balances, configuration))
-    }
+    pub configuration: LockConfiguration,
 }
 
 /// Serialize a lock ID for use as a persistent trie key.
@@ -119,7 +82,7 @@ pub(crate) fn lock_id_from_key(key: &[u8]) -> BlockStateResult<LockId> {
 
 /// Serialize a persistent lock for use as a persistent trie value.
 pub(crate) fn persistent_lock_value(lock: &PersistentLockP11) -> Vec<u8> {
-    to_bytes(&(lock.locked_balances.0.clone(), lock.configuration.0.clone()))
+    to_bytes(&(lock.locked_balances.clone(), lock.configuration.clone()))
 }
 
 /// Decode a persistent lock from a persistent trie value.
@@ -130,8 +93,8 @@ pub(crate) fn persistent_lock_from_value(value: &[u8]) -> BlockStateResult<Persi
         ))
     })?;
     Ok(PersistentLockP11 {
-        locked_balances: StoreSerialized(locked_balances),
-        configuration: StoreSerialized(configuration),
+        locked_balances,
+        configuration,
     })
 }
 
@@ -462,18 +425,15 @@ mod test {
         let mut store = BlobStoreStub::default();
         let lock_id = LockId::new(50, 2, 0);
         let lock = PersistentLockP11 {
-            locked_balances: StoreSerialized(BTreeSet::from([(
-                AccountIndex::from(1),
-                TokenIndex(2),
-            )])),
-            configuration: StoreSerialized(LockConfiguration {
+            locked_balances: BTreeSet::from([(AccountIndex::from(1), TokenIndex(2))]),
+            configuration: LockConfiguration {
                 recipients: LockRecipients::Any,
                 expiry: TransactionTime::from(1000),
                 controller: LockControllerConfig::SimpleV0(
                     LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
                 ),
                 metadata: None,
-            }),
+            },
         };
         let mut locks = PersistentLocksP11::default();
         let mut mutable_locks = locks.locks.thaw();
@@ -502,18 +462,15 @@ mod test {
     fn lock_trie_key_and_value_round_trip() {
         let lock_id = LockId::new(50, 2, 0);
         let lock = PersistentLockP11 {
-            locked_balances: StoreSerialized(BTreeSet::from([(
-                AccountIndex::from(1),
-                TokenIndex(2),
-            )])),
-            configuration: StoreSerialized(LockConfiguration {
+            locked_balances: BTreeSet::from([(AccountIndex::from(1), TokenIndex(2))]),
+            configuration: LockConfiguration {
                 recipients: LockRecipients::Any,
                 expiry: TransactionTime::from(1000),
                 controller: LockControllerConfig::SimpleV0(
                     LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
                 ),
                 metadata: None,
-            }),
+            },
         };
 
         assert_eq!(lock_id_from_key(&lock_id_key(&lock_id)).unwrap(), lock_id);
