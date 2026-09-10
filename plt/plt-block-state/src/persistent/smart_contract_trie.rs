@@ -27,19 +27,6 @@ impl Clone for PersistentState {
     }
 }
 
-/// Common read-only operations supported by frozen and mutable tries.
-pub(crate) trait TrieState {
-    /// Return a copied value for `key`, or `None` when the key is absent.
-    fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>>;
-
-    /// Return keys with `prefix` without loading values; iteration can fail.
-    fn keys_with_prefix(
-        &self,
-        loader: &impl BlobStoreLoad,
-        prefix: &[u8],
-    ) -> BlockStateResult<Vec<Vec<u8>>>;
-}
-
 impl PersistentState {
     /// Create empty trie.
     pub fn empty() -> Self {
@@ -210,20 +197,6 @@ where
     }
 }
 
-impl TrieState for PersistentState {
-    fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
-        self.lookup_value(loader, key)
-    }
-
-    fn keys_with_prefix(
-        &self,
-        loader: &impl BlobStoreLoad,
-        prefix: &[u8],
-    ) -> BlockStateResult<Vec<Vec<u8>>> {
-        Ok(self.keys_with_prefix(loader, prefix)?.collect())
-    }
-}
-
 /// Mutable trie. This is the thawed/mutable dual to [`PersistentState`].
 #[derive(Debug)]
 pub struct MutableState {
@@ -266,26 +239,6 @@ impl MutableState {
         })?;
 
         Ok(PrefixIterator {
-            loader,
-            trie,
-            trie_iter,
-        })
-    }
-
-    /// Iterate keys that start with the given prefix without loading their values.
-    pub fn keys_with_prefix<'a, L: BlobStoreLoad>(
-        &self,
-        loader: &'a L,
-        prefix: &[u8],
-    ) -> BlockStateResult<impl Iterator<Item = Vec<u8>> + use<'a, L>> {
-        let mut loader_adapter = LoaderAdapter(loader);
-        let mut mutable_state = self.lock();
-        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock().clone();
-        let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
-            BlockStateFailure::Invariant(format!("Error iterating keys in MutableTrie: {err}"))
-        })?;
-
-        Ok(KeyPrefixIterator {
             loader,
             trie,
             trie_iter,
@@ -339,20 +292,6 @@ impl MutableState {
 
     fn get_mut(&mut self) -> &mut trie::MutableState {
         self.inner.get_mut().expect("MutableState lock poisoned")
-    }
-}
-
-impl TrieState for MutableState {
-    fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &[u8]) -> Option<Vec<u8>> {
-        self.lookup_value(loader, key)
-    }
-
-    fn keys_with_prefix(
-        &self,
-        loader: &impl BlobStoreLoad,
-        prefix: &[u8],
-    ) -> BlockStateResult<Vec<Vec<u8>>> {
-        Ok(self.keys_with_prefix(loader, prefix)?.collect())
     }
 }
 

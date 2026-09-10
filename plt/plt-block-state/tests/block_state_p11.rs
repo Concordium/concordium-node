@@ -281,11 +281,9 @@ fn test_create_lock() {
         metadata: Some(metadata),
     };
 
-    let mut locks = block_state.locks(&context).unwrap();
-    locks
-        .create(&context, &lock_id, configuration.clone())
+    block_state
+        .create_lock(&context, &lock_id, configuration.clone())
         .unwrap();
-    block_state.commit_locks(&context, locks);
 
     // Read configuration
     let read_configuration = block_state
@@ -297,8 +295,7 @@ fn test_create_lock() {
         .into_owned();
     assert_eq!(read_configuration, configuration);
 
-    let mut locks = block_state.locks(&context).unwrap();
-    let duplicate = locks.create(&context, &lock_id, configuration.clone());
+    let duplicate = block_state.create_lock(&context, &lock_id, configuration.clone());
     assert!(duplicate.is_err(), "creating a duplicate lock ID must fail");
     assert_eq!(
         block_state
@@ -333,9 +330,9 @@ fn test_lock_by_id() {
         metadata: None,
     };
 
-    let mut locks = block_state.locks(&context).unwrap();
-    locks.create(&context, &lock_id, configuration).unwrap();
-    block_state.commit_locks(&context, locks);
+    block_state
+        .create_lock(&context, &lock_id, configuration)
+        .unwrap();
 
     // Get lock by id
     let lock = block_state
@@ -378,10 +375,11 @@ fn test_lock_balance_refs() {
         metadata: None,
     };
 
-    let mut locks = block_state.locks(&context).unwrap();
-    locks.create(&context, &lock_id, configuration).unwrap();
-    let mut lock = locks
-        .by_id(&context, &lock_id)
+    block_state
+        .create_lock(&context, &lock_id, configuration)
+        .unwrap();
+    let mut lock = block_state
+        .lock_by_id(&context, &lock_id)
         .unwrap()
         .expect("lock should exist");
 
@@ -393,8 +391,7 @@ fn test_lock_balance_refs() {
     lock.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
 
     // Update lock
-    locks.update(&context, lock).unwrap();
-    block_state.commit_locks(&context, locks);
+    block_state.update_lock(&context, lock).unwrap();
 
     // Read balance refs
     let lock = block_state
@@ -431,9 +428,9 @@ fn test_create_and_delete_lock() {
         metadata: None,
     };
 
-    let mut locks = block_state.locks(&context).unwrap();
-    locks.create(&context, &lock_id, configuration).unwrap();
-    block_state.commit_locks(&context, locks);
+    block_state
+        .create_lock(&context, &lock_id, configuration)
+        .unwrap();
 
     // Verify lock exists
     block_state
@@ -442,9 +439,7 @@ fn test_create_and_delete_lock() {
         .expect("lock should exist after creation");
 
     // Delete lock
-    let mut locks = block_state.locks(&context).unwrap();
-    let was_deleted = locks.delete(&context, &lock_id).unwrap();
-    block_state.commit_locks(&context, locks);
+    let was_deleted = block_state.delete_lock(&context, &lock_id).unwrap();
     assert!(
         was_deleted,
         "delete_lock should return true for an existing lock"
@@ -457,8 +452,7 @@ fn test_create_and_delete_lock() {
         .expect_err("lock should not exist after deletion");
 
     // Deleting again should return false
-    let mut locks = block_state.locks(&context).unwrap();
-    let was_deleted_again = locks.delete(&context, &lock_id).unwrap();
+    let was_deleted_again = block_state.delete_lock(&context, &lock_id).unwrap();
     assert!(
         !was_deleted_again,
         "delete_lock should return false for a non-existing lock"
@@ -503,11 +497,13 @@ fn test_lock_list() {
         ),
         metadata: None,
     };
-    let mut locks = block_state.locks(&context).unwrap();
-    locks.create(&context, &lock_id_a, configuration_a).unwrap();
-    locks.create(&context, &lock_id_b, configuration_b).unwrap();
-    assert!(locks.delete(&context, &lock_id_a).unwrap());
-    block_state.commit_locks(&context, locks);
+    block_state
+        .create_lock(&context, &lock_id_a, configuration_a)
+        .unwrap();
+    block_state
+        .create_lock(&context, &lock_id_b, configuration_b)
+        .unwrap();
+    assert!(block_state.delete_lock(&context, &lock_id_a).unwrap());
 
     // Read lock list and sort for a stable comparison (lock_list order is not guaranteed).
     let mut locks = block_state.lock_list(&context).unwrap();

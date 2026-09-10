@@ -120,9 +120,7 @@ pub fn lock_balance(
         .unwrap()
         .expect("lock must exist");
     lock.add_lock_balance_ref(funder_account, token_index);
-    let mut locks = block_state.locks(context).unwrap();
-    locks.update(context, lock).unwrap();
-    block_state.commit_locks(context, locks);
+    block_state.update_lock(context, lock).unwrap();
 
     // Set the locked amount in the token module KV state
     let mut token = block_state

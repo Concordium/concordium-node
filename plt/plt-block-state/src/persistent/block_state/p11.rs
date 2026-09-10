@@ -111,17 +111,16 @@ mod test {
             metadata: None,
         };
 
-        let mut locks = block_state.locks(&context).unwrap();
-        locks
-            .create(&context, &lock_id1, configuration1.clone())
+        block_state
+            .create_lock(&context, &lock_id1, configuration1.clone())
             .unwrap();
-        let mut lock1 = locks
-            .by_id(&context, &lock_id1)
+        let mut lock1 = block_state
+            .lock_by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
         lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
         lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
-        locks.update(&context, lock1).unwrap();
+        block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
             sequence_number: 7,
@@ -135,8 +134,8 @@ mod test {
             ),
             metadata: None,
         };
-        locks
-            .create(&context, &lock_id2, configuration2.clone())
+        block_state
+            .create_lock(&context, &lock_id2, configuration2.clone())
             .unwrap();
 
         // Create a third lock and then delete it
@@ -153,10 +152,11 @@ mod test {
             ),
             metadata: None,
         };
-        locks.create(&context, &lock_id3, configuration3).unwrap();
-        let was_deleted = locks.delete(&context, &lock_id3).unwrap();
+        block_state
+            .create_lock(&context, &lock_id3, configuration3)
+            .unwrap();
+        let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
         assert!(was_deleted, "lock3 should be deleted");
-        block_state.commit_locks(&context, locks);
 
         // Store and load block state
         let blob_ref = blob_store::store_to_store(&mut context.store, block_state.persistent);
@@ -287,15 +287,16 @@ mod test {
             ),
             metadata: None,
         };
-        let mut locks = block_state.locks(&context).unwrap();
-        locks.create(&context, &lock_id1, configuration1).unwrap();
-        let mut lock1 = locks
-            .by_id(&context, &lock_id1)
+        block_state
+            .create_lock(&context, &lock_id1, configuration1)
+            .unwrap();
+        let mut lock1 = block_state
+            .lock_by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
         lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
         lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
-        locks.update(&context, lock1).unwrap();
+        block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
             sequence_number: 7,
@@ -309,8 +310,9 @@ mod test {
             ),
             metadata: None,
         };
-        locks.create(&context, &lock_id2, configuration2).unwrap();
-        block_state.commit_locks(&context, locks);
+        block_state
+            .create_lock(&context, &lock_id2, configuration2)
+            .unwrap();
 
         // Assert hash
         let hash = block_state.persistent.hash(&context.store).expect("hash");
