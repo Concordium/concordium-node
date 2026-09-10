@@ -21,6 +21,12 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[derive(Debug)]
 pub struct PersistentState(RwLock<trie::PersistentState>);
 
+impl Clone for PersistentState {
+    fn clone(&self) -> Self {
+        Self(RwLock::new(self.lock_read().clone()))
+    }
+}
+
 impl PersistentState {
     /// Create empty trie.
     pub fn empty() -> Self {
@@ -36,7 +42,7 @@ impl PersistentState {
     }
 
     /// Iterate entries whose keys start with the given prefix. Returns an iterator over
-    /// key-value pairs.
+    /// key-value pairs. Use [`Self::keys_with_prefix`] when only keys are needed.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,
@@ -50,6 +56,26 @@ impl PersistentState {
         })?;
 
         Ok(PrefixIterator {
+            loader,
+            trie: trie.clone(),
+            trie_iter,
+        })
+    }
+
+    /// Iterate keys that start with the given prefix without loading their values.
+    pub fn keys_with_prefix<'a, L: BlobStoreLoad>(
+        &self,
+        loader: &'a L,
+        prefix: &[u8],
+    ) -> BlockStateResult<impl Iterator<Item = Vec<u8>> + use<'a, L>> {
+        let mut loader_adapter = LoaderAdapter(loader);
+        let mut mutable_state = self.lock_read().thaw();
+        let mut trie = mutable_state.get_inner(&mut loader_adapter).lock();
+        let trie_iter = trie.iter(&mut loader_adapter, prefix).map_err(|err| {
+            BlockStateFailure::Invariant(format!("Error iterating keys in MutableTrie: {err}"))
+        })?;
+
+        Ok(KeyPrefixIterator {
             loader,
             trie: trie.clone(),
             trie_iter,
@@ -97,6 +123,37 @@ impl BlobStoreMovable for PersistentState {
             })?;
 
         Ok(Self(RwLock::new(new_persistent_state)))
+    }
+}
+
+struct KeyPrefixIterator<'a, L> {
+    loader: &'a L,
+    trie: trie::MutableTrie,
+    trie_iter: Option<trie::low_level::Iterator>,
+}
+
+impl<L> Drop for KeyPrefixIterator<'_, L> {
+    fn drop(&mut self) {
+        if let Some(trie_iter) = self.trie_iter.as_ref() {
+            self.trie.delete_iter(trie_iter);
+        }
+    }
+}
+
+impl<L: BlobStoreLoad> Iterator for KeyPrefixIterator<'_, L> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let trie_iter = self.trie_iter.as_mut()?;
+        let mut loader = LoaderAdapter(self.loader);
+        match self
+            .trie
+            .next(&mut loader, trie_iter, &mut trie::EmptyCounter)
+        {
+            Ok(Some(_)) => Some(trie_iter.get_key().to_vec()),
+            Ok(None) => None,
+            Err(counter_err) => match counter_err {},
+        }
     }
 }
 
@@ -168,7 +225,7 @@ impl MutableState {
     }
 
     /// Iterate entries whose keys start with the given prefix. Returns an iterator over
-    /// key-value pairs.
+    /// key-value pairs. Use [`Self::keys_with_prefix`] when only keys are needed.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,

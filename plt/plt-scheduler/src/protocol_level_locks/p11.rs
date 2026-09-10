@@ -77,12 +77,8 @@ pub fn query_lock_info<C: EntityContextTypes>(
 
         // for each locked balance record for the lock, get the locked token amount recorded in the
         // account state of the token.
-        let raw_balance = token_module::query_locked_balance(
-            context,
-            &token,
-            account_index,
-            &configuration.lock_id,
-        )?;
+        let raw_balance =
+            token_module::query_locked_balance(context, &token, account_index, lock.lock_id())?;
         let amount = TokenAmount::from_raw(raw_balance.into(), token_configuration.decimals);
         funds_by_account
             .entry(account_index)
@@ -113,7 +109,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
         .collect::<Result<_, BlockStateFailure>>()?;
 
     let lock_info = LockInfo {
-        lock: configuration.lock_id.clone(),
+        lock: lock.lock_id().clone(),
         recipients,
         expiry: configuration.expiry,
         controller,
@@ -191,9 +187,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
-        );
+        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
     lock_controller::validate_operation(
@@ -219,7 +213,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         &mut token,
         transaction_execution.sender_account(),
         transaction_execution.sender_account_address(),
-        &lock_configuration.lock_id,
+        lock.lock_id(),
         raw_amount,
         memo,
     )
@@ -258,9 +252,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
-        );
+        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
     let source_address = details.source.address;
@@ -292,7 +284,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         .is_recipient(&recipient.account_index())
     {
         return Err(TransactionRejectReason::LockRecipientNotPermitted(
-            lock_configuration.lock_id.clone(),
+            lock.lock_id().clone(),
             recipient_address,
         )
         .into());
@@ -319,7 +311,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         source_address,
         &recipient,
         recipient_address,
-        &lock_configuration.lock_id,
+        lock.lock_id(),
         raw_amount,
         memo,
     )
@@ -364,9 +356,7 @@ fn execute_lock_return<C: EntityContextTypes>(
         .expiry
         .is_expired(transaction_execution.timestamp())
     {
-        return Err(
-            TransactionRejectReason::LockExpired(lock_configuration.lock_id.clone()).into(),
-        );
+        return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
     let source_address = details.source.address;
@@ -397,7 +387,7 @@ fn execute_lock_return<C: EntityContextTypes>(
         &mut token,
         source.account_index(),
         source_address,
-        &lock_configuration.lock_id,
+        lock.lock_id(),
         raw_amount,
         memo,
     )
@@ -479,7 +469,6 @@ fn execute_lock_create<C: EntityContextTypes>(
         }
     };
     let configuration = LockConfiguration {
-        lock_id: lock_id.clone(),
         recipients,
         expiry,
         controller,
@@ -493,7 +482,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     };
     events.push(BlockItemEvent::LockCreated(event));
 
-    block_state.create_lock(context, configuration)?;
+    block_state.create_lock(context, &lock_id, configuration)?;
     Ok(())
 }
 
@@ -530,14 +519,14 @@ fn execute_lock_cancel<C: EntityContextTypes>(
             events,
             &mut token,
             account_index,
-            &lock_configuration.lock_id,
+            lock.lock_id(),
             &memo,
         )?;
         block_state.update_token(context, token)?;
     }
-    block_state.delete_lock(context, &lock_configuration.lock_id)?;
+    block_state.delete_lock(context, lock.lock_id())?;
     let event = events::LockDestroyEvent {
-        lock_id: lock_configuration.lock_id.clone(),
+        lock_id: lock.lock_id().clone(),
     };
     events.push(BlockItemEvent::LockDestroyed(event));
     Ok(())

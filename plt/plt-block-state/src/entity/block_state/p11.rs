@@ -127,7 +127,7 @@ impl BlockStateP11 {
         context.external.increment_plt_update_sequence_number()
     }
 
-    /// Create a new PLT lock with the given configuration. The initial state will be empty.
+    /// Create a new PLT lock with the given ID and configuration. The initial state will be empty.
     /// Returns [`BlockStateFailure::Invariant`] if a lock with the given id already exists.
     ///
     /// # Arguments
@@ -137,13 +137,12 @@ impl BlockStateP11 {
     pub fn create_lock<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
+        lock_id: &LockId,
         configuration: LockConfiguration,
     ) -> BlockStateResult<()> {
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
-        protocol_level_locks::p11::create_lock(context, &mut new_locks, configuration)?;
-
+        protocol_level_locks::p11::create_lock(context, &mut new_locks, lock_id, configuration)?;
         self.persistent.locks = HashedCacheableRef::new(new_locks);
-
         Ok(())
     }
 
@@ -160,8 +159,6 @@ impl BlockStateP11 {
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
         let existing = protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
         if existing {
-            // We only need to update the locks if a lock was actually deleted,
-            // otherwise we would be unnecessarily updating the block state.
             self.persistent.locks = HashedCacheableRef::new(new_locks);
         }
         Ok(existing)
@@ -173,12 +170,10 @@ impl BlockStateP11 {
         &self,
         context: &EntityContext<C>,
     ) -> BlockStateResult<Vec<LockId>> {
-        Ok(protocol_level_locks::p11::lock_list(
+        protocol_level_locks::p11::lock_list(
             context,
-            &*self.persistent.locks.value(&context.store)?,
+            &self.persistent.locks.value(&context.store)?.locks,
         )
-        .cloned()
-        .collect())
     }
 
     /// Get the lock associated with a [`LockId`] (if it exists).
@@ -191,13 +186,12 @@ impl BlockStateP11 {
         context: &EntityContext<C>,
         lock_id: &LockId,
     ) -> BlockStateResult<Result<LockP11, LockNotFoundByIdError>> {
-        let lock_option = protocol_level_locks::p11::lock_by_id(
+        protocol_level_locks::p11::lock_by_id(
             context,
-            &*self.persistent.locks.value(&context.store)?,
+            &self.persistent.locks.value(&context.store)?.locks,
             lock_id.clone(),
-        )?;
-
-        Ok(lock_option.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))
+        )
+        .map(|lock| lock.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))
     }
 
     /// Update the lock in the block state. Any modifications
@@ -210,7 +204,6 @@ impl BlockStateP11 {
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
         protocol_level_locks::p11::update_lock(context, &mut new_locks, lock)?;
         self.persistent.locks = HashedCacheableRef::new(new_locks);
-
         Ok(())
     }
 }
