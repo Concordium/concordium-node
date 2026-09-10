@@ -36,8 +36,8 @@ pub enum TransactionRejectReason {
     LockFundNotAuthorized(LockId, AccountAddress),
     /// The account is not authorized to send funds controlled by the lock.
     LockSendNotAuthorized(LockId, AccountAddress),
-    /// The account is not authorized to return funds controlled by the lock.
-    LockReturnNotAuthorized(LockId, AccountAddress),
+    /// The account is not authorized to release funds controlled by the lock.
+    LockReleaseNotAuthorized(LockId, AccountAddress),
     /// The account is not authorized to cancel the lock.
     LockCancelNotAuthorized(LockId, AccountAddress),
     /// The lock does not allow funding with the particular token.
@@ -87,7 +87,7 @@ impl Serial for TransactionRejectReason {
                 out.put(&lock_id);
                 out.put(&addr);
             }
-            TransactionRejectReason::LockReturnNotAuthorized(lock_id, addr) => {
+            TransactionRejectReason::LockReleaseNotAuthorized(lock_id, addr) => {
                 out.put(&61u8);
                 out.put(&lock_id);
                 out.put(&addr);
@@ -258,8 +258,8 @@ mod test {
     }
 
     #[test]
-    fn test_lock_return_not_authorized_reject_reason_serial() {
-        let reject_reason = TransactionRejectReason::LockReturnNotAuthorized(
+    fn test_lock_release_not_authorized_reject_reason_serial() {
+        let reject_reason = TransactionRejectReason::LockReleaseNotAuthorized(
             LockId::new(0xfedcba, 0x1234, 5),
             ADDRESS,
         );
