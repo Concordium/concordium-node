@@ -481,7 +481,7 @@ impl<K, V> Loadable for Trie<K, V> {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let size: u64 = buffer.get().map_parse_err_to_block_state_err()?;
+        let size = buffer.get().map_parse_err_to_block_state_err()?;
 
         Ok(Self {
             size,
@@ -512,8 +512,8 @@ impl<V> Loadable for Node<V> {
 
 impl<V: Storable> Storable for Node<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        self.terminal_ref.store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
+        self.terminal_ref.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -673,11 +673,11 @@ mod tests {
             // Store trie
             let blob_ref = blob_store::store_to_store(&mut store, &trie1);
 
-            // Load triep
-            let trie2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
+            // Load trie
+            let trie2: TestTree = blob_store::load_from_store(&store, blob_ref)?;
 
             // Assert loaded tree is equal to the tree we started with
-            prop_assert_eq!(trie1.to_plain(), trie2.to_plain());
+            prop_assert_eq!(trie1.to_plain(&store)?, trie2.to_plain(&store)?);
         }
     }
 
@@ -900,7 +900,6 @@ mod tests {
     // }
     //
 
-
     // todo ar test move blob store
     // todo ar test caching
     // todo ar snapshots/fixtures
@@ -915,14 +914,56 @@ mod tests {
     #[derive(Debug, Eq, PartialEq, Clone)]
     struct PlainNode<V> {
         children: Vec<Option<PlainEdge<V>>>,
-        terminal_ref: Option<V>,
+        terminal: Option<V>,
     }
 
     #[derive(Debug, Eq, PartialEq, Clone)]
     pub struct PlainEdge<V> {
         stem: Vec<u8>,
-        target_ref: PlainNode<V>,
+        target: PlainNode<V>,
     }
 
+    impl<K, V: Loadable + Clone> Trie<K, V> {
+        fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie<V>, TestCaseError> {
+            Ok(PlainTrie {
+                root: Node::to_plain(&self.root, loader)?,
+            })
+        }
+    }
 
+    impl<V: Loadable + Clone> Node<V> {
+        fn to_plain(
+            node_ref: &HashedCacheableRef<Node<V>>,
+            loader: &impl BlobStoreLoad,
+        ) -> Result<PlainNode<V>, TestCaseError> {
+            let node = node_ref.value(loader)?;
+
+            let terminal = match &node.terminal_ref {
+                Some(value_ref) => Some(value_ref.value(loader)?.into_owned()),
+                None => None,
+            };
+
+            let mut children = Vec::with_capacity(node.children.len());
+            for child in node.children.iter() {
+                children.push(match child {
+                    Some(edge) => Some(edge.to_plain(loader)?),
+                    None => None,
+                });
+            }
+
+            Ok(PlainNode { children, terminal })
+        }
+    }
+
+    impl<V: Loadable + Clone> Edge<V> {
+        fn to_plain(
+            &self,
+            loader: &impl BlobStoreLoad,
+        ) -> Result<PlainEdge<V>, TestCaseError> {
+            Ok(PlainEdge {
+                stem: self.stem.clone(),
+                target: Node::to_plain(&self.target_ref, loader)?,
+            })
+        }
+    }
 }
