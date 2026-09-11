@@ -1368,6 +1368,7 @@ dependencies = [
  "im",
  "libc",
  "plt-scheduler-types",
+ "proptest",
  "rand 0.10.0",
  "sha2",
  "thiserror 2.0.17",

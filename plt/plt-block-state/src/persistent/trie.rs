@@ -219,7 +219,7 @@ pub fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
 impl<V> Node<V> {
     fn empty() -> Self {
         Self {
-            children: Default::default(),
+            children: vec![None; 256],
             terminal_ref: None,
         }
     }
@@ -325,7 +325,7 @@ impl<V> Node<V> {
                     Ordering::Less => {
                         // Insert in the child stem.
                         let mut stem_node = Node {
-                            children: Default::default(),
+                            children: vec![None; 256],
                             terminal_ref: Some(HashedCacheableRef::new(value)),
                         };
                         stem_node.children[edge.stem[common_prefix_len] as usize] = Some(Edge {
@@ -349,7 +349,7 @@ impl<V> Node<V> {
             } else {
                 // Insert new child in the node.
                 let child_node = Node {
-                    children: Default::default(),
+                    children: vec![None; 256],
                     terminal_ref: Some(HashedCacheableRef::new(value)),
                 };
 
@@ -639,28 +639,48 @@ mod tests {
     use crate::persistent::blob_store::StoreSerialized;
     use std::fmt::Debug;
 
-    #[derive(Debug, Clone, Eq, PartialEq)]
-    struct TestKey(Vec<u8>);
+    use crate::persistent::blob_store;
+    use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use proptest::prelude::*;
+    use proptest::test_runner::TestCaseResult;
 
-    type TestTree = Trie<TestKey, StoreSerialized<u64>>;
+    /// Trie type used by the property based tests. Keys are raw byte vectors
+    /// (which borrow as `&[u8]`) and values are `u64`s.
+    type TestTree = Trie<Vec<u8>, StoreSerialized<u64>>;
 
-    // fn create_tree_in_memory(store: &mut impl BlobStoreLoad, size: u64) -> TestTree {
-    //     let mut tree = TestTree::empty();
-    //     for i in 0..size {
-    //         let key;
-    //         (key, tree) = tree.insert_value(store, StoreSerialized(i + 10)).unwrap();
-    //         assert_eq!(key, TestKey(i));
-    //     }
-    //     tree
-    // }
-    //
-    // fn store_value<T: Storable + Loadable, S: BlobStoreLoad + BlobStoreStore>(
-    //     store: &mut S,
-    //     value: &T,
-    // ) -> T {
-    //     let blob_loc = blob_store::store_to_store(store, value);
-    //     blob_store::load_from_store(store, blob_loc).unwrap()
-    // }
+    prop_compose! {
+        fn arb_trie()(
+            entries in prop::collection::vec(
+                (prop::collection::vec(any::<u8>(), 0..8), any::<u64>()),
+                0..32,
+            ),
+        ) -> TestTree {
+            let mut trie = TestTree::empty();
+            for (key, value) in entries {
+                trie = trie
+                    .insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(value))
+                    .unwrap();
+            }
+            trie
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_test_store_and_load(trie1 in arb_trie()) {
+            let mut store = BlobStoreStub::default();
+
+            // Store trie
+            let blob_ref = blob_store::store_to_store(&mut store, &trie1);
+
+            // Load triep
+            let trie2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
+
+            // Assert loaded tree is equal to the tree we started with
+            prop_assert_eq!(trie1.to_plain(), trie2.to_plain());
+        }
+    }
+
     //
     // /// Test [`Trie::size`]
     // #[test]
@@ -879,249 +899,30 @@ mod tests {
     //     }
     // }
     //
-    // /// Tests storing the tree into the blob store and loading it again.
-    // #[test]
-    // fn prop_test_store_and_load() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree
-    //         let tree1 = create_tree_in_memory(&mut store, i);
-    //
-    //         // Store tree
-    //         let blob_ref = blob_store::store_to_store(&mut store, &tree1);
-    //
-    //         // Load tree
-    //         let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
-    //
-    //         // Assert loaded tree is equal to the tree we started with
-    //         assert_trees_eq(
-    //             &store,
-    //             &store,
-    //             &tree1,
-    //             &tree2,
-    //             format!("loaded tree of size {}", i),
-    //         );
-    //     }
-    // }
-    //
-    // /// Tests moving tree into new blob store
-    // #[test]
-    // fn prop_test_move_blob_store() {
-    //     for i in 0..100 {
-    //         let mut from_store = BlobStoreStub::default();
-    //         let mut to_store = BlobStoreStub::default();
-    //
-    //         // Create tree and store it
-    //         let tree = create_tree_in_memory(&mut from_store, i);
-    //         blob_store::store_to_store(&mut from_store, &tree);
-    //
-    //         // Migrate the tree and store it
-    //         let new_tree = tree.move_blob_store(&from_store, &mut to_store).unwrap();
-    //         let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_tree);
-    //
-    //         // Assert migrated tree is equal to the tree we started with
-    //         assert_trees_eq(
-    //             &from_store,
-    //             &to_store,
-    //             &tree,
-    //             &new_tree,
-    //             format!("loaded tree of size {}", i),
-    //         );
-    //         drop(new_tree);
-    //
-    //         // Load migrated tree from destination store
-    //         let new_tree2: TestTree = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
-    //
-    //         // Assert tree loaded from destination store is equal to the tree we started with
-    //         assert_trees_eq(
-    //             &from_store,
-    //             &to_store,
-    //             &tree,
-    //             &new_tree2,
-    //             format!("loaded tree of size {}", i),
-    //         );
-    //     }
-    // }
-    //
-    // /// Tests caching tree.
-    // #[test]
-    // fn prop_test_cache() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //         let tree1 = create_tree_in_memory(&mut store, i);
-    //         let blob_ref = blob_store::store_to_store(&mut store, &tree1);
-    //         let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
-    //
-    //         // Cache tree
-    //         tree2.cache_reference_values(&store).expect("cache");
-    //
-    //         // Assert cached tree is identical to the tree with started with
-    //         assert_trees_eq(
-    //             &store,
-    //             &store,
-    //             &tree1,
-    //             &tree2,
-    //             format!("cached tree of size {}", i),
-    //         );
-    //
-    //         // Assert that when caching again or looking up entries, we don't need to read from the blob store again.
-    //         // We assert that by using UnreachableBlobStore.
-    //         tree2
-    //             .cache_reference_values(&UnreachableBlobStore)
-    //             .expect("cache");
-    //         for j in 0..i {
-    //             assert_eq!(
-    //                 tree2
-    //                     .lookup_value(&UnreachableBlobStore, TestKey(j))
-    //                     .unwrap()
-    //                     .as_deref(),
-    //                 Some(&StoreSerialized(j + 10)),
-    //                 "lookup value for key {:?} in cached tree of size {}",
-    //                 TestKey(j),
-    //                 i
-    //             );
-    //         }
-    //         assert_eq!(
-    //             tree2
-    //                 .lookup_value(&UnreachableBlobStore, TestKey(i))
-    //                 .unwrap(),
-    //             None,
-    //             "lookup non-existing value for key {:?} in cached tree of size {}",
-    //             TestKey(i),
-    //             i
-    //         );
-    //     }
-    // }
-    //
-    // /// Assert snapshot of hash of empty tree.
-    // /// Hash snapshot must not change and must be equal to Haskell LFMB tree implementation.
-    // #[test]
-    // fn snapshot_test_hash_empty_tree() {
-    //     let store = BlobStoreStub::default();
-    //
-    //     let tree = Trie::<TestKey, StoreSerialized<String>>::empty();
-    //     let hash = tree.hash(&store).unwrap();
-    //     assert_eq!(
-    //         hex::encode(hash.bytes),
-    //         "c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05"
-    //     );
-    // }
-    //
-    // /// Assert snapshot of hash of tree with 3 values A, B, C.
-    // /// Hash snapshot must not change and must be equal to Haskell LFMB tree implementation.
-    // #[test]
-    // fn snapshot_test_hash_simple_tree() {
-    //     let store = BlobStoreStub::default();
-    //
-    //     let tree = Trie::<TestKey, StoreSerialized<String>>::empty();
-    //     let tree1 = tree
-    //         .insert_value(&store, StoreSerialized("A".to_string()))
-    //         .unwrap()
-    //         .1;
-    //     let tree2 = tree1
-    //         .insert_value(&store, StoreSerialized("B".to_string()))
-    //         .unwrap()
-    //         .1;
-    //     let tree3 = tree2
-    //         .insert_value(&store, StoreSerialized("C".to_string()))
-    //         .unwrap()
-    //         .1;
-    //     let hash = tree3.hash(&store).unwrap();
-    //     assert_eq!(
-    //         hex::encode(hash.bytes),
-    //         "b9cac19f6048ef301f586e7e0faa6c08b6012d4b100703eef5dc1fcb26c1ecd5"
-    //     );
-    // }
-    //
-    // /// Load empty tree from storage bytes fixture.
-    // /// The fixture bytes must not change and must be compatible with Haskell LFMB tree implementation.
-    // #[test]
-    // fn fixture_test_storage_empty_tree() {
-    //     let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
-    //
-    //     let tree: Trie<TestKey, StoreSerialized<String>> =
-    //         blob_store::load_from_store(&store, BlobStoreLocation(0)).expect("load tree");
-    //     assert_eq!(tree.size(), 0);
-    // }
-    //
-    // /// Load tree with 3 values A, B, C from storage bytes fixture.
-    // /// The fixture bytes must not change and must be compatible with Haskell LFMB tree implementation.
-    // #[test]
-    // fn fixture_test_storage_simple_tree() {
-    //     let store = BlobStoreStub(hex::decode("0000000000000009000000000000000141000000000000000900000000000000000000000000000000090000000000000001420000000000000009000000000000000022000000000000001901000000000000000000000000000000110000000000000033000000000000000900000000000000014300000000000000090000000000000000650000000000000021000000000000000301000000000000000100000000000000440000000000000076").unwrap());
-    //
-    //     let tree: Trie<TestKey, StoreSerialized<String>> =
-    //         blob_store::load_from_store(&store, BlobStoreLocation(135)).expect("load tree");
-    //     assert_eq!(tree.size(), 3);
-    //     assert_eq!(
-    //         *tree.lookup_value(&store, TestKey(0)).unwrap().unwrap(),
-    //         StoreSerialized("A".to_string())
-    //     );
-    //     assert_eq!(
-    //         *tree.lookup_value(&store, TestKey(1)).unwrap().unwrap(),
-    //         StoreSerialized("B".to_string())
-    //     );
-    //     assert_eq!(
-    //         *tree.lookup_value(&store, TestKey(2)).unwrap().unwrap(),
-    //         StoreSerialized("C".to_string())
-    //     );
-    // }
-    //
-    // /// Assert node structure and values in tree are equal.
-    // fn assert_trees_eq<K: Debug, V: Loadable + Clone + PartialEq + Debug>(
-    //     loader1: &impl BlobStoreLoad,
-    //     loader2: &impl BlobStoreLoad,
-    //     tree1: &Trie<K, V>,
-    //     tree2: &Trie<K, V>,
-    //     context: String,
-    // ) {
-    //     match (&tree1.inner, &tree2.inner) {
-    //         (TrieInner::Empty, TrieInner::Empty) => {
-    //             // equal
-    //         }
-    //         (
-    //             TrieInner::NonEmpty(size1, subtree1),
-    //             TrieInner::NonEmpty(size2, subtree2),
-    //         ) => {
-    //             assert_eq!(size1, size2);
-    //             assert_subtrees_eq(loader1, loader2, subtree1, subtree2, context.clone());
-    //         }
-    //         (_, _) => {
-    //             panic!("{}: trees not equal: {:?}, {:?}", context, tree1, tree2);
-    //         }
-    //     }
-    // }
-    //
-    // /// Assert node structure and values in subtree are equal.
-    // fn assert_subtrees_eq<V: Loadable + Clone + PartialEq + Debug>(
-    //     loader1: &impl BlobStoreLoad,
-    //     loader2: &impl BlobStoreLoad,
-    //     subtree1: &Node<V>,
-    //     subtree2: &Node<V>,
-    //     context: String,
-    // ) {
-    //     match (subtree1, subtree2) {
-    //         (Node::Leaf(val_ref1), Node::Leaf(val_ref2)) => {
-    //             let val1 = &*val_ref1.value(loader1).unwrap();
-    //             let val2 = &*val_ref2.value(loader2).unwrap();
-    //             assert_eq!(val1, val2, "{}: leaf value", context);
-    //         }
-    //         (
-    //             Node::Node(height1, left_ref1, right_ref1),
-    //             Node::Node(height2, left_ref2, right_ref2),
-    //         ) => {
-    //             assert_eq!(height1, height2);
-    //             let left1 = &*left_ref1.value(loader1).unwrap();
-    //             let right1 = &*right_ref1.value(loader1).unwrap();
-    //             let left2 = &*left_ref2.value(loader2).unwrap();
-    //             let right2 = &*right_ref2.value(loader2).unwrap();
-    //             assert_subtrees_eq(loader1, loader2, left1, left2, context.clone());
-    //             assert_subtrees_eq(loader1, loader2, right1, right2, context.clone());
-    //         }
-    //         (_, _) => {
-    //             panic!("subtrees not equal: {:?}, {:?}", subtree1, subtree2);
-    //         }
-    //     }
-    // }
+
+
+    // todo ar test move blob store
+    // todo ar test caching
+    // todo ar snapshots/fixtures
+
+    /// Plain in-memory representation that supports semantically comparing if tries contains
+    /// the same entries and has the correct representation.
+    #[derive(Debug, Eq, PartialEq, Clone)]
+    pub struct PlainTrie<V> {
+        root: PlainNode<V>,
+    }
+
+    #[derive(Debug, Eq, PartialEq, Clone)]
+    struct PlainNode<V> {
+        children: Vec<Option<PlainEdge<V>>>,
+        terminal_ref: Option<V>,
+    }
+
+    #[derive(Debug, Eq, PartialEq, Clone)]
+    pub struct PlainEdge<V> {
+        stem: Vec<u8>,
+        target_ref: PlainNode<V>,
+    }
+
+
 }

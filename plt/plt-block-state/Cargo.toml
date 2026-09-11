@@ -28,6 +28,7 @@ thiserror.workspace = true
 assert_matches.workspace = true
 divan.workspace = true
 hex.workspace = true
+proptest.workspace = true
 rand.workspace = true
 
 [[bench]]
