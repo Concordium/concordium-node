@@ -114,6 +114,26 @@ impl<K, V> Trie<K, V> {
         Node::lookup_value(&self.root, loader, key.borrow())
     }
 
+    /// Returns whether there exist an entry with the given `key` in the trie.
+    ///
+    /// # Arguments
+    ///
+    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `key`: The key to access the value for.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the
+    /// blob store fails, or if the tree does not fulfill
+    /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    pub fn contains_key(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<bool>
+    where
+        V: Loadable + Clone,
+        K: Borrow<[u8]>,
+    {
+        Node::contains_key(&self.root, loader, key.borrow())
+    }
+
     /// Insert or update the `value` in the trie at the given `key`. Returns
     /// the updated trie.
     ///
@@ -681,6 +701,7 @@ mod tests {
     use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
     use concordium_base::hashes::TransactionSignMarker;
     use proptest::prelude::*;
+    use proptest::sample::select;
     use proptest::test_runner::TestCaseResult;
     use std::collections::BTreeMap;
     use std::fmt::Debug;
@@ -692,7 +713,8 @@ mod tests {
     prop_compose! {
         fn arb_plain_trie()(
             entries in prop::collection::vec(
-                (prop::collection::vec(any::<u8>(), 0..8), any::<u64>()),
+                // Restrict the bytes we use for keys, to make it more likely that keys "overlap"
+                (prop::collection::vec(select(&[0, 1, 10, 100, 254, 255]), 0..8), any::<u64>()),
                 0..32,
             ),
         ) -> PlainTrie {
@@ -723,7 +745,7 @@ mod tests {
         }
 
         #[test]
-        fn prop_insert_values(plain_trie in arb_plain_trie()) {
+        fn prop_test_insert_values(plain_trie in arb_plain_trie()) {
              let mut trie = TestTrie::empty();
             for (key, value) in &plain_trie.entries {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
@@ -733,11 +755,22 @@ mod tests {
         }
 
         #[test]
-        fn prop_lookup_value(plain_trie in arb_plain_trie()) {
+        fn prop_test_lookup_value(plain_trie in arb_plain_trie()) {
             let trie = plain_trie.to_trie()?;
 
             for (key, value) in &plain_trie.entries {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
+            }
+
+            // todo ar lookup non-existing
+        }
+
+        #[test]
+        fn prop_test_contains_key(plain_trie in arb_plain_trie()) {
+            let trie = plain_trie.to_trie()?;
+
+            for (key, value) in &plain_trie.entries {
+                prop_assert!(trie.contains_key(&UnreachableBlobStore, key)?);
             }
 
             // todo ar lookup non-existing
