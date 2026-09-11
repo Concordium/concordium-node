@@ -17,6 +17,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
+use std::mem;
 
 /// Representation of an immutable trie with values of type `V`.
 /// The represented trie is immutable in the sense that the trie and its values does not change,
@@ -56,14 +57,14 @@ pub struct Trie<K, V> {
     _key_type: PhantomData<K>,
 }
 
-// impl<K, V> Clone for Trie<K, V> {
-//     fn clone(&self) -> Self {
-//         Self {
-//             inner: self.inner.clone(),
-//             _key_type: self._key_type,
-//         }
-//     }
-// }
+impl<K, V> Clone for Trie<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            _key_type: self._key_type,
+        }
+    }
+}
 
 impl<K, V> Default for Trie<K, V> {
     fn default() -> Self {
@@ -219,28 +220,34 @@ impl<K, V> Trie<K, V> {
 /// Trie node
 #[derive(Debug)]
 struct Node<V> {
-    children: GenericArray<Option<Box<Edge<V>>>, U256>,
+    children: GenericArray<Option<Edge<V>>, U256>, // todo ar replace with filled vec
     terminal: Option<HashedCacheableRef<V>>,
 }
 
-// impl<V> Clone for Node<V> {
-//     fn clone(&self) -> Self {
-//
-//     }
-// }
+impl<V> Clone for Node<V> {
+    fn clone(&self) -> Self {
+        Self {
+            children: self.children.clone(),
+            terminal: self.terminal.clone(),
+        }
+    }
+}
 
 /// Trie edge
 #[derive(Debug)]
 pub struct Edge<V> {
-    stem: Vec<u8>,
+    stem: Vec<u8>, // todo ar use smallvec
     target: HashedCacheableRef<Node<V>>,
 }
 
-// impl<V> Clone for Edge<V> {
-//     fn clone(&self) -> Self {
-//
-//     }
-// }
+impl<V> Clone for Edge<V> {
+    fn clone(&self) -> Self {
+        Self {
+            stem: self.stem.clone(),
+            target: self.target.clone(),
+        }
+    }
+}
 
 /// Return value from scanning a path in the trie.
 #[derive(Debug)]
@@ -282,31 +289,36 @@ impl<V> Node<V> {
         }
     }
 
+    /// Can the trie for the given path and return information about where the path ends
+    /// in the trie.
     fn scan_rec<'a>(
-        node: &HashedCacheableRef<Node<V>>,
+        node_ref: &HashedCacheableRef<Node<V>>,
         loader: &impl BlobStoreLoad,
         path: &'a [u8],
     ) -> BlockStateResult<ScanReturn<'a, V>>
     where
         V: Loadable,
     {
-        Ok(if let Some(path_byte) = path.first() {
-            if let Some(edge) = &node.value(loader)?.children[*path_byte as usize] {
+        Ok(if let Some(&path_byte) = path.first() {
+            if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
                     Ordering::Equal => {
+                        // Path matched node and the full stem.
                         Node::scan_rec(&edge.target, loader, &path[edge.stem.len()..])?
                     }
                     Ordering::Less => match common_prefix_len.cmp(&path.len()) {
                         Ordering::Equal => ScanReturn {
-                            prefix_matched_node: node.clone(),
+                            // Path fully matched node and part of the child stem.
+                            prefix_matched_node: node_ref.clone(),
                             suffix_path_from_matched_node: path,
                             matched: ScanMatch::FullMatch,
                             partially_matched_node: Some(edge.target.clone()),
                         },
                         Ordering::Less => ScanReturn {
-                            prefix_matched_node: node.clone(),
+                            // Path matched node and partly the child stem.
+                            prefix_matched_node: node_ref.clone(),
                             suffix_path_from_matched_node: &path[..common_prefix_len],
                             matched: ScanMatch::MaximalNonFullMatch {
                                 suffix_unmatched: &path[common_prefix_len..],
@@ -322,8 +334,9 @@ impl<V> Node<V> {
                     }
                 }
             } else {
+                // Path matched up until node, by does not match the start of any child stems.
                 ScanReturn {
-                    prefix_matched_node: node.clone(),
+                    prefix_matched_node: node_ref.clone(),
                     suffix_path_from_matched_node: path,
                     matched: ScanMatch::MaximalNonFullMatch {
                         suffix_unmatched: path,
@@ -332,8 +345,9 @@ impl<V> Node<V> {
                 }
             }
         } else {
+            // Path matched fully
             ScanReturn {
-                prefix_matched_node: node.clone(),
+                prefix_matched_node: node_ref.clone(),
                 suffix_path_from_matched_node: &[],
                 matched: ScanMatch::FullMatch,
                 partially_matched_node: None,
@@ -341,59 +355,108 @@ impl<V> Node<V> {
         })
     }
 
-    fn insert_rec<'s, C: CharT>(
-        str_index: usize,
-        s: &'s AStr<C>,
-        node: &mut Node<'s, C, C::AlphabetSize>,
-    ) {
-        if let Some(ch) = s.first() {
-            if let Some(edge) = &mut node.children[ch.index()] {
-                let lcp_len = string::lcp(&s[1..], &edge.chars[1..]).len() + 1;
+    /// Insert the given value at the given path. If a value already exists at the path,
+    /// it is replaced. Returns the updated node.
+    fn insert_rec(
+        node_ref: &HashedCacheableRef<Node<V>>,
+        loader: &impl BlobStoreLoad,
+        path: &[u8],
+        value: V,
+    ) -> BlockStateResult<HashedCacheableRef<Node<V>>> {
+        let node = node_ref.value(loader)?;
+        Ok(if let Some(&path_byte) = path.first() {
+            if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
+                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
-                match lcp_len.cmp(&edge.chars.len()) {
-                    Ordering::Equal => insert_rec(str_index, &s[edge.chars.len()..], &mut edge.target),
-                    Ordering::Less => {
-                        let new_node = Node::new();
-                        let new_edge = Edge {
-                            chars: &edge.chars[..lcp_len],
-                            target: new_node,
+                match common_prefix_len.cmp(&edge.stem.len()) {
+                    Ordering::Equal => {
+                        // Insert in child node.
+                        let new_child_node = Self::insert_rec(
+                            &edge.target,
+                            loader,
+                            &path[edge.stem.len()..],
+                            value,
+                        )?;
+
+                        let mut new_node = Node {
+                            children: node.children.clone(),
+                            terminal: node.terminal.clone(),
                         };
-                        let mut edge_remainder = mem::replace(edge, Box::new(new_edge));
-                        edge_remainder.chars = &edge_remainder.chars[lcp_len..];
-                        let rem_ch = edge_remainder.chars[0];
-                        edge.target.children[rem_ch.index()] = Some(edge_remainder);
 
-                        insert_rec(str_index, &s[lcp_len..], &mut edge.target);
+                        new_node.children[path_byte as usize] = Some(Edge {
+                            stem: edge.stem.clone(),
+                            target: new_child_node,
+                        });
+
+                        HashedCacheableRef::new(new_node)
+                    }
+                    Ordering::Less => {
+                        // Insert in the child stem.
+                        let mut stem_node = Node {
+                            children: Default::default(),
+                            terminal: Some(HashedCacheableRef::new(value)),
+                        };
+                        stem_node.children[edge.stem[common_prefix_len] as usize] = Some(Edge {
+                            stem: edge.stem[common_prefix_len..].to_vec(),
+                            target: edge.target.clone(),
+                        });
+
+                        let mut new_node = Node {
+                            children: node.children.clone(),
+                            terminal: node.terminal.clone(),
+                        };
+
+                        new_node.children[path_byte as usize] = Some(Edge {
+                            stem: edge.stem[..common_prefix_len].to_vec(),
+                            target: HashedCacheableRef::new(stem_node),
+                        });
+
+                        HashedCacheableRef::new(new_node)
                     }
                     Ordering::Greater => {
                         unreachable!()
                     }
                 }
             } else {
-                let mut new_node = Node::new();
-                new_node.terminal = Some(Terminal { str_index });
-                node.children[ch.index()] = Some(Box::new(Edge {
-                    chars: s,
-                    target: new_node,
-                }));
+                // Insert new child in the node.
+                let child_node = Node {
+                    children: Default::default(),
+                    terminal: Some(HashedCacheableRef::new(value)),
+                };
+
+                let mut new_node = Node {
+                    children: node.children.clone(),
+                    terminal: node.terminal.clone(),
+                };
+
+                new_node.children[path_byte as usize] = Some(Edge {
+                    stem: path.to_vec(),
+                    target: HashedCacheableRef::new(child_node),
+                });
+
+                HashedCacheableRef::new(new_node)
             }
         } else {
-            node.terminal = Some(Terminal {
-                str_index: str_index,
-            });
-        }
+            // Replace exising value.
+            let new_node = Node {
+                children: node.children.clone(),
+                terminal: Some(HashedCacheableRef::new(value)),
+            };
+            HashedCacheableRef::new(new_node)
+        })
     }
 
+    // todo ar impl delete
 
     fn lookup_value(
-        node: &HashedCacheableRef<Node<V>>,
+        node_ref: &HashedCacheableRef<Node<V>>,
         loader: &impl BlobStoreLoad,
         path: &[u8],
     ) -> BlockStateResult<Option<V>>
     where
         V: Loadable + Clone,
     {
-        let scan_return = Node::scan_rec(node, loader, path)?;
+        let scan_return = Node::scan_rec(node_ref, loader, path)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
                 if let Some(terminal) = &scan_return.prefix_matched_node.value(loader)?.terminal {
@@ -406,11 +469,28 @@ impl<V> Node<V> {
         })
     }
 
-
-
+    fn contains_key(
+        node_ref: &HashedCacheableRef<Node<V>>,
+        loader: &impl BlobStoreLoad,
+        path: &[u8],
+    ) -> BlockStateResult<bool>
+    where
+        V: Loadable + Clone,
+    {
+        let scan_return = Node::scan_rec(node_ref, loader, path)?;
+        Ok(match scan_return.matched {
+            ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
+                scan_return
+                    .prefix_matched_node
+                    .value(loader)?
+                    .terminal
+                    .is_some()
+            }
+            _ => false,
+        })
+    }
 
     // todo ar iterator
-
 
     //
     // /// Insert `new_value` into the subtree and return a new subtree with the inserted value.
