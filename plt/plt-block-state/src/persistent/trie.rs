@@ -190,6 +190,7 @@ impl<K, V> Trie<K, V> {
     where
         K: Borrow<[u8]>,
     {
+        // todo ar impl delete
         todo!()
     }
 }
@@ -511,65 +512,6 @@ impl<V> Node<V> {
             )
         })
     }
-
-    /// Delete the value at the given path. Returns the updated node if it was updated.
-    /// If no entry exists with the given path, the node is not updated.
-    fn delete_rec(
-        node_ref: &HashedCacheableRef<Node<V>>,
-        loader: &impl BlobStoreLoad,
-        path: &[u8],
-    ) -> BlockStateResult<Option<HashedCacheableRef<Node<V>>>> {
-        let node = node_ref.value(loader)?;
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = node_ref.value(loader)?.children.get(path_byte) {
-                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
-
-                match common_prefix_len.cmp(&edge.stem.len()) {
-                    Ordering::Equal => {
-                        // Delete in child node.
-                        if let Some(new_child_node) =
-                            Self::delete_rec(&edge.target_ref, loader, &path[edge.stem.len()..])?
-                        {
-                            let mut new_node = node.clone();
-
-                            new_node.children.set(
-                                path_byte,
-                                Edge {
-                                    stem: edge.stem.clone(),
-                                    target_ref: new_child_node,
-                                },
-                            );
-
-                            Some(HashedCacheableRef::new(new_node))
-                        } else {
-                            None
-                        }
-                    }
-                    Ordering::Less => {
-                        // Entry does not exist.
-                        None
-                    }
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Entry does not exist.
-                None
-            }
-        } else {
-            todo!()
-            // // Replace exising value.
-            // let new_node = Node {
-            //     children: node.children.clone(),
-            //     terminal: Some(HashedCacheableRef::new(value)),
-            // };
-            //
-            // HashedCacheableRef::new(new_node)
-        })
-    }
-
-    // todo ar impl delete
 
     fn lookup_value(
         node_ref: &HashedCacheableRef<Node<V>>,
