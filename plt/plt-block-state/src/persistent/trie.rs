@@ -212,31 +212,39 @@ impl<V> Clone for Node<V> {
 
 /// Node children
 #[derive(Debug)]
-struct ChildEdges<V>(Vec<Option<Edge<V>>>);
+struct ChildEdges<V>(Vec<(u8, Edge<V>)>);
 
 impl<V> ChildEdges<V> {
-    fn size(&self) -> u8 {
-        self.0.len() as u8
+    fn size(&self) -> u16 {
+        self.0.len() as u16
     }
 
     fn get(&self, byte: u8) -> Option<&Edge<V>> {
-        self.0.get(byte as usize).and_then(|opt| opt.as_ref())
+        let index = self.0.binary_search_by_key(&byte, |(byte, _)| *byte).ok()?;
+        Some(&self.0[index].1)
     }
 
     fn set(&mut self, byte: u8, edge: Edge<V>) {
-        self.0[byte as usize] = Some(edge);
-    }
-}
-
-impl<V> Default for ChildEdges<V> {
-    fn default() -> Self {
-        Self(vec![None; 256])
+        match self.0.binary_search_by_key(&byte, |(byte, _)| *byte) {
+            Ok(index) => {
+                self.0[index].1 = edge;
+            }
+            Err(index) => {
+                self.0.insert(index, (byte, edge));
+            }
+        }
     }
 }
 
 impl<V> Clone for ChildEdges<V> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
+    }
+}
+
+impl<V> Default for ChildEdges<V> {
+    fn default() -> Self {
+        Self(Vec::default())
     }
 }
 
@@ -656,10 +664,14 @@ impl<V> Loadable for ChildEdges<V> {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> Result<Self, BlockStateFailure> {
-        let size: u8 = buffer.get().map_parse_err_to_block_state_err()?;
+        let size: u16 = buffer.get().map_parse_err_to_block_state_err()?;
         let mut children = Vec::with_capacity(size as usize);
         for _ in 0..size {
-            children.push(Loadable::load_from_buffer(&mut buffer, loader)?);
+            let edge: Edge<_> = Loadable::load_from_buffer(&mut buffer, loader)?;
+            let byte = edge.stem.first().ok_or_else(|| {
+                BlockStateFailure::Invariant("Trie stem of zero length".to_string())
+            })?;
+            children.push((*byte, edge));
         }
 
         Ok(Self(children))
@@ -669,8 +681,8 @@ impl<V> Loadable for ChildEdges<V> {
 impl<V: Storable> Storable for ChildEdges<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size());
-        for child in self.0.iter().flatten() {
-            child.store_to_buffer(&mut buffer, storer);
+        for (byte, edge) in self.0.iter() {
+            edge.store_to_buffer(&mut buffer, storer);
         }
     }
 }
@@ -717,9 +729,9 @@ impl<V: Hashable + Loadable> Hashable for Node<V> {
 impl<V: Hashable + Loadable> Hashable for ChildEdges<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let mut hasher = sha2::Sha256::new();
-        hasher.update([self.size()]);
-        for child in self.0.iter().flatten() {
-            hasher.update(child.hash(loader)?);
+        hasher.update(self.size().to_be_bytes());
+        for (_, edge) in self.0.iter() {
+            hasher.update(edge.hash(loader)?);
         }
 
         Ok(Hash::new(hasher.finalize().into()))
@@ -744,7 +756,9 @@ impl<K, V: Cacheable + Loadable> Cacheable for Trie<K, V> {
 impl<V: Cacheable + Loadable> Cacheable for Node<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.terminal_ref.cache_reference_values(loader)?;
-        self.children.0.cache_reference_values(loader)?;
+        for (_, edge) in &self.children.0 {
+            edge.cache_reference_values(loader)?;
+        }
 
         Ok(())
     }
@@ -783,9 +797,27 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
         Self: Sized,
     {
         Ok(Self {
-            children: ChildEdges(self.children.0.move_blob_store(from_store, to_store)?),
+            children: self.children.move_blob_store(from_store, to_store)?,
             terminal_ref: self.terminal_ref.move_blob_store(from_store, to_store)?,
         })
+    }
+}
+
+impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for ChildEdges<V> {
+    fn move_blob_store(
+        &self,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        let mut children = Vec::with_capacity(self.0.len());
+        for (byte, edge) in &self.0 {
+            children.push((*byte, edge.move_blob_store(from_store, to_store)?));
+        }
+
+        Ok(Self(children))
     }
 }
 
@@ -823,7 +855,7 @@ mod tests {
     #[derive(Debug)]
     struct TestEntries {
         entries: Vec<(Vec<u8>, u64)>,
-        non_existing_keys: Vec<Vec<u8>>,
+        non_existing_keys: HashSet<Vec<u8>>,
     }
 
     impl TestEntries {
@@ -1036,7 +1068,7 @@ mod tests {
         fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie, TestCaseError> {
             let mut entries = BTreeMap::new();
 
-            Node::extract_entries(&self.root, loader, &[], &mut entries)?;
+            Node::extract_entries(&self.root, loader, &[], &mut entries, true)?;
 
             let plain = PlainTrie { entries };
 
@@ -1053,11 +1085,12 @@ mod tests {
             loader: &impl BlobStoreLoad,
             path: &[u8],
             entries: &mut BTreeMap<Vec<u8>, u64>,
+            root: bool,
         ) -> Result<(), TestCaseError> {
             let node = node_ref.value(loader)?;
 
             prop_assert!(
-                node.terminal_ref.is_some() || node.children.size() > 1,
+                node.terminal_ref.is_some() || node.children.size() > 1 || root,
                 "node terminal or more than one child"
             );
 
@@ -1067,11 +1100,11 @@ mod tests {
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
-            for edge in node.children.0.iter().flatten() {
+            for (_, edge) in node.children.0.iter() {
                 prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
                 let mut child_path = path.to_vec();
                 child_path.extend(edge.stem.iter().copied());
-                Node::extract_entries(&edge.target_ref, loader, &child_path, entries)?;
+                Node::extract_entries(&edge.target_ref, loader, &child_path, entries, false)?;
             }
 
             Ok(())
