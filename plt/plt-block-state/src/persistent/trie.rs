@@ -106,7 +106,7 @@ impl<K, V> Trie<K, V> {
     /// Returns [`BlockStateFailure`] if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: K) -> BlockStateResult<Option<V>>
+    pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<Option<V>>
     where
         V: Loadable + Clone,
         K: Borrow<[u8]>,
@@ -133,7 +133,7 @@ impl<K, V> Trie<K, V> {
     pub fn insert_or_update_entry(
         &self,
         loader: &impl BlobStoreLoad,
-        key: K,
+        key: &K,
         value: V,
     ) -> BlockStateResult<Self>
     where
@@ -323,24 +323,61 @@ impl<V> Node<V> {
                         (HashedCacheableRef::new(new_node), replaced)
                     }
                     Ordering::Less => {
-                        // Insert in the child stem.
-                        let mut stem_node = Node {
-                            children: vec![None; 256],
-                            terminal_ref: Some(HashedCacheableRef::new(value)),
-                        };
-                        stem_node.children[edge.stem[common_prefix_len] as usize] = Some(Edge {
-                            stem: edge.stem[common_prefix_len..].to_vec(),
-                            target_ref: edge.target_ref.clone(),
-                        });
+                        match common_prefix_len.cmp(&path.len()) {
+                            Ordering::Equal => {
+                                // Insert in stem.
+                                let mut stem_node = Node {
+                                    children: vec![None; 256],
+                                    terminal_ref: Some(HashedCacheableRef::new(value)),
+                                };
+                                stem_node.children[edge.stem[common_prefix_len] as usize] =
+                                    Some(Edge {
+                                        stem: edge.stem[common_prefix_len..].to_vec(),
+                                        target_ref: edge.target_ref.clone(),
+                                    });
 
-                        let mut new_node = node.clone();
+                                let mut new_node = node.clone();
 
-                        new_node.children[path_byte as usize] = Some(Edge {
-                            stem: edge.stem[..common_prefix_len].to_vec(),
-                            target_ref: HashedCacheableRef::new(stem_node),
-                        });
+                                new_node.children[path_byte as usize] = Some(Edge {
+                                    stem: edge.stem[..common_prefix_len].to_vec(),
+                                    target_ref: HashedCacheableRef::new(stem_node),
+                                });
 
-                        (HashedCacheableRef::new(new_node), false)
+                                (HashedCacheableRef::new(new_node), false)
+                            }
+                            Ordering::Less => {
+                                // Insert as child branching out from the stem.
+                                let mut stem_node = Node {
+                                    children: vec![None; 256],
+                                    terminal_ref: None,
+                                };
+                                stem_node.children[edge.stem[common_prefix_len] as usize] =
+                                    Some(Edge {
+                                        stem: edge.stem[common_prefix_len..].to_vec(),
+                                        target_ref: edge.target_ref.clone(),
+                                    });
+                                let child_node = Node {
+                                    children: vec![None; 256],
+                                    terminal_ref: Some(HashedCacheableRef::new(value)),
+                                };
+                                stem_node.children[path[common_prefix_len] as usize] = Some(Edge {
+                                    stem: path[common_prefix_len..].to_vec(),
+                                    target_ref: HashedCacheableRef::new(child_node),
+                                });
+
+                                let mut new_node = node.clone();
+
+                                new_node.children[path_byte as usize] = Some(Edge {
+                                    stem: edge.stem[..common_prefix_len].to_vec(),
+                                    target_ref: HashedCacheableRef::new(stem_node),
+                                });
+
+                                (HashedCacheableRef::new(new_node), false)
+                            }
+                            Ordering::Greater => {
+                                unreachable!()
+                            }
+                        }
                     }
                     Ordering::Greater => {
                         unreachable!()
@@ -369,7 +406,10 @@ impl<V> Node<V> {
                 terminal_ref: Some(HashedCacheableRef::new(value)),
             };
 
-            (HashedCacheableRef::new(new_node), true)
+            (
+                HashedCacheableRef::new(new_node),
+                node.terminal_ref.is_some(),
+            )
         })
     }
 
@@ -636,29 +676,40 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Edge<V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistent::blob_store::StoreSerialized;
-    use std::fmt::Debug;
-
     use crate::persistent::blob_store;
+    use crate::persistent::blob_store::StoreSerialized;
     use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
+    use concordium_base::hashes::TransactionSignMarker;
     use proptest::prelude::*;
     use proptest::test_runner::TestCaseResult;
+    use std::collections::BTreeMap;
+    use std::fmt::Debug;
 
     /// Trie type used by the property based tests. Keys are raw byte vectors
     /// (which borrow as `&[u8]`) and values are `u64`s.
-    type TestTree = Trie<Vec<u8>, StoreSerialized<u64>>;
+    type TestTrie = Trie<Vec<u8>, StoreSerialized<u64>>;
 
     prop_compose! {
-        fn arb_trie()(
+        fn arb_plain_trie()(
             entries in prop::collection::vec(
                 (prop::collection::vec(any::<u8>(), 0..8), any::<u64>()),
                 0..32,
             ),
-        ) -> TestTree {
-            let mut trie = TestTree::empty();
-            for (key, value) in entries {
+        ) -> PlainTrie {
+            PlainTrie {
+                entries: entries.into_iter().collect(),
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arb_trie()(
+            plain_trie in arb_plain_trie()
+        ) -> TestTrie {
+            let mut trie = TestTrie::empty();
+            for (key, value) in plain_trie.entries.into_iter() {
                 trie = trie
-                    .insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(value))
+                    .insert_or_update_entry(&UnreachableBlobStore, &key, StoreSerialized(value))
                     .unwrap();
             }
             trie
@@ -667,303 +718,121 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_test_store_and_load(trie1 in arb_trie()) {
+        fn prop_test_size(trie in arb_trie()) {
+            prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.entries.len() as u64);
+        }
+
+        #[test]
+        fn prop_insert_values(plain_trie in arb_plain_trie()) {
+             let mut trie = TestTrie::empty();
+            for (key, value) in &plain_trie.entries {
+                trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
+            }
+
+            prop_assert_eq!(plain_trie, trie.to_plain(&UnreachableBlobStore)?);
+        }
+
+        #[test]
+        fn prop_lookup_value(plain_trie in arb_plain_trie()) {
+            let trie = plain_trie.to_trie()?;
+
+            for (key, value) in &plain_trie.entries {
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
+            }
+
+            // todo ar lookup non-existing
+        }
+
+
+
+        #[test]
+        fn prop_test_store_and_load(plain_trie in arb_plain_trie()) {
             let mut store = BlobStoreStub::default();
 
             // Store trie
-            let blob_ref = blob_store::store_to_store(&mut store, &trie1);
+            let blob_ref = blob_store::store_to_store(&mut store, &plain_trie.to_trie()?);
 
             // Load trie
-            let trie2: TestTree = blob_store::load_from_store(&store, blob_ref)?;
+            let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
 
             // Assert loaded tree is equal to the tree we started with
-            prop_assert_eq!(trie1.to_plain(&store)?, trie2.to_plain(&store)?);
+            prop_assert_eq!(plain_trie, trie.to_plain(&store)?);
         }
     }
 
-    //
-    // /// Test [`Trie::size`]
-    // #[test]
-    // fn prop_test_size() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree
-    //         let tree = create_tree_in_memory(&mut store, i);
-    //
-    //         // Assert size
-    //         assert_eq!(tree.size(), i, "get size for tree of size {}", i);
-    //     }
-    // }
-    //
-    // /// Test [`Trie::lookup_value`] for a tree that is in memory.
-    // #[test]
-    // fn prop_test_lookup_value_in_memory() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree
-    //         let tree = create_tree_in_memory(&mut store, i);
-    //
-    //         // Lookup existing values
-    //         for j in 0..i {
-    //             assert_eq!(
-    //                 tree.lookup_value(&store, TestKey(j)).unwrap().as_deref(),
-    //                 Some(&StoreSerialized(j + 10)),
-    //                 "access value for key {:?} in tree of size {}",
-    //                 TestKey(j),
-    //                 i
-    //             );
-    //         }
-    //
-    //         // Lookup non-existing values
-    //         assert_eq!(
-    //             tree.lookup_value(&store, TestKey(i)).unwrap(),
-    //             None,
-    //             "access non-existing value for key {:?} in tree of size {}",
-    //             TestKey(i),
-    //             i
-    //         );
-    //         assert_eq!(
-    //             tree.lookup_value(&store, TestKey(i + 1)).unwrap(),
-    //             None,
-    //             "access non-existing value for key {:?} in tree of size {}",
-    //             TestKey(i + 1),
-    //             i
-    //         );
-    //     }
-    // }
-    //
-    // /// Test [`Trie::lookup_value`] for a tree that is in blob store.
-    // #[test]
-    // fn prop_test_lookup_value_stored() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree and store it
-    //         let tree = create_tree_in_memory(&mut store, i);
-    //         let tree = store_value(&mut store, &tree);
-    //
-    //         // Lookup existing values
-    //         for j in 0..i {
-    //             assert_eq!(
-    //                 tree.lookup_value(&store, TestKey(j)).unwrap().as_deref(),
-    //                 Some(&StoreSerialized(j + 10)),
-    //                 "access value for key {:?} in tree of size {}",
-    //                 TestKey(j),
-    //                 i
-    //             );
-    //         }
-    //
-    //         // Lookup non-existing values
-    //         assert_eq!(
-    //             tree.lookup_value(&store, TestKey(i)).unwrap(),
-    //             None,
-    //             "access non-existing value for key {:?} in tree of size {}",
-    //             TestKey(i),
-    //             i
-    //         );
-    //         assert_eq!(
-    //             tree.lookup_value(&store, TestKey(i + 1)).unwrap(),
-    //             None,
-    //             "access non-existing value for key {:?} in tree of size {}",
-    //             TestKey(i + 1),
-    //             i
-    //         );
-    //     }
-    // }
-    //
-    // /// Test [`Trie::values`] for a tree that is in memory.
-    // #[test]
-    // fn prop_test_values_in_memory() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree
-    //         let tree = create_tree_in_memory(&mut store, i);
-    //
-    //         // Iterate values
-    //         let mut values = tree.values(&store);
-    //
-    //         // Assert values as expected
-    //         assert_eq!(
-    //             values.len(),
-    //             i as usize,
-    //             "values length for tree of size {}",
-    //             i
-    //         );
-    //         let mut j = 0;
-    //         while let Some(entry_res) = values.next() {
-    //             let (key, val) = entry_res.unwrap();
-    //             assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
-    //             assert_eq!(
-    //                 *val,
-    //                 StoreSerialized(j + 10),
-    //                 "value number {} in tree of size {}",
-    //                 j,
-    //                 i
-    //             );
-    //             j += 1;
-    //             assert_eq!(values.len(), (i - j) as usize);
-    //         }
-    //         assert_eq!(values.len(), 0);
-    //         assert_eq!(values.next().transpose().unwrap(), None);
-    //         assert_eq!(values.len(), 0);
-    //     }
-    // }
-    //
-    // /// Test [`Trie::values`] for a tree that is stored in blob store.
-    // #[test]
-    // fn prop_test_values_stored() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree
-    //         let tree = create_tree_in_memory(&mut store, i);
-    //         let tree = store_value(&mut store, &tree);
-    //
-    //         // Iterate values
-    //         let mut values = tree.values(&store);
-    //
-    //         // Assert values as expected
-    //         assert_eq!(
-    //             values.len(),
-    //             i as usize,
-    //             "values length for tree of size {}",
-    //             i
-    //         );
-    //         let mut j = 0;
-    //         while let Some(entry_res) = values.next() {
-    //             let (key, val) = entry_res.unwrap();
-    //             assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
-    //             assert_eq!(
-    //                 *val,
-    //                 StoreSerialized(j + 10),
-    //                 "value number {} in tree of size {}",
-    //                 j,
-    //                 i
-    //             );
-    //             j += 1;
-    //             assert_eq!(values.len(), (i - j) as usize);
-    //         }
-    //         assert_eq!(values.len(), 0);
-    //         assert_eq!(values.next().transpose().unwrap(), None);
-    //         assert_eq!(values.len(), 0);
-    //     }
-    // }
-    //
-    // /// Test [`Trie::update_value`]
-    // #[test]
-    // fn prop_test_update_value() {
-    //     for i in 0..100 {
-    //         let mut store = BlobStoreStub::default();
-    //
-    //         // Append values to tree
-    //         let mut tree = create_tree_in_memory(&mut store, i);
-    //
-    //         // Update each of the values
-    //         for j in 0..i {
-    //             // Update the value
-    //             tree = tree
-    //                 .update_value(&store, TestKey(j), |val| Ok(StoreSerialized(val.0 + 10)))
-    //                 .expect("update existing value")
-    //                 .unwrap();
-    //
-    //             // Lookup the value again
-    //             assert_eq!(
-    //                 tree.lookup_value(&store, TestKey(j)).unwrap().as_deref(),
-    //                 Some(&StoreSerialized(j + 20)),
-    //                 "update value for key {:?} in tree of size {}",
-    //                 TestKey(j),
-    //                 i
-    //             );
-    //         }
-    //
-    //         // Update non-existing values
-    //         assert_matches!(
-    //             tree.update_value(&store, TestKey(i), |val| Ok(*val))
-    //                 .unwrap(),
-    //             None,
-    //             "update non-existing value for key {:?} in tree of size {}",
-    //             TestKey(i),
-    //             i
-    //         );
-    //         assert_matches!(
-    //             tree.update_value(&store, TestKey(i + 1), |val| Ok(*val))
-    //                 .unwrap(),
-    //             None,
-    //             "update non-existing value for key {:?} in tree of size {}",
-    //             TestKey(i + 1),
-    //             i
-    //         );
-    //     }
-    // }
-    //
+    // todo ar test update
+    // todo ar test delete
 
     // todo ar test move blob store
     // todo ar test caching
+    // todo ar test hashing via plain repr?
     // todo ar snapshots/fixtures
 
     /// Plain in-memory representation that supports semantically comparing if tries contains
     /// the same entries and has the correct representation.
     #[derive(Debug, Eq, PartialEq, Clone)]
-    pub struct PlainTrie<V> {
-        root: PlainNode<V>,
+    pub struct PlainTrie {
+        entries: BTreeMap<Vec<u8>, u64>,
     }
 
-    #[derive(Debug, Eq, PartialEq, Clone)]
-    struct PlainNode<V> {
-        children: Vec<Option<PlainEdge<V>>>,
-        terminal: Option<V>,
-    }
-
-    #[derive(Debug, Eq, PartialEq, Clone)]
-    pub struct PlainEdge<V> {
-        stem: Vec<u8>,
-        target: PlainNode<V>,
-    }
-
-    impl<K, V: Loadable + Clone> Trie<K, V> {
-        fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie<V>, TestCaseError> {
-            Ok(PlainTrie {
-                root: Node::to_plain(&self.root, loader)?,
-            })
+    impl PlainTrie {
+        fn to_trie(&self) -> Result<TestTrie, TestCaseError> {
+            let mut trie = TestTrie::empty();
+            for (key, value) in &self.entries {
+                trie = trie.insert_or_update_entry(
+                    &UnreachableBlobStore,
+                    key,
+                    StoreSerialized(*value),
+                )?;
+            }
+            Ok(trie)
         }
     }
 
-    impl<V: Loadable + Clone> Node<V> {
-        fn to_plain(
-            node_ref: &HashedCacheableRef<Node<V>>,
+    impl TestTrie {
+        /// Convert to plain representation and check representation invariants.
+        fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie, TestCaseError> {
+            let mut entries = BTreeMap::new();
+
+            Node::extract_entries(&self.root, loader, &[], &mut entries)?;
+
+            prop_assert_eq!(self.size, entries.len() as u64, "trie size");
+
+            let plain = PlainTrie { entries };
+
+            Ok(plain)
+        }
+    }
+
+    impl Node<u64> {
+        /// Convert to plain representation and check representation invariants.
+        fn extract_entries(
+            node_ref: &HashedCacheableRef<Node<StoreSerialized<u64>>>,
             loader: &impl BlobStoreLoad,
-        ) -> Result<PlainNode<V>, TestCaseError> {
+            path: &[u8],
+            entries: &mut BTreeMap<Vec<u8>, u64>,
+        ) -> Result<(), TestCaseError> {
             let node = node_ref.value(loader)?;
 
-            let terminal = match &node.terminal_ref {
-                Some(value_ref) => Some(value_ref.value(loader)?.into_owned()),
-                None => None,
+            prop_assert!(
+                node.terminal_ref.is_some() || node.children.len() > 1,
+                "node terminal or more than one child"
+            );
+
+            if let Some(terminal) = &node.terminal_ref {
+                let existing =
+                    entries.insert(path.to_vec(), terminal.value(loader)?.into_owned().0);
+                prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
-            let mut children = Vec::with_capacity(node.children.len());
-            for child in node.children.iter() {
-                children.push(match child {
-                    Some(edge) => Some(edge.to_plain(loader)?),
-                    None => None,
-                });
+            for edge in node.children.iter().flatten() {
+                prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
+                let mut child_path = path.to_vec();
+                child_path.extend(edge.stem.iter().copied());
+                Node::extract_entries(&edge.target_ref, loader, &child_path, entries)?;
             }
 
-            Ok(PlainNode { children, terminal })
-        }
-    }
-
-    impl<V: Loadable + Clone> Edge<V> {
-        fn to_plain(
-            &self,
-            loader: &impl BlobStoreLoad,
-        ) -> Result<PlainEdge<V>, TestCaseError> {
-            Ok(PlainEdge {
-                stem: self.stem.clone(),
-                target: Node::to_plain(&self.target_ref, loader)?,
-            })
+            Ok(())
         }
     }
 }
