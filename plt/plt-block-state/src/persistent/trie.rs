@@ -9,8 +9,10 @@ use crate::persistent::blob_store::{
     StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
 use concordium_base::common::{Buffer, Get, Put};
+use concordium_base::hashes::Hash;
 use sha2::Digest;
 use sha2::digest::generic_array::GenericArray;
 use sha2::digest::typenum::U256;
@@ -19,7 +21,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
-
 // TODO: use TinyVec instead of Vec for some values?
 
 /// Representation of an immutable trie with values of type `V`.
@@ -533,6 +534,33 @@ impl<V: Storable> Storable for Edge<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
         self.target_ref.store_to_buffer(&mut buffer, storer);
+    }
+}
+
+impl<K, V: Hashable + Loadable> Hashable for Trie<K, V> {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        Ok(hash::hash_of_hashes(
+            StoreSerialized(self.size).hash(loader)?,
+            self.root.hash(loader)?,
+        ))
+    }
+}
+
+impl<V: Hashable + Loadable> Hashable for Node<V> {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        Ok(hash::hash_of_hashes(
+            self.terminal_ref.hash(loader)?,
+            self.children.hash(loader)?,
+        ))
+    }
+}
+
+impl<V: Hashable + Loadable> Hashable for Edge<V> {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        Ok(hash::hash_of_hashes(
+            self.target_ref.hash(loader)?,
+            StoreSerialized(&self.stem).hash(loader)?,
+        ))
     }
 }
 

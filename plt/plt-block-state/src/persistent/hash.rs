@@ -34,6 +34,19 @@ impl<T: Hashable> Hashable for Option<T> {
     }
 }
 
+impl<T: Hashable> Hashable for [T] {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        let mut hasher = sha2::Sha256::new();
+        hasher.put(self.len() as u64);
+
+        for elm in self {
+            hasher.update(elm.hash(loader)?);
+        }
+
+        Ok(Hash::new(hasher.finalize().into()))
+    }
+}
+
 /// Calculate hash by digesting the bytes of two hashes.
 pub fn hash_of_hashes(hash1: Hash, hash2: Hash) -> Hash {
     let mut hasher = sha2::Sha256::new();
