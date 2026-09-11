@@ -1,0 +1,931 @@
+//! Representation of an immutable trie.
+//!
+//! See [`Trie`].
+
+use crate::failure::BlockStateResult;
+use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::persistent::blob_store::{
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, ParseResultExt, Storable,
+};
+use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash::Hashable;
+use concordium_base::common::{Buffer, Get, Put};
+use sha2::Digest;
+use sha2::digest::generic_array::GenericArray;
+use sha2::digest::typenum::U256;
+use std::cmp::Ordering;
+use std::fmt::Debug;
+use std::io::Read;
+use std::marker::PhantomData;
+
+/// Representation of an immutable trie with values of type `V`.
+/// The represented trie is immutable in the sense that the trie and its values does not change,
+/// once it has been created. When values are inserted or updated, a new trie is created,
+/// reusing the nodes that have not changed by the operation.
+/// Keys must allow borrowing a byte slice (`&[u8]`) representing it.
+///
+/// The operations supported for creating new trees are:
+/// TODO
+/// * Create empty tree with [`Trie::empty`]: Returns a new empty tree.
+/// * Insert new value with [`Trie::insert_value`]: Inserts a new value, assigning the sequentially next unused key,
+///   and returns new tree with the inserted value.
+/// * Update value with [`Trie::update_value`]: Updates an existing value, keeping the same key, and returns
+///   the new tree with the updated value.
+///
+/// ## Interior mutability
+///
+/// The internal representation in the tree may change during the lifetime via interior mutability.
+/// This happens if values are cached, stored or hashes are lazily calculated.
+///
+/// ## Data structure
+///
+/// TODO
+///
+/// ### Enforcing invariants
+///
+/// TODO
+///
+/// ### Example tree
+///
+/// TODO
+/// ```
+#[derive(Debug)]
+pub struct Trie<K, V> {
+    inner: HashedCacheableRef<Node<V>>, // todo ar remove and use Cow
+    _key_type: PhantomData<K>,
+}
+
+// impl<K, V> Clone for Trie<K, V> {
+//     fn clone(&self) -> Self {
+//         Self {
+//             inner: self.inner.clone(),
+//             _key_type: self._key_type,
+//         }
+//     }
+// }
+
+impl<K, V> Default for Trie<K, V> {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl<K, V> Trie<K, V> {
+    /// Create an empty trie.
+    pub fn empty() -> Self {
+        let inner = Node::empty();
+
+        Self {
+            inner: HashedCacheableRef::new(inner),
+            _key_type: PhantomData,
+        }
+    }
+
+    // /// Return the number of entries in the tree.
+    // #[allow(unused)]
+    // pub fn size(&self) -> u64 {
+    //     match &self.inner {
+    //         TrieInner::Empty => 0,
+    //         TrieInner::NonEmpty(size, _) => *size,
+    //     }
+    // }
+
+    // /// Get the value for the given `key` in the tree or `None` if there
+    // /// is no value for the key.
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `loader`: Loader for the blob store the tree is stored in.
+    // /// - `key`: The key to access the value for.
+    // ///
+    // /// # Errors
+    // ///
+    // /// Returns [`BlockStateFailure`] if decoding data from the
+    // /// blob store fails, or if the tree does not fulfill
+    // /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    // pub fn lookup_value(
+    //     &self,
+    //     loader: &impl BlobStoreLoad,
+    //     key: K,
+    // ) -> BlockStateResult<Option<Cow<'_, V>>>
+    // where
+    //     V: Loadable,
+    // {
+    //     Ok(match &self.inner {
+    //         TrieInner::Empty => None,
+    //         TrieInner::NonEmpty(size, subtree) => {
+    //             let int_key = SubtreeKey(key.to_u64());
+    //             if int_key.0 < *size {
+    //                 Some(Cow::Borrowed(subtree).lookup_value(loader, int_key)?)
+    //             } else {
+    //                 None
+    //             }
+    //         }
+    //     })
+    // }
+    //
+    // /// Iterates all values in the tree in insertion order (which is also the order
+    // /// of the keys).
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `loader`: Loader for the blob store the tree is stored in.
+    // ///
+    // /// # Errors
+    // ///
+    // /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the tree
+    // /// does not fulfill the expected invariants (this can happen if the blob store is
+    // /// corrupted in some way).
+    // pub fn values(
+    //     &self,
+    //     loader: &impl BlobStoreLoad,
+    // ) -> impl ExactSizeIterator<Item = BlockStateResult<(K, Cow<'_, V>)>>
+    // where
+    //     V: Loadable,
+    // {
+    //     match &self.inner {
+    //         TrieInner::Empty => Either::Left(iter::empty()),
+    //         TrieInner::NonEmpty(_, subtree) => {
+    //             Either::Right(subtree.values(loader, self.size()).map(|item| {
+    //                 let (subtree_key, value) = item?;
+    //                 Ok((K::from_u64(subtree_key.0), value))
+    //             }))
+    //         }
+    //     }
+    // }
+    //
+    // /// Insert a value to the tree, and return the key for the inserted value and
+    // /// the tree with the inserted value. Keys are assigned sequentially,
+    // /// starting from `LfmbTreeKey::from_u64(0)`, then `LfmbTreeKey::from_u64(1)` and
+    // /// so on.
+    // ///
+    // /// Notice that trees are immutable data structures, see [`Self`].
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `loader`: loader for the blob store the tree is stored in
+    // /// - `value`: The value to insert
+    // ///
+    // /// # Errors
+    // ///
+    // /// Returns [`BlockStateFailure`] if decoding data from the
+    // /// blob store fails, or if the tree does not fulfill
+    // /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    // pub fn insert_value(&self, loader: &impl BlobStoreLoad, value: V) -> BlockStateResult<(K, Self)>
+    // where
+    //     V: Loadable,
+    // {
+    //     Ok(match &self.inner {
+    //         TrieInner::Empty => (
+    //             LfmbTreeKey::from_u64(0),
+    //             Self::from_inner(TrieInner::NonEmpty(
+    //                 1,
+    //                 Subtree::Leaf(HashedCacheableRef::new(value)),
+    //             )),
+    //         ),
+    //         TrieInner::NonEmpty(size, subtree) => (
+    //             LfmbTreeKey::from_u64(*size),
+    //             Self::from_inner(TrieInner::NonEmpty(
+    //                 *size + 1,
+    //                 subtree.insert_value(loader, None, *size, value)?,
+    //             )),
+    //         ),
+    //     })
+    // }
+    //
+    // /// Update the value with the given `key` in the tree
+    // /// using the `update` closure. Returns the tree with the updated
+    // /// value or `None` if there is no entry with the given key in the tree.
+    // ///
+    // /// Notice that trees are immutable data structures, see [`Self`].
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `loader`: Loader for the blob store the tree is stored in.
+    // /// - `key`: The key to update the value for.
+    // /// - `update`: Closure that is given the value, either as owned
+    // ///   or borrowed, and returns the new value for the key.
+    // ///
+    // /// # Errors
+    // ///
+    // /// Returns [`BlockStateFailure`] if returned by `update` or if decoding data from the
+    // /// blob store fails, or if the tree does not fulfill
+    // /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    // pub fn update_value(
+    //     &self,
+    //     loader: &impl BlobStoreLoad,
+    //     key: K,
+    //     update: impl FnOnce(Cow<'_, V>) -> BlockStateResult<V>,
+    // ) -> BlockStateResult<Option<Self>>
+    // where
+    //     V: Loadable,
+    // {
+    //     Ok(match &self.inner {
+    //         TrieInner::Empty => None,
+    //         TrieInner::NonEmpty(size, subtree) => {
+    //             let int_key = SubtreeKey(key.to_u64());
+    //             if int_key.0 < *size {
+    //                 let new_subtree = subtree.update_value(loader, int_key, update)?;
+    //                 Some(Self::from_inner(TrieInner::NonEmpty(
+    //                     *size,
+    //                     new_subtree,
+    //                 )))
+    //             } else {
+    //                 None
+    //             }
+    //         }
+    //     })
+    // }
+
+    fn from_inner(inner: Node<V>) -> Self {
+        Self {
+            inner: HashedCacheableRef::new(inner),
+            _key_type: Default::default(),
+        }
+    }
+}
+
+/// Trie node
+#[derive(Debug)]
+struct Node<V> {
+    children: GenericArray<Option<Box<Edge<V>>>, U256>,
+    terminal: Option<HashedCacheableRef<V>>,
+}
+
+// impl<V> Clone for Node<V> {
+//     fn clone(&self) -> Self {
+//
+//     }
+// }
+
+/// Trie edge
+#[derive(Debug)]
+pub struct Edge<V> {
+    stem: Vec<u8>,
+    target: HashedCacheableRef<Node<V>>,
+}
+
+// impl<V> Clone for Edge<V> {
+//     fn clone(&self) -> Self {
+//
+//     }
+// }
+
+/// Return value from scanning a path in the trie.
+#[derive(Debug)]
+struct ScanReturn<'a, V> {
+    /// Node fully or partially matched by path.
+    matched_node: HashedCacheableRef<Node<V>>,
+    /// The path remaining from matching `matched_node`.
+    remaining_path_from_matched_node: &'a [u8],
+    /// Whether full or partial match.
+    matched: ScanMatch<'a>,
+    /// Node that site on the stem from `matched_node` that the
+    partially_matched_node: Option<HashedCacheableRef<Node<V>>>,
+}
+
+#[derive(Debug)]
+enum ScanMatch<'a> {
+    /// Entire path was found in trie.
+    FullMatch,
+    /// Only part of path was found in trie,
+    MaximalNonFullMatch {
+        /// Path suffix that was not found in trie
+        path_unmatched: &'a [u8],
+    },
+}
+
+pub fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
+    let mut i = 0;
+    while i < a.len() && i < b.len() && a[i] == b[i] {
+        i += 1;
+    }
+    &a[0..i]
+}
+
+impl<V> Node<V> {
+    fn empty() -> Self {
+        Self {
+            children: Default::default(),
+            terminal: None,
+        }
+    }
+
+    fn scan_rec<'a>(
+        node: &HashedCacheableRef<Node<V>>,
+        loader: &impl BlobStoreLoad,
+        path: &'a [u8],
+    ) -> BlockStateResult<ScanReturn<'a, V>>
+    where
+        V: Loadable,
+    {
+        Ok(if let Some(path_byte) = path.first() {
+            if let Some(edge) = &node.value(loader)?.children[*path_byte as usize] {
+                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
+
+                match common_prefix_len.cmp(&edge.stem.len()) {
+                    Ordering::Equal => {
+                        Node::scan_rec(&edge.target, loader, &path[edge.stem.len()..])?
+                    }
+                    Ordering::Less => match common_prefix_len.cmp(&path.len()) {
+                        Ordering::Equal => ScanReturn {
+                            matched_node: node.clone(),
+                            remaining_path_from_matched_node: path,
+                            matched: ScanMatch::FullMatch,
+                            partially_matched_node: Some(edge.target.clone()),
+                        },
+                        Ordering::Less => ScanReturn {
+                            matched_node: node.clone(),
+                            remaining_path_from_matched_node: &path[..common_prefix_len],
+                            matched: ScanMatch::MaximalNonFullMatch {
+                                path_unmatched: &path[common_prefix_len..],
+                            },
+                            partially_matched_node: Some(edge.target.clone()),
+                        },
+                        Ordering::Greater => {
+                            unreachable!()
+                        }
+                    },
+                    Ordering::Greater => {
+                        unreachable!()
+                    }
+                }
+            } else {
+                ScanReturn {
+                    matched_node: node.clone(),
+                    remaining_path_from_matched_node: path,
+                    matched: ScanMatch::MaximalNonFullMatch {
+                        path_unmatched: path,
+                    },
+                    partially_matched_node: None,
+                }
+            }
+        } else {
+            ScanReturn {
+                matched_node: node.clone(),
+                remaining_path_from_matched_node: &[],
+                matched: ScanMatch::FullMatch,
+                partially_matched_node: None,
+            }
+        })
+    }
+
+    // /// Iterates all values in the subtree in insertion order.
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `node_size`: The number of entries in the subtree.
+    // pub fn values(
+    //     &self,
+    //     loader: &impl BlobStoreLoad,
+    //     node_size: u64,
+    // ) -> impl ExactSizeIterator<Item = BlockStateResult<(SubtreeKey, Cow<'_, V>)>>
+    // where
+    //     V: Loadable,
+    // {
+    //     ValuesIterator::new(self, loader, node_size)
+    // }
+    //
+    // /// Insert `new_value` into the subtree and return a new subtree with the inserted value.
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `subtree_ref_option`: Blob reference to the subtree. For the root tree, there is no such
+    // ///   reference, in which case the argument is `None`.
+    // /// - `node_size`: The number of entries in the subtree.
+    // /// - `new_value`: The value to insert in the subtree.
+    // fn insert_value(
+    //     &self,
+    //     loader: &impl BlobStoreLoad,
+    //     subtree_ref_option: Option<&HashedCacheableRef<Node<V>>>,
+    //     node_size: u64,
+    //     new_value: V,
+    // ) -> BlockStateResult<Self>
+    // where
+    //     V: Loadable,
+    // {
+    //
+    // }
+    //
+    // /// Update the value with the given `key` in the tree
+    // /// using the `update` closure.
+    // ///
+    // /// # Arguments
+    // ///
+    // /// - `key`: The key to update the value for.
+    // /// - `update`: Closure that is given the value, either as owned
+    // ///   or borrowed, and returns the new value for the key.
+    // pub fn update_value(
+    //     &self,
+    //     loader: &impl BlobStoreLoad,
+    //     key: SubtreeKey,
+    //     update: impl FnOnce(Cow<'_, V>) -> BlockStateResult<V>,
+    // ) -> BlockStateResult<Self>
+    // where
+    //     V: Loadable,
+    // {
+    //
+    // }
+}
+
+impl<V> Loadable for Node<V> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistent::blob_store::StoreSerialized;
+    use std::fmt::Debug;
+
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    struct TestKey(Vec<u8>);
+
+    type TestTree = Trie<TestKey, StoreSerialized<u64>>;
+
+    // fn create_tree_in_memory(store: &mut impl BlobStoreLoad, size: u64) -> TestTree {
+    //     let mut tree = TestTree::empty();
+    //     for i in 0..size {
+    //         let key;
+    //         (key, tree) = tree.insert_value(store, StoreSerialized(i + 10)).unwrap();
+    //         assert_eq!(key, TestKey(i));
+    //     }
+    //     tree
+    // }
+    //
+    // fn store_value<T: Storable + Loadable, S: BlobStoreLoad + BlobStoreStore>(
+    //     store: &mut S,
+    //     value: &T,
+    // ) -> T {
+    //     let blob_loc = blob_store::store_to_store(store, value);
+    //     blob_store::load_from_store(store, blob_loc).unwrap()
+    // }
+    //
+    // /// Test [`Trie::size`]
+    // #[test]
+    // fn prop_test_size() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree
+    //         let tree = create_tree_in_memory(&mut store, i);
+    //
+    //         // Assert size
+    //         assert_eq!(tree.size(), i, "get size for tree of size {}", i);
+    //     }
+    // }
+    //
+    // /// Test [`Trie::lookup_value`] for a tree that is in memory.
+    // #[test]
+    // fn prop_test_lookup_value_in_memory() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree
+    //         let tree = create_tree_in_memory(&mut store, i);
+    //
+    //         // Lookup existing values
+    //         for j in 0..i {
+    //             assert_eq!(
+    //                 tree.lookup_value(&store, TestKey(j)).unwrap().as_deref(),
+    //                 Some(&StoreSerialized(j + 10)),
+    //                 "access value for key {:?} in tree of size {}",
+    //                 TestKey(j),
+    //                 i
+    //             );
+    //         }
+    //
+    //         // Lookup non-existing values
+    //         assert_eq!(
+    //             tree.lookup_value(&store, TestKey(i)).unwrap(),
+    //             None,
+    //             "access non-existing value for key {:?} in tree of size {}",
+    //             TestKey(i),
+    //             i
+    //         );
+    //         assert_eq!(
+    //             tree.lookup_value(&store, TestKey(i + 1)).unwrap(),
+    //             None,
+    //             "access non-existing value for key {:?} in tree of size {}",
+    //             TestKey(i + 1),
+    //             i
+    //         );
+    //     }
+    // }
+    //
+    // /// Test [`Trie::lookup_value`] for a tree that is in blob store.
+    // #[test]
+    // fn prop_test_lookup_value_stored() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree and store it
+    //         let tree = create_tree_in_memory(&mut store, i);
+    //         let tree = store_value(&mut store, &tree);
+    //
+    //         // Lookup existing values
+    //         for j in 0..i {
+    //             assert_eq!(
+    //                 tree.lookup_value(&store, TestKey(j)).unwrap().as_deref(),
+    //                 Some(&StoreSerialized(j + 10)),
+    //                 "access value for key {:?} in tree of size {}",
+    //                 TestKey(j),
+    //                 i
+    //             );
+    //         }
+    //
+    //         // Lookup non-existing values
+    //         assert_eq!(
+    //             tree.lookup_value(&store, TestKey(i)).unwrap(),
+    //             None,
+    //             "access non-existing value for key {:?} in tree of size {}",
+    //             TestKey(i),
+    //             i
+    //         );
+    //         assert_eq!(
+    //             tree.lookup_value(&store, TestKey(i + 1)).unwrap(),
+    //             None,
+    //             "access non-existing value for key {:?} in tree of size {}",
+    //             TestKey(i + 1),
+    //             i
+    //         );
+    //     }
+    // }
+    //
+    // /// Test [`Trie::values`] for a tree that is in memory.
+    // #[test]
+    // fn prop_test_values_in_memory() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree
+    //         let tree = create_tree_in_memory(&mut store, i);
+    //
+    //         // Iterate values
+    //         let mut values = tree.values(&store);
+    //
+    //         // Assert values as expected
+    //         assert_eq!(
+    //             values.len(),
+    //             i as usize,
+    //             "values length for tree of size {}",
+    //             i
+    //         );
+    //         let mut j = 0;
+    //         while let Some(entry_res) = values.next() {
+    //             let (key, val) = entry_res.unwrap();
+    //             assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
+    //             assert_eq!(
+    //                 *val,
+    //                 StoreSerialized(j + 10),
+    //                 "value number {} in tree of size {}",
+    //                 j,
+    //                 i
+    //             );
+    //             j += 1;
+    //             assert_eq!(values.len(), (i - j) as usize);
+    //         }
+    //         assert_eq!(values.len(), 0);
+    //         assert_eq!(values.next().transpose().unwrap(), None);
+    //         assert_eq!(values.len(), 0);
+    //     }
+    // }
+    //
+    // /// Test [`Trie::values`] for a tree that is stored in blob store.
+    // #[test]
+    // fn prop_test_values_stored() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree
+    //         let tree = create_tree_in_memory(&mut store, i);
+    //         let tree = store_value(&mut store, &tree);
+    //
+    //         // Iterate values
+    //         let mut values = tree.values(&store);
+    //
+    //         // Assert values as expected
+    //         assert_eq!(
+    //             values.len(),
+    //             i as usize,
+    //             "values length for tree of size {}",
+    //             i
+    //         );
+    //         let mut j = 0;
+    //         while let Some(entry_res) = values.next() {
+    //             let (key, val) = entry_res.unwrap();
+    //             assert_eq!(key, TestKey(j), "key {} in tree of size {}", j, i);
+    //             assert_eq!(
+    //                 *val,
+    //                 StoreSerialized(j + 10),
+    //                 "value number {} in tree of size {}",
+    //                 j,
+    //                 i
+    //             );
+    //             j += 1;
+    //             assert_eq!(values.len(), (i - j) as usize);
+    //         }
+    //         assert_eq!(values.len(), 0);
+    //         assert_eq!(values.next().transpose().unwrap(), None);
+    //         assert_eq!(values.len(), 0);
+    //     }
+    // }
+    //
+    // /// Test [`Trie::update_value`]
+    // #[test]
+    // fn prop_test_update_value() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree
+    //         let mut tree = create_tree_in_memory(&mut store, i);
+    //
+    //         // Update each of the values
+    //         for j in 0..i {
+    //             // Update the value
+    //             tree = tree
+    //                 .update_value(&store, TestKey(j), |val| Ok(StoreSerialized(val.0 + 10)))
+    //                 .expect("update existing value")
+    //                 .unwrap();
+    //
+    //             // Lookup the value again
+    //             assert_eq!(
+    //                 tree.lookup_value(&store, TestKey(j)).unwrap().as_deref(),
+    //                 Some(&StoreSerialized(j + 20)),
+    //                 "update value for key {:?} in tree of size {}",
+    //                 TestKey(j),
+    //                 i
+    //             );
+    //         }
+    //
+    //         // Update non-existing values
+    //         assert_matches!(
+    //             tree.update_value(&store, TestKey(i), |val| Ok(*val))
+    //                 .unwrap(),
+    //             None,
+    //             "update non-existing value for key {:?} in tree of size {}",
+    //             TestKey(i),
+    //             i
+    //         );
+    //         assert_matches!(
+    //             tree.update_value(&store, TestKey(i + 1), |val| Ok(*val))
+    //                 .unwrap(),
+    //             None,
+    //             "update non-existing value for key {:?} in tree of size {}",
+    //             TestKey(i + 1),
+    //             i
+    //         );
+    //     }
+    // }
+    //
+    // /// Tests storing the tree into the blob store and loading it again.
+    // #[test]
+    // fn prop_test_store_and_load() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //
+    //         // Append values to tree
+    //         let tree1 = create_tree_in_memory(&mut store, i);
+    //
+    //         // Store tree
+    //         let blob_ref = blob_store::store_to_store(&mut store, &tree1);
+    //
+    //         // Load tree
+    //         let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
+    //
+    //         // Assert loaded tree is equal to the tree we started with
+    //         assert_trees_eq(
+    //             &store,
+    //             &store,
+    //             &tree1,
+    //             &tree2,
+    //             format!("loaded tree of size {}", i),
+    //         );
+    //     }
+    // }
+    //
+    // /// Tests moving tree into new blob store
+    // #[test]
+    // fn prop_test_move_blob_store() {
+    //     for i in 0..100 {
+    //         let mut from_store = BlobStoreStub::default();
+    //         let mut to_store = BlobStoreStub::default();
+    //
+    //         // Create tree and store it
+    //         let tree = create_tree_in_memory(&mut from_store, i);
+    //         blob_store::store_to_store(&mut from_store, &tree);
+    //
+    //         // Migrate the tree and store it
+    //         let new_tree = tree.move_blob_store(&from_store, &mut to_store).unwrap();
+    //         let new_blob_loc = blob_store::store_to_store(&mut to_store, &new_tree);
+    //
+    //         // Assert migrated tree is equal to the tree we started with
+    //         assert_trees_eq(
+    //             &from_store,
+    //             &to_store,
+    //             &tree,
+    //             &new_tree,
+    //             format!("loaded tree of size {}", i),
+    //         );
+    //         drop(new_tree);
+    //
+    //         // Load migrated tree from destination store
+    //         let new_tree2: TestTree = blob_store::load_from_store(&to_store, new_blob_loc).unwrap();
+    //
+    //         // Assert tree loaded from destination store is equal to the tree we started with
+    //         assert_trees_eq(
+    //             &from_store,
+    //             &to_store,
+    //             &tree,
+    //             &new_tree2,
+    //             format!("loaded tree of size {}", i),
+    //         );
+    //     }
+    // }
+    //
+    // /// Tests caching tree.
+    // #[test]
+    // fn prop_test_cache() {
+    //     for i in 0..100 {
+    //         let mut store = BlobStoreStub::default();
+    //         let tree1 = create_tree_in_memory(&mut store, i);
+    //         let blob_ref = blob_store::store_to_store(&mut store, &tree1);
+    //         let tree2: TestTree = blob_store::load_from_store(&store, blob_ref).unwrap();
+    //
+    //         // Cache tree
+    //         tree2.cache_reference_values(&store).expect("cache");
+    //
+    //         // Assert cached tree is identical to the tree with started with
+    //         assert_trees_eq(
+    //             &store,
+    //             &store,
+    //             &tree1,
+    //             &tree2,
+    //             format!("cached tree of size {}", i),
+    //         );
+    //
+    //         // Assert that when caching again or looking up entries, we don't need to read from the blob store again.
+    //         // We assert that by using UnreachableBlobStore.
+    //         tree2
+    //             .cache_reference_values(&UnreachableBlobStore)
+    //             .expect("cache");
+    //         for j in 0..i {
+    //             assert_eq!(
+    //                 tree2
+    //                     .lookup_value(&UnreachableBlobStore, TestKey(j))
+    //                     .unwrap()
+    //                     .as_deref(),
+    //                 Some(&StoreSerialized(j + 10)),
+    //                 "lookup value for key {:?} in cached tree of size {}",
+    //                 TestKey(j),
+    //                 i
+    //             );
+    //         }
+    //         assert_eq!(
+    //             tree2
+    //                 .lookup_value(&UnreachableBlobStore, TestKey(i))
+    //                 .unwrap(),
+    //             None,
+    //             "lookup non-existing value for key {:?} in cached tree of size {}",
+    //             TestKey(i),
+    //             i
+    //         );
+    //     }
+    // }
+    //
+    // /// Assert snapshot of hash of empty tree.
+    // /// Hash snapshot must not change and must be equal to Haskell LFMB tree implementation.
+    // #[test]
+    // fn snapshot_test_hash_empty_tree() {
+    //     let store = BlobStoreStub::default();
+    //
+    //     let tree = Trie::<TestKey, StoreSerialized<String>>::empty();
+    //     let hash = tree.hash(&store).unwrap();
+    //     assert_eq!(
+    //         hex::encode(hash.bytes),
+    //         "c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05"
+    //     );
+    // }
+    //
+    // /// Assert snapshot of hash of tree with 3 values A, B, C.
+    // /// Hash snapshot must not change and must be equal to Haskell LFMB tree implementation.
+    // #[test]
+    // fn snapshot_test_hash_simple_tree() {
+    //     let store = BlobStoreStub::default();
+    //
+    //     let tree = Trie::<TestKey, StoreSerialized<String>>::empty();
+    //     let tree1 = tree
+    //         .insert_value(&store, StoreSerialized("A".to_string()))
+    //         .unwrap()
+    //         .1;
+    //     let tree2 = tree1
+    //         .insert_value(&store, StoreSerialized("B".to_string()))
+    //         .unwrap()
+    //         .1;
+    //     let tree3 = tree2
+    //         .insert_value(&store, StoreSerialized("C".to_string()))
+    //         .unwrap()
+    //         .1;
+    //     let hash = tree3.hash(&store).unwrap();
+    //     assert_eq!(
+    //         hex::encode(hash.bytes),
+    //         "b9cac19f6048ef301f586e7e0faa6c08b6012d4b100703eef5dc1fcb26c1ecd5"
+    //     );
+    // }
+    //
+    // /// Load empty tree from storage bytes fixture.
+    // /// The fixture bytes must not change and must be compatible with Haskell LFMB tree implementation.
+    // #[test]
+    // fn fixture_test_storage_empty_tree() {
+    //     let store = BlobStoreStub(hex::decode("00000000000000080000000000000000").unwrap());
+    //
+    //     let tree: Trie<TestKey, StoreSerialized<String>> =
+    //         blob_store::load_from_store(&store, BlobStoreLocation(0)).expect("load tree");
+    //     assert_eq!(tree.size(), 0);
+    // }
+    //
+    // /// Load tree with 3 values A, B, C from storage bytes fixture.
+    // /// The fixture bytes must not change and must be compatible with Haskell LFMB tree implementation.
+    // #[test]
+    // fn fixture_test_storage_simple_tree() {
+    //     let store = BlobStoreStub(hex::decode("0000000000000009000000000000000141000000000000000900000000000000000000000000000000090000000000000001420000000000000009000000000000000022000000000000001901000000000000000000000000000000110000000000000033000000000000000900000000000000014300000000000000090000000000000000650000000000000021000000000000000301000000000000000100000000000000440000000000000076").unwrap());
+    //
+    //     let tree: Trie<TestKey, StoreSerialized<String>> =
+    //         blob_store::load_from_store(&store, BlobStoreLocation(135)).expect("load tree");
+    //     assert_eq!(tree.size(), 3);
+    //     assert_eq!(
+    //         *tree.lookup_value(&store, TestKey(0)).unwrap().unwrap(),
+    //         StoreSerialized("A".to_string())
+    //     );
+    //     assert_eq!(
+    //         *tree.lookup_value(&store, TestKey(1)).unwrap().unwrap(),
+    //         StoreSerialized("B".to_string())
+    //     );
+    //     assert_eq!(
+    //         *tree.lookup_value(&store, TestKey(2)).unwrap().unwrap(),
+    //         StoreSerialized("C".to_string())
+    //     );
+    // }
+    //
+    // /// Assert node structure and values in tree are equal.
+    // fn assert_trees_eq<K: Debug, V: Loadable + Clone + PartialEq + Debug>(
+    //     loader1: &impl BlobStoreLoad,
+    //     loader2: &impl BlobStoreLoad,
+    //     tree1: &Trie<K, V>,
+    //     tree2: &Trie<K, V>,
+    //     context: String,
+    // ) {
+    //     match (&tree1.inner, &tree2.inner) {
+    //         (TrieInner::Empty, TrieInner::Empty) => {
+    //             // equal
+    //         }
+    //         (
+    //             TrieInner::NonEmpty(size1, subtree1),
+    //             TrieInner::NonEmpty(size2, subtree2),
+    //         ) => {
+    //             assert_eq!(size1, size2);
+    //             assert_subtrees_eq(loader1, loader2, subtree1, subtree2, context.clone());
+    //         }
+    //         (_, _) => {
+    //             panic!("{}: trees not equal: {:?}, {:?}", context, tree1, tree2);
+    //         }
+    //     }
+    // }
+    //
+    // /// Assert node structure and values in subtree are equal.
+    // fn assert_subtrees_eq<V: Loadable + Clone + PartialEq + Debug>(
+    //     loader1: &impl BlobStoreLoad,
+    //     loader2: &impl BlobStoreLoad,
+    //     subtree1: &Node<V>,
+    //     subtree2: &Node<V>,
+    //     context: String,
+    // ) {
+    //     match (subtree1, subtree2) {
+    //         (Node::Leaf(val_ref1), Node::Leaf(val_ref2)) => {
+    //             let val1 = &*val_ref1.value(loader1).unwrap();
+    //             let val2 = &*val_ref2.value(loader2).unwrap();
+    //             assert_eq!(val1, val2, "{}: leaf value", context);
+    //         }
+    //         (
+    //             Node::Node(height1, left_ref1, right_ref1),
+    //             Node::Node(height2, left_ref2, right_ref2),
+    //         ) => {
+    //             assert_eq!(height1, height2);
+    //             let left1 = &*left_ref1.value(loader1).unwrap();
+    //             let right1 = &*right_ref1.value(loader1).unwrap();
+    //             let left2 = &*left_ref2.value(loader2).unwrap();
+    //             let right2 = &*right_ref2.value(loader2).unwrap();
+    //             assert_subtrees_eq(loader1, loader2, left1, left2, context.clone());
+    //             assert_subtrees_eq(loader1, loader2, right1, right2, context.clone());
+    //         }
+    //         (_, _) => {
+    //             panic!("subtrees not equal: {:?}, {:?}", subtree1, subtree2);
+    //         }
+    //     }
+    // }
+}

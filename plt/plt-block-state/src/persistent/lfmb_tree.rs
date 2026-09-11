@@ -540,7 +540,7 @@ impl<V> Subtree<V> {
     /// # Arguments
     ///
     /// - `node_size`: The number of entries in the subtree.
-    pub fn values(
+    fn values(
         &self,
         loader: &impl BlobStoreLoad,
         node_size: u64,
@@ -640,7 +640,7 @@ impl<V> Subtree<V> {
     /// - `key`: The key to update the value for.
     /// - `update`: Closure that is given the value, either as owned
     ///   or borrowed, and returns the new value for the key.
-    pub fn update_value(
+    fn update_value(
         &self,
         loader: &impl BlobStoreLoad,
         key: SubtreeKey,
