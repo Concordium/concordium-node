@@ -31,3 +31,13 @@ impl<T: Cacheable> Cacheable for Option<T> {
         }
     }
 }
+
+impl<T: Cacheable> Cacheable for [T] {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        for elm in self {
+            self.cache_reference_values(loader)?;
+        }
+
+        Ok(())
+    }
+}

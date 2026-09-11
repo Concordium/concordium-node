@@ -84,6 +84,22 @@ impl<T: Loadable> Loadable for Option<T> {
     }
 }
 
+impl<T: Loadable> Loadable for Vec<T> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> Result<Self, BlockStateFailure> {
+        let len: u64 = buffer.get().map_parse_err_to_block_state_err()?;
+        let mut vec = Vec::with_capacity(len as usize);
+
+        for _ in 0..len {
+            vec.push(T::load_from_buffer(&mut buffer, loader)?);
+        }
+
+        Ok(vec)
+    }
+}
+
 /// A trait implemented by types that can be stored to a [blob store](BlobStoreStore).
 pub trait Storable {
     /// Store the value in the given `buffer` that will be written to the blob store.
@@ -119,6 +135,16 @@ impl<T: Storable> Storable for Option<T> {
         }
     }
 }
+
+impl<T: Storable> Storable for [T] {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        buffer.put(self.len() as u64);
+        for elm in self {
+            elm.store_to_buffer(&mut buffer, storer);
+        }
+    }
+}
+
 /// Adapter for types implementing [`Serialize`] that
 /// allows them to be used as block state components.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -244,6 +270,35 @@ impl<T: Serial + Clone> BlobStoreMovable for StoreSerialized<T> {
         _to_storer: &mut impl BlobStoreStore,
     ) -> BlockStateResult<Self> {
         Ok(self.clone())
+    }
+}
+
+impl<T: BlobStoreMovable> BlobStoreMovable for Option<T> {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self> {
+        Ok(match self {
+            None => None,
+            Some(inner) => Some(inner.move_blob_store(from_loader, to_storer)?),
+        })
+    }
+}
+
+impl<T: BlobStoreMovable> BlobStoreMovable for Vec<T> {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self> {
+        let mut vec = Vec::with_capacity(self.len());
+
+        for elm in self {
+            vec.push(elm.move_blob_store(from_loader, to_storer)?);
+        }
+
+        Ok(vec)
     }
 }
 

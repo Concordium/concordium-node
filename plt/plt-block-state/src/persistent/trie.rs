@@ -6,6 +6,7 @@ use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, ParseResultExt, Storable,
+    StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
@@ -13,25 +14,27 @@ use concordium_base::common::{Buffer, Get, Put};
 use sha2::Digest;
 use sha2::digest::generic_array::GenericArray;
 use sha2::digest::typenum::U256;
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
-use std::mem;
+
+// TODO: use TinyVec instead of Vec for some values?
 
 /// Representation of an immutable trie with values of type `V`.
 /// The represented trie is immutable in the sense that the trie and its values does not change,
-/// once it has been created. When values are inserted or updated, a new trie is created,
+/// once it has been created. When entries are inserted, updated or deleted, a new trie is created,
 /// reusing the nodes that have not changed by the operation.
 /// Keys must allow borrowing a byte slice (`&[u8]`) representing it.
 ///
 /// The operations supported for creating new trees are:
-/// TODO
+///
 /// * Create empty tree with [`Trie::empty`]: Returns a new empty tree.
-/// * Insert new value with [`Trie::insert_value`]: Inserts a new value, assigning the sequentially next unused key,
-///   and returns new tree with the inserted value.
-/// * Update value with [`Trie::update_value`]: Updates an existing value, keeping the same key, and returns
-///   the new tree with the updated value.
+/// * Insert or update a value with [`Trie::insert_or_update_entry`]: Returns the new tree with
+///   the inserted or updated value.
+/// * Delete a value with [`Trie::delete_value`]: Returns the new tree with
+///   the inserted or updated value.
 ///
 /// ## Interior mutability
 ///
@@ -46,21 +49,22 @@ use std::mem;
 ///
 /// TODO
 ///
-/// ### Example tree
+/// ### Example trie
 ///
 /// TODO
 /// ```
 #[derive(Debug)]
 pub struct Trie<K, V> {
-    // todo ar add size
-    inner: HashedCacheableRef<Node<V>>, // todo ar remove and use Cow
+    size: u64,
+    root: HashedCacheableRef<Node<V>>, // todo ar remove and use Cow
     _key_type: PhantomData<K>,
 }
 
 impl<K, V> Clone for Trie<K, V> {
     fn clone(&self) -> Self {
         Self {
-            inner: self.inner.clone(),
+            size: self.size,
+            root: self.root.clone(),
             _key_type: self._key_type,
         }
     }
@@ -78,157 +82,88 @@ impl<K, V> Trie<K, V> {
         let inner = Node::empty();
 
         Self {
-            inner: HashedCacheableRef::new(inner),
+            size: 0,
+            root: HashedCacheableRef::new(inner),
             _key_type: PhantomData,
         }
     }
 
-    // /// Return the number of entries in the tree.
-    // #[allow(unused)]
-    // pub fn size(&self) -> u64 {
-    //     match &self.inner {
-    //         TrieInner::Empty => 0,
-    //         TrieInner::NonEmpty(size, _) => *size,
-    //     }
-    // }
+    /// Return the number of entries in the tree.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
 
-    // /// Get the value for the given `key` in the tree or `None` if there
-    // /// is no value for the key.
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `loader`: Loader for the blob store the tree is stored in.
-    // /// - `key`: The key to access the value for.
-    // ///
-    // /// # Errors
-    // ///
-    // /// Returns [`BlockStateFailure`] if decoding data from the
-    // /// blob store fails, or if the tree does not fulfill
-    // /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    // pub fn lookup_value(
-    //     &self,
-    //     loader: &impl BlobStoreLoad,
-    //     key: K,
-    // ) -> BlockStateResult<Option<Cow<'_, V>>>
-    // where
-    //     V: Loadable,
-    // {
-    //     Ok(match &self.inner {
-    //         TrieInner::Empty => None,
-    //         TrieInner::NonEmpty(size, subtree) => {
-    //             let int_key = SubtreeKey(key.to_u64());
-    //             if int_key.0 < *size {
-    //                 Some(Cow::Borrowed(subtree).lookup_value(loader, int_key)?)
-    //             } else {
-    //                 None
-    //             }
-    //         }
-    //     })
-    // }
-    //
-    // /// Insert a value to the tree, and return the key for the inserted value and
-    // /// the tree with the inserted value. Keys are assigned sequentially,
-    // /// starting from `LfmbTreeKey::from_u64(0)`, then `LfmbTreeKey::from_u64(1)` and
-    // /// so on.
-    // ///
-    // /// Notice that trees are immutable data structures, see [`Self`].
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `loader`: loader for the blob store the tree is stored in
-    // /// - `value`: The value to insert
-    // ///
-    // /// # Errors
-    // ///
-    // /// Returns [`BlockStateFailure`] if decoding data from the
-    // /// blob store fails, or if the tree does not fulfill
-    // /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    // pub fn insert_value(&self, loader: &impl BlobStoreLoad, value: V) -> BlockStateResult<(K, Self)>
-    // where
-    //     V: Loadable,
-    // {
-    //     Ok(match &self.inner {
-    //         TrieInner::Empty => (
-    //             LfmbTreeKey::from_u64(0),
-    //             Self::from_inner(TrieInner::NonEmpty(
-    //                 1,
-    //                 Subtree::Leaf(HashedCacheableRef::new(value)),
-    //             )),
-    //         ),
-    //         TrieInner::NonEmpty(size, subtree) => (
-    //             LfmbTreeKey::from_u64(*size),
-    //             Self::from_inner(TrieInner::NonEmpty(
-    //                 *size + 1,
-    //                 subtree.insert_value(loader, None, *size, value)?,
-    //             )),
-    //         ),
-    //     })
-    // }
-    //
-    // /// Update the value with the given `key` in the tree
-    // /// using the `update` closure. Returns the tree with the updated
-    // /// value or `None` if there is no entry with the given key in the tree.
-    // ///
-    // /// Notice that trees are immutable data structures, see [`Self`].
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `loader`: Loader for the blob store the tree is stored in.
-    // /// - `key`: The key to update the value for.
-    // /// - `update`: Closure that is given the value, either as owned
-    // ///   or borrowed, and returns the new value for the key.
-    // ///
-    // /// # Errors
-    // ///
-    // /// Returns [`BlockStateFailure`] if returned by `update` or if decoding data from the
-    // /// blob store fails, or if the tree does not fulfill
-    // /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    // pub fn update_value(
-    //     &self,
-    //     loader: &impl BlobStoreLoad,
-    //     key: K,
-    //     update: impl FnOnce(Cow<'_, V>) -> BlockStateResult<V>,
-    // ) -> BlockStateResult<Option<Self>>
-    // where
-    //     V: Loadable,
-    // {
-    //     Ok(match &self.inner {
-    //         TrieInner::Empty => None,
-    //         TrieInner::NonEmpty(size, subtree) => {
-    //             let int_key = SubtreeKey(key.to_u64());
-    //             if int_key.0 < *size {
-    //                 let new_subtree = subtree.update_value(loader, int_key, update)?;
-    //                 Some(Self::from_inner(TrieInner::NonEmpty(
-    //                     *size,
-    //                     new_subtree,
-    //                 )))
-    //             } else {
-    //                 None
-    //             }
-    //         }
-    //     })
-    // }
+    /// Get the value for the given `key` in the trie or `None` if there
+    /// is no value for the key.
+    ///
+    /// # Arguments
+    ///
+    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `key`: The key to access the value for.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the
+    /// blob store fails, or if the tree does not fulfill
+    /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: K) -> BlockStateResult<Option<V>>
+    where
+        V: Loadable + Clone,
+        K: Borrow<[u8]>,
+    {
+        Node::lookup_value(&self.root, loader, key.borrow())
+    }
 
-    fn from_inner(inner: Node<V>) -> Self {
-        Self {
-            inner: HashedCacheableRef::new(inner),
-            _key_type: Default::default(),
-        }
+    /// Insert or update the `value` in the trie at the given `key`. Returns
+    /// the updated trie.
+    ///
+    /// Notice that tries are immutable data structures, see [`Self`].
+    ///
+    /// # Arguments
+    ///
+    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `key`: The key to insert the value for.
+    /// - `value`: The value to insert.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the
+    /// blob store fails, or if the tree does not fulfill
+    /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    pub fn insert_or_update_entry(
+        &self,
+        loader: &impl BlobStoreLoad,
+        key: K,
+        value: V,
+    ) -> BlockStateResult<Self>
+    where
+        V: Loadable,
+        K: Borrow<[u8]>,
+    {
+        let (new_root, replaced) = Node::insert_rec(&self.root, loader, key.borrow(), value)?;
+
+        let new_size = if replaced { self.size } else { self.size + 1 };
+
+        Ok(Self {
+            size: new_size, // todo ar
+            root: new_root,
+            _key_type: self._key_type,
+        })
     }
 }
 
 /// Trie node
 #[derive(Debug)]
 struct Node<V> {
-    children: GenericArray<Option<Edge<V>>, U256>, // todo ar replace with filled vec
-    terminal: Option<HashedCacheableRef<V>>,
+    children: Vec<Option<Edge<V>>>, // todo ar replace with filled vec
+    terminal_ref: Option<HashedCacheableRef<V>>,
 }
 
 impl<V> Clone for Node<V> {
     fn clone(&self) -> Self {
         Self {
             children: self.children.clone(),
-            terminal: self.terminal.clone(),
+            terminal_ref: self.terminal_ref.clone(),
         }
     }
 }
@@ -236,15 +171,15 @@ impl<V> Clone for Node<V> {
 /// Trie edge
 #[derive(Debug)]
 pub struct Edge<V> {
-    stem: Vec<u8>, // todo ar use smallvec
-    target: HashedCacheableRef<Node<V>>,
+    stem: Vec<u8>,
+    target_ref: HashedCacheableRef<Node<V>>,
 }
 
 impl<V> Clone for Edge<V> {
     fn clone(&self) -> Self {
         Self {
             stem: self.stem.clone(),
-            target: self.target.clone(),
+            target_ref: self.target_ref.clone(),
         }
     }
 }
@@ -285,7 +220,7 @@ impl<V> Node<V> {
     fn empty() -> Self {
         Self {
             children: Default::default(),
-            terminal: None,
+            terminal_ref: None,
         }
     }
 
@@ -306,7 +241,7 @@ impl<V> Node<V> {
                 match common_prefix_len.cmp(&edge.stem.len()) {
                     Ordering::Equal => {
                         // Path matched node and the full stem.
-                        Node::scan_rec(&edge.target, loader, &path[edge.stem.len()..])?
+                        Node::scan_rec(&edge.target_ref, loader, &path[edge.stem.len()..])?
                     }
                     Ordering::Less => match common_prefix_len.cmp(&path.len()) {
                         Ordering::Equal => ScanReturn {
@@ -314,7 +249,7 @@ impl<V> Node<V> {
                             prefix_matched_node: node_ref.clone(),
                             suffix_path_from_matched_node: path,
                             matched: ScanMatch::FullMatch,
-                            partially_matched_node: Some(edge.target.clone()),
+                            partially_matched_node: Some(edge.target_ref.clone()),
                         },
                         Ordering::Less => ScanReturn {
                             // Path matched node and partly the child stem.
@@ -323,7 +258,7 @@ impl<V> Node<V> {
                             matched: ScanMatch::MaximalNonFullMatch {
                                 suffix_unmatched: &path[common_prefix_len..],
                             },
-                            partially_matched_node: Some(edge.target.clone()),
+                            partially_matched_node: Some(edge.target_ref.clone()),
                         },
                         Ordering::Greater => {
                             unreachable!()
@@ -356,13 +291,13 @@ impl<V> Node<V> {
     }
 
     /// Insert the given value at the given path. If a value already exists at the path,
-    /// it is replaced. Returns the updated node.
+    /// it is replaced. Returns the updated node and a boolean indicating if a replacement took place.
     fn insert_rec(
         node_ref: &HashedCacheableRef<Node<V>>,
         loader: &impl BlobStoreLoad,
         path: &[u8],
         value: V,
-    ) -> BlockStateResult<HashedCacheableRef<Node<V>>> {
+    ) -> BlockStateResult<(HashedCacheableRef<Node<V>>, bool)> {
         let node = node_ref.value(loader)?;
         Ok(if let Some(&path_byte) = path.first() {
             if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
@@ -371,47 +306,41 @@ impl<V> Node<V> {
                 match common_prefix_len.cmp(&edge.stem.len()) {
                     Ordering::Equal => {
                         // Insert in child node.
-                        let new_child_node = Self::insert_rec(
-                            &edge.target,
+                        let (new_child_node, replaced) = Self::insert_rec(
+                            &edge.target_ref,
                             loader,
                             &path[edge.stem.len()..],
                             value,
                         )?;
 
-                        let mut new_node = Node {
-                            children: node.children.clone(),
-                            terminal: node.terminal.clone(),
-                        };
+                        let mut new_node = node.clone();
 
                         new_node.children[path_byte as usize] = Some(Edge {
                             stem: edge.stem.clone(),
-                            target: new_child_node,
+                            target_ref: new_child_node,
                         });
 
-                        HashedCacheableRef::new(new_node)
+                        (HashedCacheableRef::new(new_node), replaced)
                     }
                     Ordering::Less => {
                         // Insert in the child stem.
                         let mut stem_node = Node {
                             children: Default::default(),
-                            terminal: Some(HashedCacheableRef::new(value)),
+                            terminal_ref: Some(HashedCacheableRef::new(value)),
                         };
                         stem_node.children[edge.stem[common_prefix_len] as usize] = Some(Edge {
                             stem: edge.stem[common_prefix_len..].to_vec(),
-                            target: edge.target.clone(),
+                            target_ref: edge.target_ref.clone(),
                         });
 
-                        let mut new_node = Node {
-                            children: node.children.clone(),
-                            terminal: node.terminal.clone(),
-                        };
+                        let mut new_node = node.clone();
 
                         new_node.children[path_byte as usize] = Some(Edge {
                             stem: edge.stem[..common_prefix_len].to_vec(),
-                            target: HashedCacheableRef::new(stem_node),
+                            target_ref: HashedCacheableRef::new(stem_node),
                         });
 
-                        HashedCacheableRef::new(new_node)
+                        (HashedCacheableRef::new(new_node), false)
                     }
                     Ordering::Greater => {
                         unreachable!()
@@ -421,28 +350,80 @@ impl<V> Node<V> {
                 // Insert new child in the node.
                 let child_node = Node {
                     children: Default::default(),
-                    terminal: Some(HashedCacheableRef::new(value)),
+                    terminal_ref: Some(HashedCacheableRef::new(value)),
                 };
 
-                let mut new_node = Node {
-                    children: node.children.clone(),
-                    terminal: node.terminal.clone(),
-                };
+                let mut new_node = node.clone();
 
                 new_node.children[path_byte as usize] = Some(Edge {
                     stem: path.to_vec(),
-                    target: HashedCacheableRef::new(child_node),
+                    target_ref: HashedCacheableRef::new(child_node),
                 });
 
-                HashedCacheableRef::new(new_node)
+                (HashedCacheableRef::new(new_node), false)
             }
         } else {
             // Replace exising value.
             let new_node = Node {
                 children: node.children.clone(),
-                terminal: Some(HashedCacheableRef::new(value)),
+                terminal_ref: Some(HashedCacheableRef::new(value)),
             };
-            HashedCacheableRef::new(new_node)
+
+            (HashedCacheableRef::new(new_node), true)
+        })
+    }
+
+    /// Delete the value at the given path. Returns the updated node if it was updated.
+    /// If no entry exists with the given path, the node is not updated.
+    fn delete_rec(
+        node_ref: &HashedCacheableRef<Node<V>>,
+        loader: &impl BlobStoreLoad,
+        path: &[u8],
+    ) -> BlockStateResult<Option<HashedCacheableRef<Node<V>>>> {
+        let node = node_ref.value(loader)?;
+        Ok(if let Some(&path_byte) = path.first() {
+            if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
+                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
+
+                match common_prefix_len.cmp(&edge.stem.len()) {
+                    Ordering::Equal => {
+                        // Delete in child node.
+                        if let Some(new_child_node) =
+                            Self::delete_rec(&edge.target_ref, loader, &path[edge.stem.len()..])?
+                        {
+                            let mut new_node = node.clone();
+
+                            new_node.children[path_byte as usize] = Some(Edge {
+                                stem: edge.stem.clone(),
+                                target_ref: new_child_node,
+                            });
+
+                            Some(HashedCacheableRef::new(new_node))
+                        } else {
+                            None
+                        }
+                    }
+                    Ordering::Less => {
+                        // Entry does not exist.
+                        None
+                    }
+                    Ordering::Greater => {
+                        unreachable!()
+                    }
+                }
+            } else {
+                // Entry does not exist.
+                None
+            }
+        } else {
+            todo!()
+            // // Replace exising value.
+            // let new_node = Node {
+            //     children: node.children.clone(),
+            //     terminal: Some(HashedCacheableRef::new(value)),
+            // };
+            //
+            // HashedCacheableRef::new(new_node)
         })
     }
 
@@ -459,8 +440,10 @@ impl<V> Node<V> {
         let scan_return = Node::scan_rec(node_ref, loader, path)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
-                if let Some(terminal) = &scan_return.prefix_matched_node.value(loader)?.terminal {
-                    Some(terminal.value(loader)?.into_owned())
+                if let Some(terminal_ref) =
+                    &scan_return.prefix_matched_node.value(loader)?.terminal_ref
+                {
+                    Some(terminal_ref.value(loader)?.into_owned())
                 } else {
                     None
                 }
@@ -483,7 +466,7 @@ impl<V> Node<V> {
                 scan_return
                     .prefix_matched_node
                     .value(loader)?
-                    .terminal
+                    .terminal_ref
                     .is_some()
             }
             _ => false,
@@ -491,48 +474,28 @@ impl<V> Node<V> {
     }
 
     // todo ar iterator
+}
 
-    //
-    // /// Insert `new_value` into the subtree and return a new subtree with the inserted value.
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `subtree_ref_option`: Blob reference to the subtree. For the root tree, there is no such
-    // ///   reference, in which case the argument is `None`.
-    // /// - `node_size`: The number of entries in the subtree.
-    // /// - `new_value`: The value to insert in the subtree.
-    // fn insert_value(
-    //     &self,
-    //     loader: &impl BlobStoreLoad,
-    //     subtree_ref_option: Option<&HashedCacheableRef<Node<V>>>,
-    //     node_size: u64,
-    //     new_value: V,
-    // ) -> BlockStateResult<Self>
-    // where
-    //     V: Loadable,
-    // {
-    //
-    // }
-    //
-    // /// Update the value with the given `key` in the tree
-    // /// using the `update` closure.
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `key`: The key to update the value for.
-    // /// - `update`: Closure that is given the value, either as owned
-    // ///   or borrowed, and returns the new value for the key.
-    // pub fn update_value(
-    //     &self,
-    //     loader: &impl BlobStoreLoad,
-    //     key: SubtreeKey,
-    //     update: impl FnOnce(Cow<'_, V>) -> BlockStateResult<V>,
-    // ) -> BlockStateResult<Self>
-    // where
-    //     V: Loadable,
-    // {
-    //
-    // }
+impl<K, V> Loadable for Trie<K, V> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
+        let size: u64 = buffer.get().map_parse_err_to_block_state_err()?;
+
+        Ok(Self {
+            size,
+            root: Loadable::load_from_buffer(buffer, loader)?,
+            _key_type: PhantomData,
+        })
+    }
+}
+
+impl<K, V: Storable> Storable for Trie<K, V> {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        buffer.put(self.size);
+        self.root.store_to_buffer(buffer, storer);
+    }
 }
 
 impl<V> Loadable for Node<V> {
@@ -540,7 +503,106 @@ impl<V> Loadable for Node<V> {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        todo!()
+        Ok(Self {
+            children: Loadable::load_from_buffer(&mut buffer, loader)?,
+            terminal_ref: Loadable::load_from_buffer(&mut buffer, loader)?,
+        })
+    }
+}
+
+impl<V: Storable> Storable for Node<V> {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        self.terminal_ref.store_to_buffer(&mut buffer, storer);
+        self.children.store_to_buffer(&mut buffer, storer);
+    }
+}
+
+impl<V> Loadable for Edge<V> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
+        Ok(Self {
+            stem: StoreSerialized::load_from_buffer(&mut buffer, loader)?.0,
+            target_ref: Loadable::load_from_buffer(&mut buffer, loader)?,
+        })
+    }
+}
+
+impl<V: Storable> Storable for Edge<V> {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
+        self.target_ref.store_to_buffer(&mut buffer, storer);
+    }
+}
+
+impl<K, V: Cacheable + Loadable> Cacheable for Trie<K, V> {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        self.root.cache_reference_values(loader)
+    }
+}
+
+impl<V: Cacheable + Loadable> Cacheable for Node<V> {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        self.terminal_ref.cache_reference_values(loader)?;
+        self.children.cache_reference_values(loader)?;
+
+        Ok(())
+    }
+}
+
+impl<V: Cacheable + Loadable> Cacheable for Edge<V> {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        self.target_ref.cache_reference_values(loader)
+    }
+}
+
+impl<K, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Trie<K, V> {
+    fn move_blob_store(
+        &self,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            size: self.size,
+            root: self.root.move_blob_store(from_store, to_store)?,
+            _key_type: self._key_type,
+        })
+    }
+}
+
+impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
+    fn move_blob_store(
+        &self,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            children: self.children.move_blob_store(from_store, to_store)?,
+            terminal_ref: self.terminal_ref.move_blob_store(from_store, to_store)?,
+        })
+    }
+}
+
+impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Edge<V> {
+    fn move_blob_store(
+        &self,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            stem: self.stem.clone(),
+            target_ref: self.target_ref.move_blob_store(from_store, to_store)?,
+        })
     }
 }
 
