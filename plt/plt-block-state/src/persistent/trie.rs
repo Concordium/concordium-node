@@ -14,13 +14,12 @@ use crate::persistent::hash::Hashable;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use sha2::Digest;
-use sha2::digest::generic_array::GenericArray;
-use sha2::digest::typenum::U256;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
+
 // TODO: use TinyVec instead of Vec for some values?
 
 /// Representation of an immutable trie with values of type `V`.
@@ -146,7 +145,7 @@ impl<K, V> Trie<K, V> {
         let new_size = if replaced { self.size } else { self.size + 1 };
 
         Ok(Self {
-            size: new_size, // todo ar
+            size: new_size,
             root: new_root,
             _key_type: self._key_type,
         })
