@@ -84,22 +84,6 @@ impl<T: Loadable> Loadable for Option<T> {
     }
 }
 
-impl<T: Loadable> Loadable for Vec<T> {
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-    ) -> Result<Self, BlockStateFailure> {
-        let len: u64 = buffer.get().map_parse_err_to_block_state_err()?;
-        let mut vec = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            vec.push(T::load_from_buffer(&mut buffer, loader)?);
-        }
-
-        Ok(vec)
-    }
-}
-
 /// A trait implemented by types that can be stored to a [blob store](BlobStoreStore).
 pub trait Storable {
     /// Store the value in the given `buffer` that will be written to the blob store.
@@ -132,15 +116,6 @@ impl<T: Storable> Storable for Option<T> {
                 buffer.put(1u8);
                 inner.store_to_buffer(buffer, storer)
             }
-        }
-    }
-}
-
-impl<T: Storable> Storable for [T] {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        buffer.put(self.len() as u64);
-        for elm in self {
-            elm.store_to_buffer(&mut buffer, storer);
         }
     }
 }

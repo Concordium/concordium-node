@@ -2,7 +2,7 @@
 //!
 //! See [`Trie`].
 
-use crate::failure::BlockStateResult;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
     BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, ParseResultExt, Storable,
@@ -197,7 +197,7 @@ impl<K, V> Trie<K, V> {
 /// Trie node
 #[derive(Debug)]
 struct Node<V> {
-    children: Vec<Option<Edge<V>>>, // todo ar replace with filled vec
+    children: ChildEdges<V>,
     terminal_ref: Option<HashedCacheableRef<V>>,
 }
 
@@ -207,6 +207,36 @@ impl<V> Clone for Node<V> {
             children: self.children.clone(),
             terminal_ref: self.terminal_ref.clone(),
         }
+    }
+}
+
+/// Node children
+#[derive(Debug)]
+struct ChildEdges<V>(Vec<Option<Edge<V>>>);
+
+impl<V> ChildEdges<V> {
+    fn size(&self) -> u8 {
+        self.0.len() as u8
+    }
+
+    fn get(&self, byte: u8) -> Option<&Edge<V>> {
+        self.0.get(byte as usize).and_then(|opt| opt.as_ref())
+    }
+
+    fn set(&mut self, byte: u8, edge: Edge<V>) {
+        self.0[byte as usize] = Some(edge);
+    }
+}
+
+impl<V> Default for ChildEdges<V> {
+    fn default() -> Self {
+        Self(vec![None; 256])
+    }
+}
+
+impl<V> Clone for ChildEdges<V> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -261,7 +291,7 @@ pub fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
 impl<V> Node<V> {
     fn empty() -> Self {
         Self {
-            children: vec![None; 256],
+            children: ChildEdges::default(),
             terminal_ref: None,
         }
     }
@@ -277,7 +307,7 @@ impl<V> Node<V> {
         V: Loadable,
     {
         Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
+            if let Some(edge) = node_ref.value(loader)?.children.get(path_byte) {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
@@ -342,7 +372,7 @@ impl<V> Node<V> {
     ) -> BlockStateResult<(HashedCacheableRef<Node<V>>, bool)> {
         let node = node_ref.value(loader)?;
         Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
+            if let Some(edge) = node_ref.value(loader)?.children.get(path_byte) {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
@@ -357,10 +387,13 @@ impl<V> Node<V> {
 
                         let mut new_node = node.clone();
 
-                        new_node.children[path_byte as usize] = Some(Edge {
-                            stem: edge.stem.clone(),
-                            target_ref: new_child_node,
-                        });
+                        new_node.children.set(
+                            path_byte,
+                            Edge {
+                                stem: edge.stem.clone(),
+                                target_ref: new_child_node,
+                            },
+                        );
 
                         (HashedCacheableRef::new(new_node), replaced)
                     }
@@ -369,50 +402,63 @@ impl<V> Node<V> {
                             Ordering::Equal => {
                                 // Insert in stem.
                                 let mut stem_node = Node {
-                                    children: vec![None; 256],
+                                    children: ChildEdges::default(),
                                     terminal_ref: Some(HashedCacheableRef::new(value)),
                                 };
-                                stem_node.children[edge.stem[common_prefix_len] as usize] =
-                                    Some(Edge {
+                                stem_node.children.set(
+                                    edge.stem[common_prefix_len],
+                                    Edge {
                                         stem: edge.stem[common_prefix_len..].to_vec(),
                                         target_ref: edge.target_ref.clone(),
-                                    });
+                                    },
+                                );
 
                                 let mut new_node = node.clone();
 
-                                new_node.children[path_byte as usize] = Some(Edge {
-                                    stem: edge.stem[..common_prefix_len].to_vec(),
-                                    target_ref: HashedCacheableRef::new(stem_node),
-                                });
+                                new_node.children.set(
+                                    path_byte,
+                                    Edge {
+                                        stem: edge.stem[..common_prefix_len].to_vec(),
+                                        target_ref: HashedCacheableRef::new(stem_node),
+                                    },
+                                );
 
                                 (HashedCacheableRef::new(new_node), false)
                             }
                             Ordering::Less => {
                                 // Insert as child branching out from the stem.
                                 let mut stem_node = Node {
-                                    children: vec![None; 256],
+                                    children: ChildEdges::default(),
                                     terminal_ref: None,
                                 };
-                                stem_node.children[edge.stem[common_prefix_len] as usize] =
-                                    Some(Edge {
+                                stem_node.children.set(
+                                    edge.stem[common_prefix_len],
+                                    Edge {
                                         stem: edge.stem[common_prefix_len..].to_vec(),
                                         target_ref: edge.target_ref.clone(),
-                                    });
+                                    },
+                                );
                                 let child_node = Node {
-                                    children: vec![None; 256],
+                                    children: ChildEdges::default(),
                                     terminal_ref: Some(HashedCacheableRef::new(value)),
                                 };
-                                stem_node.children[path[common_prefix_len] as usize] = Some(Edge {
-                                    stem: path[common_prefix_len..].to_vec(),
-                                    target_ref: HashedCacheableRef::new(child_node),
-                                });
+                                stem_node.children.set(
+                                    path[common_prefix_len],
+                                    Edge {
+                                        stem: path[common_prefix_len..].to_vec(),
+                                        target_ref: HashedCacheableRef::new(child_node),
+                                    },
+                                );
 
                                 let mut new_node = node.clone();
 
-                                new_node.children[path_byte as usize] = Some(Edge {
-                                    stem: edge.stem[..common_prefix_len].to_vec(),
-                                    target_ref: HashedCacheableRef::new(stem_node),
-                                });
+                                new_node.children.set(
+                                    path_byte,
+                                    Edge {
+                                        stem: edge.stem[..common_prefix_len].to_vec(),
+                                        target_ref: HashedCacheableRef::new(stem_node),
+                                    },
+                                );
 
                                 (HashedCacheableRef::new(new_node), false)
                             }
@@ -428,16 +474,19 @@ impl<V> Node<V> {
             } else {
                 // Insert new child in the node.
                 let child_node = Node {
-                    children: vec![None; 256],
+                    children: ChildEdges::default(),
                     terminal_ref: Some(HashedCacheableRef::new(value)),
                 };
 
                 let mut new_node = node.clone();
 
-                new_node.children[path_byte as usize] = Some(Edge {
-                    stem: path.to_vec(),
-                    target_ref: HashedCacheableRef::new(child_node),
-                });
+                new_node.children.set(
+                    path_byte,
+                    Edge {
+                        stem: path.to_vec(),
+                        target_ref: HashedCacheableRef::new(child_node),
+                    },
+                );
 
                 (HashedCacheableRef::new(new_node), false)
             }
@@ -464,7 +513,7 @@ impl<V> Node<V> {
     ) -> BlockStateResult<Option<HashedCacheableRef<Node<V>>>> {
         let node = node_ref.value(loader)?;
         Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = &node_ref.value(loader)?.children[path_byte as usize] {
+            if let Some(edge) = node_ref.value(loader)?.children.get(path_byte) {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
@@ -475,10 +524,13 @@ impl<V> Node<V> {
                         {
                             let mut new_node = node.clone();
 
-                            new_node.children[path_byte as usize] = Some(Edge {
-                                stem: edge.stem.clone(),
-                                target_ref: new_child_node,
-                            });
+                            new_node.children.set(
+                                path_byte,
+                                Edge {
+                                    stem: edge.stem.clone(),
+                                    target_ref: new_child_node,
+                                },
+                            );
 
                             Some(HashedCacheableRef::new(new_node))
                         } else {
@@ -599,6 +651,30 @@ impl<V: Storable> Storable for Node<V> {
     }
 }
 
+impl<V> Loadable for ChildEdges<V> {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> Result<Self, BlockStateFailure> {
+        let size: u8 = buffer.get().map_parse_err_to_block_state_err()?;
+        let mut children = Vec::with_capacity(size as usize);
+        for _ in 0..size {
+            children.push(Loadable::load_from_buffer(&mut buffer, loader)?);
+        }
+
+        Ok(Self(children))
+    }
+}
+
+impl<V: Storable> Storable for ChildEdges<V> {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        buffer.put(self.size());
+        for child in self.0.iter().flatten() {
+            child.store_to_buffer(&mut buffer, storer);
+        }
+    }
+}
+
 impl<V> Loadable for Edge<V> {
     fn load_from_buffer(
         mut buffer: impl Read,
@@ -618,6 +694,8 @@ impl<V: Storable> Storable for Edge<V> {
     }
 }
 
+// todo ar change hash implementation, make hash take a digest instead of returning hash
+
 impl<K, V: Hashable + Loadable> Hashable for Trie<K, V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
@@ -633,6 +711,18 @@ impl<V: Hashable + Loadable> Hashable for Node<V> {
             self.terminal_ref.hash(loader)?,
             self.children.hash(loader)?,
         ))
+    }
+}
+
+impl<V: Hashable + Loadable> Hashable for ChildEdges<V> {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update([self.size()]);
+        for child in self.0.iter().flatten() {
+            hasher.update(child.hash(loader)?);
+        }
+
+        Ok(Hash::new(hasher.finalize().into()))
     }
 }
 
@@ -654,7 +744,7 @@ impl<K, V: Cacheable + Loadable> Cacheable for Trie<K, V> {
 impl<V: Cacheable + Loadable> Cacheable for Node<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.terminal_ref.cache_reference_values(loader)?;
-        self.children.cache_reference_values(loader)?;
+        self.children.0.cache_reference_values(loader)?;
 
         Ok(())
     }
@@ -693,7 +783,7 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
         Self: Sized,
     {
         Ok(Self {
-            children: self.children.move_blob_store(from_store, to_store)?,
+            children: ChildEdges(self.children.0.move_blob_store(from_store, to_store)?),
             terminal_ref: self.terminal_ref.move_blob_store(from_store, to_store)?,
         })
     }
@@ -721,10 +811,8 @@ mod tests {
     use crate::persistent::blob_store;
     use crate::persistent::blob_store::StoreSerialized;
     use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
-    use concordium_base::hashes::TransactionSignMarker;
     use proptest::prelude::*;
     use proptest::sample::select;
-    use proptest::test_runner::TestCaseResult;
     use std::collections::{BTreeMap, HashSet};
     use std::fmt::Debug;
 
@@ -862,7 +950,7 @@ mod tests {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
             }
 
-            for (key) in &entries.non_existing_keys {
+            for key in &entries.non_existing_keys {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
             }
         }
@@ -871,11 +959,11 @@ mod tests {
         fn prop_test_contains_key(entries in arb_entries()) {
             let trie =entries.create_trie()?;
 
-            for (key, value) in &entries.entries {
+            for (key, _) in &entries.entries {
                 prop_assert!(trie.contains_key(&UnreachableBlobStore, key)?);
             }
 
-            for (key) in &entries.non_existing_keys {
+            for key in &entries.non_existing_keys {
                 prop_assert!(!trie.contains_key(&UnreachableBlobStore, key)?);
             }
         }
@@ -895,7 +983,6 @@ mod tests {
         }
     }
 
-    // todo ar test update
     // todo ar test delete
 
     // todo ar test move blob store
@@ -970,7 +1057,7 @@ mod tests {
             let node = node_ref.value(loader)?;
 
             prop_assert!(
-                node.terminal_ref.is_some() || node.children.len() > 1,
+                node.terminal_ref.is_some() || node.children.size() > 1,
                 "node terminal or more than one child"
             );
 
@@ -980,7 +1067,7 @@ mod tests {
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
-            for edge in node.children.iter().flatten() {
+            for edge in node.children.0.iter().flatten() {
                 prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
                 let mut child_path = path.to_vec();
                 child_path.extend(edge.stem.iter().copied());
