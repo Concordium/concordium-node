@@ -51,6 +51,7 @@ use std::marker::PhantomData;
 /// ```
 #[derive(Debug)]
 pub struct Trie<K, V> {
+    // todo ar add size
     inner: HashedCacheableRef<Node<V>>, // todo ar remove and use Cow
     _key_type: PhantomData<K>,
 }
@@ -122,36 +123,6 @@ impl<K, V> Trie<K, V> {
     //             }
     //         }
     //     })
-    // }
-    //
-    // /// Iterates all values in the tree in insertion order (which is also the order
-    // /// of the keys).
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `loader`: Loader for the blob store the tree is stored in.
-    // ///
-    // /// # Errors
-    // ///
-    // /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the tree
-    // /// does not fulfill the expected invariants (this can happen if the blob store is
-    // /// corrupted in some way).
-    // pub fn values(
-    //     &self,
-    //     loader: &impl BlobStoreLoad,
-    // ) -> impl ExactSizeIterator<Item = BlockStateResult<(K, Cow<'_, V>)>>
-    // where
-    //     V: Loadable,
-    // {
-    //     match &self.inner {
-    //         TrieInner::Empty => Either::Left(iter::empty()),
-    //         TrieInner::NonEmpty(_, subtree) => {
-    //             Either::Right(subtree.values(loader, self.size()).map(|item| {
-    //                 let (subtree_key, value) = item?;
-    //                 Ok((K::from_u64(subtree_key.0), value))
-    //             }))
-    //         }
-    //     }
     // }
     //
     // /// Insert a value to the tree, and return the key for the inserted value and
@@ -370,6 +341,50 @@ impl<V> Node<V> {
         })
     }
 
+    fn insert_rec<'s, C: CharT>(
+        str_index: usize,
+        s: &'s AStr<C>,
+        node: &mut Node<'s, C, C::AlphabetSize>,
+    ) {
+        if let Some(ch) = s.first() {
+            if let Some(edge) = &mut node.children[ch.index()] {
+                let lcp_len = string::lcp(&s[1..], &edge.chars[1..]).len() + 1;
+
+                match lcp_len.cmp(&edge.chars.len()) {
+                    Ordering::Equal => insert_rec(str_index, &s[edge.chars.len()..], &mut edge.target),
+                    Ordering::Less => {
+                        let new_node = Node::new();
+                        let new_edge = Edge {
+                            chars: &edge.chars[..lcp_len],
+                            target: new_node,
+                        };
+                        let mut edge_remainder = mem::replace(edge, Box::new(new_edge));
+                        edge_remainder.chars = &edge_remainder.chars[lcp_len..];
+                        let rem_ch = edge_remainder.chars[0];
+                        edge.target.children[rem_ch.index()] = Some(edge_remainder);
+
+                        insert_rec(str_index, &s[lcp_len..], &mut edge.target);
+                    }
+                    Ordering::Greater => {
+                        unreachable!()
+                    }
+                }
+            } else {
+                let mut new_node = Node::new();
+                new_node.terminal = Some(Terminal { str_index });
+                node.children[ch.index()] = Some(Box::new(Edge {
+                    chars: s,
+                    target: new_node,
+                }));
+            }
+        } else {
+            node.terminal = Some(Terminal {
+                str_index: str_index,
+            });
+        }
+    }
+
+
     fn lookup_value(
         node: &HashedCacheableRef<Node<V>>,
         loader: &impl BlobStoreLoad,
@@ -391,21 +406,12 @@ impl<V> Node<V> {
         })
     }
 
-    // /// Iterates all values in the subtree in insertion order.
-    // ///
-    // /// # Arguments
-    // ///
-    // /// - `node_size`: The number of entries in the subtree.
-    // pub fn values(
-    //     &self,
-    //     loader: &impl BlobStoreLoad,
-    //     node_size: u64,
-    // ) -> impl ExactSizeIterator<Item = BlockStateResult<(SubtreeKey, Cow<'_, V>)>>
-    // where
-    //     V: Loadable,
-    // {
-    //     ValuesIterator::new(self, loader, node_size)
-    // }
+
+
+
+    // todo ar iterator
+
+
     //
     // /// Insert `new_value` into the subtree and return a new subtree with the inserted value.
     // ///
