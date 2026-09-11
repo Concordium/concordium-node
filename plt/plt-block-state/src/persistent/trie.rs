@@ -703,7 +703,7 @@ mod tests {
     use proptest::prelude::*;
     use proptest::sample::select;
     use proptest::test_runner::TestCaseResult;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
     use std::fmt::Debug;
 
     /// Trie type used by the property based tests. Keys are raw byte vectors
@@ -713,16 +713,17 @@ mod tests {
     #[derive(Debug)]
     struct TestEntries {
         entries: Vec<(Vec<u8>, u64)>,
+        non_existing_keys: Vec<Vec<u8>>,
     }
 
     impl TestEntries {
-        fn to_plain(&self) -> PlainTrie {
+        fn create_plain(&self) -> PlainTrie {
             PlainTrie {
                 entries: self.entries.iter().cloned().collect(),
             }
         }
 
-        fn to_trie(&self) -> Result<TestTrie, TestCaseError> {
+        fn create_trie(&self) -> Result<TestTrie, TestCaseError> {
             let mut trie = TestTrie::empty();
             for (key, value) in self.entries.iter() {
                 trie = trie.insert_or_update_entry(
@@ -735,16 +736,29 @@ mod tests {
         }
     }
 
+    /// Restrict the bytes we use for keys to this alphabet. This makes it more likely that
+    /// keys "overlap". There should be no need to use all `u8` values.
+    const ALPHABET: &[u8] = &[0u8, 1, 10, 100, 254, 255];
+
     prop_compose! {
         fn arb_entries()(
             entries in prop::collection::vec(
-                // Restrict the bytes we use for keys, to make it more likely that keys "overlap"
-                (prop::collection::vec(select(&[0u8, 1, 10, 100, 254, 255]), 0..8), any::<u64>()),
+                (prop::collection::vec(select(ALPHABET), 0..8), any::<u64>()),
                 0..32,
             ),
+            non_existing_keys in prop::collection::vec(
+                prop::collection::vec(select(ALPHABET), 0..8),
+                32,
+            ),
         ) -> TestEntries {
+            let mut keys: HashSet<_> = entries.iter().map(|(key, _)| key.clone()).collect();
+
             TestEntries {
-                entries: entries.into_iter().collect(),
+                // Keys that are not in entries
+                non_existing_keys: non_existing_keys.into_iter().filter(
+                    |key| !keys.contains(key)).collect(),
+                // Deduplicate entries
+                entries: entries.into_iter().filter(|(key, _)| keys.remove(key)).collect(),
             }
         }
     }
@@ -753,7 +767,7 @@ mod tests {
         fn arb_plain_trie()(
             entries in arb_entries()
         ) -> PlainTrie {
-            entries.to_plain()
+            entries.create_plain()
         }
     }
 
@@ -761,7 +775,7 @@ mod tests {
         fn arb_trie()(
             entries in arb_entries()
         ) -> TestTrie {
-            entries.to_trie().unwrap()
+            entries.create_trie().unwrap()
         }
     }
 
@@ -778,29 +792,33 @@ mod tests {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
             }
 
-            prop_assert_eq!(entries.to_plain(), trie.to_plain(&UnreachableBlobStore)?);
+            prop_assert_eq!(entries.create_plain(), trie.to_plain(&UnreachableBlobStore)?);
         }
 
         #[test]
-        fn prop_test_lookup_value(plain_trie in arb_plain_trie()) {
-            let trie = plain_trie.to_trie()?;
+        fn prop_test_lookup_value(entries in arb_entries()) {
+            let trie =entries.create_trie()?;
 
-            for (key, value) in &plain_trie.entries {
+            for (key, value) in &entries.entries {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
             }
 
-            // todo ar lookup non-existing
+            for (key) in &entries.non_existing_keys {
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
+            }
         }
 
         #[test]
-        fn prop_test_contains_key(plain_trie in arb_plain_trie()) {
-            let trie = plain_trie.to_trie()?;
+        fn prop_test_contains_key(entries in arb_entries()) {
+            let trie =entries.create_trie()?;
 
-            for (key, value) in &plain_trie.entries {
+            for (key, value) in &entries.entries {
                 prop_assert!(trie.contains_key(&UnreachableBlobStore, key)?);
             }
 
-            // todo ar lookup non-existing
+            for (key) in &entries.non_existing_keys {
+                prop_assert!(!trie.contains_key(&UnreachableBlobStore, key)?);
+            }
         }
 
 
