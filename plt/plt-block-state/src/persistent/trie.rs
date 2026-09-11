@@ -56,7 +56,7 @@ use std::marker::PhantomData;
 #[derive(Debug)]
 pub struct Trie<K, V> {
     size: u64,
-    root: HashedCacheableRef<Node<V>>, // todo ar remove and use Cow
+    root: HashedCacheableRef<Node<V>>,
     _key_type: PhantomData<K>,
 }
 
@@ -197,7 +197,7 @@ impl<K, V> Trie<K, V> {
 /// Trie node
 #[derive(Debug)]
 struct Node<V> {
-    children: ChildEdges<V>,
+    children: ChildEdges<V>, // todo ar change ref structure?
     terminal_ref: Option<HashedCacheableRef<V>>,
 }
 
@@ -250,7 +250,7 @@ impl<V> Default for ChildEdges<V> {
 
 /// Trie edge
 #[derive(Debug)]
-pub struct Edge<V> {
+struct Edge<V> {
     stem: Vec<u8>,
     target_ref: HashedCacheableRef<Node<V>>,
 }
@@ -288,7 +288,7 @@ enum ScanMatch<'a> {
     },
 }
 
-pub fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
+fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
     let mut i = 0;
     while i < a.len() && i < b.len() && a[i] == b[i] {
         i += 1;
@@ -666,12 +666,21 @@ impl<V> Loadable for ChildEdges<V> {
     ) -> Result<Self, BlockStateFailure> {
         let size: u16 = buffer.get().map_parse_err_to_block_state_err()?;
         let mut children = Vec::with_capacity(size as usize);
+        let mut prev_byte = None;
         for _ in 0..size {
             let edge: Edge<_> = Loadable::load_from_buffer(&mut buffer, loader)?;
-            let byte = edge.stem.first().ok_or_else(|| {
+            let byte = *edge.stem.first().ok_or_else(|| {
                 BlockStateFailure::Invariant("Trie stem of zero length".to_string())
             })?;
-            children.push((*byte, edge));
+            if let Some(prev_byte) = prev_byte
+                && byte <= prev_byte
+            {
+                return Err(BlockStateFailure::Invariant(
+                    "Trie node edges not sorted".to_string(),
+                ));
+            }
+            children.push((byte, edge));
+            prev_byte = Some(byte);
         }
 
         Ok(Self(children))
@@ -692,10 +701,14 @@ impl<V> Loadable for Edge<V> {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        Ok(Self {
-            stem: StoreSerialized::load_from_buffer(&mut buffer, loader)?.0,
-            target_ref: Loadable::load_from_buffer(&mut buffer, loader)?,
-        })
+        let stem: Vec<_> = StoreSerialized::load_from_buffer(&mut buffer, loader)?.0;
+        if stem.is_empty() {
+            return Err(BlockStateFailure::Invariant(
+                "Trie node stem of zero length".to_string(),
+            ));
+        }
+        let target_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
+        Ok(Self { stem, target_ref })
     }
 }
 
@@ -1100,11 +1113,17 @@ mod tests {
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
-            for (_, edge) in node.children.0.iter() {
+            let mut prev_key = None;
+            for (key, edge) in node.children.0.iter() {
                 prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
+                if let Some(prev_key) = prev_key {
+                    prop_assert!(prev_key < *key, "edge keys not ascending")
+                }
+
                 let mut child_path = path.to_vec();
                 child_path.extend(edge.stem.iter().copied());
                 Node::extract_entries(&edge.target_ref, loader, &child_path, entries, false)?;
+                prev_key = Some(*key);
             }
 
             Ok(())
