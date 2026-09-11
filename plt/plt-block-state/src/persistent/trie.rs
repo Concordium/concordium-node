@@ -274,13 +274,13 @@ pub struct Edge<V> {
 /// Return value from scanning a path in the trie.
 #[derive(Debug)]
 struct ScanReturn<'a, V> {
-    /// Node fully or partially matched by path.
-    matched_node: HashedCacheableRef<Node<V>>,
-    /// The path remaining from matching `matched_node`.
-    remaining_path_from_matched_node: &'a [u8],
+    /// Node fully or partially (maximally) matched by path.
+    prefix_matched_node: HashedCacheableRef<Node<V>>,
+    /// The path remaining when removing suffix matching `matched_node`.
+    suffix_path_from_matched_node: &'a [u8],
     /// Whether full or partial match.
     matched: ScanMatch<'a>,
-    /// Node that site on the stem from `matched_node` that the
+    /// Node that site on the stem from `matched_node` that is partially matched.
     partially_matched_node: Option<HashedCacheableRef<Node<V>>>,
 }
 
@@ -290,8 +290,8 @@ enum ScanMatch<'a> {
     FullMatch,
     /// Only part of path was found in trie,
     MaximalNonFullMatch {
-        /// Path suffix that was not found in trie
-        path_unmatched: &'a [u8],
+        /// Path suffix that was not found in trie (not in any stem)
+        suffix_unmatched: &'a [u8],
     },
 }
 
@@ -329,16 +329,16 @@ impl<V> Node<V> {
                     }
                     Ordering::Less => match common_prefix_len.cmp(&path.len()) {
                         Ordering::Equal => ScanReturn {
-                            matched_node: node.clone(),
-                            remaining_path_from_matched_node: path,
+                            prefix_matched_node: node.clone(),
+                            suffix_path_from_matched_node: path,
                             matched: ScanMatch::FullMatch,
                             partially_matched_node: Some(edge.target.clone()),
                         },
                         Ordering::Less => ScanReturn {
-                            matched_node: node.clone(),
-                            remaining_path_from_matched_node: &path[..common_prefix_len],
+                            prefix_matched_node: node.clone(),
+                            suffix_path_from_matched_node: &path[..common_prefix_len],
                             matched: ScanMatch::MaximalNonFullMatch {
-                                path_unmatched: &path[common_prefix_len..],
+                                suffix_unmatched: &path[common_prefix_len..],
                             },
                             partially_matched_node: Some(edge.target.clone()),
                         },
@@ -352,21 +352,42 @@ impl<V> Node<V> {
                 }
             } else {
                 ScanReturn {
-                    matched_node: node.clone(),
-                    remaining_path_from_matched_node: path,
+                    prefix_matched_node: node.clone(),
+                    suffix_path_from_matched_node: path,
                     matched: ScanMatch::MaximalNonFullMatch {
-                        path_unmatched: path,
+                        suffix_unmatched: path,
                     },
                     partially_matched_node: None,
                 }
             }
         } else {
             ScanReturn {
-                matched_node: node.clone(),
-                remaining_path_from_matched_node: &[],
+                prefix_matched_node: node.clone(),
+                suffix_path_from_matched_node: &[],
                 matched: ScanMatch::FullMatch,
                 partially_matched_node: None,
             }
+        })
+    }
+
+    fn lookup_value(
+        node: &HashedCacheableRef<Node<V>>,
+        loader: &impl BlobStoreLoad,
+        path: &[u8],
+    ) -> BlockStateResult<Option<V>>
+    where
+        V: Loadable + Clone,
+    {
+        let scan_return = Node::scan_rec(node, loader, path)?;
+        Ok(match scan_return.matched {
+            ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
+                if let Some(terminal) = &scan_return.prefix_matched_node.value(loader)?.terminal {
+                    Some(terminal.value(loader)?.into_owned())
+                } else {
+                    None
+                }
+            }
+            _ => None,
         })
     }
 
