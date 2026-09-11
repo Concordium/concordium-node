@@ -710,31 +710,58 @@ mod tests {
     /// (which borrow as `&[u8]`) and values are `u64`s.
     type TestTrie = Trie<Vec<u8>, StoreSerialized<u64>>;
 
+    #[derive(Debug)]
+    struct TestEntries {
+        entries: Vec<(Vec<u8>, u64)>,
+    }
+
+    impl TestEntries {
+        fn to_plain(&self) -> PlainTrie {
+            PlainTrie {
+                entries: self.entries.iter().cloned().collect(),
+            }
+        }
+
+        fn to_trie(&self) -> Result<TestTrie, TestCaseError> {
+            let mut trie = TestTrie::empty();
+            for (key, value) in self.entries.iter() {
+                trie = trie.insert_or_update_entry(
+                    &UnreachableBlobStore,
+                    key,
+                    StoreSerialized(*value),
+                )?;
+            }
+            Ok(trie)
+        }
+    }
+
     prop_compose! {
-        fn arb_plain_trie()(
+        fn arb_entries()(
             entries in prop::collection::vec(
                 // Restrict the bytes we use for keys, to make it more likely that keys "overlap"
-                (prop::collection::vec(select(&[0, 1, 10, 100, 254, 255]), 0..8), any::<u64>()),
+                (prop::collection::vec(select(&[0u8, 1, 10, 100, 254, 255]), 0..8), any::<u64>()),
                 0..32,
             ),
-        ) -> PlainTrie {
-            PlainTrie {
+        ) -> TestEntries {
+            TestEntries {
                 entries: entries.into_iter().collect(),
             }
         }
     }
 
     prop_compose! {
+        fn arb_plain_trie()(
+            entries in arb_entries()
+        ) -> PlainTrie {
+            entries.to_plain()
+        }
+    }
+
+    prop_compose! {
         fn arb_trie()(
-            plain_trie in arb_plain_trie()
+            entries in arb_entries()
         ) -> TestTrie {
-            let mut trie = TestTrie::empty();
-            for (key, value) in plain_trie.entries.into_iter() {
-                trie = trie
-                    .insert_or_update_entry(&UnreachableBlobStore, &key, StoreSerialized(value))
-                    .unwrap();
-            }
-            trie
+            entries.to_trie().unwrap()
         }
     }
 
@@ -745,13 +772,13 @@ mod tests {
         }
 
         #[test]
-        fn prop_test_insert_values(plain_trie in arb_plain_trie()) {
+        fn prop_test_insert_values(entries in arb_entries()) {
              let mut trie = TestTrie::empty();
-            for (key, value) in &plain_trie.entries {
+            for (key, value) in &entries.entries {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
             }
 
-            prop_assert_eq!(plain_trie, trie.to_plain(&UnreachableBlobStore)?);
+            prop_assert_eq!(entries.to_plain(), trie.to_plain(&UnreachableBlobStore)?);
         }
 
         #[test]
