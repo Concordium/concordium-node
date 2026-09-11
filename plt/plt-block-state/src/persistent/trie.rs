@@ -170,6 +170,28 @@ impl<K, V> Trie<K, V> {
             _key_type: self._key_type,
         })
     }
+
+    /// Deletes the entry with the given key if it exists. Returns
+    /// the updated trie.
+    ///
+    /// Notice that tries are immutable data structures, see [`Self`].
+    ///
+    /// # Arguments
+    ///
+    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `key`: The key to delete the value for.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the
+    /// blob store fails, or if the tree does not fulfill
+    /// the expected invariants (this can happen if the blob store is corrupted in some way).
+    pub fn delete_entry(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<Self>
+    where
+        K: Borrow<[u8]>,
+    {
+        todo!()
+    }
 }
 
 /// Trie node
@@ -782,17 +804,41 @@ mod tests {
     proptest! {
         #[test]
         fn prop_test_size(trie in arb_trie()) {
-            prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.entries.len() as u64);
+            prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.size());
         }
 
         #[test]
         fn prop_test_insert_values(entries in arb_entries()) {
-             let mut trie = TestTrie::empty();
+            let mut trie = TestTrie::empty();
+            let mut plain = PlainTrie::empty();
+
             for (key, value) in &entries.entries {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
+                plain.insert(key, *value);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
+        }
+
+        #[test]
+        #[ignore]
+        fn prop_test_delete_entry(entries in arb_entries()) {
+            let mut trie = entries.create_trie()?;
+            let mut plain = entries.create_plain();
+
+            for key in &entries.non_existing_keys {
+                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
+                plain.delete(key);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
             }
 
-            prop_assert_eq!(entries.create_plain(), trie.to_plain(&UnreachableBlobStore)?);
+            for (key, _) in &entries.entries {
+                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
+                plain.delete(key);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
         }
 
         #[test]
@@ -820,8 +866,6 @@ mod tests {
                 prop_assert!(!trie.contains_key(&UnreachableBlobStore, key)?);
             }
         }
-
-
 
         #[test]
         fn prop_test_store_and_load(plain_trie in arb_plain_trie()) {
@@ -854,6 +898,26 @@ mod tests {
     }
 
     impl PlainTrie {
+        fn empty() -> Self {
+            Self {
+                entries: Default::default(),
+            }
+        }
+
+        fn size(&self) -> u64 {
+            self.entries.len() as u64
+        }
+
+        fn insert(&mut self, key: &[u8], value: u64) {
+            self.entries.insert(key.to_vec(), value);
+        }
+
+        fn delete(&mut self, key: &[u8]) {
+            self.entries.remove(key);
+        }
+    }
+
+    impl PlainTrie {
         fn to_trie(&self) -> Result<TestTrie, TestCaseError> {
             let mut trie = TestTrie::empty();
             for (key, value) in &self.entries {
@@ -874,9 +938,9 @@ mod tests {
 
             Node::extract_entries(&self.root, loader, &[], &mut entries)?;
 
-            prop_assert_eq!(self.size, entries.len() as u64, "trie size");
-
             let plain = PlainTrie { entries };
+
+            prop_assert_eq!(self.size, plain.size(), "trie size");
 
             Ok(plain)
         }
