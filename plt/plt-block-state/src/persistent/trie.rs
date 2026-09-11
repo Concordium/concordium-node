@@ -821,6 +821,19 @@ mod tests {
         }
 
         #[test]
+        fn prop_test_update_entry(entries in arb_entries()) {
+            let mut trie = entries.create_trie()?;
+            let mut plain = entries.create_plain();
+
+            for (key, value) in &entries.entries {
+                trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value + 1))?;
+                plain.insert(key, *value + 1);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
+        }
+
+        #[test]
         #[ignore]
         fn prop_test_delete_entry(entries in arb_entries()) {
             let mut trie = entries.create_trie()?;
