@@ -157,7 +157,7 @@ impl<K, V> Trie<K, V> {
         value: V,
     ) -> BlockStateResult<Self>
     where
-        V: Loadable,
+        V: Loadable + Clone,
         K: Borrow<[u8]>,
     {
         let (new_root, replaced) = Node::insert_rec(&self.root, loader, key.borrow(), value)?;
@@ -199,14 +199,17 @@ impl<K, V> Trie<K, V> {
 #[derive(Debug)]
 struct Node<V> {
     children: ChildEdges<V>, // todo ar change ref structure?
-    terminal_ref: Option<HashedCacheableRef<V>>,
+    terminal: Option<V>,
 }
 
-impl<V> Clone for Node<V> {
+impl<V> Clone for Node<V>
+where
+    V: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             children: self.children.clone(),
-            terminal_ref: self.terminal_ref.clone(),
+            terminal: self.terminal.clone(),
         }
     }
 }
@@ -301,7 +304,7 @@ impl<V> Node<V> {
     fn empty() -> Self {
         Self {
             children: ChildEdges::default(),
-            terminal_ref: None,
+            terminal: None,
         }
     }
 
@@ -378,10 +381,13 @@ impl<V> Node<V> {
         loader: &impl BlobStoreLoad,
         path: &[u8],
         value: V,
-    ) -> BlockStateResult<(HashedCacheableRef<Node<V>>, bool)> {
+    ) -> BlockStateResult<(HashedCacheableRef<Node<V>>, bool)>
+    where
+        V: Loadable + Clone,
+    {
         let node = node_ref.value(loader)?;
         Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = node_ref.value(loader)?.children.get(path_byte) {
+            if let Some(edge) = node.children.get(path_byte) {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
@@ -412,7 +418,7 @@ impl<V> Node<V> {
                                 // Insert in stem.
                                 let mut stem_node = Node {
                                     children: ChildEdges::default(),
-                                    terminal_ref: Some(HashedCacheableRef::new(value)),
+                                    terminal: Some(value),
                                 };
                                 stem_node.children.set(
                                     edge.stem[common_prefix_len],
@@ -438,7 +444,7 @@ impl<V> Node<V> {
                                 // Insert as child branching out from the stem.
                                 let mut stem_node = Node {
                                     children: ChildEdges::default(),
-                                    terminal_ref: None,
+                                    terminal: None,
                                 };
                                 stem_node.children.set(
                                     edge.stem[common_prefix_len],
@@ -449,7 +455,7 @@ impl<V> Node<V> {
                                 );
                                 let child_node = Node {
                                     children: ChildEdges::default(),
-                                    terminal_ref: Some(HashedCacheableRef::new(value)),
+                                    terminal: Some(value),
                                 };
                                 stem_node.children.set(
                                     path[common_prefix_len],
@@ -484,7 +490,7 @@ impl<V> Node<V> {
                 // Insert new child in the node.
                 let child_node = Node {
                     children: ChildEdges::default(),
-                    terminal_ref: Some(HashedCacheableRef::new(value)),
+                    terminal: Some(value),
                 };
 
                 let mut new_node = node.clone();
@@ -503,13 +509,10 @@ impl<V> Node<V> {
             // Replace exising value.
             let new_node = Node {
                 children: node.children.clone(),
-                terminal_ref: Some(HashedCacheableRef::new(value)),
+                terminal: Some(value),
             };
 
-            (
-                HashedCacheableRef::new(new_node),
-                node.terminal_ref.is_some(),
-            )
+            (HashedCacheableRef::new(new_node), node.terminal.is_some())
         })
     }
 
@@ -524,13 +527,11 @@ impl<V> Node<V> {
         let scan_return = Node::scan_rec(node_ref, loader, path)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
-                if let Some(terminal_ref) =
-                    &scan_return.prefix_matched_node.value(loader)?.terminal_ref
-                {
-                    Some(terminal_ref.value(loader)?.into_owned())
-                } else {
-                    None
-                }
+                scan_return
+                    .prefix_matched_node
+                    .value(loader)?
+                    .terminal
+                    .clone()
             }
             _ => None,
         })
@@ -550,7 +551,7 @@ impl<V> Node<V> {
                 scan_return
                     .prefix_matched_node
                     .value(loader)?
-                    .terminal_ref
+                    .terminal
                     .is_some()
             }
             _ => false,
@@ -582,14 +583,14 @@ impl<K, V: Storable> Storable for Trie<K, V> {
     }
 }
 
-impl<V> Loadable for Node<V> {
+impl<V: Loadable> Loadable for Node<V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
         Ok(Self {
             children: Loadable::load_from_buffer(&mut buffer, loader)?,
-            terminal_ref: Loadable::load_from_buffer(&mut buffer, loader)?,
+            terminal: Loadable::load_from_buffer(&mut buffer, loader)?,
         })
     }
 }
@@ -597,7 +598,7 @@ impl<V> Loadable for Node<V> {
 impl<V: Storable> Storable for Node<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.children.store_to_buffer(&mut buffer, storer);
-        self.terminal_ref.store_to_buffer(&mut buffer, storer);
+        self.terminal.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -675,7 +676,7 @@ impl<K, V: Hashable + Loadable> Hashable for Trie<K, V> {
 impl<V: Hashable + Loadable> Hashable for Node<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
-            self.terminal_ref.hash(loader)?,
+            self.terminal.hash(loader)?,
             self.children.hash(loader)?,
         ))
     }
@@ -710,7 +711,7 @@ impl<K, V: Cacheable + Loadable> Cacheable for Trie<K, V> {
 
 impl<V: Cacheable + Loadable> Cacheable for Node<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.terminal_ref.cache_reference_values(loader)?;
+        self.terminal.cache_reference_values(loader)?;
         for (_, edge) in &self.children.0 {
             edge.cache_reference_values(loader)?;
         }
@@ -753,7 +754,7 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
     {
         Ok(Self {
             children: self.children.move_blob_store(from_store, to_store)?,
-            terminal_ref: self.terminal_ref.move_blob_store(from_store, to_store)?,
+            terminal: self.terminal.move_blob_store(from_store, to_store)?,
         })
     }
 }
@@ -1045,13 +1046,12 @@ mod tests {
             let node = node_ref.value(loader)?;
 
             prop_assert!(
-                node.terminal_ref.is_some() || node.children.size() > 1 || root,
+                node.terminal.is_some() || node.children.size() > 1 || root,
                 "node terminal or more than one child"
             );
 
-            if let Some(terminal) = &node.terminal_ref {
-                let existing =
-                    entries.insert(path.to_vec(), terminal.value(loader)?.into_owned().0);
+            if let Some(terminal) = &node.terminal {
+                let existing = entries.insert(path.to_vec(), terminal.0);
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
