@@ -26,7 +26,8 @@ use std::marker::PhantomData;
 /// The represented trie is immutable in the sense that the trie and its values does not change,
 /// once it has been created. When entries are inserted, updated or deleted, a new trie is created,
 /// reusing the nodes that have not changed by the operation.
-/// Keys must allow borrowing a byte slice (`&[u8]`) representing it.
+/// Keys must allow converting to a type that allows borrowing a byte slice (`&[u8]`) that represents the
+/// key, and convert back again from a byte slice. See the trait [`TrieKey`].
 ///
 /// The operations supported for creating new trees are:
 ///
