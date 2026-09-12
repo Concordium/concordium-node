@@ -1027,8 +1027,6 @@ mod tests {
         }
     }
 
-    // todo ar test delete
-
     // todo ar test move blob store
     // todo ar test caching
     // todo ar test hashing via plain repr?
