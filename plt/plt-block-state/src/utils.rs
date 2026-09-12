@@ -49,6 +49,27 @@ impl<'a, T> Cow<'a, T> {
             Self::Owned(ref mut owned) => owned,
         }
     }
+
+    pub fn map<U, FO, FB>(self, f_owned: FO, f_borrowed: FB) -> Cow<'a, U>
+    where
+        FO: FnOnce(T) -> U,
+        FB: FnOnce(&T) -> &U,
+    {
+        match self {
+            Cow::Owned(owned) => Cow::Owned(f_owned(owned)),
+            Cow::Borrowed(borrowed) => Cow::Borrowed(f_borrowed(borrowed)),
+        }
+    }
+}
+
+impl<'a, T> Cow<'a, Option<T>> {
+    pub fn transpose(self) -> Option<Cow<'a, T>> {
+        match self {
+            Cow::Owned(Some(owned)) => Some(Cow::Owned(owned)),
+            Cow::Borrowed(Some(borrowed)) => Some(Cow::Borrowed(borrowed)),
+            Cow::Owned(None) | Cow::Borrowed(None) => None,
+        }
+    }
 }
 
 impl<T> Deref for Cow<'_, T> {
