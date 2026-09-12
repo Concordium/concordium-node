@@ -57,11 +57,14 @@ use std::marker::PhantomData;
 #[derive(Debug)]
 pub struct Trie<K, V> {
     size: u64,
-    root: HashedCacheableRef<Node<V>>, // todo ar remove ref
+    root: Node<V>,
     _key_type: PhantomData<K>,
 }
 
-impl<K, V> Clone for Trie<K, V> {
+impl<K, V> Clone for Trie<K, V>
+where
+    V: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             size: self.size,
@@ -120,11 +123,14 @@ impl<const N: usize> TrieKey for [u8; N] {
 impl<K, V> Trie<K, V> {
     /// Create an empty trie.
     pub fn empty() -> Self {
-        let inner = Node::empty();
+        let root = Node {
+            children: ChildEdges::default(),
+            terminal: None,
+        };
 
         Self {
             size: 0,
-            root: HashedCacheableRef::new(inner),
+            root,
             _key_type: PhantomData,
         }
     }
@@ -157,8 +163,7 @@ impl<K, V> Trie<K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let root = self.root.value(loader)?;
-        let scan_return = root.scan_rec(loader, key_bytes.borrow())?;
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
                 scan_return
@@ -188,8 +193,7 @@ impl<K, V> Trie<K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let root = self.root.value(loader)?;
-        let scan_return = root.scan_rec(loader, key_bytes.borrow())?;
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
                 scan_return.prefix_matched_node.terminal.is_some()
@@ -224,8 +228,9 @@ impl<K, V> Trie<K, V> {
         K: TrieKey,
         V: Loadable + Clone,
     {
-        let (new_root, replaced) =
-            Node::insert_rec(&self.root, loader, key.to_bytes().borrow(), value)?;
+        let (new_root, replaced) = self
+            .root
+            .insert_rec(loader, key.to_bytes().borrow(), value)?;
 
         let new_size = if replaced { self.size } else { self.size + 1 };
 
@@ -285,8 +290,7 @@ impl<K, V> Trie<K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let root = self.root.value(loader)?;
-        let scan_return = root.scan_rec(loader, key_bytes.borrow())?;
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { stem_matched_node } => PrefixIterator::with_root(
                 stem_matched_node.unwrap_or(scan_return.prefix_matched_node),
@@ -471,50 +475,39 @@ fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
 }
 
 impl<V> Node<V> {
-    fn empty() -> Self {
-        Self {
-            children: ChildEdges::default(),
-            terminal: None,
-        }
-    }
-
     /// Insert the given value at the given path. If a value already exists at the path,
     /// it is replaced. Returns the updated node and a boolean indicating if a replacement took place.
     fn insert_rec(
-        node_ref: &HashedCacheableRef<Node<V>>,
+        &self,
         loader: &impl BlobStoreLoad,
         path: &[u8],
         value: V,
-    ) -> BlockStateResult<(HashedCacheableRef<Node<V>>, bool)>
+    ) -> BlockStateResult<(Node<V>, bool)>
     where
         V: Loadable + Clone,
     {
-        let node = node_ref.value(loader)?;
         Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = node.children.get(path_byte) {
+            if let Some(edge) = self.children.get(path_byte) {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
                     Ordering::Equal => {
                         // Insert in child node.
-                        let (new_child_node, replaced) = Self::insert_rec(
-                            &edge.child_ref,
-                            loader,
-                            &path[edge.stem.len()..],
-                            value,
-                        )?;
+                        let child_node = edge.child_ref.value(loader)?;
+                        let (new_child_node, replaced) =
+                            child_node.insert_rec(loader, &path[edge.stem.len()..], value)?;
 
-                        let mut new_node = node.clone();
+                        let mut new_node = self.clone();
 
                         new_node.children.set(
                             path_byte,
                             Edge {
                                 stem: edge.stem.clone(),
-                                child_ref: new_child_node,
+                                child_ref: HashedCacheableRef::new(new_child_node),
                             },
                         );
 
-                        (HashedCacheableRef::new(new_node), replaced)
+                        (new_node, replaced)
                     }
                     Ordering::Less => {
                         match common_prefix_len.cmp(&path.len()) {
@@ -532,7 +525,7 @@ impl<V> Node<V> {
                                     },
                                 );
 
-                                let mut new_node = node.clone();
+                                let mut new_node = self.clone();
 
                                 new_node.children.set(
                                     path_byte,
@@ -542,7 +535,7 @@ impl<V> Node<V> {
                                     },
                                 );
 
-                                (HashedCacheableRef::new(new_node), false)
+                                (new_node, false)
                             }
                             Ordering::Less => {
                                 // Insert as child branching out from the stem.
@@ -569,7 +562,7 @@ impl<V> Node<V> {
                                     },
                                 );
 
-                                let mut new_node = node.clone();
+                                let mut new_node = self.clone();
 
                                 new_node.children.set(
                                     path_byte,
@@ -579,7 +572,7 @@ impl<V> Node<V> {
                                     },
                                 );
 
-                                (HashedCacheableRef::new(new_node), false)
+                                (new_node, false)
                             }
                             Ordering::Greater => {
                                 unreachable!()
@@ -597,7 +590,7 @@ impl<V> Node<V> {
                     terminal: Some(value),
                 };
 
-                let mut new_node = node.clone();
+                let mut new_node = self.clone();
 
                 new_node.children.set(
                     path_byte,
@@ -607,16 +600,16 @@ impl<V> Node<V> {
                     },
                 );
 
-                (HashedCacheableRef::new(new_node), false)
+                (new_node, false)
             }
         } else {
             // Replace exising value.
             let new_node = Node {
-                children: node.children.clone(),
+                children: self.children.clone(),
                 terminal: Some(value),
             };
 
-            (HashedCacheableRef::new(new_node), node.terminal.is_some())
+            (new_node, self.terminal.is_some())
         })
     }
 }
@@ -730,7 +723,7 @@ impl<'b, V> Cow<'b, Node<V>> {
     }
 }
 
-impl<K, V> Loadable for Trie<K, V> {
+impl<K, V: Loadable> Loadable for Trie<K, V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -1323,7 +1316,12 @@ mod tests {
             let trie = trie.to_store(&mut store)?;
 
             for (key, value) in &entries.entries {
-                prop_assert_eq!(trie.lookup_value(&store, key)?, Some(Cow::Owned(StoreSerialized(*value))));
+                if key.is_empty() {
+                    // Root will be borrowed
+                    prop_assert_eq!(trie.lookup_value(&store, key)?, Some(Cow::Borrowed(&StoreSerialized(*value))));
+                } else {
+                    prop_assert_eq!(trie.lookup_value(&store, key)?, Some(Cow::Owned(StoreSerialized(*value))));
+                }
             }
 
             for key in &entries.non_existing_keys {
@@ -1483,7 +1481,7 @@ mod tests {
         fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie, TestCaseError> {
             let mut entries = BTreeMap::new();
 
-            Node::extract_entries(&self.root, loader, &[], &mut entries, true)?;
+            self.root.extract_entries(loader, &[], &mut entries, true)?;
 
             let plain = PlainTrie { entries };
 
@@ -1503,29 +1501,27 @@ mod tests {
         }
     }
 
-    impl Node<u64> {
+    impl Node<StoreSerialized<u64>> {
         /// Convert to plain representation and check representation invariants.
         fn extract_entries(
-            node_ref: &HashedCacheableRef<Node<StoreSerialized<u64>>>,
+            &self,
             loader: &impl BlobStoreLoad,
             path: &[u8],
             entries: &mut BTreeMap<Vec<u8>, u64>,
             root: bool,
         ) -> Result<(), TestCaseError> {
-            let node = node_ref.value(loader)?;
-
             prop_assert!(
-                node.terminal.is_some() || node.children.size() > 1 || root,
+                self.terminal.is_some() || self.children.size() > 1 || root,
                 "node terminal or more than one child"
             );
 
-            if let Some(terminal) = &node.terminal {
+            if let Some(terminal) = &self.terminal {
                 let existing = entries.insert(path.to_vec(), terminal.0);
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
             let mut prev_key = None;
-            for (key, edge) in node.children.0.iter() {
+            for (key, edge) in self.children.0.iter() {
                 prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
                 prop_assert_eq!(*key, edge.stem[0], "key matches first byte in stem");
 
@@ -1535,7 +1531,8 @@ mod tests {
 
                 let mut child_path = path.to_vec();
                 child_path.extend(edge.stem.iter().copied());
-                Node::extract_entries(&edge.child_ref, loader, &child_path, entries, false)?;
+                let child_node = edge.child_ref.value(loader)?;
+                child_node.extract_entries(loader, &child_path, entries, false)?;
                 prev_key = Some(*key);
             }
 
