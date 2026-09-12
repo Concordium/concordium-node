@@ -20,7 +20,8 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
-// TODO: use TinyVec instead of Vec<u8> for keys?
+
+// TODO: use TinyVec instead of Vec<u8> for keys
 
 /// Representation of an immutable trie with values of type `V`.
 /// The represented trie is immutable in the sense that the trie and its values does not change,
@@ -291,12 +292,25 @@ impl<K, V> Trie<K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
+        let path = key_bytes.borrow();
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path)?;
         Ok(match scan_return.matched {
-            ScanMatch::FullMatch { stem_matched_node } => PrefixIterator::with_root(
-                stem_matched_node.unwrap_or(scan_return.prefix_matched_node),
-                loader,
-            ),
+            ScanMatch::FullMatch { stem_matched_node } => {
+                if let Some(stem_matched_node) = stem_matched_node {
+                    let mut iter_root_path = path
+                        .strip_suffix(scan_return.path_split_from_matched_node)
+                        .expect("path suffix")
+                        .to_vec();
+                    iter_root_path.extend_from_slice(&stem_matched_node.stem);
+                    PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
+                } else {
+                    PrefixIterator::with_root(
+                        path.to_vec(),
+                        scan_return.prefix_matched_node,
+                        loader,
+                    )
+                }
+            }
             ScanMatch::NotFullMatch => PrefixIterator::empty(loader),
         })
     }
@@ -307,7 +321,7 @@ struct PrefixIterator<'a, 'b, L, K: TrieKey, V> {
     /// Blob store loader reference
     loader: &'a L,
     /// Stack of next nodes to visit.
-    node_ref_stack: Vec<Cow<'b, Node<V>>>,
+    node_stack: Vec<(Vec<u8>, Cow<'b, Node<V>>)>,
     _trie_key: PhantomData<K>,
 }
 
@@ -315,15 +329,15 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, 'b, L, K, V> {
     fn empty(loader: &'a L) -> Self {
         Self {
             loader,
-            node_ref_stack: vec![],
+            node_stack: vec![],
             _trie_key: PhantomData,
         }
     }
 
-    fn with_root(node_ref: Cow<'b, Node<V>>, loader: &'a L) -> Self {
+    fn with_root(node_path: Vec<u8>, node: Cow<'b, Node<V>>, loader: &'a L) -> Self {
         Self {
             loader,
-            node_ref_stack: vec![node_ref],
+            node_stack: vec![(node_path.to_vec(), node)],
             _trie_key: PhantomData,
         }
     }
@@ -335,33 +349,34 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
     type Item = BlockStateResult<(K, Cow<'b, V>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // next_rec(self.loader, &mut self.node_ref_stack)
-        todo!()
+        while let Some((node_path, node)) = self.node_stack.pop() {
+            for child_byte in node.children.0.iter().rev().map(|edge| edge.0) {
+                let child_edge = match node.cow_project_child_edge(self.loader, child_byte) {
+                    Ok(child_edge) => child_edge.expect("child byte exists"),
+                    Err(err) => return Some(Err(err)),
+                };
+
+                let mut child_path = node_path.clone();
+                child_path.extend_from_slice(&child_edge.child.stem);
+
+                self.node_stack.push((child_path, child_edge.child));
+            }
+
+            if let Some(terminal) = node
+                .map(|node| node.terminal, |node| &node.terminal)
+                .transpose()
+            {
+                let key = match K::try_from_bytes(&node_path) {
+                    Ok(key) => key,
+                    Err(err) => return Some(Err(err)),
+                };
+                return Some(Ok((key, terminal)));
+            }
+        }
+
+        None
     }
 }
-
-// fn next_rec<L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone>(
-//     loader: &L,
-//     node_ref_stack: &mut Vec<HashedCacheableRef<Node<V>>>,
-// ) -> Option<BlockStateResult<(K, V)>> {
-//     while let Some(next_node_ref) = node_ref_stack.pop() {
-//         let next_node = match next_node_ref.value(loader) {
-//             Ok(next_node) => next_node,
-//             Err(err) => return Some(Err(err)),
-//         };
-//
-//         if let Some(terminal) = next_node.terminal.as_ref() {
-//             // todo ar key
-//             let key = match K::try_from_bytes(&[]) {
-//                 Ok(key) => key,
-//                 Err(err) => return Some(Err(err)),
-//             };
-//             return Some(Ok((key, terminal.clone())));
-//         }
-//     }
-//
-//     None
-// }
 
 /// Trie node
 #[derive(Debug)]
@@ -459,7 +474,7 @@ enum ScanMatch<'b, V> {
     /// Entire path was found in trie (ending either in a node or in a stem).
     FullMatch {
         /// Node that sit on the stem from `matched_node` that the path follows.
-        /// (or `None` if match ends at a stem and `path_split_from_matched_node` is empty).
+        /// (or `None` if match ends at the node `prefix_matched_node` and `path_split_from_matched_node` is empty).
         stem_matched_node: Option<Cow<'b, Node<V>>>,
     },
     /// Only part of path was found in trie,
@@ -1222,7 +1237,6 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
         fn prop_test_iter_prefix(entries in arb_entries()) {
             // Test in-memory trie
             let trie = entries.create_trie()?;
@@ -1274,7 +1288,6 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
         fn prop_test_iter_prefix_fixed_key(entries in arb_fixed_key_entries()) {
             let trie = entries.create_trie()?;
             let mut plain = entries.create_plain();
@@ -1538,7 +1551,7 @@ mod tests {
                 }
 
                 let mut child_path = path.to_vec();
-                child_path.extend(child_node.stem.iter().copied());
+                child_path.extend_from_slice(&child_node.stem);
                 child_node.extract_entries(loader, &child_path, entries, false)?;
                 prev_key = Some(*key);
             }
