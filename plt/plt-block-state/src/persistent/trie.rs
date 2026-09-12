@@ -111,7 +111,17 @@ impl<K, V> Trie<K, V> {
         V: Loadable + Clone,
         K: Borrow<[u8]>,
     {
-        Node::lookup_value(&self.root, loader, key.borrow())
+        let scan_return = Node::scan_rec(&self.root, loader, key.borrow())?;
+        Ok(match scan_return.matched {
+            ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
+                scan_return
+                    .prefix_matched_node
+                    .value(loader)?
+                    .terminal
+                    .clone()
+            }
+            _ => None,
+        })
     }
 
     /// Returns whether there exist an entry with the given `key` in the trie.
@@ -131,7 +141,17 @@ impl<K, V> Trie<K, V> {
         V: Loadable + Clone,
         K: Borrow<[u8]>,
     {
-        Node::contains_key(&self.root, loader, key.borrow())
+        let scan_return = Node::scan_rec(&self.root, loader, key.borrow())?;
+        Ok(match scan_return.matched {
+            ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
+                scan_return
+                    .prefix_matched_node
+                    .value(loader)?
+                    .terminal
+                    .is_some()
+            }
+            _ => false,
+        })
     }
 
     /// Insert or update the `value` in the trie at the given `key`. Returns
@@ -193,12 +213,97 @@ impl<K, V> Trie<K, V> {
         // todo ar impl delete
         todo!()
     }
+
+    /// Iterates all entries with keys that have the given `key` as prefix.
+    ///
+    /// # Arguments
+    ///
+    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `key`: The key to iterate entries
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the tree
+    /// does not fulfill the expected invariants (this can happen if the blob store is
+    /// corrupted in some way).
+    pub fn iter_prefix(
+        &self,
+        loader: &impl BlobStoreLoad,
+        key: K,
+    ) -> BlockStateResult<impl Iterator<Item = BlockStateResult<(Vec<u8>, V)>>>
+    where
+        K: Borrow<[u8]>,
+        V: Loadable + Clone,
+    {
+        let scan_return = Node::scan_rec(&self.root, loader, key.borrow())?;
+        Ok(match scan_return.matched {
+            ScanMatch::FullMatch { stem_matched_node } => {
+                PrefixIterator::with_root(stem_matched_node, loader)
+            }
+            ScanMatch::NotFullMatch => PrefixIterator::empty(loader),
+        })
+    }
+}
+
+/// Iterator of for a key prefix.
+struct PrefixIterator<'a, L, V> {
+    /// Blob store loader reference
+    loader: &'a L,
+    /// Stack of next nodes to visit.
+    node_ref_stack: Vec<HashedCacheableRef<Node<V>>>,
+}
+
+impl<'a, L: BlobStoreLoad, V> PrefixIterator<'a, L, V> {
+    fn empty(loader: &'a L) -> Self {
+        Self {
+            loader,
+            node_ref_stack: vec![],
+        }
+    }
+
+    fn with_root(node_ref: HashedCacheableRef<Node<V>>, loader: &'a L) -> Self {
+        Self {
+            loader,
+            node_ref_stack: vec![node_ref],
+        }
+    }
+}
+
+impl<'a, L: BlobStoreLoad, V: Loadable + Clone> Iterator for PrefixIterator<'a, L, V> {
+    type Item = BlockStateResult<(Vec<u8>, V)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // if let Some(next_node_ref) = self.node_ref_stack.pop() {
+        //     if self.next_key.0 == self.tree_size {
+        //         return Some(Err(BlockStateFailure::Invariant(
+        //             "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
+        //                 .to_string(),
+        //         )));
+        //     }
+        //     let key = self.next_key;
+        //     self.next_key.0 += 1;
+        //     Some(
+        //         next_value_push_right_branches(self.loader, next_node_ref, &mut self.node_ref_stack)
+        //             .map(|v| (key, v)),
+        //     )
+        // } else {
+        // if self.next_key.0 != self.tree_size {
+        //     return Some(Err(BlockStateFailure::Invariant(format!(
+        //         "LFMB Subtree invariant broken: ValuesIterator next_key not equal to tree_size at end of iterator, is {}",
+        //         self.next_key.0
+        //     ))));
+        // }
+        // None
+        // }
+
+        todo!()
+    }
 }
 
 /// Trie node
 #[derive(Debug)]
 struct Node<V> {
-    children: ChildEdges<V>, // todo ar change ref structure?
+    children: ChildEdges<V>, // todo ar move stem into node?
     terminal: Option<V>,
 }
 
@@ -273,23 +378,22 @@ impl<V> Clone for Edge<V> {
 struct ScanReturn<'a, V> {
     /// Node fully or partially (maximally) matched by path.
     prefix_matched_node: HashedCacheableRef<Node<V>>,
-    /// The path remaining when removing suffix matching `matched_node`.
-    suffix_path_from_matched_node: &'a [u8],
+    /// The path remaining when removing prefix matching `matched_node`.
+    path_split_from_matched_node: &'a [u8],
     /// Whether full or partial match.
-    matched: ScanMatch<'a>,
-    /// Node that site on the stem from `matched_node` that is partially matched.
-    partially_matched_node: Option<HashedCacheableRef<Node<V>>>,
+    matched: ScanMatch<V>,
 }
 
 #[derive(Debug)]
-enum ScanMatch<'a> {
-    /// Entire path was found in trie.
-    FullMatch,
-    /// Only part of path was found in trie,
-    MaximalNonFullMatch {
-        /// Path suffix that was not found in trie (not in any stem)
-        suffix_unmatched: &'a [u8],
+enum ScanMatch<V> {
+    /// Entire path was found in trie (ending either in a node or in a stem).
+    FullMatch {
+        /// Node that site on the stem from `matched_node` that path follows
+        /// (or at the end of a stem which means it is equal to `prefix_matched_node`).
+        stem_matched_node: HashedCacheableRef<Node<V>>,
     },
+    /// Only part of path was found in trie,
+    NotFullMatch,
 }
 
 fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
@@ -331,18 +435,16 @@ impl<V> Node<V> {
                         Ordering::Equal => ScanReturn {
                             // Path fully matched node and part of the child stem.
                             prefix_matched_node: node_ref.clone(),
-                            suffix_path_from_matched_node: path,
-                            matched: ScanMatch::FullMatch,
-                            partially_matched_node: Some(edge.target_ref.clone()),
+                            path_split_from_matched_node: path,
+                            matched: ScanMatch::FullMatch {
+                                stem_matched_node: edge.target_ref.clone(),
+                            },
                         },
                         Ordering::Less => ScanReturn {
                             // Path matched node and partly the child stem.
                             prefix_matched_node: node_ref.clone(),
-                            suffix_path_from_matched_node: &path[..common_prefix_len],
-                            matched: ScanMatch::MaximalNonFullMatch {
-                                suffix_unmatched: &path[common_prefix_len..],
-                            },
-                            partially_matched_node: Some(edge.target_ref.clone()),
+                            path_split_from_matched_node: path,
+                            matched: ScanMatch::NotFullMatch,
                         },
                         Ordering::Greater => {
                             unreachable!()
@@ -356,20 +458,18 @@ impl<V> Node<V> {
                 // Path matched up until node, by does not match the start of any child stems.
                 ScanReturn {
                     prefix_matched_node: node_ref.clone(),
-                    suffix_path_from_matched_node: path,
-                    matched: ScanMatch::MaximalNonFullMatch {
-                        suffix_unmatched: path,
-                    },
-                    partially_matched_node: None,
+                    path_split_from_matched_node: path,
+                    matched: ScanMatch::NotFullMatch,
                 }
             }
         } else {
             // Path matched fully
             ScanReturn {
                 prefix_matched_node: node_ref.clone(),
-                suffix_path_from_matched_node: &[],
-                matched: ScanMatch::FullMatch,
-                partially_matched_node: None,
+                path_split_from_matched_node: &[],
+                matched: ScanMatch::FullMatch {
+                    stem_matched_node: node_ref.clone(),
+                },
             }
         })
     }
@@ -515,50 +615,6 @@ impl<V> Node<V> {
             (HashedCacheableRef::new(new_node), node.terminal.is_some())
         })
     }
-
-    fn lookup_value(
-        node_ref: &HashedCacheableRef<Node<V>>,
-        loader: &impl BlobStoreLoad,
-        path: &[u8],
-    ) -> BlockStateResult<Option<V>>
-    where
-        V: Loadable + Clone,
-    {
-        let scan_return = Node::scan_rec(node_ref, loader, path)?;
-        Ok(match scan_return.matched {
-            ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
-                scan_return
-                    .prefix_matched_node
-                    .value(loader)?
-                    .terminal
-                    .clone()
-            }
-            _ => None,
-        })
-    }
-
-    fn contains_key(
-        node_ref: &HashedCacheableRef<Node<V>>,
-        loader: &impl BlobStoreLoad,
-        path: &[u8],
-    ) -> BlockStateResult<bool>
-    where
-        V: Loadable + Clone,
-    {
-        let scan_return = Node::scan_rec(node_ref, loader, path)?;
-        Ok(match scan_return.matched {
-            ScanMatch::FullMatch if scan_return.suffix_path_from_matched_node.is_empty() => {
-                scan_return
-                    .prefix_matched_node
-                    .value(loader)?
-                    .terminal
-                    .is_some()
-            }
-            _ => false,
-        })
-    }
-
-    // todo ar iterator
 }
 
 impl<K, V> Loadable for Trie<K, V> {
