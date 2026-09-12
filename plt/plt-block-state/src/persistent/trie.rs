@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
 
-// TODO: use TinyVec instead of Vec for some values?
+// TODO: use TinyVec instead of Vec<u8> for keys?
 
 /// Representation of an immutable trie with values of type `V`.
 /// The represented trie is immutable in the sense that the trie and its values does not change,
@@ -76,6 +76,46 @@ impl<K, V> Default for Trie<K, V> {
     }
 }
 
+/// Trait implemented by trie keys, which allows them to be bijectively mapped
+/// to byte arrays or slices.
+pub trait TrieKey {
+    /// Map key to bytes
+    fn to_bytes(&self) -> impl Borrow<[u8]>;
+
+    /// Map bytes to key
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self>
+    where
+        Self: Sized;
+}
+
+impl TrieKey for Vec<u8> {
+    fn to_bytes(&self) -> impl Borrow<[u8]> {
+        self.as_slice()
+    }
+
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(key.to_vec())
+    }
+}
+
+impl<const N: usize> TrieKey for [u8; N] {
+    fn to_bytes(&self) -> impl Borrow<[u8]> {
+        *self
+    }
+
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Self::try_from(key).map_err(|err| {
+            BlockStateFailure::Invariant(format!("Byte array trie key invalid: {}", err))
+        })
+    }
+}
+
 impl<K, V> Trie<K, V> {
     /// Create an empty trie.
     pub fn empty() -> Self {
@@ -109,9 +149,10 @@ impl<K, V> Trie<K, V> {
     pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<Option<V>>
     where
         V: Loadable + Clone,
-        K: Borrow<[u8]>,
+        K: TrieKey,
     {
-        let scan_return = Node::scan_rec(&self.root, loader, key.borrow())?;
+        let key_bytes = key.to_bytes();
+        let scan_return = Node::scan_rec(&self.root, loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
                 scan_return
@@ -139,9 +180,10 @@ impl<K, V> Trie<K, V> {
     pub fn contains_key(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<bool>
     where
         V: Loadable + Clone,
-        K: Borrow<[u8]>,
+        K: TrieKey,
     {
-        let scan_return = Node::scan_rec(&self.root, loader, key.borrow())?;
+        let key_bytes = key.to_bytes();
+        let scan_return = Node::scan_rec(&self.root, loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
                 scan_return
@@ -178,9 +220,10 @@ impl<K, V> Trie<K, V> {
     ) -> BlockStateResult<Self>
     where
         V: Loadable + Clone,
-        K: Borrow<[u8]>,
+        K: TrieKey,
     {
-        let (new_root, replaced) = Node::insert_rec(&self.root, loader, key.borrow(), value)?;
+        let (new_root, replaced) =
+            Node::insert_rec(&self.root, loader, key.to_bytes().borrow(), value)?;
 
         let new_size = if replaced { self.size } else { self.size + 1 };
 
@@ -214,7 +257,9 @@ impl<K, V> Trie<K, V> {
         todo!()
     }
 
-    /// Iterates all entries with keys that have the given `key` as prefix.
+    /// Iterates all entries with keys that have the given `key` as prefix, including
+    /// the entry for `key` itself, if it exists. The entries are iterated in
+    /// lexicographical order.
     ///
     /// # Arguments
     ///
@@ -232,10 +277,11 @@ impl<K, V> Trie<K, V> {
         key: K,
     ) -> BlockStateResult<impl Iterator<Item = BlockStateResult<(Vec<u8>, V)>>>
     where
-        K: Borrow<[u8]>,
+        K: TrieKey,
         V: Loadable + Clone,
     {
-        let scan_return = Node::scan_rec(&self.root, loader, key.borrow())?;
+        let key_bytes = key.to_bytes();
+        let scan_return = Node::scan_rec(&self.root, loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { stem_matched_node } => {
                 PrefixIterator::with_root(stem_matched_node, loader)
@@ -246,18 +292,20 @@ impl<K, V> Trie<K, V> {
 }
 
 /// Iterator of for a key prefix.
-struct PrefixIterator<'a, L, V> {
+struct PrefixIterator<'a, L, K: TrieKey, V> {
     /// Blob store loader reference
     loader: &'a L,
     /// Stack of next nodes to visit.
     node_ref_stack: Vec<HashedCacheableRef<Node<V>>>,
+    _trie_key: PhantomData<K>,
 }
 
-impl<'a, L: BlobStoreLoad, V> PrefixIterator<'a, L, V> {
+impl<'a, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, L, K, V> {
     fn empty(loader: &'a L) -> Self {
         Self {
             loader,
             node_ref_stack: vec![],
+            _trie_key: PhantomData,
         }
     }
 
@@ -265,39 +313,42 @@ impl<'a, L: BlobStoreLoad, V> PrefixIterator<'a, L, V> {
         Self {
             loader,
             node_ref_stack: vec![node_ref],
+            _trie_key: PhantomData,
         }
     }
 }
 
-impl<'a, L: BlobStoreLoad, V: Loadable + Clone> Iterator for PrefixIterator<'a, L, V> {
-    type Item = BlockStateResult<(Vec<u8>, V)>;
+impl<'a, L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone> Iterator
+    for PrefixIterator<'a, L, K, V>
+{
+    type Item = BlockStateResult<(K, V)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // if let Some(next_node_ref) = self.node_ref_stack.pop() {
-        //     if self.next_key.0 == self.tree_size {
-        //         return Some(Err(BlockStateFailure::Invariant(
-        //             "LFMB Subtree invariant broken: ValuesIterator next_key equal to tree_size before end of iterator"
-        //                 .to_string(),
-        //         )));
-        //     }
-        //     let key = self.next_key;
-        //     self.next_key.0 += 1;
-        //     Some(
-        //         next_value_push_right_branches(self.loader, next_node_ref, &mut self.node_ref_stack)
-        //             .map(|v| (key, v)),
-        //     )
-        // } else {
-        // if self.next_key.0 != self.tree_size {
-        //     return Some(Err(BlockStateFailure::Invariant(format!(
-        //         "LFMB Subtree invariant broken: ValuesIterator next_key not equal to tree_size at end of iterator, is {}",
-        //         self.next_key.0
-        //     ))));
-        // }
-        // None
-        // }
-
-        todo!()
+        next_rec(self.loader, &mut self.node_ref_stack)
     }
+}
+
+fn next_rec<L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone>(
+    loader: &L,
+    node_ref_stack: &mut Vec<HashedCacheableRef<Node<V>>>,
+) -> Option<BlockStateResult<(K, V)>> {
+    while let Some(next_node_ref) = node_ref_stack.pop() {
+        let next_node = match next_node_ref.value(loader) {
+            Ok(next_node) => next_node,
+            Err(err) => return Some(Err(err)),
+        };
+
+        if let Some(terminal) = next_node.terminal.as_ref() {
+            // todo ar key
+            let key = match K::try_from_bytes(&[]) {
+                Ok(key) => key,
+                Err(err) => return Some(Err(err)),
+            };
+            return Some(Ok((key, terminal.clone())));
+        }
+    }
+
+    None
 }
 
 /// Trie node
@@ -864,6 +915,9 @@ mod tests {
     /// (which borrow as `&[u8]`) and values are `u64`s.
     type TestTrie = Trie<Vec<u8>, StoreSerialized<u64>>;
 
+    /// Trie with fixed length keys.
+    type FixedKeyTestTrie = Trie<[u8; 8], StoreSerialized<u64>>;
+
     #[derive(Debug)]
     struct TestEntries {
         entries: Vec<(Vec<u8>, u64)>,
@@ -879,6 +933,36 @@ mod tests {
 
         fn create_trie(&self) -> Result<TestTrie, TestCaseError> {
             let mut trie = TestTrie::empty();
+            for (key, value) in self.entries.iter() {
+                trie = trie.insert_or_update_entry(
+                    &UnreachableBlobStore,
+                    key,
+                    StoreSerialized(*value),
+                )?;
+            }
+            Ok(trie)
+        }
+    }
+
+    #[derive(Debug)]
+    struct FixedKeyTestEntries {
+        entries: Vec<([u8; 8], u64)>,
+        non_existing_keys: HashSet<[u8; 8]>,
+    }
+
+    impl FixedKeyTestEntries {
+        fn create_plain(&self) -> PlainTrie {
+            PlainTrie {
+                entries: self
+                    .entries
+                    .iter()
+                    .map(|(key, value)| (key.to_vec(), *value))
+                    .collect(),
+            }
+        }
+
+        fn create_trie(&self) -> Result<FixedKeyTestTrie, TestCaseError> {
+            let mut trie = FixedKeyTestTrie::empty();
             for (key, value) in self.entries.iter() {
                 trie = trie.insert_or_update_entry(
                     &UnreachableBlobStore,
@@ -918,8 +1002,39 @@ mod tests {
     }
 
     prop_compose! {
+        fn arb_fixed_key_entries()(
+            entries in prop::collection::vec(
+                (prop::array::uniform8(select(ALPHABET)), any::<u64>()),
+                0..32,
+            ),
+            non_existing_keys in prop::collection::vec(
+                prop::array::uniform8(select(ALPHABET)),
+                32,
+            ),
+        ) -> FixedKeyTestEntries {
+            let mut keys: HashSet<_> = entries.iter().map(|(key, _)| *key).collect();
+
+            FixedKeyTestEntries {
+                // Keys that are not in entries
+                non_existing_keys: non_existing_keys.into_iter().filter(
+                    |key| !keys.contains(key)).collect(),
+                // Deduplicate entries
+                entries: entries.into_iter().filter(|(key, _)| keys.remove(key)).collect(),
+            }
+        }
+    }
+
+    prop_compose! {
         fn arb_plain_trie()(
             entries in arb_entries()
+        ) -> PlainTrie {
+            entries.create_plain()
+        }
+    }
+
+    prop_compose! {
+        fn arb_fixed_key_plain_trie()(
+            entries in arb_fixed_key_entries()
         ) -> PlainTrie {
             entries.create_plain()
         }
@@ -933,9 +1048,22 @@ mod tests {
         }
     }
 
+    prop_compose! {
+        fn arb_fixed_key_trie()(
+            entries in arb_fixed_key_entries()
+        ) -> FixedKeyTestTrie {
+            entries.create_trie().unwrap()
+        }
+    }
+
     proptest! {
         #[test]
         fn prop_test_size(trie in arb_trie()) {
+            prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.size());
+        }
+
+        #[test]
+        fn prop_test_size_fixed_key(trie in arb_fixed_key_trie()) {
             prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.size());
         }
 
@@ -953,7 +1081,33 @@ mod tests {
         }
 
         #[test]
+        fn prop_test_insert_values_fixed_key(entries in arb_fixed_key_entries()) {
+            let mut trie = FixedKeyTestTrie::empty();
+            let mut plain = PlainTrie::empty();
+
+            for (key, value) in &entries.entries {
+                trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
+                plain.insert(key, *value);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
+        }
+
+        #[test]
         fn prop_test_update_entry(entries in arb_entries()) {
+            let mut trie = entries.create_trie()?;
+            let mut plain = entries.create_plain();
+
+            for (key, value) in &entries.entries {
+                trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value + 1))?;
+                plain.insert(key, *value + 1);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
+        }
+
+        #[test]
+        fn prop_test_update_entry_fixed_key(entries in arb_fixed_key_entries()) {
             let mut trie = entries.create_trie()?;
             let mut plain = entries.create_plain();
 
@@ -987,8 +1141,29 @@ mod tests {
         }
 
         #[test]
+        #[ignore]
+        fn prop_test_delete_entry_fixed_key(entries in arb_fixed_key_entries()) {
+            let mut trie = entries.create_trie()?;
+            let mut plain = entries.create_plain();
+
+            for key in &entries.non_existing_keys {
+                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
+                plain.delete(key);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
+
+            for (key, _) in &entries.entries {
+                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
+                plain.delete(key);
+
+                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+            }
+        }
+
+        #[test]
         fn prop_test_lookup_value(entries in arb_entries()) {
-            let trie =entries.create_trie()?;
+            let trie = entries.create_trie()?;
 
             for (key, value) in &entries.entries {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
@@ -1000,8 +1175,21 @@ mod tests {
         }
 
         #[test]
-        fn prop_test_contains_key(entries in arb_entries()) {
-            let trie =entries.create_trie()?;
+        fn prop_test_lookup_value_fixed_key(entries in arb_fixed_key_entries()) {
+            let trie = entries.create_trie()?;
+
+            for (key, value) in &entries.entries {
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
+            }
+
+            for key in &entries.non_existing_keys {
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
+            }
+        }
+
+        #[test]
+        fn prop_test_contains_key_fixed_key(entries in arb_fixed_key_entries()) {
+            let trie = entries.create_trie()?;
 
             for (key, _) in &entries.entries {
                 prop_assert!(trie.contains_key(&UnreachableBlobStore, key)?);
@@ -1018,6 +1206,20 @@ mod tests {
 
             // Store trie
             let blob_ref = blob_store::store_to_store(&mut store, &plain_trie.to_trie()?);
+
+            // Load trie
+            let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
+
+            // Assert loaded tree is equal to the tree we started with
+            prop_assert_eq!(plain_trie, trie.to_plain(&store)?);
+        }
+
+        #[test]
+        fn prop_test_store_and_load_fixed_key(plain_trie in arb_fixed_key_plain_trie()) {
+            let mut store = BlobStoreStub::default();
+
+            // Store trie
+            let blob_ref = blob_store::store_to_store(&mut store, &plain_trie.to_fixed_key_trie()?);
 
             // Load trie
             let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
@@ -1071,9 +1273,21 @@ mod tests {
             }
             Ok(trie)
         }
+
+        fn to_fixed_key_trie(&self) -> Result<FixedKeyTestTrie, TestCaseError> {
+            let mut trie = FixedKeyTestTrie::empty();
+            for (key, value) in &self.entries {
+                trie = trie.insert_or_update_entry(
+                    &UnreachableBlobStore,
+                    &key.as_slice().try_into().expect("key of wrong length"),
+                    StoreSerialized(*value),
+                )?;
+            }
+            Ok(trie)
+        }
     }
 
-    impl TestTrie {
+    impl<K: TrieKey> Trie<K, StoreSerialized<u64>> {
         /// Convert to plain representation and check representation invariants.
         fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie, TestCaseError> {
             let mut entries = BTreeMap::new();
