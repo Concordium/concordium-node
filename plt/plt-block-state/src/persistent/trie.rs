@@ -11,6 +11,7 @@ use crate::persistent::blob_store::{
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
+use crate::utils::Cow;
 use concordium_base::common::{Buffer, Get, Put};
 use concordium_base::hashes::Hash;
 use sha2::Digest;
@@ -19,7 +20,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
-
 // TODO: use TinyVec instead of Vec<u8> for keys?
 
 /// Representation of an immutable trie with values of type `V`.
@@ -666,6 +666,37 @@ impl<V> Node<V> {
 
             (HashedCacheableRef::new(new_node), node.terminal.is_some())
         })
+    }
+}
+
+impl<'b, V> Cow<'b, Node<V>> {
+    /// Return the child with stem starting with given byte, if it exists.
+    /// If the node reference is `Owned`, and
+    /// `HashedCacheableRef::value(child_ref)` returns a borrowed value, `bind_child` returns
+    /// the error [`BlockStateFailure::CowJoin`]. See [`Cow<HashedCacheableRef>::bind_value`]
+    /// for further details.
+    pub fn bind_child(
+        self,
+        loader: &impl BlobStoreLoad,
+        byte: u8,
+    ) -> Option<BlockStateResult<Cow<'b, Node<V>>>>
+    where
+        V: Loadable,
+    {
+        match self {
+            Cow::Owned(node) => {
+                node.children
+                    .get(byte)
+                    .map(|edge| match edge.target_ref.value(loader)? {
+                        Cow::Owned(child) => Ok(Cow::Owned(child)),
+                        Cow::Borrowed(_) => Err(BlockStateFailure::CowJoin("child in trie::Node")),
+                    })
+            }
+            Cow::Borrowed(node) => node
+                .children
+                .get(byte)
+                .map(|child| child.target_ref.value(loader)),
+        }
     }
 }
 
