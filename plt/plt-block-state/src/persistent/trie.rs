@@ -153,8 +153,8 @@ impl<K, V> Trie<K, V> {
         key: &K,
     ) -> BlockStateResult<Option<Cow<'_, V>>>
     where
-        V: Loadable + Clone,
         K: TrieKey,
+        V: Loadable,
     {
         let key_bytes = key.to_bytes();
         let root = self.root.value(loader)?;
@@ -184,8 +184,8 @@ impl<K, V> Trie<K, V> {
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn contains_key(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<bool>
     where
-        V: Loadable + Clone,
         K: TrieKey,
+        V: Loadable,
     {
         let key_bytes = key.to_bytes();
         let root = self.root.value(loader)?;
@@ -221,8 +221,8 @@ impl<K, V> Trie<K, V> {
         value: V,
     ) -> BlockStateResult<Self>
     where
-        V: Loadable + Clone,
         K: TrieKey,
+        V: Loadable + Clone,
     {
         let (new_root, replaced) =
             Node::insert_rec(&self.root, loader, key.to_bytes().borrow(), value)?;
@@ -277,10 +277,12 @@ impl<K, V> Trie<K, V> {
         &'b self,
         loader: &'a L,
         key: &K,
-    ) -> BlockStateResult<impl Iterator<Item = BlockStateResult<(Vec<u8>, V)>> + use<'a, 'b, L, K, V>>
+    ) -> BlockStateResult<
+        impl Iterator<Item = BlockStateResult<(K, Cow<'b, V>)>> + use<'a, 'b, L, K, V>,
+    >
     where
         K: TrieKey,
-        V: Loadable + Clone,
+        V: Loadable,
     {
         let key_bytes = key.to_bytes();
         let root = self.root.value(loader)?;
@@ -322,10 +324,10 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, 'b, L, K, V> {
     }
 }
 
-impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone> Iterator
+impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
     for PrefixIterator<'a, 'b, L, K, V>
 {
-    type Item = BlockStateResult<(K, V)>;
+    type Item = BlockStateResult<(K, Cow<'b, V>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // next_rec(self.loader, &mut self.node_ref_stack)
@@ -421,7 +423,7 @@ struct Edge<V> {
 }
 
 /// [`Edge`] with [`Cow`] structurally projected.
-/// Used as return value for [`Cow<Node>::bind_child_edge`].
+/// Used as return value for [`Cow<Node>::cow_project_child_edge`].
 #[derive(Debug)]
 struct EdgeCowProjection<'a, 'b, V> {
     stem: &'a [u8],
@@ -631,7 +633,7 @@ impl<'b, V> Cow<'b, Node<V>> {
         V: Loadable,
     {
         Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = self.bind_child_edge(loader, path_byte)? {
+            if let Some(edge) = self.cow_project_child_edge(loader, path_byte)? {
                 let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
 
                 match common_prefix_len.cmp(&edge.stem.len()) {
@@ -688,7 +690,7 @@ impl<'b, V> Cow<'b, Node<V>> {
     /// `HashedCacheableRef::value(child_ref)` returns a borrowed value, `bind_child_edge` returns
     /// the error [`BlockStateFailure::CowJoin`]. See [`Cow<HashedCacheableRef>::bind_value`]
     /// for further details.
-    pub fn bind_child_edge<'a>(
+    pub fn cow_project_child_edge<'a>(
         &'a self,
         loader: &impl BlobStoreLoad,
         byte: u8,
@@ -1227,6 +1229,7 @@ mod tests {
         #[test]
         #[ignore]
         fn prop_test_iter_prefix(entries in arb_entries()) {
+            // Test in-memory trie
             let trie = entries.create_trie()?;
             let mut plain = entries.create_plain();
 
@@ -1242,6 +1245,30 @@ mod tests {
 
             for (key, _) in &entries.entries {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+
+            // Test on-disk trie
+            let mut store = BlobStoreStub::default();
+            let trie = trie.to_store(&mut store)?;
+
+            for key in &entries.non_existing_keys {
+                let entries: Vec<_> = trie.iter_prefix(&store, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+
+            for (key, _) in &entries.entries {
+                let entries: Vec<_> = trie.iter_prefix(&store, key)?.map(
                     |res| {
                         let entry = res.unwrap();
                         (entry.0, entry.1.0)
@@ -1261,7 +1288,7 @@ mod tests {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
                     |res| {
                         let entry = res.unwrap();
-                        (entry.0, entry.1.0)
+                        (entry.0.to_vec(), entry.1.into_owned().0)
                     }).collect();
 
                 prop_assert_eq!(entries, plain.iter_prefix(key));
@@ -1271,7 +1298,7 @@ mod tests {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
                     |res| {
                         let entry = res.unwrap();
-                        (entry.0, entry.1.0)
+                        (entry.0.to_vec(), entry.1.into_owned().0)
                     }).collect();
 
                 prop_assert_eq!(entries, plain.iter_prefix(key));
