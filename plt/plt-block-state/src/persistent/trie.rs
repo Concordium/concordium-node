@@ -1389,6 +1389,8 @@ mod tests {
             let mut prev_key = None;
             for (key, edge) in node.children.0.iter() {
                 prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
+                prop_assert_eq!(*key, edge.stem[0], "key matches first byte in stem");
+
                 if let Some(prev_key) = prev_key {
                     prop_assert!(prev_key < *key, "edge keys not ascending")
                 }
