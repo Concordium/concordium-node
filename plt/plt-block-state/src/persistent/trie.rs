@@ -57,7 +57,7 @@ use std::marker::PhantomData;
 #[derive(Debug)]
 pub struct Trie<K, V> {
     size: u64,
-    root: HashedCacheableRef<Node<V>>,
+    root: HashedCacheableRef<Node<V>>, // todo ar remove ref
     _key_type: PhantomData<K>,
 }
 
@@ -147,20 +147,24 @@ impl<K, V> Trie<K, V> {
     /// Returns [`BlockStateFailure`] if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    pub fn lookup_value(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<Option<V>>
+    pub fn lookup_value(
+        &self,
+        loader: &impl BlobStoreLoad,
+        key: &K,
+    ) -> BlockStateResult<Option<Cow<'_, V>>>
     where
         V: Loadable + Clone,
         K: TrieKey,
     {
         let key_bytes = key.to_bytes();
-        let scan_return = Node::scan_rec(&self.root, loader, key_bytes.borrow())?;
+        let root = self.root.value(loader)?;
+        let scan_return = root.scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
                 scan_return
                     .prefix_matched_node
-                    .value(loader)?
-                    .terminal
-                    .clone()
+                    .map(|node| node.terminal, |node| &node.terminal)
+                    .transpose()
             }
             _ => None,
         })
@@ -184,14 +188,11 @@ impl<K, V> Trie<K, V> {
         K: TrieKey,
     {
         let key_bytes = key.to_bytes();
-        let scan_return = Node::scan_rec(&self.root, loader, key_bytes.borrow())?;
+        let root = self.root.value(loader)?;
+        let scan_return = root.scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
-                scan_return
-                    .prefix_matched_node
-                    .value(loader)?
-                    .terminal
-                    .is_some()
+                scan_return.prefix_matched_node.terminal.is_some()
             }
             _ => false,
         })
@@ -272,36 +273,38 @@ impl<K, V> Trie<K, V> {
     /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the tree
     /// does not fulfill the expected invariants (this can happen if the blob store is
     /// corrupted in some way).
-    pub fn iter_prefix(
-        &self,
-        loader: &impl BlobStoreLoad,
+    pub fn iter_prefix<'a, 'b, L: BlobStoreLoad>(
+        &'b self,
+        loader: &'a L,
         key: &K,
-    ) -> BlockStateResult<impl Iterator<Item = BlockStateResult<(Vec<u8>, V)>>>
+    ) -> BlockStateResult<impl Iterator<Item = BlockStateResult<(Vec<u8>, V)>> + use<'a, 'b, L, K, V>>
     where
         K: TrieKey,
         V: Loadable + Clone,
     {
         let key_bytes = key.to_bytes();
-        let scan_return = Node::scan_rec(&self.root, loader, key_bytes.borrow())?;
+        let root = self.root.value(loader)?;
+        let scan_return = root.scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
-            ScanMatch::FullMatch { stem_matched_node } => {
-                PrefixIterator::with_root(stem_matched_node, loader)
-            }
+            ScanMatch::FullMatch { stem_matched_node } => PrefixIterator::with_root(
+                stem_matched_node.unwrap_or(scan_return.prefix_matched_node),
+                loader,
+            ),
             ScanMatch::NotFullMatch => PrefixIterator::empty(loader),
         })
     }
 }
 
 /// Iterator of for a key prefix.
-struct PrefixIterator<'a, L, K: TrieKey, V> {
+struct PrefixIterator<'a, 'b, L, K: TrieKey, V> {
     /// Blob store loader reference
     loader: &'a L,
     /// Stack of next nodes to visit.
-    node_ref_stack: Vec<HashedCacheableRef<Node<V>>>,
+    node_ref_stack: Vec<Cow<'b, Node<V>>>,
     _trie_key: PhantomData<K>,
 }
 
-impl<'a, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, L, K, V> {
+impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, 'b, L, K, V> {
     fn empty(loader: &'a L) -> Self {
         Self {
             loader,
@@ -310,7 +313,7 @@ impl<'a, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, L, K, V> {
         }
     }
 
-    fn with_root(node_ref: HashedCacheableRef<Node<V>>, loader: &'a L) -> Self {
+    fn with_root(node_ref: Cow<'b, Node<V>>, loader: &'a L) -> Self {
         Self {
             loader,
             node_ref_stack: vec![node_ref],
@@ -319,38 +322,39 @@ impl<'a, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, L, K, V> {
     }
 }
 
-impl<'a, L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone> Iterator
-    for PrefixIterator<'a, L, K, V>
+impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone> Iterator
+    for PrefixIterator<'a, 'b, L, K, V>
 {
     type Item = BlockStateResult<(K, V)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        next_rec(self.loader, &mut self.node_ref_stack)
+        // next_rec(self.loader, &mut self.node_ref_stack)
+        todo!()
     }
 }
 
-fn next_rec<L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone>(
-    loader: &L,
-    node_ref_stack: &mut Vec<HashedCacheableRef<Node<V>>>,
-) -> Option<BlockStateResult<(K, V)>> {
-    while let Some(next_node_ref) = node_ref_stack.pop() {
-        let next_node = match next_node_ref.value(loader) {
-            Ok(next_node) => next_node,
-            Err(err) => return Some(Err(err)),
-        };
-
-        if let Some(terminal) = next_node.terminal.as_ref() {
-            // todo ar key
-            let key = match K::try_from_bytes(&[]) {
-                Ok(key) => key,
-                Err(err) => return Some(Err(err)),
-            };
-            return Some(Ok((key, terminal.clone())));
-        }
-    }
-
-    None
-}
+// fn next_rec<L: BlobStoreLoad, K: TrieKey, V: Loadable + Clone>(
+//     loader: &L,
+//     node_ref_stack: &mut Vec<HashedCacheableRef<Node<V>>>,
+// ) -> Option<BlockStateResult<(K, V)>> {
+//     while let Some(next_node_ref) = node_ref_stack.pop() {
+//         let next_node = match next_node_ref.value(loader) {
+//             Ok(next_node) => next_node,
+//             Err(err) => return Some(Err(err)),
+//         };
+//
+//         if let Some(terminal) = next_node.terminal.as_ref() {
+//             // todo ar key
+//             let key = match K::try_from_bytes(&[]) {
+//                 Ok(key) => key,
+//                 Err(err) => return Some(Err(err)),
+//             };
+//             return Some(Ok((key, terminal.clone())));
+//         }
+//     }
+//
+//     None
+// }
 
 /// Trie node
 #[derive(Debug)]
@@ -409,40 +413,48 @@ impl<V> Default for ChildEdges<V> {
     }
 }
 
-/// Trie edge
+/// Trie child edge
 #[derive(Debug)]
 struct Edge<V> {
     stem: Vec<u8>,
-    target_ref: HashedCacheableRef<Node<V>>,
+    child_ref: HashedCacheableRef<Node<V>>,
+}
+
+/// [`Edge`] with [`Cow`] structurally projected.
+/// Used as return value for [`Cow<Node>::bind_child_edge`].
+#[derive(Debug)]
+struct EdgeCowProjection<'a, 'b, V> {
+    stem: &'a [u8],
+    child: Cow<'b, Node<V>>,
 }
 
 impl<V> Clone for Edge<V> {
     fn clone(&self) -> Self {
         Self {
             stem: self.stem.clone(),
-            target_ref: self.target_ref.clone(),
+            child_ref: self.child_ref.clone(),
         }
     }
 }
 
 /// Return value from scanning a path in the trie.
 #[derive(Debug)]
-struct ScanReturn<'a, V> {
+struct ScanReturn<'a, 'b, V> {
     /// Node fully or partially (maximally) matched by path.
-    prefix_matched_node: HashedCacheableRef<Node<V>>,
+    prefix_matched_node: Cow<'b, Node<V>>,
     /// The path remaining when removing prefix matching `matched_node`.
     path_split_from_matched_node: &'a [u8],
     /// Whether full or partial match.
-    matched: ScanMatch<V>,
+    matched: ScanMatch<'b, V>,
 }
 
 #[derive(Debug)]
-enum ScanMatch<V> {
+enum ScanMatch<'b, V> {
     /// Entire path was found in trie (ending either in a node or in a stem).
     FullMatch {
-        /// Node that site on the stem from `matched_node` that path follows
-        /// (or at the end of a stem which means it is equal to `prefix_matched_node`).
-        stem_matched_node: HashedCacheableRef<Node<V>>,
+        /// Node that sit on the stem from `matched_node` that the path follows.
+        /// (or `None` if match ends at a stem and `path_split_from_matched_node` is empty).
+        stem_matched_node: Option<Cow<'b, Node<V>>>,
     },
     /// Only part of path was found in trie,
     NotFullMatch,
@@ -462,68 +474,6 @@ impl<V> Node<V> {
             children: ChildEdges::default(),
             terminal: None,
         }
-    }
-
-    /// Can the trie for the given path and return information about where the path ends
-    /// in the trie.
-    fn scan_rec<'a>(
-        node_ref: &HashedCacheableRef<Node<V>>,
-        loader: &impl BlobStoreLoad,
-        path: &'a [u8],
-    ) -> BlockStateResult<ScanReturn<'a, V>>
-    where
-        V: Loadable,
-    {
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = node_ref.value(loader)?.children.get(path_byte) {
-                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
-
-                match common_prefix_len.cmp(&edge.stem.len()) {
-                    Ordering::Equal => {
-                        // Path matched node and the full stem.
-                        Node::scan_rec(&edge.target_ref, loader, &path[edge.stem.len()..])?
-                    }
-                    Ordering::Less => match common_prefix_len.cmp(&path.len()) {
-                        Ordering::Equal => ScanReturn {
-                            // Path fully matched node and part of the child stem.
-                            prefix_matched_node: node_ref.clone(),
-                            path_split_from_matched_node: path,
-                            matched: ScanMatch::FullMatch {
-                                stem_matched_node: edge.target_ref.clone(),
-                            },
-                        },
-                        Ordering::Less => ScanReturn {
-                            // Path matched node and partly the child stem.
-                            prefix_matched_node: node_ref.clone(),
-                            path_split_from_matched_node: path,
-                            matched: ScanMatch::NotFullMatch,
-                        },
-                        Ordering::Greater => {
-                            unreachable!()
-                        }
-                    },
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Path matched up until node, by does not match the start of any child stems.
-                ScanReturn {
-                    prefix_matched_node: node_ref.clone(),
-                    path_split_from_matched_node: path,
-                    matched: ScanMatch::NotFullMatch,
-                }
-            }
-        } else {
-            // Path matched fully
-            ScanReturn {
-                prefix_matched_node: node_ref.clone(),
-                path_split_from_matched_node: &[],
-                matched: ScanMatch::FullMatch {
-                    stem_matched_node: node_ref.clone(),
-                },
-            }
-        })
     }
 
     /// Insert the given value at the given path. If a value already exists at the path,
@@ -546,7 +496,7 @@ impl<V> Node<V> {
                     Ordering::Equal => {
                         // Insert in child node.
                         let (new_child_node, replaced) = Self::insert_rec(
-                            &edge.target_ref,
+                            &edge.child_ref,
                             loader,
                             &path[edge.stem.len()..],
                             value,
@@ -558,7 +508,7 @@ impl<V> Node<V> {
                             path_byte,
                             Edge {
                                 stem: edge.stem.clone(),
-                                target_ref: new_child_node,
+                                child_ref: new_child_node,
                             },
                         );
 
@@ -576,7 +526,7 @@ impl<V> Node<V> {
                                     edge.stem[common_prefix_len],
                                     Edge {
                                         stem: edge.stem[common_prefix_len..].to_vec(),
-                                        target_ref: edge.target_ref.clone(),
+                                        child_ref: edge.child_ref.clone(),
                                     },
                                 );
 
@@ -586,7 +536,7 @@ impl<V> Node<V> {
                                     path_byte,
                                     Edge {
                                         stem: edge.stem[..common_prefix_len].to_vec(),
-                                        target_ref: HashedCacheableRef::new(stem_node),
+                                        child_ref: HashedCacheableRef::new(stem_node),
                                     },
                                 );
 
@@ -602,7 +552,7 @@ impl<V> Node<V> {
                                     edge.stem[common_prefix_len],
                                     Edge {
                                         stem: edge.stem[common_prefix_len..].to_vec(),
-                                        target_ref: edge.target_ref.clone(),
+                                        child_ref: edge.child_ref.clone(),
                                     },
                                 );
                                 let child_node = Node {
@@ -613,7 +563,7 @@ impl<V> Node<V> {
                                     path[common_prefix_len],
                                     Edge {
                                         stem: path[common_prefix_len..].to_vec(),
-                                        target_ref: HashedCacheableRef::new(child_node),
+                                        child_ref: HashedCacheableRef::new(child_node),
                                     },
                                 );
 
@@ -623,7 +573,7 @@ impl<V> Node<V> {
                                     path_byte,
                                     Edge {
                                         stem: edge.stem[..common_prefix_len].to_vec(),
-                                        target_ref: HashedCacheableRef::new(stem_node),
+                                        child_ref: HashedCacheableRef::new(stem_node),
                                     },
                                 );
 
@@ -651,7 +601,7 @@ impl<V> Node<V> {
                     path_byte,
                     Edge {
                         stem: path.to_vec(),
-                        target_ref: HashedCacheableRef::new(child_node),
+                        child_ref: HashedCacheableRef::new(child_node),
                     },
                 );
 
@@ -670,33 +620,111 @@ impl<V> Node<V> {
 }
 
 impl<'b, V> Cow<'b, Node<V>> {
-    /// Return the child with stem starting with given byte, if it exists.
-    /// If the node reference is `Owned`, and
-    /// `HashedCacheableRef::value(child_ref)` returns a borrowed value, `bind_child` returns
-    /// the error [`BlockStateFailure::CowJoin`]. See [`Cow<HashedCacheableRef>::bind_value`]
-    /// for further details.
-    pub fn bind_child(
+    /// Can the trie for the given path and return information about where the path ends
+    /// in the trie.
+    fn scan_rec<'a>(
         self,
         loader: &impl BlobStoreLoad,
-        byte: u8,
-    ) -> Option<BlockStateResult<Cow<'b, Node<V>>>>
+        path: &'a [u8],
+    ) -> BlockStateResult<ScanReturn<'a, 'b, V>>
     where
         V: Loadable,
     {
-        match self {
-            Cow::Owned(node) => {
-                node.children
-                    .get(byte)
-                    .map(|edge| match edge.target_ref.value(loader)? {
-                        Cow::Owned(child) => Ok(Cow::Owned(child)),
-                        Cow::Borrowed(_) => Err(BlockStateFailure::CowJoin("child in trie::Node")),
-                    })
+        Ok(if let Some(&path_byte) = path.first() {
+            if let Some(edge) = self.bind_child_edge(loader, path_byte)? {
+                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
+
+                match common_prefix_len.cmp(&edge.stem.len()) {
+                    Ordering::Equal => {
+                        // Path matched node and the full stem.
+                        edge.child.scan_rec(loader, &path[edge.stem.len()..])?
+                    }
+                    Ordering::Less => match common_prefix_len.cmp(&path.len()) {
+                        Ordering::Equal => {
+                            // Path fully matched node and part of the child stem.
+                            let stem_matched_node = Some(edge.child);
+                            ScanReturn {
+                                prefix_matched_node: self,
+                                path_split_from_matched_node: path,
+                                matched: ScanMatch::FullMatch { stem_matched_node },
+                            }
+                        }
+                        Ordering::Less => ScanReturn {
+                            // Path matched node and partly the child stem.
+                            prefix_matched_node: self,
+                            path_split_from_matched_node: path,
+                            matched: ScanMatch::NotFullMatch,
+                        },
+                        Ordering::Greater => {
+                            unreachable!()
+                        }
+                    },
+                    Ordering::Greater => {
+                        unreachable!()
+                    }
+                }
+            } else {
+                // Path matched up until node, by does not match the start of any child stems.
+                ScanReturn {
+                    prefix_matched_node: self,
+                    path_split_from_matched_node: path,
+                    matched: ScanMatch::NotFullMatch,
+                }
             }
-            Cow::Borrowed(node) => node
-                .children
-                .get(byte)
-                .map(|child| child.target_ref.value(loader)),
-        }
+        } else {
+            // Path matched fully
+            ScanReturn {
+                prefix_matched_node: self,
+                path_split_from_matched_node: &[],
+                matched: ScanMatch::FullMatch {
+                    stem_matched_node: None,
+                },
+            }
+        })
+    }
+
+    /// Return the child node with stem starting with given byte in a `Cow` (if the child exists).
+    /// If the node reference is `Owned`, and
+    /// `HashedCacheableRef::value(child_ref)` returns a borrowed value, `bind_child_edge` returns
+    /// the error [`BlockStateFailure::CowJoin`]. See [`Cow<HashedCacheableRef>::bind_value`]
+    /// for further details.
+    pub fn bind_child_edge<'a>(
+        &'a self,
+        loader: &impl BlobStoreLoad,
+        byte: u8,
+    ) -> BlockStateResult<Option<EdgeCowProjection<'a, 'b, V>>>
+    where
+        V: Loadable,
+    {
+        Ok(Some(match self {
+            Cow::Owned(node) => {
+                let edge = match node.children.get(byte) {
+                    Some(edge) => edge,
+                    None => return Ok(None),
+                };
+
+                match edge.child_ref.value(loader)? {
+                    Cow::Owned(child) => EdgeCowProjection {
+                        stem: &edge.stem,
+                        child: Cow::Owned(child),
+                    },
+                    Cow::Borrowed(_) => {
+                        return Err(BlockStateFailure::CowJoin("child in trie::Node"));
+                    }
+                }
+            }
+            Cow::Borrowed(node) => {
+                let edge = match node.children.get(byte) {
+                    Some(edge) => edge,
+                    None => return Ok(None),
+                };
+
+                EdgeCowProjection {
+                    stem: &edge.stem,
+                    child: edge.child_ref.value(loader)?,
+                }
+            }
+        }))
     }
 }
 
@@ -790,14 +818,17 @@ impl<V> Loadable for Edge<V> {
             ));
         }
         let target_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
-        Ok(Self { stem, target_ref })
+        Ok(Self {
+            stem,
+            child_ref: target_ref,
+        })
     }
 }
 
 impl<V: Storable> Storable for Edge<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
-        self.target_ref.store_to_buffer(&mut buffer, storer);
+        self.child_ref.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -836,7 +867,7 @@ impl<V: Hashable + Loadable> Hashable for ChildEdges<V> {
 impl<V: Hashable + Loadable> Hashable for Edge<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
-            self.target_ref.hash(loader)?,
+            self.child_ref.hash(loader)?,
             StoreSerialized(&self.stem).hash(loader)?,
         ))
     }
@@ -861,7 +892,7 @@ impl<V: Cacheable + Loadable> Cacheable for Node<V> {
 
 impl<V: Cacheable + Loadable> Cacheable for Edge<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.target_ref.cache_reference_values(loader)
+        self.child_ref.cache_reference_values(loader)
     }
 }
 
@@ -927,7 +958,7 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Edge<V> {
     {
         Ok(Self {
             stem: self.stem.clone(),
-            target_ref: self.target_ref.move_blob_store(from_store, to_store)?,
+            child_ref: self.child_ref.move_blob_store(from_store, to_store)?,
         })
     }
 }
@@ -1249,14 +1280,27 @@ mod tests {
 
         #[test]
         fn prop_test_lookup_value(entries in arb_entries()) {
+            // Test in-memory trie
             let trie = entries.create_trie()?;
 
             for (key, value) in &entries.entries {
-                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(Cow::Borrowed(&StoreSerialized(*value))));
             }
 
             for key in &entries.non_existing_keys {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
+            }
+
+            // Test on-disk trie
+            let mut store = BlobStoreStub::default();
+            let trie = trie.to_store(&mut store)?;
+
+            for (key, value) in &entries.entries {
+                prop_assert_eq!(trie.lookup_value(&store, key)?, Some(Cow::Owned(StoreSerialized(*value))));
+            }
+
+            for key in &entries.non_existing_keys {
+                prop_assert_eq!(trie.lookup_value(&store, key)?, None);
             }
         }
 
@@ -1265,11 +1309,37 @@ mod tests {
             let trie = entries.create_trie()?;
 
             for (key, value) in &entries.entries {
-                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(StoreSerialized(*value)));
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(Cow::Borrowed(&StoreSerialized(*value))));
             }
 
             for key in &entries.non_existing_keys {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
+            }
+        }
+
+        #[test]
+        fn prop_test_contains(entries in arb_entries()) {
+            // Test in-memory trie
+            let trie = entries.create_trie()?;
+
+            for (key, _) in &entries.entries {
+                prop_assert!(trie.contains_key(&UnreachableBlobStore, key)?);
+            }
+
+            for key in &entries.non_existing_keys {
+                prop_assert!(!trie.contains_key(&UnreachableBlobStore, key)?);
+            }
+
+            // Test on-disk trie
+            let mut store = BlobStoreStub::default();
+            let trie = trie.to_store(&mut store)?;
+
+            for (key, _) in &entries.entries {
+                prop_assert!(trie.contains_key(&store, key)?);
+            }
+
+            for key in &entries.non_existing_keys {
+                prop_assert!(!trie.contains_key(&store, key)?);
             }
         }
 
@@ -1394,6 +1464,16 @@ mod tests {
 
             Ok(plain)
         }
+
+        /// Store in give store and return stored trie.
+        fn to_store(
+            &self,
+            store: &mut (impl BlobStoreLoad + BlobStoreStore),
+        ) -> Result<Self, TestCaseError> {
+            let location = blob_store::store_to_store(store, self);
+            let trie = blob_store::load_from_store(store, location)?;
+            Ok(trie)
+        }
     }
 
     impl Node<u64> {
@@ -1428,7 +1508,7 @@ mod tests {
 
                 let mut child_path = path.to_vec();
                 child_path.extend(edge.stem.iter().copied());
-                Node::extract_entries(&edge.target_ref, loader, &child_path, entries, false)?;
+                Node::extract_entries(&edge.child_ref, loader, &child_path, entries, false)?;
                 prev_key = Some(*key);
             }
 
