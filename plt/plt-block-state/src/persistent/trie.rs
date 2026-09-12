@@ -125,6 +125,7 @@ impl<K, V> Trie<K, V> {
     pub fn empty() -> Self {
         let root = Node {
             children: ChildEdges::default(),
+            stem: vec![],
             terminal: None,
         };
 
@@ -256,7 +257,7 @@ impl<K, V> Trie<K, V> {
     /// Returns [`BlockStateFailure`] if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    pub fn delete_entry(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<Self>
+    pub fn delete_entry(&self, _loader: &impl BlobStoreLoad, _key: &K) -> BlockStateResult<Self>
     where
         K: Borrow<[u8]>,
     {
@@ -365,7 +366,8 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
 /// Trie node
 #[derive(Debug)]
 struct Node<V> {
-    children: ChildEdges<V>, // todo ar move stem into node?
+    children: ChildEdges<V>,
+    stem: Vec<u8>,
     terminal: Option<V>,
 }
 
@@ -376,6 +378,7 @@ where
     fn clone(&self) -> Self {
         Self {
             children: self.children.clone(),
+            stem: self.stem.clone(),
             terminal: self.terminal.clone(),
         }
     }
@@ -422,22 +425,19 @@ impl<V> Default for ChildEdges<V> {
 /// Trie child edge
 #[derive(Debug)]
 struct Edge<V> {
-    stem: Vec<u8>,
     child_ref: HashedCacheableRef<Node<V>>,
 }
 
 /// [`Edge`] with [`Cow`] structurally projected.
 /// Used as return value for [`Cow<Node>::cow_project_child_edge`].
 #[derive(Debug)]
-struct EdgeCowProjection<'a, 'b, V> {
-    stem: &'a [u8],
+struct EdgeCowProjection<'b, V> {
     child: Cow<'b, Node<V>>,
 }
 
 impl<V> Clone for Edge<V> {
     fn clone(&self) -> Self {
         Self {
-            stem: self.stem.clone(),
             child_ref: self.child_ref.clone(),
         }
     }
@@ -488,21 +488,21 @@ impl<V> Node<V> {
     {
         Ok(if let Some(&path_byte) = path.first() {
             if let Some(edge) = self.children.get(path_byte) {
-                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
+                let child_node = edge.child_ref.value(loader)?;
+                let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
 
-                match common_prefix_len.cmp(&edge.stem.len()) {
+                match common_prefix_len.cmp(&child_node.stem.len()) {
                     Ordering::Equal => {
                         // Insert in child node.
-                        let child_node = edge.child_ref.value(loader)?;
+
                         let (new_child_node, replaced) =
-                            child_node.insert_rec(loader, &path[edge.stem.len()..], value)?;
+                            child_node.insert_rec(loader, &path[child_node.stem.len()..], value)?;
 
                         let mut new_node = self.clone();
 
                         new_node.children.set(
                             path_byte,
                             Edge {
-                                stem: edge.stem.clone(),
                                 child_ref: HashedCacheableRef::new(new_child_node),
                             },
                         );
@@ -514,14 +514,21 @@ impl<V> Node<V> {
                             Ordering::Equal => {
                                 // Insert in stem.
                                 let mut stem_node = Node {
+                                    stem: child_node.stem[..common_prefix_len].to_vec(),
                                     children: ChildEdges::default(),
                                     terminal: Some(value),
                                 };
+
+                                let new_child_node = Node {
+                                    stem: child_node.stem[common_prefix_len..].to_vec(),
+                                    children: child_node.children.clone(),
+                                    terminal: child_node.terminal.clone(),
+                                };
+
                                 stem_node.children.set(
-                                    edge.stem[common_prefix_len],
+                                    child_node.stem[common_prefix_len],
                                     Edge {
-                                        stem: edge.stem[common_prefix_len..].to_vec(),
-                                        child_ref: edge.child_ref.clone(),
+                                        child_ref: HashedCacheableRef::new(new_child_node),
                                     },
                                 );
 
@@ -530,7 +537,6 @@ impl<V> Node<V> {
                                 new_node.children.set(
                                     path_byte,
                                     Edge {
-                                        stem: edge.stem[..common_prefix_len].to_vec(),
                                         child_ref: HashedCacheableRef::new(stem_node),
                                     },
                                 );
@@ -540,25 +546,32 @@ impl<V> Node<V> {
                             Ordering::Less => {
                                 // Insert as child branching out from the stem.
                                 let mut stem_node = Node {
+                                    stem: child_node.stem[..common_prefix_len].to_vec(),
                                     children: ChildEdges::default(),
                                     terminal: None,
                                 };
+
+                                let new_child_node = Node {
+                                    stem: child_node.stem[common_prefix_len..].to_vec(),
+                                    children: child_node.children.clone(),
+                                    terminal: child_node.terminal.clone(),
+                                };
+
                                 stem_node.children.set(
-                                    edge.stem[common_prefix_len],
+                                    child_node.stem[common_prefix_len],
                                     Edge {
-                                        stem: edge.stem[common_prefix_len..].to_vec(),
-                                        child_ref: edge.child_ref.clone(),
+                                        child_ref: HashedCacheableRef::new(new_child_node),
                                     },
                                 );
-                                let child_node = Node {
+                                let branching_child_node = Node {
+                                    stem: path[common_prefix_len..].to_vec(),
                                     children: ChildEdges::default(),
                                     terminal: Some(value),
                                 };
                                 stem_node.children.set(
                                     path[common_prefix_len],
                                     Edge {
-                                        stem: path[common_prefix_len..].to_vec(),
-                                        child_ref: HashedCacheableRef::new(child_node),
+                                        child_ref: HashedCacheableRef::new(branching_child_node),
                                     },
                                 );
 
@@ -567,7 +580,6 @@ impl<V> Node<V> {
                                 new_node.children.set(
                                     path_byte,
                                     Edge {
-                                        stem: edge.stem[..common_prefix_len].to_vec(),
                                         child_ref: HashedCacheableRef::new(stem_node),
                                     },
                                 );
@@ -586,6 +598,7 @@ impl<V> Node<V> {
             } else {
                 // Insert new child in the node.
                 let child_node = Node {
+                    stem: path.to_vec(),
                     children: ChildEdges::default(),
                     terminal: Some(value),
                 };
@@ -595,7 +608,6 @@ impl<V> Node<V> {
                 new_node.children.set(
                     path_byte,
                     Edge {
-                        stem: path.to_vec(),
                         child_ref: HashedCacheableRef::new(child_node),
                     },
                 );
@@ -603,8 +615,9 @@ impl<V> Node<V> {
                 (new_node, false)
             }
         } else {
-            // Replace exising value.
+            // Replace existing value.
             let new_node = Node {
+                stem: self.stem.clone(),
                 children: self.children.clone(),
                 terminal: Some(value),
             };
@@ -627,12 +640,13 @@ impl<'b, V> Cow<'b, Node<V>> {
     {
         Ok(if let Some(&path_byte) = path.first() {
             if let Some(edge) = self.cow_project_child_edge(loader, path_byte)? {
-                let common_prefix_len = common_prefix(&path[1..], &edge.stem[1..]).len() + 1;
+                let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
 
-                match common_prefix_len.cmp(&edge.stem.len()) {
+                match common_prefix_len.cmp(&edge.child.stem.len()) {
                     Ordering::Equal => {
                         // Path matched node and the full stem.
-                        edge.child.scan_rec(loader, &path[edge.stem.len()..])?
+                        let path_split = &path[edge.child.stem.len()..];
+                        edge.child.scan_rec(loader, path_split)?
                     }
                     Ordering::Less => match common_prefix_len.cmp(&path.len()) {
                         Ordering::Equal => {
@@ -683,11 +697,11 @@ impl<'b, V> Cow<'b, Node<V>> {
     /// `HashedCacheableRef::value(child_ref)` returns a borrowed value, `bind_child_edge` returns
     /// the error [`BlockStateFailure::CowJoin`]. See [`Cow<HashedCacheableRef>::bind_value`]
     /// for further details.
-    pub fn cow_project_child_edge<'a>(
-        &'a self,
+    pub fn cow_project_child_edge(
+        &self,
         loader: &impl BlobStoreLoad,
         byte: u8,
-    ) -> BlockStateResult<Option<EdgeCowProjection<'a, 'b, V>>>
+    ) -> BlockStateResult<Option<EdgeCowProjection<'b, V>>>
     where
         V: Loadable,
     {
@@ -700,7 +714,6 @@ impl<'b, V> Cow<'b, Node<V>> {
 
                 match edge.child_ref.value(loader)? {
                     Cow::Owned(child) => EdgeCowProjection {
-                        stem: &edge.stem,
                         child: Cow::Owned(child),
                     },
                     Cow::Borrowed(_) => {
@@ -715,7 +728,6 @@ impl<'b, V> Cow<'b, Node<V>> {
                 };
 
                 EdgeCowProjection {
-                    stem: &edge.stem,
                     child: edge.child_ref.value(loader)?,
                 }
             }
@@ -751,6 +763,7 @@ impl<V: Loadable> Loadable for Node<V> {
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
         Ok(Self {
+            stem: StoreSerialized::load_from_buffer(&mut buffer, loader)?.0,
             children: Loadable::load_from_buffer(&mut buffer, loader)?,
             terminal: Loadable::load_from_buffer(&mut buffer, loader)?,
         })
@@ -759,6 +772,7 @@ impl<V: Loadable> Loadable for Node<V> {
 
 impl<V: Storable> Storable for Node<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
         self.terminal.store_to_buffer(&mut buffer, storer);
     }
@@ -773,10 +787,8 @@ impl<V> Loadable for ChildEdges<V> {
         let mut children = Vec::with_capacity(size as usize);
         let mut prev_byte = None;
         for _ in 0..size {
+            let byte: u8 = buffer.get().map_parse_err_to_block_state_err()?;
             let edge: Edge<_> = Loadable::load_from_buffer(&mut buffer, loader)?;
-            let byte = *edge.stem.first().ok_or_else(|| {
-                BlockStateFailure::Invariant("Trie stem of zero length".to_string())
-            })?;
             if let Some(prev_byte) = prev_byte
                 && byte <= prev_byte
             {
@@ -796,6 +808,7 @@ impl<V: Storable> Storable for ChildEdges<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size());
         for (byte, edge) in self.0.iter() {
+            buffer.put(*byte);
             edge.store_to_buffer(&mut buffer, storer);
         }
     }
@@ -806,15 +819,8 @@ impl<V> Loadable for Edge<V> {
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
-        let stem: Vec<_> = StoreSerialized::load_from_buffer(&mut buffer, loader)?.0;
-        if stem.is_empty() {
-            return Err(BlockStateFailure::Invariant(
-                "Trie node stem of zero length".to_string(),
-            ));
-        }
         let target_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
         Ok(Self {
-            stem,
             child_ref: target_ref,
         })
     }
@@ -822,7 +828,6 @@ impl<V> Loadable for Edge<V> {
 
 impl<V: Storable> Storable for Edge<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
         self.child_ref.store_to_buffer(&mut buffer, storer);
     }
 }
@@ -841,8 +846,8 @@ impl<K, V: Hashable + Loadable> Hashable for Trie<K, V> {
 impl<V: Hashable + Loadable> Hashable for Node<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
-            self.terminal.hash(loader)?,
-            self.children.hash(loader)?,
+            StoreSerialized(&self.stem).hash(loader)?,
+            hash::hash_of_hashes(self.terminal.hash(loader)?, self.children.hash(loader)?),
         ))
     }
 }
@@ -861,10 +866,7 @@ impl<V: Hashable + Loadable> Hashable for ChildEdges<V> {
 
 impl<V: Hashable + Loadable> Hashable for Edge<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        Ok(hash::hash_of_hashes(
-            self.child_ref.hash(loader)?,
-            StoreSerialized(&self.stem).hash(loader)?,
-        ))
+        self.child_ref.hash(loader)
     }
 }
 
@@ -918,6 +920,7 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
         Self: Sized,
     {
         Ok(Self {
+            stem: self.stem.clone(),
             children: self.children.move_blob_store(from_store, to_store)?,
             terminal: self.terminal.move_blob_store(from_store, to_store)?,
         })
@@ -952,7 +955,6 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Edge<V> {
         Self: Sized,
     {
         Ok(Self {
-            stem: self.stem.clone(),
             child_ref: self.child_ref.move_blob_store(from_store, to_store)?,
         })
     }
@@ -1444,7 +1446,7 @@ mod tests {
         fn iter_prefix(&mut self, prefix: &[u8]) -> Vec<(Vec<u8>, u64)> {
             self.entries
                 .iter()
-                .filter(|(key, value)| key.starts_with(prefix))
+                .filter(|(key, _value)| key.starts_with(prefix))
                 .map(|(key, value)| (key.clone(), *value))
                 .collect()
         }
@@ -1515,6 +1517,10 @@ mod tests {
                 "node terminal or more than one child"
             );
 
+            prop_assert!(!self.stem.is_empty() || root, "node stem not empty or root");
+
+            prop_assert!(self.stem.is_empty() || !root, "node stem empty or not root");
+
             if let Some(terminal) = &self.terminal {
                 let existing = entries.insert(path.to_vec(), terminal.0);
                 prop_assert!(existing.is_none(), "existing entry with same key")
@@ -1522,16 +1528,17 @@ mod tests {
 
             let mut prev_key = None;
             for (key, edge) in self.children.0.iter() {
-                prop_assert!(!edge.stem.is_empty(), "edge stem not empty");
-                prop_assert_eq!(*key, edge.stem[0], "key matches first byte in stem");
+                let child_node = edge.child_ref.value(loader)?;
+
+                prop_assert!(!child_node.stem.is_empty(), "edge stem not empty");
+                prop_assert_eq!(*key, child_node.stem[0], "key matches first byte in stem");
 
                 if let Some(prev_key) = prev_key {
                     prop_assert!(prev_key < *key, "edge keys not ascending")
                 }
 
                 let mut child_path = path.to_vec();
-                child_path.extend(edge.stem.iter().copied());
-                let child_node = edge.child_ref.value(loader)?;
+                child_path.extend(child_node.stem.iter().copied());
                 child_node.extract_entries(loader, &child_path, entries, false)?;
                 prev_key = Some(*key);
             }
