@@ -275,7 +275,7 @@ impl<K, V> Trie<K, V> {
     pub fn iter_prefix(
         &self,
         loader: &impl BlobStoreLoad,
-        key: K,
+        key: &K,
     ) -> BlockStateResult<impl Iterator<Item = BlockStateResult<(Vec<u8>, V)>>>
     where
         K: TrieKey,
@@ -1163,6 +1163,60 @@ mod tests {
         }
 
         #[test]
+        #[ignore]
+        fn prop_test_iter_prefix(entries in arb_entries()) {
+            let trie = entries.create_trie()?;
+            let mut plain = entries.create_plain();
+
+            for key in &entries.non_existing_keys {
+                let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+
+            for (key, _) in &entries.entries {
+                let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+        }
+
+        #[test]
+        #[ignore]
+        fn prop_test_iter_prefix_fixed_key(entries in arb_fixed_key_entries()) {
+            let trie = entries.create_trie()?;
+            let mut plain = entries.create_plain();
+
+            for key in &entries.non_existing_keys {
+                let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+
+            for (key, _) in &entries.entries {
+                let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+        }
+
+        #[test]
         fn prop_test_lookup_value(entries in arb_entries()) {
             let trie = entries.create_trie()?;
 
@@ -1259,6 +1313,14 @@ mod tests {
 
         fn delete(&mut self, key: &[u8]) {
             self.entries.remove(key);
+        }
+
+        fn iter_prefix(&mut self, prefix: &[u8]) -> Vec<(Vec<u8>, u64)> {
+            self.entries
+                .iter()
+                .filter(|(key, value)| key.starts_with(prefix))
+                .map(|(key, value)| (key.clone(), *value))
+                .collect()
         }
     }
 
