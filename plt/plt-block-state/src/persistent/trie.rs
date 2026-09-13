@@ -27,15 +27,15 @@ use tinyvec::{TinyVec, tiny_vec};
 /// once it has been created. When entries are inserted, updated or deleted, a new trie is created,
 /// reusing the nodes that have not changed by the operation.
 /// Keys must allow converting to a type that allows borrowing a byte slice (`&[u8]`) that represents the
-/// key, and convert back again from a byte slice. See the trait [`TrieKey`].
+/// key, and convert back again from a byte slice. See the trait [`TrieKey`]. Keys of length up to
+/// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated.
 ///
 /// The operations supported for creating new trees are:
 ///
-/// * Create empty tree with [`Trie::empty`]: Returns a new empty tree.
-/// * Insert or update a value with [`Trie::insert_or_update_entry`]: Returns the new tree with
+/// * Create empty trie with [`Trie::empty`]: Returns a new empty tree.
+/// * Insert or update a value with [`Trie::insert_or_update_entry`]: Returns the new trie with
 ///   the inserted or updated value.
-/// * Delete a value with [`Trie::delete_value`]: Returns the new tree with
-///   the inserted or updated value.
+/// * Delete an entry with [`Trie::delete_entry`]: Returns the new trie with the entry removed.
 ///
 /// ## Interior mutability
 ///
