@@ -43,17 +43,10 @@ use std::marker::PhantomData;
 /// The internal representation in the tree may change during the lifetime via interior mutability.
 /// This happens if values are cached, stored or hashes are lazily calculated.
 ///
-/// ## Data structure
+/// ## Data structure and invariants
 ///
-/// TODO
-///
-/// ### Enforcing invariants
-///
-/// TODO
-///
-/// ### Example trie
-///
-/// TODO
+/// The data structure i a compact trie. The stems are maximal, which means that each
+/// node either has a value, or at lest two children (except for the root node)
 /// ```
 #[derive(Debug)]
 pub struct Trie<K, V> {
@@ -127,7 +120,7 @@ impl<K, V> Trie<K, V> {
         let root = Node {
             children: ChildEdges::default(),
             stem: vec![],
-            terminal: None,
+            value: None,
         };
 
         Self {
@@ -170,7 +163,7 @@ impl<K, V> Trie<K, V> {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
                 scan_return
                     .prefix_matched_node
-                    .map(|node| node.terminal, |node| &node.terminal)
+                    .map(|node| node.value, |node| &node.value)
                     .transpose()
             }
             _ => None,
@@ -198,7 +191,7 @@ impl<K, V> Trie<K, V> {
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
-                scan_return.prefix_matched_node.terminal.is_some()
+                scan_return.prefix_matched_node.value.is_some()
             }
             _ => false,
         })
@@ -362,15 +355,12 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
                 self.node_stack.push((child_path, child_edge.child));
             }
 
-            if let Some(terminal) = node
-                .map(|node| node.terminal, |node| &node.terminal)
-                .transpose()
-            {
+            if let Some(value) = node.map(|node| node.value, |node| &node.value).transpose() {
                 let key = match K::try_from_bytes(&node_path) {
                     Ok(key) => key,
                     Err(err) => return Some(Err(err)),
                 };
-                return Some(Ok((key, terminal)));
+                return Some(Ok((key, value)));
             }
         }
 
@@ -383,7 +373,7 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
 struct Node<V> {
     children: ChildEdges<V>,
     stem: Vec<u8>,
-    terminal: Option<V>,
+    value: Option<V>,
 }
 
 impl<V> Clone for Node<V>
@@ -394,7 +384,7 @@ where
         Self {
             children: self.children.clone(),
             stem: self.stem.clone(),
-            terminal: self.terminal.clone(),
+            value: self.value.clone(),
         }
     }
 }
@@ -531,13 +521,13 @@ impl<V> Node<V> {
                                 let mut stem_node = Node {
                                     stem: child_node.stem[..common_prefix_len].to_vec(),
                                     children: ChildEdges::default(),
-                                    terminal: Some(value),
+                                    value: Some(value),
                                 };
 
                                 let new_child_node = Node {
                                     stem: child_node.stem[common_prefix_len..].to_vec(),
                                     children: child_node.children.clone(),
-                                    terminal: child_node.terminal.clone(),
+                                    value: child_node.value.clone(),
                                 };
 
                                 stem_node.children.set(
@@ -563,13 +553,13 @@ impl<V> Node<V> {
                                 let mut stem_node = Node {
                                     stem: child_node.stem[..common_prefix_len].to_vec(),
                                     children: ChildEdges::default(),
-                                    terminal: None,
+                                    value: None,
                                 };
 
                                 let new_child_node = Node {
                                     stem: child_node.stem[common_prefix_len..].to_vec(),
                                     children: child_node.children.clone(),
-                                    terminal: child_node.terminal.clone(),
+                                    value: child_node.value.clone(),
                                 };
 
                                 stem_node.children.set(
@@ -581,7 +571,7 @@ impl<V> Node<V> {
                                 let branching_child_node = Node {
                                     stem: path[common_prefix_len..].to_vec(),
                                     children: ChildEdges::default(),
-                                    terminal: Some(value),
+                                    value: Some(value),
                                 };
                                 stem_node.children.set(
                                     path[common_prefix_len],
@@ -615,7 +605,7 @@ impl<V> Node<V> {
                 let child_node = Node {
                     stem: path.to_vec(),
                     children: ChildEdges::default(),
-                    terminal: Some(value),
+                    value: Some(value),
                 };
 
                 let mut new_node = self.clone();
@@ -634,10 +624,10 @@ impl<V> Node<V> {
             let new_node = Node {
                 stem: self.stem.clone(),
                 children: self.children.clone(),
-                terminal: Some(value),
+                value: Some(value),
             };
 
-            (new_node, self.terminal.is_some())
+            (new_node, self.value.is_some())
         })
     }
 }
@@ -780,7 +770,7 @@ impl<V: Loadable> Loadable for Node<V> {
         Ok(Self {
             stem: StoreSerialized::load_from_buffer(&mut buffer, loader)?.0,
             children: Loadable::load_from_buffer(&mut buffer, loader)?,
-            terminal: Loadable::load_from_buffer(&mut buffer, loader)?,
+            value: Loadable::load_from_buffer(&mut buffer, loader)?,
         })
     }
 }
@@ -789,7 +779,7 @@ impl<V: Storable> Storable for Node<V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
-        self.terminal.store_to_buffer(&mut buffer, storer);
+        self.value.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -862,7 +852,7 @@ impl<V: Hashable + Loadable> Hashable for Node<V> {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
             StoreSerialized(&self.stem).hash(loader)?,
-            hash::hash_of_hashes(self.terminal.hash(loader)?, self.children.hash(loader)?),
+            hash::hash_of_hashes(self.value.hash(loader)?, self.children.hash(loader)?),
         ))
     }
 }
@@ -893,7 +883,7 @@ impl<K, V: Cacheable + Loadable> Cacheable for Trie<K, V> {
 
 impl<V: Cacheable + Loadable> Cacheable for Node<V> {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.terminal.cache_reference_values(loader)?;
+        self.value.cache_reference_values(loader)?;
         for (_, edge) in &self.children.0 {
             edge.cache_reference_values(loader)?;
         }
@@ -937,7 +927,7 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
         Ok(Self {
             stem: self.stem.clone(),
             children: self.children.move_blob_store(from_store, to_store)?,
-            terminal: self.terminal.move_blob_store(from_store, to_store)?,
+            value: self.value.move_blob_store(from_store, to_store)?,
         })
     }
 }
@@ -1526,16 +1516,16 @@ mod tests {
             root: bool,
         ) -> Result<(), TestCaseError> {
             prop_assert!(
-                self.terminal.is_some() || self.children.size() > 1 || root,
-                "node terminal or more than one child"
+                self.value.is_some() || self.children.size() > 1 || root,
+                "node value or more than one child"
             );
 
             prop_assert!(!self.stem.is_empty() || root, "node stem not empty or root");
 
             prop_assert!(self.stem.is_empty() || !root, "node stem empty or not root");
 
-            if let Some(terminal) = &self.terminal {
-                let existing = entries.insert(path.to_vec(), terminal.0);
+            if let Some(value) = &self.value {
+                let existing = entries.insert(path.to_vec(), value.0);
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
