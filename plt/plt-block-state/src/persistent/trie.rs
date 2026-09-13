@@ -21,8 +21,6 @@ use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
 
-// TODO: use TinyVec instead of Vec<u8> for keys
-
 /// Representation of an immutable trie with values of type `V`.
 /// The represented trie is immutable in the sense that the trie and its values does not change,
 /// once it has been created. When entries are inserted, updated or deleted, a new trie is created,
@@ -1124,12 +1122,12 @@ mod tests {
     proptest! {
         #[test]
         fn prop_test_size(trie in arb_trie()) {
-            prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.size());
+            prop_assert_eq!(trie.size(), trie.to_plain_validated(&UnreachableBlobStore)?.size());
         }
 
         #[test]
         fn prop_test_size_fixed_key(trie in arb_fixed_key_trie()) {
-            prop_assert_eq!(trie.size(), trie.to_plain(&UnreachableBlobStore)?.size());
+            prop_assert_eq!(trie.size(), trie.to_plain_validated(&UnreachableBlobStore)?.size());
         }
 
         #[test]
@@ -1141,7 +1139,7 @@ mod tests {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
                 plain.insert(key, *value);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
         }
 
@@ -1154,7 +1152,7 @@ mod tests {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value))?;
                 plain.insert(key, *value);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
         }
 
@@ -1167,7 +1165,7 @@ mod tests {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value + 1))?;
                 plain.insert(key, *value + 1);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
         }
 
@@ -1180,7 +1178,7 @@ mod tests {
                 trie = trie.insert_or_update_entry(&UnreachableBlobStore, key, StoreSerialized(*value + 1))?;
                 plain.insert(key, *value + 1);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
         }
 
@@ -1194,14 +1192,14 @@ mod tests {
                 trie = trie.delete_entry(&UnreachableBlobStore, key)?;
                 plain.delete(key);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
 
             for (key, _) in &entries.entries {
                 trie = trie.delete_entry(&UnreachableBlobStore, key)?;
                 plain.delete(key);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
         }
 
@@ -1215,14 +1213,14 @@ mod tests {
                 trie = trie.delete_entry(&UnreachableBlobStore, key)?;
                 plain.delete(key);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
 
             for (key, _) in &entries.entries {
                 trie = trie.delete_entry(&UnreachableBlobStore, key)?;
                 plain.delete(key);
 
-                prop_assert_eq!(&plain, &trie.to_plain(&UnreachableBlobStore)?);
+                prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
         }
 
@@ -1254,7 +1252,7 @@ mod tests {
 
             // Test on-disk trie
             let mut store = BlobStoreStub::default();
-            let trie = trie.to_store(&mut store)?;
+            let trie = trie.store_and_load(&mut store)?;
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&store, key)?.map(
@@ -1318,7 +1316,7 @@ mod tests {
 
             // Test on-disk trie
             let mut store = BlobStoreStub::default();
-            let trie = trie.to_store(&mut store)?;
+            let trie = trie.store_and_load(&mut store)?;
 
             for (key, value) in &entries.entries {
                 if key.is_empty() {
@@ -1362,7 +1360,7 @@ mod tests {
 
             // Test on-disk trie
             let mut store = BlobStoreStub::default();
-            let trie = trie.to_store(&mut store)?;
+            let trie = trie.store_and_load(&mut store)?;
 
             for (key, _) in &entries.entries {
                 prop_assert!(trie.contains_key(&store, key)?);
@@ -1397,7 +1395,7 @@ mod tests {
             let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
 
             // Assert loaded tree is equal to the tree we started with
-            prop_assert_eq!(plain_trie, trie.to_plain(&store)?);
+            prop_assert_eq!(plain_trie, trie.to_plain_validated(&store)?);
         }
 
         #[test]
@@ -1411,13 +1409,48 @@ mod tests {
             let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
 
             // Assert loaded tree is equal to the tree we started with
-            prop_assert_eq!(plain_trie, trie.to_plain(&store)?);
+            prop_assert_eq!(plain_trie, trie.to_plain_validated(&store)?);
+        }
+
+        #[test]
+        fn prop_test_cache(entries in arb_entries()) {
+            let trie = entries.create_trie()?;
+            // Put trie in store
+            let mut store = BlobStoreStub::default();
+            let trie = trie.store_and_load(&mut store)?;
+
+            // Cache trie
+            trie.cache_reference_values(&store)?;
+
+            // Lookup values using UnreachableBlobStore as store
+            for (key, value) in &entries.entries {
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, Some(Cow::Borrowed(&StoreSerialized(*value))));
+            }
+
+            for key in &entries.non_existing_keys {
+                prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
+            }
+        }
+
+        #[test]
+        fn prop_test_move_blob_store(entries in arb_entries()) {
+            let mut from_store = BlobStoreStub::default();
+            let mut to_store = BlobStoreStub::default();
+
+            // Create tree and store it
+            let trie = entries.create_trie()?;
+            let trie = trie.store_and_load(&mut from_store)?;
+
+            // Migrate the tree
+            let moved_trie = trie.move_blob_store(&from_store, &mut to_store)?;
+            prop_assert_eq!(moved_trie.to_plain_validated(&to_store)?, entries.create_plain());
+
+            // Store migrated tree
+            let moved_trie = moved_trie.store_and_load(&mut to_store)?;
+            prop_assert_eq!(moved_trie.to_plain_validated(&to_store)?, entries.create_plain());
         }
     }
 
-    // todo ar test move blob store
-    // todo ar test caching
-    // todo ar test hashing via plain repr?
     // todo ar snapshots/fixtures
 
     /// Plain in-memory representation that supports semantically comparing if tries contains
@@ -1483,10 +1516,14 @@ mod tests {
 
     impl<K: TrieKey> Trie<K, StoreSerialized<u64>> {
         /// Convert to plain representation and check representation invariants.
-        fn to_plain(&self, loader: &impl BlobStoreLoad) -> Result<PlainTrie, TestCaseError> {
+        fn to_plain_validated(
+            &self,
+            loader: &impl BlobStoreLoad,
+        ) -> Result<PlainTrie, TestCaseError> {
             let mut entries = BTreeMap::new();
 
-            self.root.extract_entries(loader, &[], &mut entries, true)?;
+            self.root
+                .validate_and_extract_entries(loader, &[], &mut entries, true)?;
 
             let plain = PlainTrie { entries };
 
@@ -1495,8 +1532,8 @@ mod tests {
             Ok(plain)
         }
 
-        /// Store in give store and return stored trie.
-        fn to_store(
+        /// Store in give store and return trie loaded from store.
+        fn store_and_load(
             &self,
             store: &mut (impl BlobStoreLoad + BlobStoreStore),
         ) -> Result<Self, TestCaseError> {
@@ -1508,7 +1545,7 @@ mod tests {
 
     impl Node<StoreSerialized<u64>> {
         /// Convert to plain representation and check representation invariants.
-        fn extract_entries(
+        fn validate_and_extract_entries(
             &self,
             loader: &impl BlobStoreLoad,
             path: &[u8],
@@ -1542,7 +1579,7 @@ mod tests {
 
                 let mut child_path = path.to_vec();
                 child_path.extend_from_slice(&child_node.stem);
-                child_node.extract_entries(loader, &child_path, entries, false)?;
+                child_node.validate_and_extract_entries(loader, &child_path, entries, false)?;
                 prev_key = Some(*key);
             }
 
