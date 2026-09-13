@@ -758,6 +758,7 @@ struct TinyVecSerial<'a, const INLINE_KEY_LENGTH: usize>(&'a TinyVec<[u8; INLINE
 
 impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY_LENGTH> {
     fn serial<B: Buffer>(&self, out: &mut B) {
+        // todo ar can we use length of type smaller than u64?
         out.put(self.0.len() as u64);
         out.write_all(self.0)
             .expect("Writing to a buffer should not fail.");
