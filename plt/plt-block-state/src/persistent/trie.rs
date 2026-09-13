@@ -12,7 +12,7 @@ use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
 use crate::utils::Cow;
-use concordium_base::common::{Buffer, Get, Put};
+use concordium_base::common::{Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial};
 use concordium_base::hashes::Hash;
 use sha2::Digest;
 use std::borrow::Borrow;
@@ -20,6 +20,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::io::Read;
 use std::marker::PhantomData;
+use tinyvec::{TinyVec, tiny_vec};
 
 /// Representation of an immutable trie with values of type `V`.
 /// The represented trie is immutable in the sense that the trie and its values does not change,
@@ -47,13 +48,13 @@ use std::marker::PhantomData;
 /// node either has a value, or at lest two children (except for the root node)
 /// ```
 #[derive(Debug)]
-pub struct Trie<K, V> {
+pub struct Trie<const INLINE_KEY_LENGTH: usize, K, V> {
     size: u64,
-    root: Node<V>,
+    root: Node<INLINE_KEY_LENGTH, V>,
     _key_type: PhantomData<K>,
 }
 
-impl<K, V> Clone for Trie<K, V>
+impl<const INLINE_KEY_LENGTH: usize, K, V> Clone for Trie<INLINE_KEY_LENGTH, K, V>
 where
     V: Clone,
 {
@@ -66,7 +67,7 @@ where
     }
 }
 
-impl<K, V> Default for Trie<K, V> {
+impl<const INLINE_KEY_LENGTH: usize, K, V> Default for Trie<INLINE_KEY_LENGTH, K, V> {
     fn default() -> Self {
         Self::empty()
     }
@@ -112,12 +113,12 @@ impl<const N: usize> TrieKey for [u8; N] {
     }
 }
 
-impl<K, V> Trie<K, V> {
+impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     /// Create an empty trie.
     pub fn empty() -> Self {
         let root = Node {
             children: ChildEdges::default(),
-            stem: vec![],
+            stem: tiny_vec![],
             value: None,
         };
 
@@ -276,7 +277,8 @@ impl<K, V> Trie<K, V> {
         loader: &'a L,
         key: &K,
     ) -> BlockStateResult<
-        impl Iterator<Item = BlockStateResult<(K, Cow<'b, V>)>> + use<'a, 'b, L, K, V>,
+        impl Iterator<Item = BlockStateResult<(K, Cow<'b, V>)>>
+        + use<'a, 'b, INLINE_KEY_LENGTH, L, K, V>,
     >
     where
         K: TrieKey,
@@ -308,15 +310,17 @@ impl<K, V> Trie<K, V> {
 }
 
 /// Iterator of for a key prefix.
-struct PrefixIterator<'a, 'b, L, K: TrieKey, V> {
+struct PrefixIterator<'a, 'b, const INLINE_KEY_LENGTH: usize, L, K: TrieKey, V> {
     /// Blob store loader reference
     loader: &'a L,
     /// Stack of next nodes to visit.
-    node_stack: Vec<(Vec<u8>, Cow<'b, Node<V>>)>,
+    node_stack: Vec<(Vec<u8>, Cow<'b, Node<INLINE_KEY_LENGTH, V>>)>,
     _trie_key: PhantomData<K>,
 }
 
-impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, 'b, L, K, V> {
+impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V>
+    PrefixIterator<'a, 'b, INLINE_KEY_LENGTH, L, K, V>
+{
     fn empty(loader: &'a L) -> Self {
         Self {
             loader,
@@ -325,7 +329,11 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, 'b, L, K, V> {
         }
     }
 
-    fn with_root(node_path: Vec<u8>, node: Cow<'b, Node<V>>, loader: &'a L) -> Self {
+    fn with_root(
+        node_path: Vec<u8>,
+        node: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
+        loader: &'a L,
+    ) -> Self {
         Self {
             loader,
             node_stack: vec![(node_path.to_vec(), node)],
@@ -334,8 +342,8 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V> PrefixIterator<'a, 'b, L, K, V> {
     }
 }
 
-impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
-    for PrefixIterator<'a, 'b, L, K, V>
+impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
+    for PrefixIterator<'a, 'b, INLINE_KEY_LENGTH, L, K, V>
 {
     type Item = BlockStateResult<(K, Cow<'b, V>)>;
 
@@ -368,13 +376,13 @@ impl<'a, 'b, L: BlobStoreLoad, K: TrieKey, V: Loadable> Iterator
 
 /// Trie node
 #[derive(Debug)]
-struct Node<V> {
-    children: ChildEdges<V>,
-    stem: Vec<u8>,
+struct Node<const INLINE_KEY_LENGTH: usize, V> {
+    children: ChildEdges<INLINE_KEY_LENGTH, V>,
+    stem: TinyVec<[u8; INLINE_KEY_LENGTH]>,
     value: Option<V>,
 }
 
-impl<V> Clone for Node<V>
+impl<const INLINE_KEY_LENGTH: usize, V> Clone for Node<INLINE_KEY_LENGTH, V>
 where
     V: Clone,
 {
@@ -389,19 +397,27 @@ where
 
 /// Node children
 #[derive(Debug)]
-struct ChildEdges<V>(Vec<(u8, Edge<V>)>);
+struct ChildEdges<const INLINE_KEY_LENGTH: usize, V>(
+    /// Key-value vector, where they key is the first byte in the stem. Invariants:
+    ///
+    /// * No duplicate keys
+    /// * Keys are sorted
+    ///
+    /// This also means there are at most 256 entries.
+    Vec<(u8, Edge<INLINE_KEY_LENGTH, V>)>,
+);
 
-impl<V> ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> ChildEdges<INLINE_KEY_LENGTH, V> {
     fn size(&self) -> u16 {
         self.0.len() as u16
     }
 
-    fn get(&self, byte: u8) -> Option<&Edge<V>> {
+    fn get(&self, byte: u8) -> Option<&Edge<INLINE_KEY_LENGTH, V>> {
         let index = self.0.binary_search_by_key(&byte, |(byte, _)| *byte).ok()?;
         Some(&self.0[index].1)
     }
 
-    fn set(&mut self, byte: u8, edge: Edge<V>) {
+    fn set(&mut self, byte: u8, edge: Edge<INLINE_KEY_LENGTH, V>) {
         match self.0.binary_search_by_key(&byte, |(byte, _)| *byte) {
             Ok(index) => {
                 self.0[index].1 = edge;
@@ -413,13 +429,13 @@ impl<V> ChildEdges<V> {
     }
 }
 
-impl<V> Clone for ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> Clone for ChildEdges<INLINE_KEY_LENGTH, V> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<V> Default for ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> Default for ChildEdges<INLINE_KEY_LENGTH, V> {
     fn default() -> Self {
         Self(Vec::default())
     }
@@ -427,18 +443,18 @@ impl<V> Default for ChildEdges<V> {
 
 /// Trie child edge
 #[derive(Debug)]
-struct Edge<V> {
-    child_ref: HashedCacheableRef<Node<V>>,
+struct Edge<const INLINE_KEY_LENGTH: usize, V> {
+    child_ref: HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>,
 }
 
 /// [`Edge`] with [`Cow`] structurally projected.
 /// Used as return value for [`Cow<Node>::cow_project_child_edge`].
 #[derive(Debug)]
-struct EdgeCowProjection<'b, V> {
-    child: Cow<'b, Node<V>>,
+struct EdgeCowProjection<'b, const INLINE_KEY_LENGTH: usize, V> {
+    child: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
 }
 
-impl<V> Clone for Edge<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> Clone for Edge<INLINE_KEY_LENGTH, V> {
     fn clone(&self) -> Self {
         Self {
             child_ref: self.child_ref.clone(),
@@ -448,22 +464,22 @@ impl<V> Clone for Edge<V> {
 
 /// Return value from scanning a path in the trie.
 #[derive(Debug)]
-struct ScanReturn<'a, 'b, V> {
+struct ScanReturn<'a, 'b, const INLINE_KEY_LENGTH: usize, V> {
     /// Node fully or partially (maximally) matched by path.
-    prefix_matched_node: Cow<'b, Node<V>>,
+    prefix_matched_node: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
     /// The path remaining when removing prefix matching `matched_node`.
     path_split_from_matched_node: &'a [u8],
     /// Whether full or partial match.
-    matched: ScanMatch<'b, V>,
+    matched: ScanMatch<'b, INLINE_KEY_LENGTH, V>,
 }
 
 #[derive(Debug)]
-enum ScanMatch<'b, V> {
+enum ScanMatch<'b, const INLINE_KEY_LENGTH: usize, V> {
     /// Entire path was found in trie (ending either in a node or in a stem).
     FullMatch {
         /// Node that sit on the stem from `matched_node` that the path follows.
         /// (or `None` if match ends at the node `prefix_matched_node` and `path_split_from_matched_node` is empty).
-        stem_matched_node: Option<Cow<'b, Node<V>>>,
+        stem_matched_node: Option<Cow<'b, Node<INLINE_KEY_LENGTH, V>>>,
     },
     /// Only part of path was found in trie,
     NotFullMatch,
@@ -477,7 +493,7 @@ fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
     &a[0..i]
 }
 
-impl<V> Node<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
     /// Insert the given value at the given path. If a value already exists at the path,
     /// it is replaced. Returns the updated node and a boolean indicating if a replacement took place.
     fn insert_rec(
@@ -485,7 +501,7 @@ impl<V> Node<V> {
         loader: &impl BlobStoreLoad,
         path: &[u8],
         value: V,
-    ) -> BlockStateResult<(Node<V>, bool)>
+    ) -> BlockStateResult<(Node<INLINE_KEY_LENGTH, V>, bool)>
     where
         V: Loadable + Clone,
     {
@@ -517,13 +533,13 @@ impl<V> Node<V> {
                             Ordering::Equal => {
                                 // Insert in stem.
                                 let mut stem_node = Node {
-                                    stem: child_node.stem[..common_prefix_len].to_vec(),
+                                    stem: child_node.stem[..common_prefix_len].into(),
                                     children: ChildEdges::default(),
                                     value: Some(value),
                                 };
 
                                 let new_child_node = Node {
-                                    stem: child_node.stem[common_prefix_len..].to_vec(),
+                                    stem: child_node.stem[common_prefix_len..].into(),
                                     children: child_node.children.clone(),
                                     value: child_node.value.clone(),
                                 };
@@ -549,13 +565,13 @@ impl<V> Node<V> {
                             Ordering::Less => {
                                 // Insert as child branching out from the stem.
                                 let mut stem_node = Node {
-                                    stem: child_node.stem[..common_prefix_len].to_vec(),
+                                    stem: child_node.stem[..common_prefix_len].into(),
                                     children: ChildEdges::default(),
                                     value: None,
                                 };
 
                                 let new_child_node = Node {
-                                    stem: child_node.stem[common_prefix_len..].to_vec(),
+                                    stem: child_node.stem[common_prefix_len..].into(),
                                     children: child_node.children.clone(),
                                     value: child_node.value.clone(),
                                 };
@@ -567,7 +583,7 @@ impl<V> Node<V> {
                                     },
                                 );
                                 let branching_child_node = Node {
-                                    stem: path[common_prefix_len..].to_vec(),
+                                    stem: path[common_prefix_len..].into(),
                                     children: ChildEdges::default(),
                                     value: Some(value),
                                 };
@@ -601,7 +617,7 @@ impl<V> Node<V> {
             } else {
                 // Insert new child in the node.
                 let child_node = Node {
-                    stem: path.to_vec(),
+                    stem: path.into(),
                     children: ChildEdges::default(),
                     value: Some(value),
                 };
@@ -630,14 +646,14 @@ impl<V> Node<V> {
     }
 }
 
-impl<'b, V> Cow<'b, Node<V>> {
+impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> {
     /// Can the trie for the given path and return information about where the path ends
     /// in the trie.
     fn scan_rec<'a>(
         self,
         loader: &impl BlobStoreLoad,
         path: &'a [u8],
-    ) -> BlockStateResult<ScanReturn<'a, 'b, V>>
+    ) -> BlockStateResult<ScanReturn<'a, 'b, INLINE_KEY_LENGTH, V>>
     where
         V: Loadable,
     {
@@ -704,7 +720,7 @@ impl<'b, V> Cow<'b, Node<V>> {
         &self,
         loader: &impl BlobStoreLoad,
         byte: u8,
-    ) -> BlockStateResult<Option<EdgeCowProjection<'b, V>>>
+    ) -> BlockStateResult<Option<EdgeCowProjection<'b, INLINE_KEY_LENGTH, V>>>
     where
         V: Loadable,
     {
@@ -738,7 +754,28 @@ impl<'b, V> Cow<'b, Node<V>> {
     }
 }
 
-impl<K, V: Loadable> Loadable for Trie<K, V> {
+struct TinyVecSerial<'a, const INLINE_KEY_LENGTH: usize>(&'a TinyVec<[u8; INLINE_KEY_LENGTH]>);
+
+impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY_LENGTH> {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        out.put(self.0.len() as u64);
+        out.write_all(self.0)
+            .expect("Writing to a buffer should not fail.");
+    }
+}
+
+struct TinyVecDeserial<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
+
+impl<const INLINE_KEY_LENGTH: usize> Deserial for TinyVecDeserial<INLINE_KEY_LENGTH> {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
+        let size: u64 = source.get()?;
+        let mut vec = TinyVec::with_initial_len(size as usize);
+        source.read_exact(&mut vec)?;
+        Ok(TinyVecDeserial(vec))
+    }
+}
+
+impl<const INLINE_KEY_LENGTH: usize, K, V: Loadable> Loadable for Trie<INLINE_KEY_LENGTH, K, V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -753,35 +790,40 @@ impl<K, V: Loadable> Loadable for Trie<K, V> {
     }
 }
 
-impl<K, V: Storable> Storable for Trie<K, V> {
+impl<const INLINE_KEY_LENGTH: usize, K, V: Storable> Storable for Trie<INLINE_KEY_LENGTH, K, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size);
         self.root.store_to_buffer(buffer, storer);
     }
 }
 
-impl<V: Loadable> Loadable for Node<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Loadable> Loadable for Node<INLINE_KEY_LENGTH, V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
         Ok(Self {
-            stem: StoreSerialized::load_from_buffer(&mut buffer, loader)?.0,
+            stem: <StoreSerialized<TinyVecDeserial<INLINE_KEY_LENGTH>>>::load_from_buffer(
+                &mut buffer,
+                loader,
+            )?
+            .0
+            .0,
             children: Loadable::load_from_buffer(&mut buffer, loader)?,
             value: Loadable::load_from_buffer(&mut buffer, loader)?,
         })
     }
 }
 
-impl<V: Storable> Storable for Node<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Node<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
+        StoreSerialized(TinyVecSerial(&self.stem)).store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
         self.value.store_to_buffer(&mut buffer, storer);
     }
 }
 
-impl<V> Loadable for ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGTH, V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -791,7 +833,7 @@ impl<V> Loadable for ChildEdges<V> {
         let mut prev_byte = None;
         for _ in 0..size {
             let byte: u8 = buffer.get().map_parse_err_to_block_state_err()?;
-            let edge: Edge<_> = Loadable::load_from_buffer(&mut buffer, loader)?;
+            let edge: Edge<_, _> = Loadable::load_from_buffer(&mut buffer, loader)?;
             if let Some(prev_byte) = prev_byte
                 && byte <= prev_byte
             {
@@ -807,7 +849,7 @@ impl<V> Loadable for ChildEdges<V> {
     }
 }
 
-impl<V: Storable> Storable for ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for ChildEdges<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size());
         for (byte, edge) in self.0.iter() {
@@ -817,7 +859,7 @@ impl<V: Storable> Storable for ChildEdges<V> {
     }
 }
 
-impl<V> Loadable for Edge<V> {
+impl<const INLINE_KEY_LENGTH: usize, V> Loadable for Edge<INLINE_KEY_LENGTH, V> {
     fn load_from_buffer(
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
@@ -829,7 +871,7 @@ impl<V> Loadable for Edge<V> {
     }
 }
 
-impl<V: Storable> Storable for Edge<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Edge<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.child_ref.store_to_buffer(&mut buffer, storer);
     }
@@ -837,7 +879,9 @@ impl<V: Storable> Storable for Edge<V> {
 
 // todo ar change hash implementation, make hash take a digest instead of returning hash
 
-impl<K, V: Hashable + Loadable> Hashable for Trie<K, V> {
+impl<const INLINE_KEY_LENGTH: usize, K, V: Hashable + Loadable> Hashable
+    for Trie<INLINE_KEY_LENGTH, K, V>
+{
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
             StoreSerialized(self.size).hash(loader)?,
@@ -846,16 +890,20 @@ impl<K, V: Hashable + Loadable> Hashable for Trie<K, V> {
     }
 }
 
-impl<V: Hashable + Loadable> Hashable for Node<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
+    for Node<INLINE_KEY_LENGTH, V>
+{
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         Ok(hash::hash_of_hashes(
-            StoreSerialized(&self.stem).hash(loader)?,
+            StoreSerialized(TinyVecSerial(&self.stem)).hash(loader)?,
             hash::hash_of_hashes(self.value.hash(loader)?, self.children.hash(loader)?),
         ))
     }
 }
 
-impl<V: Hashable + Loadable> Hashable for ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
+    for ChildEdges<INLINE_KEY_LENGTH, V>
+{
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let mut hasher = sha2::Sha256::new();
         hasher.update(self.size().to_be_bytes());
@@ -867,19 +915,25 @@ impl<V: Hashable + Loadable> Hashable for ChildEdges<V> {
     }
 }
 
-impl<V: Hashable + Loadable> Hashable for Edge<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
+    for Edge<INLINE_KEY_LENGTH, V>
+{
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         self.child_ref.hash(loader)
     }
 }
 
-impl<K, V: Cacheable + Loadable> Cacheable for Trie<K, V> {
+impl<const INLINE_KEY_LENGTH: usize, K, V: Cacheable + Loadable> Cacheable
+    for Trie<INLINE_KEY_LENGTH, K, V>
+{
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.root.cache_reference_values(loader)
     }
 }
 
-impl<V: Cacheable + Loadable> Cacheable for Node<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Cacheable + Loadable> Cacheable
+    for Node<INLINE_KEY_LENGTH, V>
+{
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.value.cache_reference_values(loader)?;
         for (_, edge) in &self.children.0 {
@@ -890,13 +944,17 @@ impl<V: Cacheable + Loadable> Cacheable for Node<V> {
     }
 }
 
-impl<V: Cacheable + Loadable> Cacheable for Edge<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: Cacheable + Loadable> Cacheable
+    for Edge<INLINE_KEY_LENGTH, V>
+{
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.child_ref.cache_reference_values(loader)
     }
 }
 
-impl<K, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Trie<K, V> {
+impl<const INLINE_KEY_LENGTH: usize, K, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable
+    for Trie<INLINE_KEY_LENGTH, K, V>
+{
     fn move_blob_store(
         &self,
         from_store: &impl BlobStoreLoad,
@@ -913,7 +971,9 @@ impl<K, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Trie<K, 
     }
 }
 
-impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable
+    for Node<INLINE_KEY_LENGTH, V>
+{
     fn move_blob_store(
         &self,
         from_store: &impl BlobStoreLoad,
@@ -930,7 +990,9 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Node<V> {
     }
 }
 
-impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for ChildEdges<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable
+    for ChildEdges<INLINE_KEY_LENGTH, V>
+{
     fn move_blob_store(
         &self,
         from_store: &impl BlobStoreLoad,
@@ -948,7 +1010,9 @@ impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for ChildEdges<
     }
 }
 
-impl<V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable for Edge<V> {
+impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable
+    for Edge<INLINE_KEY_LENGTH, V>
+{
     fn move_blob_store(
         &self,
         from_store: &impl BlobStoreLoad,
@@ -976,10 +1040,10 @@ mod tests {
 
     /// Trie type used by the property based tests. Keys are raw byte vectors
     /// (which borrow as `&[u8]`) and values are `u64`s.
-    type TestTrie = Trie<Vec<u8>, StoreSerialized<u64>>;
+    type TestTrie = Trie<4, Vec<u8>, StoreSerialized<u64>>;
 
     /// Trie with fixed length keys.
-    type FixedKeyTestTrie = Trie<[u8; 8], StoreSerialized<u64>>;
+    type FixedKeyTestTrie = Trie<8, [u8; 8], StoreSerialized<u64>>;
 
     #[derive(Debug)]
     struct TestEntries {
@@ -1514,7 +1578,7 @@ mod tests {
         }
     }
 
-    impl<K: TrieKey> Trie<K, StoreSerialized<u64>> {
+    impl<const INLINE_KEY_LENGTH: usize, K: TrieKey> Trie<INLINE_KEY_LENGTH, K, StoreSerialized<u64>> {
         /// Convert to plain representation and check representation invariants.
         fn to_plain_validated(
             &self,
@@ -1543,7 +1607,7 @@ mod tests {
         }
     }
 
-    impl Node<StoreSerialized<u64>> {
+    impl<const INLINE_KEY_LENGTH: usize> Node<INLINE_KEY_LENGTH, StoreSerialized<u64>> {
         /// Convert to plain representation and check representation invariants.
         fn validate_and_extract_entries(
             &self,

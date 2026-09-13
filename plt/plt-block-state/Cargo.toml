@@ -23,6 +23,7 @@ im.workspace = true
 libc = { workspace = true, optional = true }
 sha2.workspace = true
 thiserror.workspace = true
+tinyvec = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
