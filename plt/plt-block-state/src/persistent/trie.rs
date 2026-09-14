@@ -1471,7 +1471,7 @@ mod tests {
             let blob_ref = blob_store::store_to_store(&mut store, &plain_trie.to_fixed_key_trie()?);
 
             // Load trie
-            let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
+            let trie: FixedKeyTestTrie = blob_store::load_from_store(&store, blob_ref)?;
 
             // Assert loaded tree is equal to the tree we started with
             prop_assert_eq!(plain_trie, trie.to_plain_validated(&store)?);
@@ -1494,6 +1494,28 @@ mod tests {
 
             for key in &entries.non_existing_keys {
                 prop_assert_eq!(trie.lookup_value(&UnreachableBlobStore, key)?, None);
+            }
+
+            // Iterate entries using UnreachableBlobStore as store
+            let plain = trie.to_plain_validated(&store)?;
+            for key in &entries.non_existing_keys {
+                let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
+            }
+
+            for (key, _) in &entries.entries {
+                let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
+                    |res| {
+                        let entry = res.unwrap();
+                        (entry.0, entry.1.0)
+                    }).collect();
+
+                prop_assert_eq!(entries, plain.iter_prefix(key));
             }
         }
 
@@ -1544,7 +1566,7 @@ mod tests {
             self.entries.remove(key);
         }
 
-        fn iter_prefix(&mut self, prefix: &[u8]) -> Vec<(Vec<u8>, u64)> {
+        fn iter_prefix(&self, prefix: &[u8]) -> Vec<(Vec<u8>, u64)> {
             self.entries
                 .iter()
                 .filter(|(key, _value)| key.starts_with(prefix))
