@@ -235,8 +235,8 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         })
     }
 
-    /// Deletes the entry with the given key if it exists. Returns
-    /// the updated trie.
+    /// Delete the entry with the given key.
+    /// Returns `Some` with the updated trie if the key existed, or `None` otherwise.
     ///
     /// Notice that tries are immutable data structures, see [`Self`].
     ///
@@ -517,6 +517,8 @@ fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
+    /// Delete the entry at `path` and restore path compression.
+    /// Returns `Some` with the updated node if the entry existed, or `None` otherwise.
     fn delete_rec(
         &self,
         loader: &impl BlobStoreLoad,
@@ -525,15 +527,11 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
     where
         V: Loadable + Clone,
     {
-        // Cases to cover:
-        // 1. the word is not in the trie
-        // 2. the word is a prefix of another word: delete "car", word "cart" als exists -> remove
-        //    value of node. check to see if edge compression is possible
-        // 3. the word has another word as its prefix: delete "car", word "cat" also exists ->
-        //    remove the node from the edges of common prefix. check to see if edge compression if
-        //    possible.
-        // 4. the word is independent. this is the same as 3.
         let Some(&path_byte) = path.first() else {
+            if self.value.is_none() {
+                return Ok(None);
+            }
+
             // The node to delete has been found. We propagate an update signal upwards.
             let new_node = Node {
                 stem: self.stem.clone(),
@@ -557,39 +555,36 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
             // The child node is either a step on the path or the end destination
             Ordering::Equal => {
                 let deletion = child_node.delete_rec(loader, &path[child_node.stem.len()..])?;
-                let Some(new_child) = deletion else {
+                let Some(mut new_child) = deletion else {
                     return Ok(None);
                 };
 
-                let children = self.children.clone();
-                let mut new_node = Node {
-                    stem: self.stem.clone(),
-                    value: self.value.clone(),
-                    children,
-                };
-
-                if new_child.children.0.is_empty() {
+                let mut new_node = self.clone();
+                if new_child.value.is_none() && new_child.children.0.is_empty() {
+                    // The deleted entry left an empty node. Remove its edge.
                     new_node.children.delete(path_byte);
                     return Ok(Some(new_node));
                 }
 
-                // We check to see if its possible to compress by merging the stems
-                if self.children.size() == 1 {
-                    new_node.stem = self
-                        .stem
-                        .clone()
-                        .into_iter()
-                        .chain(new_child.stem.clone())
-                        .collect();
-                    new_node.children = new_child.children;
-                } else {
-                    // Otherwise, we simply replace the old child with the new
-                    let edge = Edge {
-                        child_ref: HashedCacheableRef::new(new_child),
+                if new_child.value.is_none() && new_child.children.size() == 1 {
+                    // A non-value node with one child can be compressed into that child.
+                    let only_edge = &new_child.children.0[0].1;
+                    let grandchild = only_edge.child_ref.value(loader)?;
+                    new_child = Node {
+                        stem: new_child
+                            .stem
+                            .into_iter()
+                            .chain(grandchild.stem.iter().copied())
+                            .collect(),
+                        value: grandchild.value.clone(),
+                        children: grandchild.children.clone(),
                     };
-                    new_node.children.set(path_byte, edge);
                 }
 
+                let edge = Edge {
+                    child_ref: HashedCacheableRef::new(new_child),
+                };
+                new_node.children.set(path_byte, edge);
                 Ok(Some(new_node))
             }
             // The node does not exist in the trie: the key path ends inside the child stem
