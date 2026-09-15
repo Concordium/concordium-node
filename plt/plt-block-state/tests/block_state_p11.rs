@@ -11,8 +11,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfiguration, LockControllerConfig, LockControllerSimpleV0, LockControllerSimpleV0Grant,
-    LockRecipients,
+    LockConfig, LockConfigSimpleV0, LockConfiguration, LockControllerSimpleV0Grant, LockRecipients,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -261,11 +260,11 @@ fn test_create_lock() {
     let metadata = RawCbor::from(vec![0xa1]); // The node does not care what is in the metadata
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
-            .unwrap(),
-        expiry: TransactionTime::from(100u64),
-        controller: LockControllerConfig::SimpleV0(
-            LockControllerSimpleV0::new(
+        config: LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
+                    .unwrap(),
+                TransactionTime::from(100u64),
                 vec![LockControllerSimpleV0Grant::new(
                     AccountIndex::from(1),
                     vec![
@@ -276,10 +275,10 @@ fn test_create_lock() {
                 vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
                 true,
                 Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                Some(metadata),
             )
             .unwrap(),
         ),
-        metadata: Some(metadata),
     };
 
     block_state
@@ -311,12 +310,18 @@ fn test_lock_by_id() {
     };
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::try_from(vec![]).unwrap(),
-        expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(
-            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        config: LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
         ),
-        metadata: None,
     };
 
     block_state.create_lock(&context, configuration).unwrap();
@@ -358,12 +363,18 @@ fn test_lock_balance_refs() {
     };
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::try_from(vec![]).unwrap(),
-        expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(
-            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        config: LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
         ),
-        metadata: None,
     };
 
     block_state.create_lock(&context, configuration).unwrap();
@@ -410,12 +421,18 @@ fn test_create_and_delete_lock() {
     };
     let configuration = LockConfiguration {
         lock_id: lock_id.clone(),
-        recipients: LockRecipients::try_from(vec![]).unwrap(),
-        expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(
-            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        config: LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
         ),
-        metadata: None,
     };
 
     block_state.create_lock(&context, configuration).unwrap();
@@ -465,12 +482,18 @@ fn test_lock_list() {
     };
     let configuration_a = LockConfiguration {
         lock_id: lock_id_a.clone(),
-        recipients: LockRecipients::try_from(vec![]).unwrap(),
-        expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(
-            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        config: LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
         ),
-        metadata: None,
     };
 
     let lock_id_b = LockId {
@@ -480,12 +503,18 @@ fn test_lock_list() {
     };
     let configuration_b = LockConfiguration {
         lock_id: lock_id_b.clone(),
-        recipients: LockRecipients::try_from(vec![]).unwrap(),
-        expiry: TransactionTime::from(0u64),
-        controller: LockControllerConfig::SimpleV0(
-            LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
+        config: LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
         ),
-        metadata: None,
     };
     block_state.create_lock(&context, configuration_a).unwrap();
     block_state.create_lock(&context, configuration_b).unwrap();
