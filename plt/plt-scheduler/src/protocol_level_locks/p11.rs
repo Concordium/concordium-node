@@ -12,7 +12,7 @@ use concordium_base::protocol_level_locks::{
 use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaLockCancelDetails, MetaLockCreateDetails, MetaLockFundDetails,
-    MetaLockReturnDetails, MetaLockSendDetails,
+    MetaLockReleaseDetails, MetaLockSendDetails,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor};
 use concordium_base::transactions;
@@ -135,7 +135,7 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
             details,
             events,
         ),
-        LockOperation::Return(details) => execute_lock_return(
+        LockOperation::Release(details) => execute_lock_release(
             context,
             transaction_execution,
             block_state,
@@ -323,12 +323,12 @@ fn execute_lock_send<C: EntityContextTypes>(
     Ok(())
 }
 
-fn execute_lock_return<C: EntityContextTypes>(
+fn execute_lock_release<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    details: MetaLockReturnDetails,
+    details: MetaLockReleaseDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -353,7 +353,7 @@ fn execute_lock_return<C: EntityContextTypes>(
         &lock_configuration.config,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
-        &lock_configuration::LockOperation::Return(details.clone()),
+        &lock_configuration::LockOperation::Release(details.clone()),
     )?;
 
     let mut token = block_state.token_by_id(context, &details.token)?.map_err(
@@ -366,7 +366,7 @@ fn execute_lock_return<C: EntityContextTypes>(
         })?;
 
     let memo = details.memo.map(transactions::Memo::from);
-    let remaining_locked = balance_operations::return_locked_amount(
+    let remaining_locked = balance_operations::release_locked_amount(
         context,
         events,
         &mut token,

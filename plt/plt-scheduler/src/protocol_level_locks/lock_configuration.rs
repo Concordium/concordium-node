@@ -8,7 +8,7 @@ use concordium_base::protocol_level_locks::{
 };
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaLockCancelDetails, MetaLockFundDetails, MetaLockReturnDetails, MetaLockSendDetails,
+    MetaLockCancelDetails, MetaLockFundDetails, MetaLockReleaseDetails, MetaLockSendDetails,
 };
 use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
@@ -83,8 +83,8 @@ pub enum LockOperation {
     Fund(MetaLockFundDetails),
     /// Send locked funds to an eligible recipient.
     Send(MetaLockSendDetails),
-    /// Return locked funds to their source account.
-    Return(MetaLockReturnDetails),
+    /// Release locked funds to their source account.
+    Release(MetaLockReleaseDetails),
     /// Cancel a lock and return all remaining funds.
     Cancel(MetaLockCancelDetails),
 }
@@ -103,7 +103,9 @@ pub fn validate_operation(
     let (role, lock) = match operation {
         LockOperation::Fund(details) => (LockControllerSimpleV0Capability::Fund, &details.lock),
         LockOperation::Send(details) => (LockControllerSimpleV0Capability::Send, &details.lock),
-        LockOperation::Return(details) => (LockControllerSimpleV0Capability::Return, &details.lock),
+        LockOperation::Release(details) => {
+            (LockControllerSimpleV0Capability::Release, &details.lock)
+        }
         LockOperation::Cancel(details) => (LockControllerSimpleV0Capability::Cancel, &details.lock),
     };
     if !config.has_role(sender.account_index(), role) {
@@ -114,8 +116,8 @@ pub fn validate_operation(
             LockOperation::Send(_) => {
                 TransactionRejectReason::LockSendNotAuthorized(lock.clone(), sender_address)
             }
-            LockOperation::Return(_) => {
-                TransactionRejectReason::LockReturnNotAuthorized(lock.clone(), sender_address)
+            LockOperation::Release(_) => {
+                TransactionRejectReason::LockReleaseNotAuthorized(lock.clone(), sender_address)
             }
             LockOperation::Cancel(_) => {
                 TransactionRejectReason::LockCancelNotAuthorized(lock.clone(), sender_address)
