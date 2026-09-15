@@ -668,56 +668,56 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
     where
         V: Loadable,
     {
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = self.cow_project_child_edge(loader, path_byte)? {
-                let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
-
-                match common_prefix_len.cmp(&edge.child.stem.len()) {
-                    Ordering::Equal => {
-                        // Path matched node and the full stem.
-                        let path_split = &path[edge.child.stem.len()..];
-                        edge.child.scan_rec(loader, path_split)?
-                    }
-                    Ordering::Less => match common_prefix_len.cmp(&path.len()) {
-                        Ordering::Equal => {
-                            // Path fully matched node and part of the child stem.
-                            let stem_matched_node = Some(edge.child);
-                            ScanReturn {
-                                prefix_matched_node: self,
-                                path_split_from_matched_node: path,
-                                matched: ScanMatch::FullMatch { stem_matched_node },
-                            }
-                        }
-                        Ordering::Less => ScanReturn {
-                            // Path matched node and partly the child stem.
-                            prefix_matched_node: self,
-                            path_split_from_matched_node: path,
-                            matched: ScanMatch::NotFullMatch,
-                        },
-                        Ordering::Greater => {
-                            unreachable!()
-                        }
-                    },
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Path matched up until node, by does not match the start of any child stems.
-                ScanReturn {
-                    prefix_matched_node: self,
-                    path_split_from_matched_node: path,
-                    matched: ScanMatch::NotFullMatch,
-                }
-            }
-        } else {
-            // Path matched fully
-            ScanReturn {
+        let Some(&path_byte) = path.first() else {
+            // Path matched fully.
+            return Ok(ScanReturn {
                 prefix_matched_node: self,
                 path_split_from_matched_node: &[],
                 matched: ScanMatch::FullMatch {
                     stem_matched_node: None,
                 },
+            });
+        };
+
+        let Some(edge) = self.cow_project_child_edge(loader, path_byte)? else {
+            // Path matched up to this node, but not the start of any child stem.
+            return Ok(ScanReturn {
+                prefix_matched_node: self,
+                path_split_from_matched_node: path,
+                matched: ScanMatch::NotFullMatch,
+            });
+        };
+
+        let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
+
+        Ok(match common_prefix_len.cmp(&edge.child.stem.len()) {
+            Ordering::Equal => {
+                // Path matched node and the full stem.
+                let path_split = &path[edge.child.stem.len()..];
+                edge.child.scan_rec(loader, path_split)?
+            }
+            Ordering::Less => match common_prefix_len.cmp(&path.len()) {
+                Ordering::Equal => {
+                    // Path fully matched node and part of the child stem.
+                    let stem_matched_node = Some(edge.child);
+                    ScanReturn {
+                        prefix_matched_node: self,
+                        path_split_from_matched_node: path,
+                        matched: ScanMatch::FullMatch { stem_matched_node },
+                    }
+                }
+                Ordering::Less => ScanReturn {
+                    // Path matched node and partly the child stem.
+                    prefix_matched_node: self,
+                    path_split_from_matched_node: path,
+                    matched: ScanMatch::NotFullMatch,
+                },
+                Ordering::Greater => {
+                    unreachable!()
+                }
+            },
+            Ordering::Greater => {
+                unreachable!()
             }
         })
     }
