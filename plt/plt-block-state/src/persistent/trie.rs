@@ -44,8 +44,8 @@ use tinyvec::{TinyVec, tiny_vec};
 ///
 /// ## Data structure and invariants
 ///
-/// The data structure i a compact trie. The stems are maximal, which means that each
-/// node either has a value, or at lest two children (except for the root node)
+/// The data structure is a compact trie. The stems are maximal, which means that each
+/// node either has a value, or at least two children (except for the root node)
 /// ```
 #[derive(Debug)]
 pub struct Trie<const INLINE_KEY_LENGTH: usize, K, V> {
@@ -235,8 +235,8 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         })
     }
 
-    /// Deletes the entry with the given key if it exists. Returns
-    /// the updated trie.
+    /// Delete the entry with the given key.
+    /// Returns `Some` with the updated trie if the key existed, or `None` otherwise.
     ///
     /// Notice that tries are immutable data structures, see [`Self`].
     ///
@@ -250,12 +250,27 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     /// Returns [`BlockStateFailure`] if decoding data from the
     /// blob store fails, or if the tree does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
-    pub fn delete_entry(&self, _loader: &impl BlobStoreLoad, _key: &K) -> BlockStateResult<Self>
+    pub fn delete_entry(
+        &self,
+        loader: &impl BlobStoreLoad,
+        key: &K,
+    ) -> BlockStateResult<Option<Self>>
     where
         K: Borrow<[u8]>,
+        V: Loadable + Clone,
     {
-        // todo ar impl delete
-        todo!()
+        if self.size == 0 {
+            return Ok(None);
+        }
+        let Some(new_root) = self.root.delete_rec(loader, key.borrow())? else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self {
+            size: self.size - 1,
+            root: new_root,
+            _key_type: self._key_type,
+        }))
     }
 
     /// Iterates all entries with keys that have the given `key` as prefix, including
@@ -427,6 +442,14 @@ impl<const INLINE_KEY_LENGTH: usize, V> ChildEdges<INLINE_KEY_LENGTH, V> {
             }
         }
     }
+
+    fn delete(&mut self, byte: u8) -> bool {
+        let Ok(index) = self.0.binary_search_by_key(&byte, |(byte, _)| *byte) else {
+            return false;
+        };
+        self.0.remove(index);
+        true
+    }
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V> Clone for ChildEdges<INLINE_KEY_LENGTH, V> {
@@ -494,6 +517,84 @@ fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
+    /// Delete the entry at `path` and restore path compression.
+    /// Returns `Some` with the updated node if the entry existed, or `None` otherwise.
+    fn delete_rec(
+        &self,
+        loader: &impl BlobStoreLoad,
+        path: &[u8],
+    ) -> BlockStateResult<Option<Node<INLINE_KEY_LENGTH, V>>>
+    where
+        V: Loadable + Clone,
+    {
+        let Some(&path_byte) = path.first() else {
+            if self.value.is_none() {
+                return Ok(None);
+            }
+
+            // The node to delete has been found. We propagate an update signal upwards.
+            let new_node = Node {
+                stem: self.stem.clone(),
+                value: None,
+                children: self.children.clone(),
+            };
+            return Ok(Some(new_node));
+        };
+
+        let Some(edge) = self.children.get(path_byte) else {
+            // The node to delete was not found. We signal that no update should occur.
+            return Ok(None);
+        };
+
+        let child_node = edge.child_ref.value(loader)?;
+        // Find the common prefix of the remaining path and the stem of the selected child. We skip
+        // the first byte here, as that has already been used to select the child node above.
+        let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
+
+        match common_prefix_len.cmp(&child_node.stem.len()) {
+            // The child node is either a step on the path or the end destination
+            Ordering::Equal => {
+                let deletion = child_node.delete_rec(loader, &path[child_node.stem.len()..])?;
+                let Some(mut new_child) = deletion else {
+                    return Ok(None);
+                };
+
+                let mut new_node = self.clone();
+                if new_child.value.is_none() && new_child.children.0.is_empty() {
+                    // The deleted entry left an empty node. Remove its edge.
+                    new_node.children.delete(path_byte);
+                    return Ok(Some(new_node));
+                }
+
+                if new_child.value.is_none() && new_child.children.size() == 1 {
+                    // A non-value node with one child can be compressed into that child.
+                    let only_edge = &new_child.children.0[0].1;
+                    let grandchild = only_edge.child_ref.value(loader)?;
+                    new_child = Node {
+                        stem: new_child
+                            .stem
+                            .into_iter()
+                            .chain(grandchild.stem.iter().copied())
+                            .collect(),
+                        value: grandchild.value.clone(),
+                        children: grandchild.children.clone(),
+                    };
+                }
+
+                let edge = Edge {
+                    child_ref: HashedCacheableRef::new(new_child),
+                };
+                new_node.children.set(path_byte, edge);
+                Ok(Some(new_node))
+            }
+            // The node does not exist in the trie: the key path ends inside the child stem
+            Ordering::Less => Ok(None),
+            // The common prefix cannot be longer than the stem of the node used in the original
+            // comparison.
+            Ordering::Greater => unreachable!(),
+        }
+    }
+
     /// Insert the given value at the given path. If a value already exists at the path,
     /// it is replaced. Returns the updated node and a boolean indicating if a replacement took place.
     fn insert_rec(
@@ -647,7 +748,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
 }
 
 impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> {
-    /// Can the trie for the given path and return information about where the path ends
+    /// Scan the trie for the given path and return information about where the path ends
     /// in the trie.
     fn scan_rec<'a>(
         self,
@@ -1248,20 +1349,19 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
         fn prop_test_delete_entry(entries in arb_entries()) {
             let mut trie = entries.create_trie()?;
             let mut plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
-                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
-                plain.delete(key);
-
+                prop_assert!(trie.delete_entry(&UnreachableBlobStore, key)?.is_none());
                 prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
 
             for (key, _) in &entries.entries {
-                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
+                trie = trie
+                    .delete_entry(&UnreachableBlobStore, key)?
+                    .expect("existing key should be deleted");
                 plain.delete(key);
 
                 prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
@@ -1269,20 +1369,19 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
         fn prop_test_delete_entry_fixed_key(entries in arb_fixed_key_entries()) {
             let mut trie = entries.create_trie()?;
             let mut plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
-                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
-                plain.delete(key);
-
+                prop_assert!(trie.delete_entry(&UnreachableBlobStore, key)?.is_none());
                 prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
             }
 
             for (key, _) in &entries.entries {
-                trie = trie.delete_entry(&UnreachableBlobStore, key)?;
+                trie = trie
+                    .delete_entry(&UnreachableBlobStore, key)?
+                    .expect("existing key should be deleted");
                 plain.delete(key);
 
                 prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
@@ -1293,7 +1392,7 @@ mod tests {
         fn prop_test_iter_prefix(entries in arb_entries()) {
             // Test in-memory trie
             let trie = entries.create_trie()?;
-            let mut plain = entries.create_plain();
+            let plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
@@ -1343,7 +1442,7 @@ mod tests {
         #[test]
         fn prop_test_iter_prefix_fixed_key(entries in arb_fixed_key_entries()) {
             let trie = entries.create_trie()?;
-            let mut plain = entries.create_plain();
+            let plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
