@@ -767,10 +767,12 @@ impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY
 
 struct TinyVecDeserial<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
 
+const ALLOCATION_CAP: usize = 1024;
+
 impl<const INLINE_KEY_LENGTH: usize> Deserial for TinyVecDeserial<INLINE_KEY_LENGTH> {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
         let size: u64 = source.get()?;
-        let mut vec = TinyVec::with_initial_len(size as usize);
+        let mut vec = TinyVec::with_initial_len((size as usize).min(ALLOCATION_CAP));
         source.read_exact(&mut vec)?;
         Ok(TinyVecDeserial(vec))
     }
