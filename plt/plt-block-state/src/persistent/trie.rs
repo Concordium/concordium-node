@@ -1286,7 +1286,7 @@ mod tests {
         fn prop_test_iter_prefix(entries in arb_entries()) {
             // Test in-memory trie
             let trie = entries.create_trie()?;
-            let mut plain = entries.create_plain();
+            let plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
@@ -1336,7 +1336,7 @@ mod tests {
         #[test]
         fn prop_test_iter_prefix_fixed_key(entries in arb_fixed_key_entries()) {
             let trie = entries.create_trie()?;
-            let mut plain = entries.create_plain();
+            let plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
