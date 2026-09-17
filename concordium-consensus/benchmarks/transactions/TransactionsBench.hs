@@ -140,6 +140,22 @@ pltTxn keyPair nonce tokenId from operations =
   where
     toTokenParam = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
 
+-- | PLT meta-update transaction consisting of given operations for one token.
+metaPltTxn :: SigScheme.KeyPair -> Nonce -> TokenId -> AccountAddress -> [CBOR.TokenOperation] -> Runner.TransactionJSON
+metaPltTxn keyPair nonce tokenId from operations =
+    Runner.TJSON
+        { payload = Runner.MetaUpdate{muOperations = toMetaParam operations},
+          metadata = makeDummyHeader from nonce (Helpers.simpleTransferCost * 5 * fromIntegral (1 + length operations)),
+          keys = [(0, [(0, keyPair)])]
+        }
+  where
+    toMetaParam =
+        Types.rawCborFromBytes
+            . CBOR.metaUpdateTransactionToBytes
+            . CBOR.MetaUpdateTransaction
+            . Seq.fromList
+            . map (CBOR.MetaTokenUpdate tokenId)
+
 pltTxnFromParam :: SigScheme.KeyPair -> Nonce -> Energy -> TokenId -> AccountAddress -> Types.RawCbor -> Runner.TransactionJSON
 pltTxnFromParam keyPair nonce cost tokenId from param =
     Runner.TJSON
@@ -295,6 +311,21 @@ benchPltTransfer spv =
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = replicate txnCount $ transferPltOp accountAddress1 1_000
 
+-- | Benchmark `operationScaleFactor` number of PLT transfer operations in a single meta-update transaction.
+benchMetaPltTransfer ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv -> Benchmark
+benchMetaPltTransfer spv =
+    benchBlockItemsAssertSuccess
+        spv
+        ("PLT transfer operation x" ++ show operationScaleFactor ++ " in a single meta-update transaction")
+        [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
+          Runner.AccountTx transaction
+        ]
+  where
+    transaction = metaPltTxn keyPair0 1 plt1 accountAddress0 (replicate operationScaleFactor $ transferPltOp accountAddress1 1_000)
+
 -- | Benchmark `operationScaleFactor` number of PLT mint operations in a single transaction
 benchPltMint ::
     forall pv.
@@ -311,6 +342,21 @@ benchPltMint spv =
     transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = replicate txnCount $ mintPltOp 1_000
+
+-- | Benchmark `operationScaleFactor` number of PLT mint operations in a single meta-update transaction.
+benchMetaPltMint ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv -> Benchmark
+benchMetaPltMint spv =
+    benchBlockItemsAssertSuccess
+        spv
+        ("PLT mint operation x" ++ show operationScaleFactor ++ " in a single meta-update transaction")
+        [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
+          Runner.AccountTx transaction
+        ]
+  where
+    transaction = metaPltTxn keyPair0 1 plt1 accountAddress0 (replicate operationScaleFactor $ mintPltOp 1_000)
 
 -- | Benchmark `operationScaleFactor` number of PLT burn operations in a single transaction
 benchPltBurn ::
@@ -329,6 +375,21 @@ benchPltBurn spv =
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = replicate txnCount $ burnPltOp 1_000
 
+-- | Benchmark `operationScaleFactor` number of PLT burn operations in a single meta-update transaction.
+benchMetaPltBurn ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv -> Benchmark
+benchMetaPltBurn spv =
+    benchBlockItemsAssertSuccess
+        spv
+        ("PLT burn operation x" ++ show operationScaleFactor ++ " in a single meta-update transaction")
+        [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
+          Runner.AccountTx transaction
+        ]
+  where
+    transaction = metaPltTxn keyPair0 1 plt1 accountAddress0 (replicate operationScaleFactor $ burnPltOp 1_000)
+
 -- | Benchmark `operationScaleFactor` total number of PLT add and remove from allow list operations in a single transaction
 benchPltAddRemoveAllowList ::
     forall pv.
@@ -346,6 +407,22 @@ benchPltAddRemoveAllowList spv =
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = take txnCount $ cycle [addAllowListPltOp accountAddress1, removeAllowListPltOp accountAddress1]
 
+-- | Benchmark `operationScaleFactor` total PLT add/remove allow list operations in a single meta-update transaction.
+benchMetaPltAddRemoveAllowList ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv -> Benchmark
+benchMetaPltAddRemoveAllowList spv =
+    benchBlockItemsAssertSuccess
+        spv
+        ("PLT add/remove allow list operation x" ++ show operationScaleFactor ++ " in a single meta-update transaction")
+        [ createPltBlockItem plt1 (tokenInitializationParameters accountAddress0){CBOR.tipAllowList = Just True},
+          Runner.AccountTx transaction
+        ]
+  where
+    transaction = metaPltTxn keyPair0 1 plt1 accountAddress0 operations
+    operations = take operationScaleFactor $ cycle [addAllowListPltOp accountAddress1, removeAllowListPltOp accountAddress1]
+
 -- | Benchmark `operationScaleFactor` total number of PLT add and remove from deny list operations in a single transaction
 benchPltAddRemoveDenyList ::
     forall pv.
@@ -362,6 +439,22 @@ benchPltAddRemoveDenyList spv =
     transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = take txnCount $ cycle [addDenyListPltOp accountAddress1, removeDenyListPltOp accountAddress1]
+
+-- | Benchmark `operationScaleFactor` total PLT add/remove deny list operations in a single meta-update transaction.
+benchMetaPltAddRemoveDenyList ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv -> Benchmark
+benchMetaPltAddRemoveDenyList spv =
+    benchBlockItemsAssertSuccess
+        spv
+        ("PLT add/remove deny list operation x" ++ show operationScaleFactor ++ " in a single meta-update transaction")
+        [ createPltBlockItem plt1 (tokenInitializationParameters accountAddress0){CBOR.tipDenyList = Just True},
+          Runner.AccountTx transaction
+        ]
+  where
+    transaction = metaPltTxn keyPair0 1 plt1 accountAddress0 operations
+    operations = take operationScaleFactor $ cycle [addDenyListPltOp accountAddress1, removeDenyListPltOp accountAddress1]
 
 -- | Benchmark `operationScaleFactor` number of PLT transactions with no operations
 benchPltNoOperations ::
@@ -457,8 +550,7 @@ main =
         case sSupportsPLT (sAccountVersionFor spv) of
             STrue ->
                 Just $
-                    bgroup
-                        pvString
+                    bgroup pvString $
                         [ benchTransfer spv,
                           benchPltTransfer spv,
                           benchNoTxns spv,
@@ -470,4 +562,13 @@ main =
                           benchPltTxnAndTransfer spv,
                           benchPltTxnCborDecodeError spv
                         ]
+                            ++ if supportsMetaUpdate spv
+                                then
+                                    [ benchMetaPltTransfer spv,
+                                      benchMetaPltMint spv,
+                                      benchMetaPltBurn spv,
+                                      benchMetaPltAddRemoveAllowList spv,
+                                      benchMetaPltAddRemoveDenyList spv
+                                    ]
+                                else []
             SFalse -> Nothing
