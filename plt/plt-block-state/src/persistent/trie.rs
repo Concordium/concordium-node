@@ -505,135 +505,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
     where
         V: Loadable + Clone,
     {
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = self.children.get(path_byte) {
-                let child_node = edge.child_ref.value(loader)?;
-                let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
-
-                match common_prefix_len.cmp(&child_node.stem.len()) {
-                    Ordering::Equal => {
-                        // Insert in child node.
-
-                        let (new_child_node, replaced) =
-                            child_node.insert_rec(loader, &path[child_node.stem.len()..], value)?;
-
-                        let mut new_node = self.clone();
-
-                        new_node.children.set(
-                            path_byte,
-                            Edge {
-                                child_ref: HashedCacheableRef::new(new_child_node),
-                            },
-                        );
-
-                        (new_node, replaced)
-                    }
-                    Ordering::Less => {
-                        match common_prefix_len.cmp(&path.len()) {
-                            Ordering::Equal => {
-                                // Insert in stem.
-                                let mut stem_node = Node {
-                                    stem: child_node.stem[..common_prefix_len].into(),
-                                    children: ChildEdges::default(),
-                                    value: Some(value),
-                                };
-
-                                let new_child_node = Node {
-                                    stem: child_node.stem[common_prefix_len..].into(),
-                                    children: child_node.children.clone(),
-                                    value: child_node.value.clone(),
-                                };
-
-                                stem_node.children.set(
-                                    child_node.stem[common_prefix_len],
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(new_child_node),
-                                    },
-                                );
-
-                                let mut new_node = self.clone();
-
-                                new_node.children.set(
-                                    path_byte,
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(stem_node),
-                                    },
-                                );
-
-                                (new_node, false)
-                            }
-                            Ordering::Less => {
-                                // Insert as child branching out from the stem.
-                                let mut stem_node = Node {
-                                    stem: child_node.stem[..common_prefix_len].into(),
-                                    children: ChildEdges::default(),
-                                    value: None,
-                                };
-
-                                let new_child_node = Node {
-                                    stem: child_node.stem[common_prefix_len..].into(),
-                                    children: child_node.children.clone(),
-                                    value: child_node.value.clone(),
-                                };
-
-                                stem_node.children.set(
-                                    child_node.stem[common_prefix_len],
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(new_child_node),
-                                    },
-                                );
-                                let branching_child_node = Node {
-                                    stem: path[common_prefix_len..].into(),
-                                    children: ChildEdges::default(),
-                                    value: Some(value),
-                                };
-                                stem_node.children.set(
-                                    path[common_prefix_len],
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(branching_child_node),
-                                    },
-                                );
-
-                                let mut new_node = self.clone();
-
-                                new_node.children.set(
-                                    path_byte,
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(stem_node),
-                                    },
-                                );
-
-                                (new_node, false)
-                            }
-                            Ordering::Greater => {
-                                unreachable!()
-                            }
-                        }
-                    }
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Insert new child in the node.
-                let child_node = Node {
-                    stem: path.into(),
-                    children: ChildEdges::default(),
-                    value: Some(value),
-                };
-
-                let mut new_node = self.clone();
-
-                new_node.children.set(
-                    path_byte,
-                    Edge {
-                        child_ref: HashedCacheableRef::new(child_node),
-                    },
-                );
-
-                (new_node, false)
-            }
-        } else {
+        let Some(&path_byte) = path.first() else {
             // Replace existing value.
             let new_node = Node {
                 stem: self.stem.clone(),
@@ -641,8 +513,131 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                 value: Some(value),
             };
 
-            (new_node, self.value.is_some())
-        })
+            return Ok((new_node, self.value.is_some()));
+        };
+
+        let Some(edge) = self.children.get(path_byte) else {
+            // Insert new child in the node.
+            let child_node = Node {
+                stem: path.into(),
+                children: ChildEdges::default(),
+                value: Some(value),
+            };
+
+            let mut new_node = self.clone();
+
+            new_node.children.set(
+                path_byte,
+                Edge {
+                    child_ref: HashedCacheableRef::new(child_node),
+                },
+            );
+
+            return Ok((new_node, false));
+        };
+
+        let child_node = edge.child_ref.value(loader)?;
+        let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
+
+        Ok(
+            match (
+                common_prefix_len.cmp(&child_node.stem.len()),
+                common_prefix_len.cmp(&path.len()),
+            ) {
+                (Ordering::Equal, _) => {
+                    // Insert in child node.
+                    let (new_child_node, replaced) =
+                        child_node.insert_rec(loader, &path[child_node.stem.len()..], value)?;
+
+                    let mut new_node = self.clone();
+
+                    new_node.children.set(
+                        path_byte,
+                        Edge {
+                            child_ref: HashedCacheableRef::new(new_child_node),
+                        },
+                    );
+
+                    (new_node, replaced)
+                }
+                (Ordering::Less, Ordering::Equal) => {
+                    // Insert in stem.
+                    let mut stem_node = Node {
+                        stem: child_node.stem[..common_prefix_len].into(),
+                        children: ChildEdges::default(),
+                        value: Some(value),
+                    };
+
+                    let new_child_node = Node {
+                        stem: child_node.stem[common_prefix_len..].into(),
+                        children: child_node.children.clone(),
+                        value: child_node.value.clone(),
+                    };
+
+                    stem_node.children.set(
+                        child_node.stem[common_prefix_len],
+                        Edge {
+                            child_ref: HashedCacheableRef::new(new_child_node),
+                        },
+                    );
+
+                    let mut new_node = self.clone();
+
+                    new_node.children.set(
+                        path_byte,
+                        Edge {
+                            child_ref: HashedCacheableRef::new(stem_node),
+                        },
+                    );
+
+                    (new_node, false)
+                }
+                (Ordering::Less, Ordering::Less) => {
+                    // Insert as child branching out from the stem.
+                    let mut stem_node = Node {
+                        stem: child_node.stem[..common_prefix_len].into(),
+                        children: ChildEdges::default(),
+                        value: None,
+                    };
+
+                    let new_child_node = Node {
+                        stem: child_node.stem[common_prefix_len..].into(),
+                        children: child_node.children.clone(),
+                        value: child_node.value.clone(),
+                    };
+
+                    stem_node.children.set(
+                        child_node.stem[common_prefix_len],
+                        Edge {
+                            child_ref: HashedCacheableRef::new(new_child_node),
+                        },
+                    );
+                    let branching_child_node = Node {
+                        stem: path[common_prefix_len..].into(),
+                        children: ChildEdges::default(),
+                        value: Some(value),
+                    };
+                    stem_node.children.set(
+                        path[common_prefix_len],
+                        Edge {
+                            child_ref: HashedCacheableRef::new(branching_child_node),
+                        },
+                    );
+
+                    let mut new_node = self.clone();
+
+                    new_node.children.set(
+                        path_byte,
+                        Edge {
+                            child_ref: HashedCacheableRef::new(stem_node),
+                        },
+                    );
+
+                    (new_node, false)
+                }
+                (_, _) => unreachable!(),
+            },
+        )
     }
 }
 
@@ -657,58 +652,58 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
     where
         V: Loadable,
     {
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = self.cow_project_child_edge(loader, path_byte)? {
-                let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
-
-                match common_prefix_len.cmp(&edge.child.stem.len()) {
-                    Ordering::Equal => {
-                        // Path matched node and the full stem.
-                        let path_split = &path[edge.child.stem.len()..];
-                        edge.child.scan_rec(loader, path_split)?
-                    }
-                    Ordering::Less => match common_prefix_len.cmp(&path.len()) {
-                        Ordering::Equal => {
-                            // Path fully matched node and part of the child stem.
-                            let stem_matched_node = Some(edge.child);
-                            ScanReturn {
-                                prefix_matched_node: self,
-                                path_split_from_matched_node: path,
-                                matched: ScanMatch::FullMatch { stem_matched_node },
-                            }
-                        }
-                        Ordering::Less => ScanReturn {
-                            // Path matched node and partly the child stem.
-                            prefix_matched_node: self,
-                            path_split_from_matched_node: path,
-                            matched: ScanMatch::NotFullMatch,
-                        },
-                        Ordering::Greater => {
-                            unreachable!()
-                        }
-                    },
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Path matched up until node, by does not match the start of any child stems.
-                ScanReturn {
-                    prefix_matched_node: self,
-                    path_split_from_matched_node: path,
-                    matched: ScanMatch::NotFullMatch,
-                }
-            }
-        } else {
+        let Some(&path_byte) = path.first() else {
             // Path matched fully
-            ScanReturn {
+            return Ok(ScanReturn {
                 prefix_matched_node: self,
                 path_split_from_matched_node: &[],
                 matched: ScanMatch::FullMatch {
                     stem_matched_node: None,
                 },
-            }
-        })
+            });
+        };
+
+        let Some(edge) = self.cow_project_child_edge(loader, path_byte)? else {
+            // Path matched up until node, by does not match the start of any child stems.
+            return Ok(ScanReturn {
+                prefix_matched_node: self,
+                path_split_from_matched_node: path,
+                matched: ScanMatch::NotFullMatch,
+            });
+        };
+
+        let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
+
+        Ok(
+            match (
+                common_prefix_len.cmp(&edge.child.stem.len()),
+                common_prefix_len.cmp(&path.len()),
+            ) {
+                (Ordering::Equal, _) => {
+                    // Path matched node and the full stem.
+                    let path_split = &path[edge.child.stem.len()..];
+                    edge.child.scan_rec(loader, path_split)?
+                }
+                (Ordering::Less, Ordering::Equal) => {
+                    // Path fully matched node and part of the child stem.
+                    let stem_matched_node = Some(edge.child);
+                    ScanReturn {
+                        prefix_matched_node: self,
+                        path_split_from_matched_node: path,
+                        matched: ScanMatch::FullMatch { stem_matched_node },
+                    }
+                }
+                (Ordering::Less, Ordering::Less) => {
+                    // Path matched node and partly the child stem.
+                    ScanReturn {
+                        prefix_matched_node: self,
+                        path_split_from_matched_node: path,
+                        matched: ScanMatch::NotFullMatch,
+                    }
+                }
+                _ => unreachable!(),
+            },
+        )
     }
 
     /// Return the child node with stem starting with given byte in a `Cow` (if the child exists).
@@ -758,7 +753,7 @@ struct TinyVecSerial<'a, const INLINE_KEY_LENGTH: usize>(&'a TinyVec<[u8; INLINE
 
 impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY_LENGTH> {
     fn serial<B: Buffer>(&self, out: &mut B) {
-        // todo ar can we use length of type smaller than u64?
+        // todo ar can we use length of type u16?
         out.put(self.0.len() as u64);
         out.write_all(self.0)
             .expect("Writing to a buffer should not fail.");
@@ -767,12 +762,10 @@ impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY
 
 struct TinyVecDeserial<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
 
-const ALLOCATION_CAP: usize = 1024;
-
 impl<const INLINE_KEY_LENGTH: usize> Deserial for TinyVecDeserial<INLINE_KEY_LENGTH> {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
         let size: u64 = source.get()?;
-        let mut vec = TinyVec::with_initial_len((size as usize).min(ALLOCATION_CAP));
+        let mut vec = TinyVec::with_initial_len(size as usize);
         source.read_exact(&mut vec)?;
         Ok(TinyVecDeserial(vec))
     }
@@ -879,8 +872,6 @@ impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Edge<INLINE_KEY_L
         self.child_ref.store_to_buffer(&mut buffer, storer);
     }
 }
-
-// todo ar change hash implementation, make hash take a digest instead of returning hash
 
 impl<const INLINE_KEY_LENGTH: usize, K, V: Hashable + Loadable> Hashable
     for Trie<INLINE_KEY_LENGTH, K, V>
