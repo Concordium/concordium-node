@@ -9,6 +9,8 @@
 
 - **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
 - Added lock metadata as part of lock configurations
+- **BREAKING**: Rename `lockReturn` to `lockRelease`.
+- **BREAKING**: `LockConfig` and `LockController` have been consolidated into a single flat `LockConfig` type.
 
 ## 11.2.2 (Devnet)
 
