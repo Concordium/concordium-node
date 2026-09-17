@@ -462,6 +462,19 @@ impl<const INLINE_KEY_LENGTH: usize, V> Clone for Edge<INLINE_KEY_LENGTH, V> {
     }
 }
 
+/// Validate that the first byte of the stem of a child is equal to the edge byte.
+fn validate_child_stem<const INLINE_KEY_LENGTH: usize, V>(
+    edge_byte: u8,
+    child: &Node<INLINE_KEY_LENGTH, V>,
+) -> BlockStateResult<()> {
+    if child.stem.first() != Some(&edge_byte) {
+        return Err(BlockStateFailure::Invariant(
+            "Trie edge does not match child stem".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Return value from scanning a path in the trie.
 #[derive(Debug)]
 struct ScanReturn<'a, 'b, const INLINE_KEY_LENGTH: usize, V> {
@@ -505,143 +518,141 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
     where
         V: Loadable + Clone,
     {
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = self.children.get(path_byte) {
-                let child_node = edge.child_ref.value(loader)?;
-                let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
+        let Some(&path_byte) = path.first() else {
+            // The path contains no more bytes. We replace the existing value stored at the path.
+            let new_node = Node {
+                stem: self.stem.clone(),
+                children: self.children.clone(),
+                value: Some(value),
+            };
+            return Ok((new_node, self.value.is_some()));
+        };
 
-                match common_prefix_len.cmp(&child_node.stem.len()) {
-                    Ordering::Equal => {
-                        // Insert in child node.
+        let Some(edge) = self.children.get(path_byte) else {
+            // No edge found matching the path. We insert new child in the node.
+            let child_node = Node {
+                stem: path.into(),
+                children: ChildEdges::default(),
+                value: Some(value),
+            };
+            let mut new_node = self.clone();
+            new_node.children.set(
+                path_byte,
+                Edge {
+                    child_ref: HashedCacheableRef::new(child_node),
+                },
+            );
+            return Ok((new_node, false));
+        };
 
-                        let (new_child_node, replaced) =
-                            child_node.insert_rec(loader, &path[child_node.stem.len()..], value)?;
+        // At this point, we know an edge matching the path exists. We need to figure out where to
+        // insert the value. We do this by comparing the path with the stem of the child node found
+        // at the edge.
+        let child_node = edge.child_ref.value(loader)?;
+        validate_child_stem(path_byte, &child_node)?;
+        let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
 
-                        let mut new_node = self.clone();
-
-                        new_node.children.set(
-                            path_byte,
-                            Edge {
-                                child_ref: HashedCacheableRef::new(new_child_node),
-                            },
-                        );
-
-                        (new_node, replaced)
-                    }
-                    Ordering::Less => {
-                        match common_prefix_len.cmp(&path.len()) {
-                            Ordering::Equal => {
-                                // Insert in stem.
-                                let mut stem_node = Node {
-                                    stem: child_node.stem[..common_prefix_len].into(),
-                                    children: ChildEdges::default(),
-                                    value: Some(value),
-                                };
-
-                                let new_child_node = Node {
-                                    stem: child_node.stem[common_prefix_len..].into(),
-                                    children: child_node.children.clone(),
-                                    value: child_node.value.clone(),
-                                };
-
-                                stem_node.children.set(
-                                    child_node.stem[common_prefix_len],
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(new_child_node),
-                                    },
-                                );
-
-                                let mut new_node = self.clone();
-
-                                new_node.children.set(
-                                    path_byte,
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(stem_node),
-                                    },
-                                );
-
-                                (new_node, false)
-                            }
-                            Ordering::Less => {
-                                // Insert as child branching out from the stem.
-                                let mut stem_node = Node {
-                                    stem: child_node.stem[..common_prefix_len].into(),
-                                    children: ChildEdges::default(),
-                                    value: None,
-                                };
-
-                                let new_child_node = Node {
-                                    stem: child_node.stem[common_prefix_len..].into(),
-                                    children: child_node.children.clone(),
-                                    value: child_node.value.clone(),
-                                };
-
-                                stem_node.children.set(
-                                    child_node.stem[common_prefix_len],
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(new_child_node),
-                                    },
-                                );
-                                let branching_child_node = Node {
-                                    stem: path[common_prefix_len..].into(),
-                                    children: ChildEdges::default(),
-                                    value: Some(value),
-                                };
-                                stem_node.children.set(
-                                    path[common_prefix_len],
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(branching_child_node),
-                                    },
-                                );
-
-                                let mut new_node = self.clone();
-
-                                new_node.children.set(
-                                    path_byte,
-                                    Edge {
-                                        child_ref: HashedCacheableRef::new(stem_node),
-                                    },
-                                );
-
-                                (new_node, false)
-                            }
-                            Ordering::Greater => {
-                                unreachable!()
-                            }
-                        }
-                    }
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Insert new child in the node.
-                let child_node = Node {
-                    stem: path.into(),
-                    children: ChildEdges::default(),
-                    value: Some(value),
-                };
+        Ok(match common_prefix_len.cmp(&child_node.stem.len()) {
+            // The complete child stem matches the prefix it has in common with the path. This means
+            // we follow an edge on the child corresponding to the next byte in the path.
+            Ordering::Equal => {
+                let (new_child_node, replaced) =
+                    child_node.insert_rec(loader, &path[child_node.stem.len()..], value)?;
 
                 let mut new_node = self.clone();
 
                 new_node.children.set(
                     path_byte,
                     Edge {
-                        child_ref: HashedCacheableRef::new(child_node),
+                        child_ref: HashedCacheableRef::new(new_child_node),
                     },
                 );
 
-                (new_node, false)
+                (new_node, replaced)
             }
-        } else {
-            // Replace existing value.
-            let new_node = Node {
-                stem: self.stem.clone(),
-                children: self.children.clone(),
-                value: Some(value),
-            };
+            // The path ends or diverges within the child stem. A new comparison with the
+            // (remaining) path length reveals whether we split the stem or create a new branch.
+            Ordering::Less => match common_prefix_len.cmp(&path.len()) {
+                // The path ends within the child stem, so split the stem at the new value.
+                Ordering::Equal => {
+                    let mut stem_node = Node {
+                        stem: child_node.stem[..common_prefix_len].into(),
+                        children: ChildEdges::default(),
+                        value: Some(value),
+                    };
 
-            (new_node, self.value.is_some())
+                    let new_child_node = Node {
+                        stem: child_node.stem[common_prefix_len..].into(),
+                        children: child_node.children.clone(),
+                        value: child_node.value.clone(),
+                    };
+
+                    stem_node.children.set(
+                        child_node.stem[common_prefix_len],
+                        Edge {
+                            child_ref: HashedCacheableRef::new(new_child_node),
+                        },
+                    );
+
+                    let mut new_node = self.clone();
+
+                    new_node.children.set(
+                        path_byte,
+                        Edge {
+                            child_ref: HashedCacheableRef::new(stem_node),
+                        },
+                    );
+
+                    (new_node, false)
+                }
+                // The path and child stem diverge, so branch at their common prefix.
+                Ordering::Less => {
+                    let mut stem_node = Node {
+                        stem: child_node.stem[..common_prefix_len].into(),
+                        children: ChildEdges::default(),
+                        value: None,
+                    };
+
+                    let new_child_node = Node {
+                        stem: child_node.stem[common_prefix_len..].into(),
+                        children: child_node.children.clone(),
+                        value: child_node.value.clone(),
+                    };
+
+                    stem_node.children.set(
+                        child_node.stem[common_prefix_len],
+                        Edge {
+                            child_ref: HashedCacheableRef::new(new_child_node),
+                        },
+                    );
+                    let branching_child_node = Node {
+                        stem: path[common_prefix_len..].into(),
+                        children: ChildEdges::default(),
+                        value: Some(value),
+                    };
+                    stem_node.children.set(
+                        path[common_prefix_len],
+                        Edge {
+                            child_ref: HashedCacheableRef::new(branching_child_node),
+                        },
+                    );
+
+                    let mut new_node = self.clone();
+
+                    new_node.children.set(
+                        path_byte,
+                        Edge {
+                            child_ref: HashedCacheableRef::new(stem_node),
+                        },
+                    );
+
+                    (new_node, false)
+                }
+                // A common prefix cannot be longer than the path.
+                Ordering::Greater => unreachable!(),
+            },
+            // A common prefix cannot be longer than the child stem.
+            Ordering::Greater => unreachable!(),
         })
     }
 }
@@ -657,56 +668,56 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
     where
         V: Loadable,
     {
-        Ok(if let Some(&path_byte) = path.first() {
-            if let Some(edge) = self.cow_project_child_edge(loader, path_byte)? {
-                let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
-
-                match common_prefix_len.cmp(&edge.child.stem.len()) {
-                    Ordering::Equal => {
-                        // Path matched node and the full stem.
-                        let path_split = &path[edge.child.stem.len()..];
-                        edge.child.scan_rec(loader, path_split)?
-                    }
-                    Ordering::Less => match common_prefix_len.cmp(&path.len()) {
-                        Ordering::Equal => {
-                            // Path fully matched node and part of the child stem.
-                            let stem_matched_node = Some(edge.child);
-                            ScanReturn {
-                                prefix_matched_node: self,
-                                path_split_from_matched_node: path,
-                                matched: ScanMatch::FullMatch { stem_matched_node },
-                            }
-                        }
-                        Ordering::Less => ScanReturn {
-                            // Path matched node and partly the child stem.
-                            prefix_matched_node: self,
-                            path_split_from_matched_node: path,
-                            matched: ScanMatch::NotFullMatch,
-                        },
-                        Ordering::Greater => {
-                            unreachable!()
-                        }
-                    },
-                    Ordering::Greater => {
-                        unreachable!()
-                    }
-                }
-            } else {
-                // Path matched up until node, by does not match the start of any child stems.
-                ScanReturn {
-                    prefix_matched_node: self,
-                    path_split_from_matched_node: path,
-                    matched: ScanMatch::NotFullMatch,
-                }
-            }
-        } else {
-            // Path matched fully
-            ScanReturn {
+        let Some(&path_byte) = path.first() else {
+            // Path matched fully.
+            return Ok(ScanReturn {
                 prefix_matched_node: self,
                 path_split_from_matched_node: &[],
                 matched: ScanMatch::FullMatch {
                     stem_matched_node: None,
                 },
+            });
+        };
+
+        let Some(edge) = self.cow_project_child_edge(loader, path_byte)? else {
+            // Path matched up to this node, but not the start of any child stem.
+            return Ok(ScanReturn {
+                prefix_matched_node: self,
+                path_split_from_matched_node: path,
+                matched: ScanMatch::NotFullMatch,
+            });
+        };
+
+        let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
+
+        Ok(match common_prefix_len.cmp(&edge.child.stem.len()) {
+            Ordering::Equal => {
+                // Path matched node and the full stem.
+                let path_split = &path[edge.child.stem.len()..];
+                edge.child.scan_rec(loader, path_split)?
+            }
+            Ordering::Less => match common_prefix_len.cmp(&path.len()) {
+                Ordering::Equal => {
+                    // Path fully matched node and part of the child stem.
+                    let stem_matched_node = Some(edge.child);
+                    ScanReturn {
+                        prefix_matched_node: self,
+                        path_split_from_matched_node: path,
+                        matched: ScanMatch::FullMatch { stem_matched_node },
+                    }
+                }
+                Ordering::Less => ScanReturn {
+                    // Path matched node and partly the child stem.
+                    prefix_matched_node: self,
+                    path_split_from_matched_node: path,
+                    matched: ScanMatch::NotFullMatch,
+                },
+                Ordering::Greater => {
+                    unreachable!()
+                }
+            },
+            Ordering::Greater => {
+                unreachable!()
             }
         })
     }
@@ -732,9 +743,12 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
                 };
 
                 match edge.child_ref.value(loader)? {
-                    Cow::Owned(child) => EdgeCowProjection {
-                        child: Cow::Owned(child),
-                    },
+                    Cow::Owned(child) => {
+                        validate_child_stem(byte, &child)?;
+                        EdgeCowProjection {
+                            child: Cow::Owned(child),
+                        }
+                    }
                     Cow::Borrowed(_) => {
                         return Err(BlockStateFailure::CowJoin("child in trie::Node"));
                     }
@@ -746,9 +760,9 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
                     None => return Ok(None),
                 };
 
-                EdgeCowProjection {
-                    child: edge.child_ref.value(loader)?,
-                }
+                let child = edge.child_ref.value(loader)?;
+                validate_child_stem(byte, &child)?;
+                EdgeCowProjection { child }
             }
         }))
     }
@@ -1048,6 +1062,46 @@ mod tests {
     /// Trie with fixed length keys.
     type FixedKeyTestTrie = Trie<8, [u8; 8], StoreSerialized<u64>>;
 
+    #[test]
+    fn rejects_child_stem_that_does_not_match_edge() {
+        let mut trie = TestTrie::empty();
+        trie.root.children.set(
+            1,
+            Edge {
+                child_ref: HashedCacheableRef::new(Node {
+                    stem: tiny_vec![2],
+                    children: ChildEdges::default(),
+                    value: Some(StoreSerialized(7)),
+                }),
+            },
+        );
+
+        assert!(matches!(
+            trie.lookup_value(&UnreachableBlobStore, &vec![1]),
+            Err(BlockStateFailure::Invariant(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_empty_child_stem() {
+        let mut trie = TestTrie::empty();
+        trie.root.children.set(
+            1,
+            Edge {
+                child_ref: HashedCacheableRef::new(Node {
+                    stem: TinyVec::new(),
+                    children: ChildEdges::default(),
+                    value: Some(StoreSerialized(7)),
+                }),
+            },
+        );
+
+        assert!(matches!(
+            trie.lookup_value(&UnreachableBlobStore, &vec![1]),
+            Err(BlockStateFailure::Invariant(_))
+        ));
+    }
+
     #[derive(Debug)]
     struct TestEntries {
         entries: Vec<(Vec<u8>, u64)>,
@@ -1295,7 +1349,7 @@ mod tests {
         fn prop_test_iter_prefix(entries in arb_entries()) {
             // Test in-memory trie
             let trie = entries.create_trie()?;
-            let mut plain = entries.create_plain();
+            let plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
@@ -1345,7 +1399,7 @@ mod tests {
         #[test]
         fn prop_test_iter_prefix_fixed_key(entries in arb_fixed_key_entries()) {
             let trie = entries.create_trie()?;
-            let mut plain = entries.create_plain();
+            let plain = entries.create_plain();
 
             for key in &entries.non_existing_keys {
                 let entries: Vec<_> = trie.iter_prefix(&UnreachableBlobStore, key)?.map(
