@@ -97,6 +97,19 @@ impl TrieKey for Vec<u8> {
     }
 }
 
+impl<const N: usize> TrieKey for TinyVec<[u8; N]> {
+    fn to_bytes(&self) -> impl Borrow<[u8]> {
+        self.as_slice()
+    }
+
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(key.into())
+    }
+}
+
 impl<const N: usize> TrieKey for [u8; N] {
     fn to_bytes(&self) -> impl Borrow<[u8]> {
         *self

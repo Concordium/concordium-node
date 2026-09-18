@@ -105,7 +105,7 @@ fn bench_hash(bencher: Bencher, size: u64) {
         .bench_local_values(|tree| tree.hash(&UnreachableBlobStore).unwrap());
 }
 
-/// Benchmark [`LfmbTree::hash`] iterator for different tree sizes.
+/// Benchmark [`LfmbTree::store_to_buffer`] for different tree sizes.
 #[divan::bench(args = SMALL_SIZES)]
 fn bench_store(bencher: Bencher, size: u64) {
     bencher
@@ -113,7 +113,7 @@ fn bench_store(bencher: Bencher, size: u64) {
         .bench_local_values(|tree| blob_store::store_to_store(&mut BlobStoreStub::default(), tree));
 }
 
-/// Benchmark [`LfmbTree::hash`] iterator for different tree sizes.
+/// Benchmark [`LfmbTree::cache_reference_values`] for different tree sizes.
 #[divan::bench(args = SMALL_SIZES)]
 fn bench_cache(bencher: Bencher, size: u64) {
     let mut store = BlobStoreStub::default();
