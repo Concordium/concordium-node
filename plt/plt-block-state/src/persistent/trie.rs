@@ -1373,9 +1373,10 @@ mod tests {
             }
 
             for (key, _) in &entries.entries {
-                trie = trie
-                    .delete_entry(&UnreachableBlobStore, key)?
-                    .expect("existing key should be deleted");
+                let trie_option = trie
+                    .delete_entry(&UnreachableBlobStore, key)?;
+                prop_assert!(trie_option.is_some());    
+                trie = trie_option.unwrap();
                 plain.delete(key);
 
                 prop_assert_eq!(&plain, &trie.to_plain_validated(&UnreachableBlobStore)?);
