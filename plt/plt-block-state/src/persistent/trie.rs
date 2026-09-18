@@ -1717,7 +1717,7 @@ mod tests {
 
             prop_assert!(self.stem.is_empty() || !root, "node stem empty or not root");
 
-            let path = path_ref.to_path();
+            let path: Path<INLINE_KEY_LENGTH> = path_ref.to_path();
             if let Some(value) = &self.value {
                 let existing = entries.insert(
                     path.as_byte_slice()
@@ -1734,7 +1734,7 @@ mod tests {
 
                 prop_assert!(!child_node.stem.is_empty(), "edge stem not empty");
                 prop_assert_eq!(
-                    *path_nibble,
+                    Some(*path_nibble),
                     child_node.stem.as_path_slice().first_nibble(),
                     "key matches first byte in stem"
                 );
