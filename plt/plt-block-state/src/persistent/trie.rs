@@ -2,6 +2,8 @@
 //!
 //! See [`Trie`].
 
+mod path;
+
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
@@ -1097,6 +1099,8 @@ impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> 
         Ok(Self(children))
     }
 }
+
+
 
 #[cfg(test)]
 mod tests {
