@@ -21,8 +21,8 @@ use concordium_base::protocol_level_locks::{
     LockConfig, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload, lock_cancel as meta_lock_cancel,
-    lock_create as meta_lock_create, lock_fund, lock_return, lock_send,
+    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload, lock_create as meta_lock_create,
+    lock_fund, lock_return, lock_send,
 };
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenAmount, TokenId, TokenListUpdateDetails, TokenOperation,
@@ -39,7 +39,6 @@ use utils::{BlockStateLatest, TokenInitTestParams};
 
 const COUNTS: &[usize] = &[1, 3, 5, 10, 100, 1000];
 const EMPTY_COUNTS: &[usize] = &[0];
-const CANCEL_REFERENCE_COUNTS: &[usize] = &[0, 1, 10, 100, 1000];
 
 fn main() {
     divan::main();
@@ -573,36 +572,6 @@ fn prepare_lock_transfer(return_funds: bool, drain: bool) -> Fixture {
     }
 }
 
-/// Prepare cancellation of a lock with the requested number of balance references.
-///
-/// # Arguments
-///
-/// - `reference_count`: Number of distinct account balance references unlocked by cancellation.
-fn prepare_lock_cancel(reference_count: usize) -> Fixture {
-    let (mut context, mut state, sender, token_id, lock_id) =
-        lock_fixture(vec![LockControllerSimpleV0Capability::Cancel], true);
-    for _ in 0..reference_count {
-        let account = context.external.create_account().account_index();
-        utils::lock_balance(
-            &mut context,
-            &mut state,
-            &lock_id,
-            account,
-            &token_id,
-            RawTokenAmount::from(1),
-        );
-    }
-    Fixture {
-        transaction_context: utils::simple_transaction_context(
-            context.external.account_canonical_address(sender),
-        ),
-        payload: meta_payload(vec![meta_lock_cancel(lock_id, None)]),
-        context,
-        state,
-        sender,
-    }
-}
-
 /// Measure lock creation and state growth as operation count increases.
 #[divan::bench(args = COUNTS)]
 fn lock_create(bencher: Bencher, count: usize) {
@@ -656,13 +625,5 @@ fn lock_return_partial_reference_retained(bencher: Bencher) {
 fn lock_return_draining_reference_removed(bencher: Bencher) {
     bencher
         .with_inputs(|| prepare_lock_transfer(true, true))
-        .bench_local_values(execute);
-}
-
-/// Measure unlocking and deleting a lock as balance-reference count grows.
-#[divan::bench(args = CANCEL_REFERENCE_COUNTS)]
-fn lock_cancel(bencher: Bencher, reference_count: usize) {
-    bencher
-        .with_inputs(|| prepare_lock_cancel(reference_count))
         .bench_local_values(execute);
 }
