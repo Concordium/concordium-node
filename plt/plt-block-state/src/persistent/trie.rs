@@ -9,7 +9,6 @@ use crate::persistent::blob_store::{
     StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
-use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
 use crate::utils::Cow;
 use concordium_base::common::{Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial};
@@ -392,9 +391,9 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
 /// Trie node
 #[derive(Debug)]
 struct Node<const INLINE_KEY_LENGTH: usize, V> {
-    children: ChildEdges<INLINE_KEY_LENGTH, V>,
-    stem: TinyVec<[u8; INLINE_KEY_LENGTH]>,
     value: Option<V>,
+    stem: TinyVec<[u8; INLINE_KEY_LENGTH]>,
+    children: ChildEdges<INLINE_KEY_LENGTH, V>,
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V> Clone for Node<INLINE_KEY_LENGTH, V>
@@ -854,7 +853,6 @@ struct TinyVecSerial<'a, const INLINE_KEY_LENGTH: usize>(&'a TinyVec<[u8; INLINE
 
 impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY_LENGTH> {
     fn serial<B: Buffer>(&self, out: &mut B) {
-        // todo ar can we use length of type u16?
         out.put(self.0.len() as u64);
         out.write_all(self.0)
             .expect("Writing to a buffer should not fail.");
@@ -878,10 +876,11 @@ impl<const INLINE_KEY_LENGTH: usize, K, V: Loadable> Loadable for Trie<INLINE_KE
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
         let size = buffer.get().map_parse_err_to_block_state_err()?;
+        let root = Loadable::load_from_buffer(buffer, loader)?;
 
         Ok(Self {
             size,
-            root: Loadable::load_from_buffer(buffer, loader)?,
+            root,
             _key_type: PhantomData,
         })
     }
@@ -899,24 +898,28 @@ impl<const INLINE_KEY_LENGTH: usize, V: Loadable> Loadable for Node<INLINE_KEY_L
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
+        let value = Loadable::load_from_buffer(&mut buffer, loader)?;
+        let stem = <StoreSerialized<TinyVecDeserial<INLINE_KEY_LENGTH>>>::load_from_buffer(
+            &mut buffer,
+            loader,
+        )?
+        .0
+        .0;
+        let children = Loadable::load_from_buffer(&mut buffer, loader)?;
+
         Ok(Self {
-            stem: <StoreSerialized<TinyVecDeserial<INLINE_KEY_LENGTH>>>::load_from_buffer(
-                &mut buffer,
-                loader,
-            )?
-            .0
-            .0,
-            children: Loadable::load_from_buffer(&mut buffer, loader)?,
-            value: Loadable::load_from_buffer(&mut buffer, loader)?,
+            value,
+            stem,
+            children,
         })
     }
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Node<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        self.value.store_to_buffer(&mut buffer, storer);
         StoreSerialized(TinyVecSerial(&self.stem)).store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
-        self.value.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -930,7 +933,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
         let mut prev_byte = None;
         for _ in 0..size {
             let byte: u8 = buffer.get().map_parse_err_to_block_state_err()?;
-            let edge: Edge<_, _> = Loadable::load_from_buffer(&mut buffer, loader)?;
+            let child_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
             if let Some(prev_byte) = prev_byte
                 && byte <= prev_byte
             {
@@ -938,7 +941,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
                     "Trie node edges not sorted".to_string(),
                 ));
             }
-            children.push((byte, edge));
+            children.push((byte, Edge { child_ref }));
             prev_byte = Some(byte);
         }
 
@@ -951,26 +954,8 @@ impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for ChildEdges<INLINE
         buffer.put(self.size());
         for (byte, edge) in self.0.iter() {
             buffer.put(*byte);
-            edge.store_to_buffer(&mut buffer, storer);
+            edge.child_ref.store_to_buffer(&mut buffer, storer);
         }
-    }
-}
-
-impl<const INLINE_KEY_LENGTH: usize, V> Loadable for Edge<INLINE_KEY_LENGTH, V> {
-    fn load_from_buffer(
-        mut buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-    ) -> BlockStateResult<Self> {
-        let target_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
-        Ok(Self {
-            child_ref: target_ref,
-        })
-    }
-}
-
-impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Edge<INLINE_KEY_LENGTH, V> {
-    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        self.child_ref.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -978,10 +963,10 @@ impl<const INLINE_KEY_LENGTH: usize, K, V: Hashable + Loadable> Hashable
     for Trie<INLINE_KEY_LENGTH, K, V>
 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        Ok(hash::hash_of_hashes(
-            StoreSerialized(self.size).hash(loader)?,
-            self.root.hash(loader)?,
-        ))
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(self.size.to_be_bytes());
+        hasher.update(self.root.hash(loader)?);
+        Ok(Hash::new(hasher.finalize().into()))
     }
 }
 
@@ -989,10 +974,16 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
     for Node<INLINE_KEY_LENGTH, V>
 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        Ok(hash::hash_of_hashes(
-            StoreSerialized(TinyVecSerial(&self.stem)).hash(loader)?,
-            hash::hash_of_hashes(self.value.hash(loader)?, self.children.hash(loader)?),
-        ))
+        let mut hasher = sha2::Sha256::new();
+        if let Some(value) = &self.value {
+            hasher.update([1u8]);
+            hasher.update(value.hash(loader)?);
+        } else {
+            hasher.update([0u8]);
+        }
+        TinyVecSerial(&self.stem).serial(&mut hasher);
+        hasher.update(self.children.hash(loader)?);
+        Ok(Hash::new(hasher.finalize().into()))
     }
 }
 
@@ -1002,19 +993,11 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let mut hasher = sha2::Sha256::new();
         hasher.update(self.size().to_be_bytes());
-        for (_, edge) in self.0.iter() {
-            hasher.update(edge.hash(loader)?);
+        for (byte, edge) in self.0.iter() {
+            hasher.update([*byte]);
+            hasher.update(edge.child_ref.hash(loader)?);
         }
-
         Ok(Hash::new(hasher.finalize().into()))
-    }
-}
-
-impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
-    for Edge<INLINE_KEY_LENGTH, V>
-{
-    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        self.child_ref.hash(loader)
     }
 }
 
@@ -1032,18 +1015,10 @@ impl<const INLINE_KEY_LENGTH: usize, V: Cacheable + Loadable> Cacheable
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.value.cache_reference_values(loader)?;
         for (_, edge) in &self.children.0 {
-            edge.cache_reference_values(loader)?;
+            edge.child_ref.cache_reference_values(loader)?;
         }
 
         Ok(())
-    }
-}
-
-impl<const INLINE_KEY_LENGTH: usize, V: Cacheable + Loadable> Cacheable
-    for Edge<INLINE_KEY_LENGTH, V>
-{
-    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.child_ref.cache_reference_values(loader)
     }
 }
 
@@ -1078,9 +1053,9 @@ impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> 
         Self: Sized,
     {
         Ok(Self {
+            value: self.value.move_blob_store(from_store, to_store)?,
             stem: self.stem.clone(),
             children: self.children.move_blob_store(from_store, to_store)?,
-            value: self.value.move_blob_store(from_store, to_store)?,
         })
     }
 }
@@ -1098,27 +1073,15 @@ impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> 
     {
         let mut children = Vec::with_capacity(self.0.len());
         for (byte, edge) in &self.0 {
-            children.push((*byte, edge.move_blob_store(from_store, to_store)?));
+            children.push((
+                *byte,
+                Edge {
+                    child_ref: edge.child_ref.move_blob_store(from_store, to_store)?,
+                },
+            ));
         }
 
         Ok(Self(children))
-    }
-}
-
-impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> BlobStoreMovable
-    for Edge<INLINE_KEY_LENGTH, V>
-{
-    fn move_blob_store(
-        &self,
-        from_store: &impl BlobStoreLoad,
-        to_store: &mut impl BlobStoreStore,
-    ) -> BlockStateResult<Self>
-    where
-        Self: Sized,
-    {
-        Ok(Self {
-            child_ref: self.child_ref.move_blob_store(from_store, to_store)?,
-        })
     }
 }
 
@@ -1632,8 +1595,6 @@ mod tests {
         }
     }
 
-    // todo ar snapshots/fixtures
-
     /// Plain in-memory representation that supports semantically comparing if tries contains
     /// the same entries and has the correct representation.
     #[derive(Debug, Eq, PartialEq, Clone)]
@@ -1766,5 +1727,98 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    /// Assert snapshot of hash of empty trie.
+    #[test]
+    fn snapshot_test_hash_empty_trie() {
+        let trie = TestTrie::empty();
+        let hash = trie.hash(&UnreachableBlobStore).unwrap();
+        assert_eq!(
+            hex::encode(hash.bytes),
+            "19ba90b05fe2ffc32d375b67c65e99b30f0492f511e3975ffda16914ea5c0b8b"
+        );
+    }
+
+    /// Assert snapshot of hash of simple trie.
+    #[test]
+    fn snapshot_test_hash_simple_tree() {
+        let trie = TestTrie::empty()
+            .insert_or_update_entry(&UnreachableBlobStore, &vec![0u8, 1u8], StoreSerialized(1))
+            .unwrap()
+            .insert_or_update_entry(
+                &UnreachableBlobStore,
+                &vec![0u8, 1u8, 2u8],
+                StoreSerialized(2),
+            )
+            .unwrap()
+            .insert_or_update_entry(
+                &UnreachableBlobStore,
+                &vec![0u8, 1u8, 3u8],
+                StoreSerialized(3),
+            )
+            .unwrap()
+            .insert_or_update_entry(
+                &UnreachableBlobStore,
+                &vec![0u8, 4u8, 4u8],
+                StoreSerialized(4),
+            )
+            .unwrap();
+
+        let hash = trie.hash(&UnreachableBlobStore).unwrap();
+        assert_eq!(
+            hex::encode(hash.bytes),
+            "41739dc9ab8b91987954dcdbba5dccf9a83126d72fa0031660837a056d9694e1"
+        );
+    }
+
+    /// Store empty trie.
+    #[test]
+    fn snapshot_test_storage_empty_tree() {
+        let mut store = BlobStoreStub::default();
+
+        let trie = TestTrie::empty();
+
+        blob_store::store_to_store(&mut store, &trie);
+
+        assert_eq!(
+            hex::encode(store.0),
+            "000000000000001300000000000000000000000000000000000000"
+        );
+    }
+
+    /// Store simple trie.
+    #[test]
+    fn snapshot_test_storage_simple_trie() {
+        let mut store = BlobStoreStub::default();
+
+        let trie = TestTrie::empty()
+            .insert_or_update_entry(&UnreachableBlobStore, &vec![0u8, 1u8], StoreSerialized(1))
+            .unwrap()
+            .insert_or_update_entry(
+                &UnreachableBlobStore,
+                &vec![0u8, 1u8, 2u8],
+                StoreSerialized(2),
+            )
+            .unwrap()
+            .insert_or_update_entry(
+                &UnreachableBlobStore,
+                &vec![0u8, 1u8, 3u8],
+                StoreSerialized(3),
+            )
+            .unwrap()
+            .insert_or_update_entry(
+                &UnreachableBlobStore,
+                &vec![0u8, 4u8, 4u8],
+                StoreSerialized(4),
+            )
+            .unwrap();
+
+        blob_store::store_to_store(&mut store, &trie);
+
+        assert_eq!(
+            hex::encode(store.0),
+            "00000000000000140100000000000000020000000000000001020000000000000000001401000000000000000300000000000000010300000000000000000026010000000000000001000000000000000101000202000000000000000003000000000000001c0000000000000015010000000000000004000000000000000204040000000000000000001e000000000000000001000002010000000000000038040000000000000066000000000000001c00000000000000040000000000000000000001000000000000000083"
+        );
     }
 }
