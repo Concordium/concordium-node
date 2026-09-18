@@ -1379,6 +1379,7 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "concordium_base",
+ "divan",
  "hex",
  "libc",
  "plt-block-state",
