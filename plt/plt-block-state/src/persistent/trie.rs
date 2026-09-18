@@ -29,16 +29,16 @@ use tinyvec::{TinyVec, tiny_vec};
 /// key, and convert back again from a byte slice. See the trait [`TrieKey`]. Keys of length up to
 /// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated.
 ///
-/// The operations supported for creating new trees are:
+/// The operations supported for creating new tries are:
 ///
-/// * Create empty trie with [`Trie::empty`]: Returns a new empty tree.
+/// * Create empty trie with [`Trie::empty`]: Returns a new empty trie.
 /// * Insert or update a value with [`Trie::insert_or_update_entry`]: Returns the new trie with
 ///   the inserted or updated value.
 /// * Delete an entry with [`Trie::delete_entry`]: Returns the new trie with the entry removed.
 ///
 /// ## Interior mutability
 ///
-/// The internal representation in the tree may change during the lifetime via interior mutability.
+/// The internal representation in the trie may change during the lifetime via interior mutability.
 /// This happens if values are cached, stored or hashes are lazily calculated.
 ///
 /// ## Data structure and invariants
@@ -128,7 +128,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         }
     }
 
-    /// Return the number of entries in the tree.
+    /// Return the number of entries in the trie.
     pub fn size(&self) -> u64 {
         self.size
     }
@@ -138,13 +138,13 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     ///
     /// # Arguments
     ///
-    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `loader`: Loader for the blob store the trie is stored in.
     /// - `key`: The key to access the value for.
     ///
     /// # Errors
     ///
     /// Returns [`BlockStateFailure`] if decoding data from the
-    /// blob store fails, or if the tree does not fulfill
+    /// blob store fails, or if the trie does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn lookup_value(
         &self,
@@ -172,13 +172,13 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     ///
     /// # Arguments
     ///
-    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `loader`: Loader for the blob store the trie is stored in.
     /// - `key`: The key to access the value for.
     ///
     /// # Errors
     ///
     /// Returns [`BlockStateFailure`] if decoding data from the
-    /// blob store fails, or if the tree does not fulfill
+    /// blob store fails, or if the trie does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn contains_key(&self, loader: &impl BlobStoreLoad, key: &K) -> BlockStateResult<bool>
     where
@@ -202,14 +202,14 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     ///
     /// # Arguments
     ///
-    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `loader`: Loader for the blob store the trie is stored in.
     /// - `key`: The key to insert the value for.
     /// - `value`: The value to insert.
     ///
     /// # Errors
     ///
     /// Returns [`BlockStateFailure`] if decoding data from the
-    /// blob store fails, or if the tree does not fulfill
+    /// blob store fails, or if the trie does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn insert_or_update_entry(
         &self,
@@ -241,13 +241,13 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     ///
     /// # Arguments
     ///
-    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `loader`: Loader for the blob store the trie is stored in.
     /// - `key`: The key to delete the value for.
     ///
     /// # Errors
     ///
     /// Returns [`BlockStateFailure`] if decoding data from the
-    /// blob store fails, or if the tree does not fulfill
+    /// blob store fails, or if the trie does not fulfill
     /// the expected invariants (this can happen if the blob store is corrupted in some way).
     pub fn delete_entry(
         &self,
@@ -278,12 +278,12 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     ///
     /// # Arguments
     ///
-    /// - `loader`: Loader for the blob store the tree is stored in.
+    /// - `loader`: Loader for the blob store the trie is stored in.
     /// - `key`: The key to iterate entries
     ///
     /// # Errors
     ///
-    /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the tree
+    /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the trie
     /// does not fulfill the expected invariants (this can happen if the blob store is
     /// corrupted in some way).
     pub fn iter_prefix<'a, 'b, L: BlobStoreLoad>(
@@ -1516,7 +1516,7 @@ mod tests {
             // Load trie
             let trie: TestTrie = blob_store::load_from_store(&store, blob_ref)?;
 
-            // Assert loaded tree is equal to the tree we started with
+            // Assert loaded trie is equal to the trie we started with
             prop_assert_eq!(plain_trie, trie.to_plain_validated(&store)?);
         }
 
@@ -1530,7 +1530,7 @@ mod tests {
             // Load trie
             let trie: FixedKeyTestTrie = blob_store::load_from_store(&store, blob_ref)?;
 
-            // Assert loaded tree is equal to the tree we started with
+            // Assert loaded trie is equal to the trie we started with
             prop_assert_eq!(plain_trie, trie.to_plain_validated(&store)?);
         }
 
@@ -1581,15 +1581,15 @@ mod tests {
             let mut from_store = BlobStoreStub::default();
             let mut to_store = BlobStoreStub::default();
 
-            // Create tree and store it
+            // Create trie and store it
             let trie = entries.create_trie()?;
             let trie = trie.store_and_load(&mut from_store)?;
 
-            // Migrate the tree
+            // Migrate the trie
             let moved_trie = trie.move_blob_store(&from_store, &mut to_store)?;
             prop_assert_eq!(moved_trie.to_plain_validated(&to_store)?, entries.create_plain());
 
-            // Store migrated tree
+            // Store migrated trie
             let moved_trie = moved_trie.store_and_load(&mut to_store)?;
             prop_assert_eq!(moved_trie.to_plain_validated(&to_store)?, entries.create_plain());
         }
@@ -1742,7 +1742,7 @@ mod tests {
 
     /// Assert snapshot of hash of simple trie.
     #[test]
-    fn snapshot_test_hash_simple_tree() {
+    fn snapshot_test_hash_simple_trie() {
         let trie = TestTrie::empty()
             .insert_or_update_entry(&UnreachableBlobStore, &vec![0u8, 1u8], StoreSerialized(1))
             .unwrap()
@@ -1774,7 +1774,7 @@ mod tests {
 
     /// Store empty trie.
     #[test]
-    fn snapshot_test_storage_empty_tree() {
+    fn snapshot_test_storage_empty_trie() {
         let mut store = BlobStoreStub::default();
 
         let trie = TestTrie::empty();
