@@ -1375,7 +1375,7 @@ mod tests {
             for (key, _) in &entries.entries {
                 let trie_option = trie
                     .delete_entry(&UnreachableBlobStore, key)?;
-                prop_assert!(trie_option.is_some());    
+                prop_assert!(trie_option.is_some());
                 trie = trie_option.unwrap();
                 plain.delete(key);
 
