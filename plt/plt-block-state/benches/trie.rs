@@ -16,11 +16,11 @@ fn main() {
 type BenchTrie = Trie<8, TinyVec<[u8; 8]>, StoreSerialized<u64>>;
 
 /// Sizes of tries to benchmark operations on.
-const SIZES_LOG: &[u64] = &[1 << 10, 1 << 15, 1 << 20];
+const SIZES: &[u64] = &[1 << 10, 1 << 15, 1 << 20];
 
 /// Small sizes of tries to benchmark operations on. Used for benchmarks that needs
 /// to create the full trie for each iteration.
-const SMALL_SIZES_LOG: &[u64] = &[1 << 5, 1 << 10, 1 << 15];
+const SMALL_SIZES: &[u64] = &[1 << 5, 1 << 10, 1 << 15];
 
 fn generate_key(trie_size: u64) -> TinyVec<[u8; 8]> {
     // Double range compared to size to not fill trie completely
@@ -29,14 +29,16 @@ fn generate_key(trie_size: u64) -> TinyVec<[u8; 8]> {
 
 fn build_trie(size: u64) -> BenchTrie {
     let mut trie = BenchTrie::empty();
-    for i in 0..size {
+    let mut value = 0;
+    while trie.size() < size {
         trie = trie
             .insert_or_update_entry(
                 &UnreachableBlobStore,
                 &generate_key(size),
-                StoreSerialized(i),
+                StoreSerialized(value),
             )
             .unwrap();
+        value += 1;
     }
     trie
 }
@@ -52,7 +54,7 @@ fn a_warmup() {
 }
 
 /// Benchmark [`Trie::lookup_value`] for different trie sizes.
-#[divan::bench(args = SIZES_LOG)]
+#[divan::bench(args = SIZES)]
 fn bench_lookup_value(bencher: Bencher, size: u64) {
     let trie = divan::black_box(build_trie(size));
     bencher
@@ -61,7 +63,7 @@ fn bench_lookup_value(bencher: Bencher, size: u64) {
 }
 
 /// Benchmark [`Trie::contains_key`] for different trie sizes.
-#[divan::bench(args = SIZES_LOG)]
+#[divan::bench(args = SIZES)]
 fn bench_contains_key(bencher: Bencher, size: u64) {
     let trie = divan::black_box(build_trie(size));
     bencher
@@ -70,13 +72,13 @@ fn bench_contains_key(bencher: Bencher, size: u64) {
 }
 
 /// Benchmark [`Trie::insert_or_update_entry`] by creating tries of different sizes.
-#[divan::bench(args = SMALL_SIZES_LOG)]
+#[divan::bench(args = SMALL_SIZES)]
 fn bench_build_trie(bencher: Bencher, size: u64) {
     bencher.bench_local(|| build_trie(size));
 }
 
 /// Benchmark [`Trie::insert_or_update_entry`] for different trie sizes.
-#[divan::bench(args = SIZES_LOG)]
+#[divan::bench(args = SIZES)]
 fn bench_insert_or_update_entry(bencher: Bencher, size: u64) {
     let trie = divan::black_box(build_trie(size));
     bencher
@@ -88,7 +90,7 @@ fn bench_insert_or_update_entry(bencher: Bencher, size: u64) {
 }
 
 /// Benchmark [`Trie::delete_entry`] for different trie sizes.
-#[divan::bench(args = SIZES_LOG)]
+#[divan::bench(args = SIZES)]
 fn bench_delete_entry(bencher: Bencher, size: u64) {
     let trie = divan::black_box(build_trie(size));
     bencher
@@ -97,7 +99,7 @@ fn bench_delete_entry(bencher: Bencher, size: u64) {
 }
 
 /// Benchmark [`Trie::iter_prefix`] iterator by iterating full trie for different trie sizes.
-#[divan::bench(args = SIZES_LOG)]
+#[divan::bench(args = SIZES)]
 fn bench_iter_full_trie(bencher: Bencher, size: u64) {
     let trie = divan::black_box(build_trie(size));
     bencher.bench_local(|| {
@@ -108,8 +110,8 @@ fn bench_iter_full_trie(bencher: Bencher, size: u64) {
     });
 }
 
-/// Benchmark [`Trie::hash`] iterator for different trie sizes.
-#[divan::bench(args = SMALL_SIZES_LOG)]
+/// Benchmark [`Trie::hash`] for different trie sizes.
+#[divan::bench(args = SMALL_SIZES)]
 fn bench_hash(bencher: Bencher, size: u64) {
     bencher
         .with_inputs(|| build_trie(size))
@@ -117,7 +119,7 @@ fn bench_hash(bencher: Bencher, size: u64) {
 }
 
 /// Benchmark [`Trie::store_to_buffer`] for different trie sizes.
-#[divan::bench(args = SMALL_SIZES_LOG)]
+#[divan::bench(args = SMALL_SIZES)]
 fn bench_store_load(bencher: Bencher, size: u64) {
     bencher
         .with_inputs(|| build_trie(size))
@@ -129,7 +131,7 @@ fn bench_store_load(bencher: Bencher, size: u64) {
 }
 
 /// Benchmark [`Trie::cache_reference_values`] for different trie sizes.
-#[divan::bench(args = SMALL_SIZES_LOG)]
+#[divan::bench(args = SMALL_SIZES)]
 fn bench_cache(bencher: Bencher, size: u64) {
     let mut store = BlobStoreStub::default();
     let trie = build_trie(size);

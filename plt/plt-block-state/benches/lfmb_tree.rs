@@ -97,7 +97,7 @@ fn bench_values(bencher: Bencher, size: u64) {
     });
 }
 
-/// Benchmark [`LfmbTree::hash`] iterator for different tree sizes.
+/// Benchmark [`LfmbTree::hash`] for different tree sizes.
 #[divan::bench(args = SMALL_SIZES)]
 fn bench_hash(bencher: Bencher, size: u64) {
     bencher
