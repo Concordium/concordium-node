@@ -37,5 +37,9 @@ name = "lfmb_tree"
 harness = false
 
 [[bench]]
+name = "trie"
+harness = false
+
+[[bench]]
 name = "hashed_cacheable_reference"
 harness = false
