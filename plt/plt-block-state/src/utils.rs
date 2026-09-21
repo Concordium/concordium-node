@@ -49,6 +49,27 @@ impl<'a, T> Cow<'a, T> {
             Self::Owned(ref mut owned) => owned,
         }
     }
+
+    pub fn map<U, FO, FB>(self, f_owned: FO, f_borrowed: FB) -> Cow<'a, U>
+    where
+        FO: FnOnce(T) -> U,
+        FB: FnOnce(&T) -> &U,
+    {
+        match self {
+            Cow::Owned(owned) => Cow::Owned(f_owned(owned)),
+            Cow::Borrowed(borrowed) => Cow::Borrowed(f_borrowed(borrowed)),
+        }
+    }
+}
+
+impl<'a, T> Cow<'a, Option<T>> {
+    pub fn transpose(self) -> Option<Cow<'a, T>> {
+        match self {
+            Cow::Owned(Some(owned)) => Some(Cow::Owned(owned)),
+            Cow::Borrowed(Some(borrowed)) => Some(Cow::Borrowed(borrowed)),
+            Cow::Owned(None) | Cow::Borrowed(None) => None,
+        }
+    }
 }
 
 impl<T> Deref for Cow<'_, T> {
@@ -62,11 +83,15 @@ impl<T> Deref for Cow<'_, T> {
     }
 }
 
+impl<T> AsRef<T> for Cow<'_, T> {
+    fn as_ref(&self) -> &T {
+        self
+    }
+}
+
 /// Decode given CBOR using decode options set to suit the token module. The decode options
 /// will generally be strict.
 pub fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationResult<T> {
-    let decode_options = SerializationOptions {
-        unknown_map_keys: UnknownMapKeys::Fail,
-    };
+    let decode_options = SerializationOptions::default().unknown_map_keys(UnknownMapKeys::Fail);
     cbor::cbor_decode_with_options(cbor, decode_options)
 }
