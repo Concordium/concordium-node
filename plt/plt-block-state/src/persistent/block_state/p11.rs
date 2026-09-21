@@ -63,8 +63,7 @@ mod test {
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
     use crate::persistent::hash::Hashable;
     use crate::persistent::protocol_level_locks::p11::{
-        LockConfiguration, LockControllerConfig, LockControllerSimpleV0,
-        LockControllerSimpleV0Grant, LockRecipients,
+        LockConfigSimpleV0, LockConfiguration, LockControllerSimpleV0Grant, LockRecipients,
     };
     use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
     use concordium_base::base::AccountIndex;
@@ -86,30 +85,25 @@ mod test {
             sequence_number: 1,
             creation_order: 0,
         };
-        let configuration1 = LockConfiguration {
-            recipients: LockRecipients::try_from(vec![
-                AccountIndex::from(1),
-                AccountIndex::from(2),
-            ])
+        let configuration1 = LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
+                    .unwrap(),
+                TransactionTime::from(100u64),
+                vec![LockControllerSimpleV0Grant::new(
+                    AccountIndex::from(1),
+                    vec![
+                        LockControllerSimpleV0Capability::Cancel,
+                        LockControllerSimpleV0Capability::Fund,
+                    ],
+                )],
+                vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                true,
+                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                None,
+            )
             .unwrap(),
-            expiry: TransactionTime::from(100u64),
-            controller: LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(
-                    vec![LockControllerSimpleV0Grant::new(
-                        AccountIndex::from(1),
-                        vec![
-                            LockControllerSimpleV0Capability::Cancel,
-                            LockControllerSimpleV0Capability::Fund,
-                        ],
-                    )],
-                    vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-                    true,
-                    Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-                )
-                .unwrap(),
-            ),
-            metadata: None,
-        };
+        );
 
         block_state
             .create_lock(&context, &lock_id1, configuration1.clone())
@@ -126,14 +120,18 @@ mod test {
             sequence_number: 7,
             creation_order: 0,
         };
-        let configuration2 = LockConfiguration {
-            recipients: LockRecipients::try_from(vec![]).unwrap(),
-            expiry: TransactionTime::from(0u64),
-            controller: LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
-            ),
-            metadata: None,
-        };
+        let configuration2 = LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
         block_state
             .create_lock(&context, &lock_id2, configuration2.clone())
             .unwrap();
@@ -144,14 +142,18 @@ mod test {
             sequence_number: 1,
             creation_order: 0,
         };
-        let configuration3 = LockConfiguration {
-            recipients: LockRecipients::try_from(vec![]).unwrap(),
-            expiry: TransactionTime::from(0u64),
-            controller: LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
-            ),
-            metadata: None,
-        };
+        let configuration3 = LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
         block_state
             .create_lock(&context, &lock_id3, configuration3)
             .unwrap();
@@ -263,30 +265,25 @@ mod test {
             sequence_number: 1,
             creation_order: 0,
         };
-        let configuration1 = LockConfiguration {
-            recipients: LockRecipients::try_from(vec![
-                AccountIndex::from(1),
-                AccountIndex::from(2),
-            ])
+        let configuration1 = LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
+                    .unwrap(),
+                TransactionTime::from(100u64),
+                vec![LockControllerSimpleV0Grant::new(
+                    AccountIndex::from(1),
+                    vec![
+                        LockControllerSimpleV0Capability::Cancel,
+                        LockControllerSimpleV0Capability::Fund,
+                    ],
+                )],
+                vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                true,
+                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                None,
+            )
             .unwrap(),
-            expiry: TransactionTime::from(100u64),
-            controller: LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(
-                    vec![LockControllerSimpleV0Grant::new(
-                        AccountIndex::from(1),
-                        vec![
-                            LockControllerSimpleV0Capability::Cancel,
-                            LockControllerSimpleV0Capability::Fund,
-                        ],
-                    )],
-                    vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-                    true,
-                    Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-                )
-                .unwrap(),
-            ),
-            metadata: None,
-        };
+        );
         block_state
             .create_lock(&context, &lock_id1, configuration1)
             .unwrap();
@@ -302,14 +299,18 @@ mod test {
             sequence_number: 7,
             creation_order: 0,
         };
-        let configuration2 = LockConfiguration {
-            recipients: LockRecipients::try_from(vec![]).unwrap(),
-            expiry: TransactionTime::from(0u64),
-            controller: LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
-            ),
-            metadata: None,
-        };
+        let configuration2 = LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
         block_state
             .create_lock(&context, &lock_id2, configuration2)
             .unwrap();
@@ -318,14 +319,14 @@ mod test {
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "087291ee0596eb189674d6fca89fa020c31d147b0b434f3f8ca1e859c56418ae"
+            "d86bd94c7c340e58ce3112060d63a220ee771f7e4f78934aa811a19bc52ed866"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000004e2bb048177e32a285acbafc8731e45062038a9d1793e5a8ec4f80c800ad75fc1160000000000000000700000000000000001b00000000000000000100000000000000000000000000000000000000000000000000006d000000000000000200000000000000000000000000000000000000000000000100000000000000010100020000000000000001000000000000000200000000000000640000010000000000000001020003000208746f6b656e69643108746f6b656e6964320101000002000100000000000000005b9b0ba94873aa0311787743d5f066d2e3f1ee25edf6afcf5a01907621a92ca2fe6000000000000000010000000000000000ff5e53bf51600ef190e4b7cd2ff0b7c185d7073f6bdd9b311fd7b05d08e0af731700000000000001e500000000000000003c0ad4825a72ed1a8bd0c55105819eecf2883d9d92a223b1645b868b4a6fda866c0f00000000000000000201000000000000025a02000000000000018f00000000000000090100000000000002bd000000000000001000000000000001660000000000000301"
+            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000004e80c0cbaad830d9852e3158bc6d384ba9c5afcea0abf599e1a21b8480b4168a3f60000000000000000700000000000000001b00000000000000000001000000000000000000000000000000000000000000000000006d000000000000000200000000000000000000000000000000000000000000000100000000000000010001000200000000000000010000000000000002000000000000006400010000000000000001020003000208746f6b656e69643108746f6b656e6964320101000002000100000000000000005b669ab2f2655f85c29b86ea8c6c1c80d335613bd15d54732dcea32d48e7e90e016000000000000000010000000000000000ffe0649769c455e36adbcb4c7b743213593d14131f7591d1afa0deacd64ee7e09900000000000001e500000000000000003c90a58059b624c263093dce11b6e1df140bee986da3168abafeab0b2d4ad0704f0f00000000000000000201000000000000025a02000000000000018f00000000000000090100000000000002bd000000000000001000000000000001660000000000000301"
         );
     }
 }

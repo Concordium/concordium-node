@@ -119,6 +119,7 @@ impl<T: Storable> Storable for Option<T> {
         }
     }
 }
+
 /// Adapter for types implementing [`Serialize`] that
 /// allows them to be used as block state components.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -244,6 +245,35 @@ impl<T: Serial + Clone> BlobStoreMovable for StoreSerialized<T> {
         _to_storer: &mut impl BlobStoreStore,
     ) -> BlockStateResult<Self> {
         Ok(self.clone())
+    }
+}
+
+impl<T: BlobStoreMovable> BlobStoreMovable for Option<T> {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self> {
+        Ok(match self {
+            None => None,
+            Some(inner) => Some(inner.move_blob_store(from_loader, to_storer)?),
+        })
+    }
+}
+
+impl<T: BlobStoreMovable> BlobStoreMovable for Vec<T> {
+    fn move_blob_store(
+        &self,
+        from_loader: &impl BlobStoreLoad,
+        to_storer: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self> {
+        let mut vec = Vec::with_capacity(self.len());
+
+        for elm in self {
+            vec.push(elm.move_blob_store(from_loader, to_storer)?);
+        }
+
+        Ok(vec)
     }
 }
 
