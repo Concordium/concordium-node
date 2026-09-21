@@ -2,49 +2,52 @@ use concordium_base::common::{Buffer, Deserial, Get, ParseResult, Put, ReadBytes
 use std::ops::RangeBounds;
 use tinyvec::TinyVec;
 
-/// Path
+/// Path represents a path in a trie, or a path to look up in the trie. A path is represented
+/// as a sequence of bytes, but the length is in granularity of nibbles (4 bits).
 #[derive(Debug, Clone)]
 pub struct Path<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
 
 impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
+    /// Borrow as path slice.
     pub fn as_path_slice(&self) -> PathSliceRef<'_> {
-        PathSliceRef(self.0.as_slice())
+        PathSliceRef::LowHigh(self.0.as_slice())
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
+    /// Returns the path represented as bytes, if the path is an even number of nibbles.
+    /// If the path is an odd number of nibbles, `None` is returned.
     pub fn as_byte_slice(&self) -> Option<&[u8]> {
-        Some(self.0.as_slice())
+        todo!()
     }
 
+    /// Extend the path with the given path slice.
     pub fn extend_from_path_slice(&mut self, slice: PathSliceRef<'_>) {
-        self.0.extend_from_slice(&slice.0)
+        todo!()
     }
 
+    /// Create path from the bytes in the given vector.
     pub fn from_tiny_vec(tiny_vec: TinyVec<[u8; INLINE_KEY_LENGTH]>) -> Self {
-        Self(tiny_vec)
+        todo!()
     }
 
-    pub fn index_path_slice(
-        &self,
-        index: impl RangeBounds<usize> + std::slice::SliceIndex<[u8], Output = [u8]>,
-    ) -> PathSliceRef<'_> {
+    /// Index into the path using nibbles as index.
+    pub fn index_path_slice(&self, index: impl RangeBounds<usize>) -> PathSliceRef<'_> {
         self.as_path_slice().index_path_slice(index)
     }
 
+    /// Index into the path using nibbles as index.
     pub fn index_path_nibble(&self, index: usize) -> PathNibble {
         self.as_path_slice().index_path_nibble(index)
     }
 
+    /// Length of the path slice in nibbles.
     pub fn len(&self) -> usize {
-        self.0.len()
+        todo!()
     }
 }
 
 impl<const INLINE_KEY_LENGTH: usize> Serial for Path<INLINE_KEY_LENGTH> {
     fn serial<B: Buffer>(&self, out: &mut B) {
+        // todo ar encode less than 8 bytes
         out.put(self.len() as u64);
         out.write_all(self.0.as_slice())
             .expect("Writing to a buffer should not fail.");
@@ -62,51 +65,63 @@ impl<const INLINE_KEY_LENGTH: usize> Deserial for Path<INLINE_KEY_LENGTH> {
 
 /// Reference to slice of [`Path`]
 #[derive(Debug, Copy, Clone)]
-pub struct PathSliceRef<'a>(&'a [u8]);
+pub enum PathSliceRef<'a> {
+    LowLow(&'a [u8]),
+    LowHigh(&'a [u8]),
+    HighLow(&'a [u8]),
+    HighHigh(&'a [u8]),
+}
 
 impl<'a> PathSliceRef<'a> {
+    /// Create empty path slice
     pub fn empty() -> Self {
-        Self(&[])
+        todo!()
     }
 
+    /// If path slice is empty.
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        todo!()
     }
 
-    pub fn index_path_slice(
-        &self,
-        index: impl RangeBounds<usize> + std::slice::SliceIndex<[u8], Output = [u8]>,
-    ) -> PathSliceRef<'a> {
-        Self(&self.0[index])
+    /// Index into the path slice using nibbles as index.
+    pub fn index_path_slice(&self, index: impl RangeBounds<usize>) -> PathSliceRef<'a> {
+        todo!()
     }
 
+    /// Index into the path slice using nibbles as index.
     pub fn index_path_nibble(&self, index: usize) -> PathNibble {
-        PathNibble(self.0[index])
+        todo!()
     }
 
+    /// Create path slice from given byte slice.
     pub fn from_byte_slice(slice: &'a [u8]) -> Self {
-        Self(slice)
+        Self::LowHigh(slice)
     }
 
+    /// The first nibble in the path slice.
     pub fn first_nibble(&self) -> Option<PathNibble> {
-        self.0.first().copied().map(PathNibble)
+        todo!()
     }
 
+    /// Create [`Path`] from the path slice.
     pub fn to_path<const INLINE_KEY_LENGTH: usize>(&self) -> Path<INLINE_KEY_LENGTH> {
-        Path(self.0.into())
+        todo!()
     }
 
+    /// Length of the path slice in nibbles.
     pub fn len(&self) -> usize {
-        self.0.len()
+        todo!()
     }
 }
 
+/// Length of common prefix in nibbles of the two path slices.
 pub fn common_prefix_len(path_ref1: PathSliceRef<'_>, path_ref2: PathSliceRef<'_>) -> usize {
-    let mut i = 0;
-    while i < path_ref1.len() && i < path_ref2.len() && path_ref1.0[i] == path_ref2.0[i] {
-        i += 1;
-    }
-    i
+    todo!()
+    // let mut i = 0;
+    // while i < a.len() && i < b.len() && a[i] == b[i] {
+    //     i += 1;
+    // }
+    // &a[0..i]
 }
 
 /// Stores the nibble in the first 4 bits of the `u8`
@@ -115,10 +130,22 @@ pub struct PathNibble(u8);
 
 impl PathNibble {
     pub fn from_byte(byte: u8) -> Self {
+        // todo ar validate
         Self(byte)
     }
 
     pub fn as_byte(&self) -> u8 {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tinyvec::tiny_vec;
+
+    #[test]
+    fn test_index_path() {
+        // let path = Path(tiny_vec![1, 2, 3]);
     }
 }

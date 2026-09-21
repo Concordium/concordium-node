@@ -477,37 +477,37 @@ impl<const INLINE_KEY_LENGTH: usize, V> ChildEdges<INLINE_KEY_LENGTH, V> {
 
     fn get_child(
         &self,
-        child_path_nibble: PathNibble,
+        path_nibble: PathNibble,
     ) -> Option<&HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>> {
         let index = self
             .0
-            .binary_search_by_key(&child_path_nibble, |ChildEdge(byte, _)| *byte)
+            .binary_search_by_key(&path_nibble, |ChildEdge(nibble, _)| *nibble)
             .ok()?;
         Some(&self.0[index].1)
     }
 
     fn set_child(
         &mut self,
-        child_path_nibble: PathNibble,
+        path_nibble: PathNibble,
         child: HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>,
     ) {
         match self
             .0
-            .binary_search_by_key(&child_path_nibble, |ChildEdge(byte, _)| *byte)
+            .binary_search_by_key(&path_nibble, |ChildEdge(nibble, _)| *nibble)
         {
             Ok(index) => {
                 self.0[index].1 = child;
             }
             Err(index) => {
-                self.0.insert(index, ChildEdge(child_path_nibble, child));
+                self.0.insert(index, ChildEdge(path_nibble, child));
             }
         }
     }
 
-    fn delete_child(&mut self, child_path_nibble: PathNibble) -> bool {
+    fn delete_child(&mut self, path_nibble: PathNibble) -> bool {
         let Ok(index) = self
             .0
-            .binary_search_by_key(&child_path_nibble, |ChildEdge(byte, _)| *byte)
+            .binary_search_by_key(&path_nibble, |ChildEdge(nibble, _)| *nibble)
         else {
             return false;
         };
