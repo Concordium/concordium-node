@@ -17,7 +17,7 @@ use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant,
+    LockConfigSimpleV0, LockConfiguration, LockControllerSimpleV0Grant,
     LockRecipients as BlockStateLockRecipients,
 };
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -94,12 +94,12 @@ pub enum LockOperation {
 /// Returns the operation-specific authorization rejection, or a token-not-permitted rejection
 /// when a fund operation uses a token outside the configuration.
 pub fn validate_operation(
-    config: &LockConfig,
+    config: &LockConfiguration,
     sender_address: AccountAddress,
     sender: &Account,
     operation: &LockOperation,
 ) -> Result<(), TransactionRejectReason> {
-    let LockConfig::SimpleV0(config) = config;
+    let LockConfiguration::SimpleV0(config) = config;
     let (role, lock) = match operation {
         LockOperation::Fund(details) => (LockControllerSimpleV0Capability::Fund, &details.lock),
         LockOperation::Send(details) => (LockControllerSimpleV0Capability::Send, &details.lock),
@@ -144,7 +144,7 @@ pub fn from_cbor_config<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
     cbor_config: CborLockConfig,
-) -> ResultWithBlockStateFailure<LockConfig, TransactionRejectReason> {
+) -> ResultWithBlockStateFailure<LockConfiguration, TransactionRejectReason> {
     let CborLockConfig::SimpleV0(cbor_config) = cbor_config;
     let grants = cbor_config
         .grants
@@ -174,7 +174,7 @@ pub fn from_cbor_config<C: EntityContextTypes>(
         })
         .collect::<ResultWithBlockStateFailure<_, _>>()?;
     let recipients = from_cbor_recipients(context, cbor_config.recipients)?;
-    Ok(LockConfig::SimpleV0(
+    Ok(LockConfiguration::SimpleV0(
         LockConfigSimpleV0::new(
             recipients,
             cbor_config.expiry,
@@ -193,9 +193,9 @@ pub fn from_cbor_config<C: EntityContextTypes>(
 /// Returns an invariant failure if a persisted grant or recipient references a missing account.
 pub fn to_cbor_config<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    config: &LockConfig,
+    config: &LockConfiguration,
 ) -> BlockStateResult<CborLockConfig> {
-    let LockConfig::SimpleV0(config) = config;
+    let LockConfiguration::SimpleV0(config) = config;
     let grants = config
         .grants()
         .iter()
