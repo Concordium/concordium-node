@@ -329,7 +329,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
                         )
                         .to_path();
 
-                    iter_root_path.extend_from_path_slice(stem_matched_node.stem.as_path_slice());
+                    iter_root_path.extend_from_path_slice(&stem_matched_node.stem.as_path_slice());
                     PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
                 } else {
                     PrefixIterator::with_root(
@@ -398,7 +398,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
                 };
 
                 let mut child_path = node_path.clone();
-                child_path.extend_from_path_slice(child.stem.as_path_slice());
+                child_path.extend_from_path_slice(&child.stem.as_path_slice());
 
                 self.node_stack
                     .push(IteratorStackElement(child_path, child));
@@ -610,7 +610,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let only_child_ref = &new_child.children.0[0].1;
                     let grandchild = only_child_ref.value(loader)?;
                     let mut new_child_stem = new_child.stem.clone();
-                    new_child_stem.extend_from_path_slice(grandchild.stem.as_path_slice());
+                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice());
                     new_child = Node {
                         stem: new_child_stem,
                         value: grandchild.value.clone(),
@@ -944,7 +944,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
         let mut prev_path_nibble = None;
         for _ in 0..size {
             let path_nibble =
-                PathNibble::from_byte(buffer.get().map_parse_err_to_block_state_err()?);
+                PathNibble::from_byte_raw(buffer.get().map_parse_err_to_block_state_err()?);
             let child_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
             if let Some(prev_byte) = prev_path_nibble
                 && path_nibble <= prev_byte
@@ -1744,7 +1744,7 @@ mod tests {
                 }
 
                 let mut child_path = path.clone();
-                child_path.extend_from_path_slice(child_node.stem.as_path_slice());
+                child_path.extend_from_path_slice(&child_node.stem.as_path_slice());
                 child_node.validate_and_extract_entries(
                     loader,
                     child_path.as_path_slice(),
