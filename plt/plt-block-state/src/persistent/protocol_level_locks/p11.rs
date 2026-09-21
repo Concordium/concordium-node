@@ -1,101 +1,136 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
-use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Storable};
+use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::persistent::blob_store::{
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, Storable, StoreSerialized,
+};
 use crate::persistent::cacheable::Cacheable;
+use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
-use crate::persistent::smart_contract_trie::PersistentState;
+use crate::persistent::trie::{Trie, TrieKey};
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::common::{Buffer, Serialize, from_bytes_complete, to_bytes};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
-use std::collections::BTreeSet;
 use std::io::Read;
 
-/// Block state for protocol level locks on P11 and later protocols that uses the same representation.
-#[derive(Debug, Clone)]
-pub struct PersistentLocksP11 {
-    /// Persistent trie of serialized [`LockId`] keys and [`PersistentLockP11`] values.
-    pub(crate) locks: PersistentState,
-}
+/// Persistent collection of protocol-level locks on P11 and later protocols.
+// We use 8 as the inline key size, as this matches the individual components of the lock ID key (8 byte
+// account index, 8 byte sequence number, 8 byte creation order), meaning there's a good chance that this fits
+// the trie node stems.
+pub type PersistentLocksP11 = Trie<8, LockId, PersistentLockP11>;
 
-impl Default for PersistentLocksP11 {
-    fn default() -> Self {
-        Self {
-            locks: PersistentState::empty(),
-        }
+/// Trie key for a locked account/token balance reference.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) struct BalanceReferenceKey(pub(crate) AccountIndex, pub(crate) TokenIndex);
+
+impl TrieKey for LockId {
+    fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
+        to_bytes(self)
     }
-}
 
-impl Loadable for PersistentLocksP11 {
-    fn load_from_buffer(
-        buffer: impl Read,
-        loader: &impl BlobStoreLoad,
-    ) -> Result<Self, BlockStateFailure> {
-        Ok(Self {
-            locks: Loadable::load_from_buffer(buffer, loader)?,
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self> {
+        from_bytes_complete(key).map_err(|err| {
+            BlockStateFailure::BlobStoreDecode(format!(
+                "Stored lock ID key cannot be decoded: {err}"
+            ))
         })
     }
 }
 
-impl Storable for PersistentLocksP11 {
-    fn store_to_buffer(&self, buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
-        self.locks.store_to_buffer(buffer, storer)
+impl TrieKey for BalanceReferenceKey {
+    fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
+        to_bytes(&(self.0, self.1))
+    }
+
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self> {
+        let (account, token) = from_bytes_complete(key).map_err(|err| {
+            BlockStateFailure::BlobStoreDecode(format!(
+                "Stored balance reference key cannot be decoded: {err}"
+            ))
+        })?;
+        Ok(Self(account, token))
     }
 }
 
-impl Cacheable for PersistentLocksP11 {
-    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
-        self.locks.cache_reference_values(loader)
-    }
+/// Unit value stored for each balance-reference membership entry.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) enum BalanceReference {
+    Present,
 }
 
-impl Hashable for PersistentLocksP11 {
-    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        self.locks.hash(loader)
-    }
-}
+// We use 8 as the inline key size, as this matches the individual components of the key (8 byte
+// account index, 8 byte token index), meaning there's a good chance that this fits the trie node
+// stems.
+type BalanceReferences = Trie<8, BalanceReferenceKey, StoreSerialized<BalanceReference>>;
 
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone)]
 pub struct PersistentLockP11 {
-    /// Contains references to the tokens with balances locked within this lock.
-    ///
-    /// Note the entire collection will be written to disk every time this struct is written to disk.
-    pub locked_balances: BTreeSet<(AccountIndex, TokenIndex)>,
-    /// The configuration parameters for the lock.
-    pub configuration: LockConfiguration,
+    /// References to the account/token balances locked within this lock.
+    pub(crate) locked_balances: BalanceReferences,
+    /// Immutable configuration parameters for the lock.
+    pub(crate) configuration: HashedCacheableRef<StoreSerialized<LockConfiguration>>,
 }
 
-/// Serialize a lock ID for use as a persistent trie key.
-pub(crate) fn lock_id_key(lock_id: &LockId) -> Vec<u8> {
-    to_bytes(lock_id)
+impl PersistentLockP11 {
+    /// Construct an empty lock with the supplied immutable configuration.
+    pub(crate) fn new(configuration: LockConfiguration) -> Self {
+        Self {
+            locked_balances: Trie::empty(),
+            configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
+        }
+    }
 }
 
-/// Decode a canonical serialized lock ID from a persistent trie key.
-pub(crate) fn lock_id_from_key(key: &[u8]) -> BlockStateResult<LockId> {
-    from_bytes_complete(key).map_err(|err| {
-        BlockStateFailure::BlobStoreDecode(format!("Stored lock ID key cannot be decoded: {err}"))
-    })
+impl Storable for PersistentLockP11 {
+    fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
+        self.locked_balances.store_to_buffer(&mut buffer, storer);
+        self.configuration.store_to_buffer(&mut buffer, storer);
+    }
 }
 
-/// Serialize a persistent lock for use as a persistent trie value.
-pub(crate) fn persistent_lock_value(lock: &PersistentLockP11) -> Vec<u8> {
-    to_bytes(&(lock.locked_balances.clone(), lock.configuration.clone()))
+impl Loadable for PersistentLockP11 {
+    fn load_from_buffer(
+        mut buffer: impl Read,
+        loader: &impl BlobStoreLoad,
+    ) -> BlockStateResult<Self> {
+        Ok(Self {
+            locked_balances: Loadable::load_from_buffer(&mut buffer, loader)?,
+            configuration: Loadable::load_from_buffer(&mut buffer, loader)?,
+        })
+    }
 }
 
-/// Decode a persistent lock from a persistent trie value.
-pub(crate) fn persistent_lock_from_value(value: &[u8]) -> BlockStateResult<PersistentLockP11> {
-    let (locked_balances, configuration) = from_bytes_complete(value).map_err(|err| {
-        BlockStateFailure::BlobStoreDecode(format!(
-            "Stored persistent lock value cannot be decoded: {err}"
+impl Cacheable for PersistentLockP11 {
+    fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
+        self.locked_balances.cache_reference_values(loader)?;
+        self.configuration.cache_reference_values(loader)
+    }
+}
+
+impl Hashable for PersistentLockP11 {
+    fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
+        Ok(hash::hash_of_hashes(
+            self.locked_balances.hash(loader)?,
+            self.configuration.hash(loader)?,
         ))
-    })?;
-    Ok(PersistentLockP11 {
-        locked_balances,
-        configuration,
-    })
+    }
+}
+
+impl BlobStoreMovable for PersistentLockP11 {
+    fn move_blob_store(
+        &self,
+        from_store: &impl BlobStoreLoad,
+        to_store: &mut impl BlobStoreStore,
+    ) -> BlockStateResult<Self> {
+        Ok(Self {
+            locked_balances: self.locked_balances.move_blob_store(from_store, to_store)?,
+            configuration: self.configuration.move_blob_store(from_store, to_store)?,
+        })
+    }
 }
 
 /// Error returned when a persistent container exceeds its serialized capacity.
@@ -321,6 +356,7 @@ mod test {
     use crate::persistent::hash::Hashable;
     use concordium_base::common;
     use concordium_base::transactions::Memo;
+    use std::borrow::Borrow;
 
     #[test]
     fn test_lock_configuration_serial() {
@@ -409,83 +445,114 @@ mod test {
         assert_eq!(deserialized, lock_config);
     }
 
-    #[test]
-    fn lock_state_store_load_round_trip_preserves_entries_and_hash() {
-        let mut store = BlobStoreStub::default();
-        let lock_id = LockId::new(50, 2, 0);
-        let lock = PersistentLockP11 {
-            locked_balances: BTreeSet::from([(AccountIndex::from(1), TokenIndex(2))]),
-            configuration: LockConfiguration::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::Any,
-                    TransactionTime::from(1000),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    None,
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
-        let mut locks = PersistentLocksP11::default();
-        let mut mutable_locks = locks.locks.thaw();
-        mutable_locks
-            .insert_value(&store, &lock_id_key(&lock_id), persistent_lock_value(&lock))
-            .unwrap();
-        locks.locks = mutable_locks.freeze(&store);
-        let hash = locks.hash(&store).unwrap();
-        assert_eq!(locks.hash(&store).unwrap(), hash);
-
-        let location = blob_store::store_to_store(&mut store, &locks);
-        let loaded: PersistentLocksP11 = blob_store::load_from_store(&store, location).unwrap();
-        assert_eq!(loaded.hash(&store).unwrap(), hash);
-        let loaded_lock = persistent_lock_from_value(
-            &loaded
-                .locks
-                .lookup_value(&store, &lock_id_key(&lock_id))
-                .unwrap(),
+    fn lock_configuration() -> LockConfiguration {
+        LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(1000),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
         )
-        .unwrap();
-        assert_eq!(loaded_lock.locked_balances, lock.locked_balances);
-        assert_eq!(loaded_lock.configuration, lock.configuration);
     }
 
     #[test]
-    fn lock_trie_key_and_value_round_trip() {
-        let lock_id = LockId::new(50, 2, 0);
-        let lock = PersistentLockP11 {
-            locked_balances: BTreeSet::from([(AccountIndex::from(1), TokenIndex(2))]),
-            configuration: LockConfiguration::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::Any,
-                    TransactionTime::from(1000),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    None,
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
+    fn trie_keys_are_fixed_width_and_ordered() {
+        let lock_ids = [LockId::new(1, 0, 0), LockId::new(1, 0, 1)];
+        let balance_refs = [
+            BalanceReferenceKey(AccountIndex::from(1), TokenIndex(0)),
+            BalanceReferenceKey(AccountIndex::from(1), TokenIndex(1)),
+        ];
 
-        assert_eq!(lock_id_from_key(&lock_id_key(&lock_id)).unwrap(), lock_id);
-        let decoded = persistent_lock_from_value(&persistent_lock_value(&lock)).unwrap();
-        assert_eq!(decoded.locked_balances, lock.locked_balances);
-        assert_eq!(decoded.configuration, lock.configuration);
+        for lock_id in &lock_ids {
+            let bytes = TrieKey::to_bytes(lock_id);
+            assert_eq!(bytes.borrow().len(), 24);
+            assert_eq!(LockId::try_from_bytes(bytes.borrow()).unwrap(), *lock_id);
+        }
+        for balance_ref in balance_refs {
+            let bytes = balance_ref.to_bytes();
+            assert_eq!(bytes.borrow().len(), 16);
+            assert_eq!(
+                BalanceReferenceKey::try_from_bytes(bytes.borrow()).unwrap(),
+                balance_ref
+            );
+        }
+        assert!(lock_ids[0].to_bytes().borrow() < lock_ids[1].to_bytes().borrow());
+        assert!(balance_refs[0].to_bytes().borrow() < balance_refs[1].to_bytes().borrow());
     }
 
     #[test]
-    fn malformed_lock_trie_key_and_value_are_decode_failures() {
+    fn malformed_trie_keys_are_decode_failures() {
         assert!(matches!(
-            lock_id_from_key(&[0]),
+            LockId::try_from_bytes(&[0]),
             Err(BlockStateFailure::BlobStoreDecode(_))
         ));
         assert!(matches!(
-            persistent_lock_from_value(&[0]),
+            BalanceReferenceKey::try_from_bytes(&[0; 17]),
             Err(BlockStateFailure::BlobStoreDecode(_))
         ));
+    }
+
+    #[test]
+    fn persistent_lock_store_load_preserves_values_and_hash() {
+        let mut store = BlobStoreStub::default();
+        let balance_ref = BalanceReferenceKey(AccountIndex::from(1), TokenIndex(2));
+        let mut lock = PersistentLockP11::new(lock_configuration());
+        lock.locked_balances = lock
+            .locked_balances
+            .insert_or_update_entry(
+                &store,
+                &balance_ref,
+                StoreSerialized(BalanceReference::Present),
+            )
+            .unwrap();
+        let hash = lock.hash(&store).unwrap();
+
+        let location = blob_store::store_to_store(&mut store, &lock);
+        let loaded: PersistentLockP11 = blob_store::load_from_store(&store, location).unwrap();
+        assert_eq!(loaded.hash(&store).unwrap(), hash);
+        assert!(
+            loaded
+                .locked_balances
+                .contains_key(&store, &balance_ref)
+                .unwrap()
+        );
+        assert_eq!(
+            loaded.configuration.value(&store).unwrap().0,
+            lock_configuration()
+        );
+        loaded.cache_reference_values(&store).unwrap();
+
+        let mut moved_store = BlobStoreStub::default();
+        let moved = loaded.move_blob_store(&store, &mut moved_store).unwrap();
+        assert_eq!(moved.hash(&moved_store).unwrap(), hash);
+        assert!(
+            moved
+                .locked_balances
+                .contains_key(&moved_store, &balance_ref)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn typed_key_deletion_removes_entry() {
+        let balance_ref = BalanceReferenceKey(AccountIndex::from(1), TokenIndex(2));
+        let trie = BalanceReferences::empty()
+            .insert_or_update_entry(
+                &BlobStoreStub::default(),
+                &balance_ref,
+                StoreSerialized(BalanceReference::Present),
+            )
+            .unwrap();
+        assert!(
+            trie.delete_entry(&BlobStoreStub::default(), &balance_ref)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]

@@ -58,7 +58,7 @@ pub fn query_lock_info<C: EntityContextTypes>(
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
-    for (account_index, token_index) in lock.lock_balance_refs() {
+    for (account_index, token_index) in lock.lock_balance_refs(context)? {
         let token = block_state.token_by_index(context, token_index)?;
         let token_configuration = token.token_p9_base.token_configuration(context)?;
 
@@ -208,9 +208,10 @@ fn execute_lock_fund<C: EntityContextTypes>(
 
     if is_new_holder {
         lock.add_lock_balance_ref(
+            context,
             transaction_execution.sender_account().account_index(),
             token_index,
-        );
+        )?;
         block_state.update_lock(context, lock)?;
     }
     Ok(())
@@ -459,7 +460,8 @@ fn execute_lock_cancel<C: EntityContextTypes>(
             &lock_configuration::LockOperation::Cancel(details),
         )?;
     }
-    for (account_index, token_index) in lock.lock_balance_refs() {
+    for balance_ref in lock.iter_lock_balance_refs(context) {
+        let (account_index, token_index) = balance_ref?;
         let mut token = block_state.token_by_index(context, token_index)?;
         balance_operations::unlock_balance(
             context,
@@ -490,12 +492,12 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     token_index: plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex,
     lock_id: LockId,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    if !lock.remove_lock_balance_ref(account_index, token_index) {
+    if !lock.remove_lock_balance_ref(context, account_index, token_index)? {
         // No lock state change needed: either the account still holds a non-zero balance
         // controlled by the lock, or there was no balance reference to remove.
         return Ok(());
     }
-    if lock.lock_balance_refs().is_empty() && !lock_keeps_alive {
+    if lock.has_no_balance_refs() && !lock_keeps_alive {
         block_state.delete_lock(context, &lock_id)?;
         events.push(BlockItemEvent::LockDestroyed(events::LockDestroyEvent {
             lock_id,

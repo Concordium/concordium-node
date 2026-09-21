@@ -255,13 +255,14 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         key: &K,
     ) -> BlockStateResult<Option<Self>>
     where
-        K: Borrow<[u8]>,
+        K: TrieKey,
         V: Loadable + Clone,
     {
         if self.size == 0 {
             return Ok(None);
         }
-        let Some(new_root) = self.root.delete_rec(loader, key.borrow())? else {
+        let key_bytes = key.to_bytes();
+        let Some(new_root) = self.root.delete_rec(loader, key_bytes.borrow())? else {
             return Ok(None);
         };
 
@@ -270,6 +271,23 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
             root: new_root,
             _key_type: self._key_type,
         }))
+    }
+
+    /// Iterates all entries in lexicographical key order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the trie
+    /// does not fulfill the expected invariants.
+    pub fn iter<'a, 'b, L: BlobStoreLoad>(
+        &'b self,
+        loader: &'a L,
+    ) -> impl Iterator<Item = BlockStateResult<(K, Cow<'b, V>)>> + use<'a, 'b, INLINE_KEY_LENGTH, L, K, V>
+    where
+        K: TrieKey,
+        V: Loadable,
+    {
+        PrefixIterator::with_root(Vec::new(), Cow::Borrowed(&self.root), loader)
     }
 
     /// Iterates all entries with keys that have the given `key` as prefix, including

@@ -172,7 +172,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Vec<LockId>> {
         protocol_level_locks::p11::lock_list(
             context,
-            &self.persistent.locks.value(&context.store)?.locks,
+            &*self.persistent.locks.value(&context.store)?,
         )
     }
 
@@ -188,7 +188,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Result<LockP11, LockNotFoundByIdError>> {
         protocol_level_locks::p11::lock_by_id(
             context,
-            &self.persistent.locks.value(&context.store)?.locks,
+            &*self.persistent.locks.value(&context.store)?,
             lock_id.clone(),
         )
         .map(|lock| lock.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))

@@ -112,8 +112,12 @@ mod test {
             .lock_by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
-        lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
-        lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .unwrap();
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+            .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
@@ -177,7 +181,7 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(
-            lock1.lock_balance_refs(),
+            lock1.lock_balance_refs(&context).unwrap(),
             vec![
                 (AccountIndex::from(0), TokenIndex(0)),
                 (AccountIndex::from(1), TokenIndex(1))
@@ -191,11 +195,71 @@ mod test {
             .lock_by_id(&context, &lock_id2)
             .unwrap()
             .unwrap();
-        assert_eq!(lock2.lock_balance_refs(), vec![]);
+        assert_eq!(lock2.lock_balance_refs(&context).unwrap(), vec![]);
         assert_eq!(
             lock2.lock_configuration(&context).unwrap().into_owned(),
             configuration2
         );
+    }
+
+    #[test]
+    fn balance_updates_reuse_lock_configuration_and_preserve_hashes_after_reload() {
+        let mut context = entity_test_stub::new_no_external_context();
+        let mut block_state = BlockStateP11::default();
+        let lock_id = LockId::new(1, 1, 0);
+        let configuration = LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(100),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+
+        block_state
+            .create_lock(&context, &lock_id, configuration)
+            .unwrap();
+        let mut lock = block_state.lock_by_id(&context, &lock_id).unwrap().unwrap();
+        let configuration_ptr = lock
+            .persistent
+            .configuration
+            .value(&context.store)
+            .unwrap()
+            .as_ref() as *const _;
+        let configuration_hash = lock.persistent.configuration.hash(&context.store).unwrap();
+
+        lock.add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .unwrap();
+        lock.add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+            .unwrap();
+        assert!(std::ptr::eq(
+            configuration_ptr,
+            lock.persistent
+                .configuration
+                .value(&context.store)
+                .unwrap()
+                .as_ref(),
+        ));
+        assert_eq!(
+            lock.persistent.configuration.hash(&context.store).unwrap(),
+            configuration_hash
+        );
+        let lock_hash = lock.persistent.hash(&context.store).unwrap();
+        block_state.update_lock(&context, lock).unwrap();
+        let state_hash = block_state.persistent.hash(&context.store).unwrap();
+
+        let location = blob_store::store_to_store(&mut context.store, &block_state.persistent);
+        let loaded = entity_test_stub::load_block_state_p11(&context, location);
+        let loaded_lock = loaded.lock_by_id(&context, &lock_id).unwrap().unwrap();
+        assert_eq!(
+            loaded_lock.persistent.hash(&context.store).unwrap(),
+            lock_hash
+        );
+        assert_eq!(loaded.persistent.hash(&context.store).unwrap(), state_hash);
     }
 
     /// Assert that hash and stored bytes of an empty block state matches snapshot.
@@ -209,14 +273,14 @@ mod test {
         let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "d84a104f55bddbfba65cfe902175f9337db147b8f93507de58a141225e59434c"
+            "21238c14891e14e616aed254c3033fb56386834711f9fb4dd2840b4fe642fca5"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &persistent_block_state);
         assert_eq!(
             hex::encode(context.store.0),
-            "00000000000000080000000000000000000000000000000100000000000000001000000000000000000000000000000010"
+            "00000000000000080000000000000000000000000000001300000000000000000000000000000000000000000000000000001000000000000000000000000000000010"
         );
     }
 
@@ -291,8 +355,12 @@ mod test {
             .lock_by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
-        lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
-        lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .unwrap();
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+            .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
@@ -319,14 +387,14 @@ mod test {
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "d86bd94c7c340e58ce3112060d63a220ee771f7e4f78934aa811a19bc52ed866"
+            "cb16308c0b2f55a341e206c597ffa7998188c43858d417b8582a774681dbd4ec"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000004e80c0cbaad830d9852e3158bc6d384ba9c5afcea0abf599e1a21b8480b4168a3f60000000000000000700000000000000001b00000000000000000001000000000000000000000000000000000000000000000000006d000000000000000200000000000000000000000000000000000000000000000100000000000000010001000200000000000000010000000000000002000000000000006400010000000000000001020003000208746f6b656e69643108746f6b656e6964320101000002000100000000000000005b669ab2f2655f85c29b86ea8c6c1c80d335613bd15d54732dcea32d48e7e90e016000000000000000010000000000000000ffe0649769c455e36adbcb4c7b743213593d14131f7591d1afa0deacd64ee7e09900000000000001e500000000000000003c90a58059b624c263093dce11b6e1df140bee986da3168abafeab0b2d4ad0704f0f00000000000000000201000000000000025a02000000000000018f00000000000000090100000000000002bd000000000000001000000000000001660000000000000301"
+            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f2000000000000015500000000000000150100000000000000000900000000000000000000000000000000000015010000000000000000090100000000000000010000000000000000002400000000000000000700000000000000000200000000000000018f0100000000000001ac00000000000000450001000200000000000000010000000000000002000000000000006400010000000000000001020003000208746f6b656e69643108746f6b656e6964320101000002000100000000000000004001000000000000000200000000000000000000010000000000000001c900000000000001f500000000000000110100000000000000010000000000000000000000000000000000130001000000000000000000000000000000000000000000000000370100000000000000000000000000000000000000000000000000028a00000000000000110200000000000000070000000000000000000000000000000000240000000000000000070000000000000000020100000000000002420200000000000002a5000000000000001c000000000000000200000000000000000000010000000000000002e4000000000000001000000000000001660000000000000310"
         );
     }
 }

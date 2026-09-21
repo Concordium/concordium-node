@@ -18,11 +18,11 @@ mod utils;
 
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::{
-    LockConfig, LockControllerSimpleV0Capability, LockId, LockRecipients,
+    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
     MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload, lock_create as meta_lock_create,
-    lock_fund, lock_return, lock_send,
+    lock_fund, lock_release, lock_send,
 };
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenAmount, TokenId, TokenListUpdateDetails, TokenOperation,
@@ -445,19 +445,15 @@ fn prepare_lock_create(count: usize) -> Fixture {
     let state = BlockStateLatest::default();
     let sender = context.external.create_account().account_index();
     let sender_address = context.external.account_canonical_address(sender);
-    let config = LockConfig {
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Any,
         expiry: 1_804_806_000.into(),
-        controller: concordium_base::protocol_level_locks::LockController::SimpleV0(
-            concordium_base::protocol_level_locks::LockControllerSimpleV0 {
-                grants: vec![],
-                tokens: vec![],
-                keep_alive: false,
-                memo: None,
-            },
-        ),
+        grants: vec![],
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
         metadata: None,
-    };
+    });
     Fixture {
         context,
         state,
@@ -513,15 +509,15 @@ fn prepare_lock_fund(existing_reference: bool) -> Fixture {
     }
 }
 
-/// Prepare a lock send or return against a funded lock.
+/// Prepare a lock send or release against a funded lock.
 ///
 /// # Arguments
 ///
-/// - `return_funds`: Whether to return funds to their owner instead of sending them.
+/// - `release_funds`: Whether to release funds to their owner instead of sending them.
 /// - `drain`: Whether the operation consumes the complete balance and removes its reference.
-fn prepare_lock_transfer(return_funds: bool, drain: bool) -> Fixture {
-    let capability = if return_funds {
-        LockControllerSimpleV0Capability::Return
+fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
+    let capability = if release_funds {
+        LockControllerSimpleV0Capability::Release
     } else {
         LockControllerSimpleV0Capability::Send
     };
@@ -545,8 +541,8 @@ fn prepare_lock_transfer(return_funds: bool, drain: bool) -> Fixture {
         matches!(result, Ok(ref result) if matches!(result.outcome, TransactionOutcome::Success(_)))
     );
     let amount = TokenAmount::from_raw(if drain { 200 } else { 100 }, 0);
-    let operation = if return_funds {
-        lock_return(
+    let operation = if release_funds {
+        lock_release(
             token_id.clone(),
             lock_id.clone(),
             sender_address,
@@ -612,17 +608,17 @@ fn lock_send_draining_reference_removed(bencher: Bencher) {
         .bench_local_values(execute);
 }
 
-/// Measure a partial lock return that retains its balance reference.
+/// Measure a partial lock release that retains its balance reference.
 #[divan::bench]
-fn lock_return_partial_reference_retained(bencher: Bencher) {
+fn lock_release_partial_reference_retained(bencher: Bencher) {
     bencher
         .with_inputs(|| prepare_lock_transfer(true, false))
         .bench_local_values(execute);
 }
 
-/// Measure a draining lock return that removes its balance reference.
+/// Measure a draining lock release that removes its balance reference.
 #[divan::bench]
-fn lock_return_draining_reference_removed(bencher: Bencher) {
+fn lock_release_draining_reference_removed(bencher: Bencher) {
     bencher
         .with_inputs(|| prepare_lock_transfer(true, true))
         .bench_local_values(execute);

@@ -388,26 +388,40 @@ fn test_lock_balance_refs() {
         .expect("lock should exist");
 
     // Assert no initial balance refs
-    assert_eq!(lock.lock_balance_refs(), vec![]);
+    assert_eq!(lock.lock_balance_refs(&context).unwrap(), vec![]);
 
     // Add balance refs
-    lock.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
-    lock.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
+    lock.add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+        .unwrap();
+    lock.add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+        .unwrap();
+    // Re-inserting an existing membership does not duplicate it.
+    lock.add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+        .unwrap();
 
     // Update lock
     block_state.update_lock(&context, lock).unwrap();
 
     // Read balance refs
-    let lock = block_state
+    let mut lock = block_state
         .lock_by_id(&context, &lock_id)
         .unwrap()
         .expect("lock should exist");
     assert_eq!(
-        lock.lock_balance_refs(),
+        lock.lock_balance_refs(&context).unwrap(),
         vec![
             (AccountIndex::from(0), TokenIndex(0)),
             (AccountIndex::from(1), TokenIndex(1))
         ]
+    );
+    assert!(
+        lock.remove_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .unwrap()
+    );
+    assert!(
+        !lock
+            .remove_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .unwrap()
     );
 }
 
@@ -519,10 +533,11 @@ fn test_lock_list() {
     block_state
         .create_lock(&context, &lock_id_b, configuration_b)
         .unwrap();
+    assert_eq!(
+        block_state.lock_list(&context).unwrap(),
+        vec![lock_id_a.clone(), lock_id_b.clone()]
+    );
     assert!(block_state.delete_lock(&context, &lock_id_a).unwrap());
 
-    // Read lock list and sort for a stable comparison (lock_list order is not guaranteed).
-    let mut locks = block_state.lock_list(&context).unwrap();
-    locks.sort();
-    assert_eq!(locks, vec![lock_id_b]);
+    assert_eq!(block_state.lock_list(&context).unwrap(), vec![lock_id_b]);
 }

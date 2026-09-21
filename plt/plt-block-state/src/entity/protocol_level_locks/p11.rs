@@ -1,11 +1,10 @@
 use crate::entity::{EntityContext, EntityContextTypes};
 use crate::failure::{BlockStateFailure, BlockStateResult};
+use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_locks::p11::{
-    LockConfiguration, PersistentLockP11, PersistentLocksP11, lock_id_from_key, lock_id_key,
-    persistent_lock_from_value, persistent_lock_value,
+    BalanceReference, BalanceReferenceKey, LockConfiguration, PersistentLockP11, PersistentLocksP11,
 };
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
-use crate::persistent::smart_contract_trie::PersistentState;
 use crate::utils;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
@@ -16,19 +15,16 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     lock_id: &LockId,
     configuration: LockConfiguration,
 ) -> BlockStateResult<()> {
-    let key = lock_id_key(lock_id);
-    let mut locks = persistent_locks.locks.thaw();
-    if locks.lookup_value(&context.store, &key).is_some() {
+    if persistent_locks.contains_key(&context.store, lock_id)? {
         return Err(BlockStateFailure::Invariant(format!(
             "lock with id {lock_id:?} already exists"
         )));
     }
-    let persistent = PersistentLockP11 {
-        locked_balances: Default::default(),
-        configuration,
-    };
-    locks.insert_value(&context.store, &key, persistent_lock_value(&persistent))?;
-    persistent_locks.locks = locks.freeze(&context.store);
+    *persistent_locks = persistent_locks.insert_or_update_entry(
+        &context.store,
+        lock_id,
+        PersistentLockP11::new(configuration),
+    )?;
     Ok(())
 }
 
@@ -37,13 +33,10 @@ pub(crate) fn delete_lock<C: EntityContextTypes>(
     persistent_locks: &mut PersistentLocksP11,
     lock_id: &LockId,
 ) -> BlockStateResult<bool> {
-    let key = lock_id_key(lock_id);
-    let mut locks = persistent_locks.locks.thaw();
-    if locks.lookup_value(&context.store, &key).is_none() {
+    let Some(locks) = persistent_locks.delete_entry(&context.store, lock_id)? else {
         return Ok(false);
-    }
-    locks.delete_value(&context.store, &key)?;
-    persistent_locks.locks = locks.freeze(&context.store);
+    };
+    *persistent_locks = locks;
     Ok(true)
 }
 
@@ -52,45 +45,37 @@ pub(crate) fn update_lock<C: EntityContextTypes>(
     persistent_locks: &mut PersistentLocksP11,
     lock: LockP11,
 ) -> BlockStateResult<()> {
-    let key = lock_id_key(&lock.lock_id);
-    let mut locks = persistent_locks.locks.thaw();
-    if locks.lookup_value(&context.store, &key).is_none() {
+    if !persistent_locks.contains_key(&context.store, &lock.lock_id)? {
         return Err(BlockStateFailure::Invariant(format!(
             "Lock not found by ID: {:?}",
             lock.lock_id
         )));
     }
-    locks.insert_value(
-        &context.store,
-        &key,
-        persistent_lock_value(&lock.persistent),
-    )?;
-    persistent_locks.locks = locks.freeze(&context.store);
+    *persistent_locks =
+        persistent_locks.insert_or_update_entry(&context.store, &lock.lock_id, lock.persistent)?;
     Ok(())
 }
 
 pub(crate) fn lock_by_id<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    locks: &PersistentState,
+    locks: &PersistentLocksP11,
     lock_id: LockId,
 ) -> BlockStateResult<Option<LockP11>> {
-    let key = lock_id_key(&lock_id);
-    let Some(value) = locks.lookup_value(&context.store, &key) else {
-        return Ok(None);
-    };
-    Ok(Some(LockP11 {
-        lock_id,
-        persistent: persistent_lock_from_value(&value)?,
-    }))
+    Ok(locks
+        .lookup_value(&context.store, &lock_id)?
+        .map(|persistent| LockP11 {
+            lock_id,
+            persistent: persistent.into_owned(),
+        }))
 }
 
 pub(crate) fn lock_list<C: EntityContextTypes>(
     context: &EntityContext<C>,
-    locks: &PersistentState,
+    locks: &PersistentLocksP11,
 ) -> BlockStateResult<Vec<LockId>> {
     locks
-        .keys_with_prefix(&context.store, &[])?
-        .map(|key| lock_id_from_key(&key))
+        .iter(&context.store)
+        .map(|entry| entry.map(|(lock_id, _)| lock_id))
         .collect()
 }
 
@@ -111,112 +96,79 @@ impl LockP11 {
     /// Get the configuration of the protocol-level lock.
     pub fn lock_configuration<C: EntityContextTypes>(
         &self,
-        _context: &EntityContext<C>,
+        context: &EntityContext<C>,
     ) -> BlockStateResult<utils::Cow<'_, LockConfiguration>> {
-        Ok(utils::Cow::Borrowed(&self.persistent.configuration))
+        Ok(self.persistent.configuration.value(&context.store)?.map(
+            |configuration| configuration.0,
+            |configuration| &configuration.0,
+        ))
     }
 
-    /// Get the set of account/token balances currently tracked under the lock.
+    /// Iterate the account/token balances currently tracked under the lock.
     ///
-    /// Each returned pair identifies an account and token for which the lock may
-    /// hold a non-zero locked balance. The corresponding amount is tracked in the
-    /// token module state.
-    pub fn lock_balance_refs(&self) -> Vec<(AccountIndex, TokenIndex)> {
-        self.persistent.locked_balances.iter().cloned().collect()
+    /// Each pair identifies an account and token for which the lock may hold a
+    /// non-zero locked balance. The corresponding amount is tracked in the token
+    /// module state. Entries are read lazily from the persistent trie.
+    pub fn iter_lock_balance_refs<'a, C: EntityContextTypes>(
+        &'a self,
+        context: &'a EntityContext<C>,
+    ) -> impl Iterator<Item = BlockStateResult<(AccountIndex, TokenIndex)>> + 'a {
+        self.persistent
+            .locked_balances
+            .iter(&context.store)
+            .map(|entry| entry.map(|(key, _)| (key.0, key.1)))
+    }
+
+    /// Get the account/token balances currently tracked under the lock.
+    ///
+    /// This collects all balance references. Use [`Self::iter_lock_balance_refs`]
+    /// when references can be processed one at a time.
+    pub fn lock_balance_refs<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<Vec<(AccountIndex, TokenIndex)>> {
+        self.iter_lock_balance_refs(context).collect()
     }
 
     /// Track that the lock holds a balance for the given account and token.
     ///
-    /// This records the account/token pair in the lock state so it can later be
-    /// queried through [`Self::lock_balance_refs`].
-    ///
-    /// # Arguments
-    ///
-    /// - `account_index` The index of the account whose locked balance is tracked.
-    /// - `token_index` Index of the token whose locked balance is tracked.
-    pub fn add_lock_balance_ref(&mut self, account_index: AccountIndex, token_index: TokenIndex) {
-        self.persistent
-            .locked_balances
-            .insert((account_index, token_index));
+    /// Returns an error if the persistent trie cannot be accessed.
+    pub fn add_lock_balance_ref<C: EntityContextTypes>(
+        &mut self,
+        context: &EntityContext<C>,
+        account_index: AccountIndex,
+        token_index: TokenIndex,
+    ) -> BlockStateResult<()> {
+        self.persistent.locked_balances = self.persistent.locked_balances.insert_or_update_entry(
+            &context.store,
+            &BalanceReferenceKey(account_index, token_index),
+            StoreSerialized(BalanceReference::Present),
+        )?;
+        Ok(())
     }
 
     /// Stop tracking that the lock holds a balance for the given account and token.
-    /// This removes the account/token pair from the lock state, so it will no longer be
-    /// returned by [`Self::lock_balance_refs`].
     ///
-    /// # Arguments
-    ///
-    /// - `account_index` The index of the account whose locked balance is no longer tracked.
-    /// - `token_index` Index of the token whose locked balance is no longer tracked.
-    ///
-    /// # Returns
-    /// `true` if the account/token pair was previously tracked and has been removed,
-    /// `false` if the account/token pair was not previously tracked.
-    pub fn remove_lock_balance_ref(
+    /// Returns whether the pair was tracked, or an error if the persistent trie cannot be accessed.
+    pub fn remove_lock_balance_ref<C: EntityContextTypes>(
         &mut self,
+        context: &EntityContext<C>,
         account_index: AccountIndex,
         token_index: TokenIndex,
-    ) -> bool {
-        self.persistent
-            .locked_balances
-            .remove(&(account_index, token_index))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::entity::entity_test_stub;
-    use crate::persistent::protocol_level_locks::p11::{
-        LockConfigSimpleV0, LockConfiguration, LockRecipients,
-    };
-    use concordium_base::common::types::TransactionTime;
-
-    fn configuration() -> LockConfiguration {
-        LockConfiguration::SimpleV0(
-            LockConfigSimpleV0::new(
-                LockRecipients::Any,
-                TransactionTime::from(0),
-                Vec::new(),
-                Vec::new(),
-                false,
-                None,
-                None,
-            )
-            .unwrap(),
-        )
+    ) -> BlockStateResult<bool> {
+        let Some(references) = self.persistent.locked_balances.delete_entry(
+            &context.store,
+            &BalanceReferenceKey(account_index, token_index),
+        )?
+        else {
+            return Ok(false);
+        };
+        self.persistent.locked_balances = references;
+        Ok(true)
     }
 
-    #[test]
-    fn lookup_and_list_do_not_decode_unrelated_lock_values() {
-        let context = entity_test_stub::new_no_external_context();
-        let lock_id = LockId::new(1, 1, 0);
-        let unrelated_lock_id = LockId::new(2, 1, 0);
-        let missing_lock_id = LockId::new(3, 1, 0);
-        let mut locks = PersistentLocksP11::default();
-        create_lock(&context, &mut locks, &lock_id, configuration()).unwrap();
-        let mut trie = locks.locks.thaw();
-        trie.insert_value(&context.store, &lock_id_key(&unrelated_lock_id), vec![0])
-            .unwrap();
-        locks.locks = trie.freeze(&context.store);
-
-        // The invalid unrelated value must not affect the requested lookup.
-        assert_eq!(
-            lock_by_id(&context, &locks.locks, lock_id.clone())
-                .unwrap()
-                .unwrap()
-                .lock_id(),
-            &lock_id
-        );
-        // The invalid unrelated value must not affect a missing lookup.
-        assert!(
-            lock_by_id(&context, &locks.locks, missing_lock_id)
-                .unwrap()
-                .is_none()
-        );
-        // The invalid unrelated value must not affect key-only listing.
-        let mut ids = lock_list(&context, &locks.locks).unwrap();
-        ids.sort();
-        assert_eq!(ids, vec![lock_id, unrelated_lock_id]);
+    /// Returns whether the lock tracks no balance references.
+    pub fn has_no_balance_refs(&self) -> bool {
+        self.persistent.locked_balances.size() == 0
     }
 }
