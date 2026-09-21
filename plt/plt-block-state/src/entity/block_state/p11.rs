@@ -8,7 +8,7 @@ use crate::external::ExternalBlockStateOperations;
 use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
-use crate::persistent::protocol_level_locks::p11::LockConfiguration;
+use crate::persistent::protocol_level_locks::p11::LockConfig;
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
@@ -138,7 +138,7 @@ impl BlockStateP11 {
         &mut self,
         context: &EntityContext<C>,
         lock_id: &LockId,
-        configuration: LockConfiguration,
+        configuration: LockConfig,
     ) -> BlockStateResult<()> {
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
         protocol_level_locks::p11::create_lock(context, &mut new_locks, lock_id, configuration)?;
@@ -172,7 +172,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Vec<LockId>> {
         protocol_level_locks::p11::lock_list(
             context,
-            &*self.persistent.locks.value(&context.store)?,
+            self.persistent.locks.value(&context.store)?.as_ref(),
         )
     }
 
@@ -188,7 +188,7 @@ impl BlockStateP11 {
     ) -> BlockStateResult<Result<LockP11, LockNotFoundByIdError>> {
         protocol_level_locks::p11::lock_by_id(
             context,
-            &*self.persistent.locks.value(&context.store)?,
+            self.persistent.locks.value(&context.store)?.as_ref(),
             lock_id.clone(),
         )
         .map(|lock| lock.ok_or_else(|| LockNotFoundByIdError(lock_id.clone())))

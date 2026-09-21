@@ -16,11 +16,11 @@ use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, Lo
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
 use std::io::Read;
 
+/// Inline capacity matching one serialized `u64` key component.
+const TRIE_KEY_INLINE_LENGTH: usize = 8;
+
 /// Persistent collection of protocol-level locks on P11 and later protocols.
-// We use 8 as the inline key size, as this matches the individual components of the lock ID key (8 byte
-// account index, 8 byte sequence number, 8 byte creation order), meaning there's a good chance that this fits
-// the trie node stems.
-pub type PersistentLocksP11 = Trie<8, LockId, PersistentLockP11>;
+pub type PersistentLocksP11 = Trie<TRIE_KEY_INLINE_LENGTH, LockId, PersistentLockP11>;
 
 /// Trie key for a locked account/token balance reference.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -55,16 +55,7 @@ impl TrieKey for BalanceReferenceKey {
     }
 }
 
-/// Unit value stored for each balance-reference membership entry.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub(crate) enum BalanceReference {
-    Present,
-}
-
-// We use 8 as the inline key size, as this matches the individual components of the key (8 byte
-// account index, 8 byte token index), meaning there's a good chance that this fits the trie node
-// stems.
-type BalanceReferences = Trie<8, BalanceReferenceKey, StoreSerialized<BalanceReference>>;
+type BalanceReferences = Trie<TRIE_KEY_INLINE_LENGTH, BalanceReferenceKey, StoreSerialized<()>>;
 
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone)]
@@ -72,12 +63,12 @@ pub struct PersistentLockP11 {
     /// References to the account/token balances locked within this lock.
     pub(crate) locked_balances: BalanceReferences,
     /// Immutable configuration parameters for the lock.
-    pub(crate) configuration: HashedCacheableRef<StoreSerialized<LockConfiguration>>,
+    pub(crate) configuration: HashedCacheableRef<StoreSerialized<LockConfig>>,
 }
 
 impl PersistentLockP11 {
     /// Construct an empty lock with the supplied immutable configuration.
-    pub(crate) fn new(configuration: LockConfiguration) -> Self {
+    pub(crate) fn new(configuration: LockConfig) -> Self {
         Self {
             locked_balances: Trie::empty(),
             configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
@@ -224,7 +215,7 @@ impl TryFrom<Vec<AccountIndex>> for LockRecipients {
 
 /// Lock configuration at the block state level.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub enum LockConfiguration {
+pub enum LockConfig {
     /// SimpleV0 lock configuration.
     SimpleV0(LockConfigSimpleV0),
 }
@@ -363,7 +354,7 @@ mod test {
         use concordium_base::common::types::TransactionTime;
         use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 
-        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
+        let lock_config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::try_from(vec![
                 AccountIndex::from(1u64),
                 AccountIndex::from(2u64),
@@ -387,8 +378,7 @@ mod test {
             "000100020000000000000001000000000000000200000000000003e8000100000000000000010100000106746f6b656e31010000"
         );
 
-        let deserialized: LockConfiguration =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
     }
 
@@ -396,7 +386,7 @@ mod test {
     fn test_lock_configuration_serial_empty_recipients() {
         use concordium_base::common::types::TransactionTime;
 
-        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
+        let lock_config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(500u64),
 
@@ -413,8 +403,7 @@ mod test {
             "0001000000000000000001f400000000000000"
         );
 
-        let deserialized: LockConfiguration =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
     }
 
@@ -422,7 +411,7 @@ mod test {
     fn test_lock_configuration_serial_with_metadata() {
         use concordium_base::common::types::TransactionTime;
 
-        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
+        let lock_config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
             grants: vec![],
@@ -440,13 +429,12 @@ mod test {
             "000000000000000001f4000000000000010000000ba1646e616d656474657374"
         );
 
-        let deserialized: LockConfiguration =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
     }
 
-    fn lock_configuration() -> LockConfiguration {
-        LockConfiguration::SimpleV0(
+    fn lock_configuration() -> LockConfig {
+        LockConfig::SimpleV0(
             LockConfigSimpleV0::new(
                 LockRecipients::Any,
                 TransactionTime::from(1000),
@@ -504,11 +492,7 @@ mod test {
         let mut lock = PersistentLockP11::new(lock_configuration());
         lock.locked_balances = lock
             .locked_balances
-            .insert_or_update_entry(
-                &store,
-                &balance_ref,
-                StoreSerialized(BalanceReference::Present),
-            )
+            .insert_or_update_entry(&store, &balance_ref, StoreSerialized(()))
             .unwrap();
         let hash = lock.hash(&store).unwrap();
 
@@ -542,11 +526,7 @@ mod test {
     fn typed_key_deletion_removes_entry() {
         let balance_ref = BalanceReferenceKey(AccountIndex::from(1), TokenIndex(2));
         let trie = BalanceReferences::empty()
-            .insert_or_update_entry(
-                &BlobStoreStub::default(),
-                &balance_ref,
-                StoreSerialized(BalanceReference::Present),
-            )
+            .insert_or_update_entry(&BlobStoreStub::default(), &balance_ref, StoreSerialized(()))
             .unwrap();
         assert!(
             trie.delete_entry(&BlobStoreStub::default(), &balance_ref)
@@ -572,7 +552,7 @@ mod test {
     fn test_lock_configuration_serial_any_recipient_sentinel() {
         use concordium_base::common::types::TransactionTime;
 
-        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
+        let lock_config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
 
@@ -583,7 +563,7 @@ mod test {
             metadata: None,
         });
 
-        let LockConfiguration::SimpleV0(config) = &lock_config;
+        let LockConfig::SimpleV0(config) = &lock_config;
         assert!(config.recipients.is_any());
         assert!(config.recipients.is_recipient(&AccountIndex::from(0u64)));
         assert!(config.recipients.is_recipient(&AccountIndex::from(42u64)));
@@ -591,10 +571,9 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(hex::encode(&bytes), "000000000000000001f400000000000000");
 
-        let deserialized: LockConfiguration =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
-        let LockConfiguration::SimpleV0(config) = &deserialized;
+        let LockConfig::SimpleV0(config) = &deserialized;
         assert!(config.recipients.is_any());
     }
 
@@ -774,7 +753,7 @@ mod test {
 
     #[test]
     fn test_lock_controller_serial() {
-        let controller = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
+        let controller = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(0u64),
             grants: vec![LockControllerSimpleV0Grant::new(
@@ -793,8 +772,7 @@ mod test {
             "00000000000000000000000100000000000000010100000106746f6b656e31010000"
         );
 
-        let deserialized: LockConfiguration =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
+        let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, controller);
     }
 }

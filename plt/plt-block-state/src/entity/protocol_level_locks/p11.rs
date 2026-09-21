@@ -2,7 +2,7 @@ use crate::entity::{EntityContext, EntityContextTypes};
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_locks::p11::{
-    BalanceReference, BalanceReferenceKey, LockConfiguration, PersistentLockP11, PersistentLocksP11,
+    BalanceReferenceKey, LockConfig, PersistentLockP11, PersistentLocksP11,
 };
 use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use crate::utils;
@@ -13,7 +13,7 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     context: &EntityContext<C>,
     persistent_locks: &mut PersistentLocksP11,
     lock_id: &LockId,
-    configuration: LockConfiguration,
+    configuration: LockConfig,
 ) -> BlockStateResult<()> {
     if persistent_locks.contains_key(&context.store, lock_id)? {
         return Err(BlockStateFailure::Invariant(format!(
@@ -61,12 +61,13 @@ pub(crate) fn lock_by_id<C: EntityContextTypes>(
     locks: &PersistentLocksP11,
     lock_id: LockId,
 ) -> BlockStateResult<Option<LockP11>> {
-    Ok(locks
-        .lookup_value(&context.store, &lock_id)?
-        .map(|persistent| LockP11 {
-            lock_id,
-            persistent: persistent.into_owned(),
-        }))
+    let Some(persistent) = locks.lookup_value(&context.store, &lock_id)? else {
+        return Ok(None);
+    };
+    Ok(Some(LockP11 {
+        lock_id,
+        persistent: persistent.into_owned(),
+    }))
 }
 
 pub(crate) fn lock_list<C: EntityContextTypes>(
@@ -97,7 +98,7 @@ impl LockP11 {
     pub fn lock_configuration<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<utils::Cow<'_, LockConfiguration>> {
+    ) -> BlockStateResult<utils::Cow<'_, LockConfig>> {
         Ok(self.persistent.configuration.value(&context.store)?.map(
             |configuration| configuration.0,
             |configuration| &configuration.0,
@@ -142,7 +143,7 @@ impl LockP11 {
         self.persistent.locked_balances = self.persistent.locked_balances.insert_or_update_entry(
             &context.store,
             &BalanceReferenceKey(account_index, token_index),
-            StoreSerialized(BalanceReference::Present),
+            StoreSerialized(()),
         )?;
         Ok(())
     }

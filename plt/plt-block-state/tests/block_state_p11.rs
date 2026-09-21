@@ -11,7 +11,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfigSimpleV0, LockConfiguration, LockControllerSimpleV0Grant, LockRecipients,
+    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -258,7 +258,7 @@ fn test_create_lock() {
         creation_order: 0,
     };
     let metadata = RawCbor::from(vec![0xa1]); // The node does not care what is in the metadata
-    let configuration = LockConfiguration::SimpleV0(
+    let configuration = LockConfig::SimpleV0(
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)]).unwrap(),
             TransactionTime::from(100u64),
@@ -317,7 +317,7 @@ fn test_lock_by_id() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::SimpleV0(
+    let configuration = LockConfig::SimpleV0(
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![]).unwrap(),
             TransactionTime::from(0u64),
@@ -366,7 +366,7 @@ fn test_lock_balance_refs() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::SimpleV0(
+    let configuration = LockConfig::SimpleV0(
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![]).unwrap(),
             TransactionTime::from(0u64),
@@ -437,7 +437,7 @@ fn test_create_and_delete_lock() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration = LockConfiguration::SimpleV0(
+    let configuration = LockConfig::SimpleV0(
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![]).unwrap(),
             TransactionTime::from(0u64),
@@ -497,7 +497,7 @@ fn test_lock_list() {
         sequence_number: 1,
         creation_order: 0,
     };
-    let configuration_a = LockConfiguration::SimpleV0(
+    let configuration_a = LockConfig::SimpleV0(
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![]).unwrap(),
             TransactionTime::from(0u64),
@@ -515,7 +515,7 @@ fn test_lock_list() {
         sequence_number: 7,
         creation_order: 0,
     };
-    let configuration_b = LockConfiguration::SimpleV0(
+    let configuration_b = LockConfig::SimpleV0(
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![]).unwrap(),
             TransactionTime::from(0u64),

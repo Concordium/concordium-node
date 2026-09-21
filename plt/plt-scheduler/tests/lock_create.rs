@@ -177,15 +177,14 @@ fn test_create_simple_lock() {
     let stored_configuration = stored_lock.lock_configuration(&context).unwrap();
     assert_eq!(
         match stored_configuration.as_ref() {
-            plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration::SimpleV0(
+            plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(
                 config,
             ) => config.metadata.clone(),
         },
         Some(metadata.encode_raw_cbor())
     );
-    let plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration::SimpleV0(
-        controller,
-    ) = stored_configuration.as_ref();
+    let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
+        stored_configuration.as_ref();
     assert_eq!(
         controller.grants()[0].roles(),
         [
@@ -242,14 +241,13 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         .lock_configuration(&context)
         .expect("lock configuration must load");
     let bytes = concordium_base::common::to_bytes(stored_configuration.as_ref());
-    let reloaded: plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration =
+    let reloaded: plt_block_state::persistent::protocol_level_locks::p11::LockConfig =
         concordium_base::common::from_bytes_complete(&bytes)
             .expect("canonical lock configuration must reload completely");
 
     assert_eq!(reloaded, *stored_configuration);
-    let plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration::SimpleV0(
-        controller,
-    ) = reloaded;
+    let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
+        reloaded;
     assert_eq!(
         controller.grants()[0].roles(),
         [LockControllerSimpleV0Capability::Fund]
@@ -334,7 +332,7 @@ fn test_create_any_recipient_lock() {
         .lock_configuration(&context)
         .expect("lock configuration must load");
     assert!(
-        matches!(configuration.as_ref(), plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration::SimpleV0(config) if config.recipients.is_any())
+        matches!(configuration.as_ref(), plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
     );
 }
 

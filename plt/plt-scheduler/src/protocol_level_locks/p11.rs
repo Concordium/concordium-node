@@ -23,7 +23,7 @@ use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
-use plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration;
+use plt_block_state::persistent::protocol_level_locks::p11::LockConfig;
 use plt_scheduler_types::types::events::{self, BlockItemEvent};
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -43,7 +43,7 @@ pub fn query_lock_list<C: EntityContextTypes>(
 
 /// Query [`LockInfo`] a lock.
 ///
-/// The function builds the [`LockInfo`] from the locks static [`LockConfiguration`] and
+/// The function builds the [`LockInfo`] from the locks static [`LockConfig`] and
 /// the non-static per-`(account, token)` balances held by the lock.
 pub fn query_lock_info<C: EntityContextTypes>(
     context: &EntityContext<C>,
@@ -167,7 +167,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
-    let LockConfiguration::SimpleV0(config) = &*lock_configuration;
+    let LockConfig::SimpleV0(config) = &*lock_configuration;
     if config.expiry.is_expired(transaction_execution.timestamp()) {
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
@@ -231,7 +231,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
-    let LockConfiguration::SimpleV0(config) = &*lock_configuration;
+    let LockConfig::SimpleV0(config) = &*lock_configuration;
     if config.expiry.is_expired(transaction_execution.timestamp()) {
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
@@ -330,7 +330,7 @@ fn execute_lock_release<C: EntityContextTypes>(
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
-    let LockConfiguration::SimpleV0(config) = &*lock_configuration;
+    let LockConfig::SimpleV0(config) = &*lock_configuration;
     if config.expiry.is_expired(transaction_execution.timestamp()) {
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
@@ -449,7 +449,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
 
     let lock_configuration = lock.lock_configuration(context)?;
-    let LockConfiguration::SimpleV0(config) = &*lock_configuration;
+    let LockConfig::SimpleV0(config) = &*lock_configuration;
     let memo: Option<transactions::Memo> = details.memo.clone().map(transactions::Memo::from);
 
     if !config.expiry.is_expired(transaction_execution.timestamp()) {
@@ -508,8 +508,8 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     Ok(())
 }
 
-fn lock_configuration_keeps_alive(configuration: &LockConfiguration) -> bool {
+fn lock_configuration_keeps_alive(configuration: &LockConfig) -> bool {
     match &configuration {
-        LockConfiguration::SimpleV0(config) => config.keep_alive,
+        LockConfig::SimpleV0(config) => config.keep_alive,
     }
 }
