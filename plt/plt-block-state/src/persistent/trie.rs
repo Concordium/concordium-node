@@ -325,7 +325,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
                 if let Some(stem_matched_node) = stem_matched_node {
                     let mut iter_root_path = path_ref
                         .index_path_slice(
-                            path_ref.len() - scan_return.path_split_remaining_length..,
+                            ..path_ref.len() - scan_return.path_split_remaining_length,
                         )
                         .to_path();
 
