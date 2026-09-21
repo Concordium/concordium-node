@@ -189,87 +189,80 @@ impl TryFrom<Vec<AccountIndex>> for LockRecipients {
 
 /// Lock configuration at the block state level.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct LockConfiguration {
+pub enum LockConfiguration {
+    /// SimpleV0 lock configuration.
+    SimpleV0(LockConfigSimpleV0),
+}
+
+/// Configuration for a SimpleV0 lock.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct LockConfigSimpleV0 {
     /// Accounts that can receive funds from this lock.
     pub recipients: LockRecipients,
     /// Expiry time of the lock (seconds since epoch).
     pub expiry: TransactionTime,
-    /// Controller configuration for the lock.
-    pub controller: LockControllerConfig,
+    /// Capability grants to accounts.
+    #[size_length = 2]
+    grants: Vec<LockControllerSimpleV0Grant>,
+    /// Tokens affected by this lock.
+    #[size_length = 2]
+    tokens: Vec<TokenId>,
+    /// Whether the lock should be kept alive after all funds are returned.
+    pub keep_alive: bool,
+    /// Optional memo attached to the lock.
+    pub memo: Option<CborMemo>,
     /// Optional raw CBOR-encoded user-facing lock metadata.
     pub metadata: Option<RawCbor>,
 }
 
-/// Top-level lock controller type.
-///
-/// Each variant represents a different controller version.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub enum LockControllerConfig {
-    /// SimpleV0 lock controller configuration.
-    SimpleV0(LockControllerSimpleV0),
-}
-
-/// Configuration for a SimpleV0 lock controller.
-///
-/// Contains the list of capability grants, which tokens are affected,
-/// a keep-alive flag, and an optional memo.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct LockControllerSimpleV0 {
-    /// Capability grants to accounts.
-    #[size_length = 2]
-    grants: Vec<LockControllerSimpleV0Grant>,
-    /// Tokens affected by this lock controller.
-    #[size_length = 2]
-    // todo change to TokenIndex?
-    tokens: Vec<TokenId>,
-    /// Whether the lock should be kept alive after all funds are
-    /// returned.
-    pub keep_alive: bool,
-    /// Optional memo attached to the lock.
-    pub memo: Option<CborMemo>,
-}
-
-impl LockControllerSimpleV0 {
-    /// Create a persistent SimpleV0 lock controller.
+impl LockConfigSimpleV0 {
+    /// Create a persistent SimpleV0 lock configuration.
     ///
     /// # Arguments
     ///
-    /// * `grants` - Capability grants to store.
-    /// * `tokens` - Tokens affected by the controller.
-    /// * `keep_alive` - Whether to retain the lock after all funds are returned.
-    /// * `memo` - Optional memo attached to the lock.
+    /// * `recipients` - Accounts eligible to receive locked funds.
+    /// * `expiry` - Time at which the lock expires.
+    /// * `grants` - Capability grants controlling lock operations.
+    /// * `tokens` - Tokens that may be funded into the lock.
+    /// * `keep_alive` - Whether to retain an empty lock.
+    /// * `memo` - Optional lock memo.
+    /// * `metadata` - Optional opaque CBOR metadata.
     ///
     /// # Errors
     ///
-    /// Returns [`ContainerSizeOverflow`] when `grants` or `tokens` exceeds the
-    /// two-byte serialized length prefix.
+    /// Returns [`ContainerSizeOverflow`] when `grants` or `tokens` exceeds the serialized size
+    /// bound.
     pub fn new(
+        recipients: LockRecipients,
+        expiry: TransactionTime,
         grants: Vec<LockControllerSimpleV0Grant>,
         tokens: Vec<TokenId>,
         keep_alive: bool,
         memo: Option<CborMemo>,
+        metadata: Option<RawCbor>,
     ) -> Result<Self, ContainerSizeOverflow> {
-        check_u16_length("LockControllerSimpleV0.grants", grants.len())?;
-        check_u16_length("LockControllerSimpleV0.tokens", tokens.len())?;
+        check_u16_length("LockConfigSimpleV0.grants", grants.len())?;
+        check_u16_length("LockConfigSimpleV0.tokens", tokens.len())?;
         Ok(Self {
+            recipients,
+            expiry,
             grants,
             tokens,
             keep_alive,
             memo,
+            metadata,
         })
     }
 
-    /// Return the controller's capability grants.
+    /// Return capability grants in persistent order.
     pub fn grants(&self) -> &[LockControllerSimpleV0Grant] {
         &self.grants
     }
-
-    /// Return the tokens affected by the controller.
+    /// Return tokens that may be funded into the lock.
     pub fn tokens(&self) -> &[TokenId] {
         &self.tokens
     }
-
-    /// Check if an account has a specified role.
+    /// Return whether an account has the requested lock capability.
     pub fn has_role(&self, account: AccountIndex, role: LockControllerSimpleV0Capability) -> bool {
         self.grants
             .iter()
@@ -279,7 +272,7 @@ impl LockControllerSimpleV0 {
 
 const CANONICAL_ROLES: [LockControllerSimpleV0Capability; 4] = [
     LockControllerSimpleV0Capability::Fund,
-    LockControllerSimpleV0Capability::Return,
+    LockControllerSimpleV0Capability::Release,
     LockControllerSimpleV0Capability::Send,
     LockControllerSimpleV0Capability::Cancel,
 ];
@@ -334,29 +327,28 @@ mod test {
         use concordium_base::common::types::TransactionTime;
         use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
 
-        let lock_config = LockConfiguration {
+        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::try_from(vec![
                 AccountIndex::from(1u64),
                 AccountIndex::from(2u64),
             ])
             .unwrap(),
             expiry: TransactionTime::from(1000u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![LockControllerSimpleV0Grant::new(
-                    AccountIndex::from(1u64),
-                    vec![LockControllerSimpleV0Capability::Fund],
-                )],
-                tokens: vec!["token1".parse().unwrap()],
-                keep_alive: true,
-                memo: None,
-            }),
+
+            grants: vec![LockControllerSimpleV0Grant::new(
+                AccountIndex::from(1u64),
+                vec![LockControllerSimpleV0Capability::Fund],
+            )],
+            tokens: vec!["token1".parse().unwrap()],
+            keep_alive: true,
+            memo: None,
             metadata: None,
-        };
+        });
 
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0100020000000000000001000000000000000200000000000003e800000100000000000000010100000106746f6b656e31010000"
+            "000100020000000000000001000000000000000200000000000003e8000100000000000000010100000106746f6b656e31010000"
         );
 
         let deserialized: LockConfiguration =
@@ -368,22 +360,21 @@ mod test {
     fn test_lock_configuration_serial_empty_recipients() {
         use concordium_base::common::types::TransactionTime;
 
-        let lock_config = LockConfiguration {
+        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(500u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![],
-                tokens: vec![],
-                keep_alive: false,
-                memo: None,
-            }),
+
+            grants: vec![],
+            tokens: vec![],
+            keep_alive: false,
+            memo: None,
             metadata: None,
-        };
+        });
 
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "01000000000000000001f40000000000000000"
+            "0001000000000000000001f400000000000000"
         );
 
         let deserialized: LockConfiguration =
@@ -395,24 +386,22 @@ mod test {
     fn test_lock_configuration_serial_with_metadata() {
         use concordium_base::common::types::TransactionTime;
 
-        let lock_config = LockConfiguration {
+        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![],
-                tokens: vec![],
-                keep_alive: false,
-                memo: None,
-            }),
+            grants: vec![],
+            tokens: vec![],
+            keep_alive: false,
+            memo: None,
             metadata: Some(RawCbor::from(vec![
                 0xa1, 0x64, b'n', b'a', b'm', b'e', 0x64, b't', b'e', b's', b't',
             ])),
-        };
+        });
 
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000001f400000000000000010000000ba1646e616d656474657374"
+            "000000000000000001f4000000000000010000000ba1646e616d656474657374"
         );
 
         let deserialized: LockConfiguration =
@@ -426,14 +415,18 @@ mod test {
         let lock_id = LockId::new(50, 2, 0);
         let lock = PersistentLockP11 {
             locked_balances: BTreeSet::from([(AccountIndex::from(1), TokenIndex(2))]),
-            configuration: LockConfiguration {
-                recipients: LockRecipients::Any,
-                expiry: TransactionTime::from(1000),
-                controller: LockControllerConfig::SimpleV0(
-                    LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
-                ),
-                metadata: None,
-            },
+            configuration: LockConfiguration::SimpleV0(
+                LockConfigSimpleV0::new(
+                    LockRecipients::Any,
+                    TransactionTime::from(1000),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            ),
         };
         let mut locks = PersistentLocksP11::default();
         let mut mutable_locks = locks.locks.thaw();
@@ -463,14 +456,18 @@ mod test {
         let lock_id = LockId::new(50, 2, 0);
         let lock = PersistentLockP11 {
             locked_balances: BTreeSet::from([(AccountIndex::from(1), TokenIndex(2))]),
-            configuration: LockConfiguration {
-                recipients: LockRecipients::Any,
-                expiry: TransactionTime::from(1000),
-                controller: LockControllerConfig::SimpleV0(
-                    LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
-                ),
-                metadata: None,
-            },
+            configuration: LockConfiguration::SimpleV0(
+                LockConfigSimpleV0::new(
+                    LockRecipients::Any,
+                    TransactionTime::from(1000),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            ),
         };
 
         assert_eq!(lock_id_from_key(&lock_id_key(&lock_id)).unwrap(), lock_id);
@@ -508,37 +505,30 @@ mod test {
     fn test_lock_configuration_serial_any_recipient_sentinel() {
         use concordium_base::common::types::TransactionTime;
 
-        let lock_config = LockConfiguration {
+        let lock_config = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
-            controller: LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
-                grants: vec![],
-                tokens: vec![],
-                keep_alive: false,
-                memo: None,
-            }),
-            metadata: None,
-        };
 
-        assert!(lock_config.recipients.is_any());
-        assert!(
-            lock_config
-                .recipients
-                .is_recipient(&AccountIndex::from(0u64))
-        );
-        assert!(
-            lock_config
-                .recipients
-                .is_recipient(&AccountIndex::from(42u64))
-        );
+            grants: vec![],
+            tokens: vec![],
+            keep_alive: false,
+            memo: None,
+            metadata: None,
+        });
+
+        let LockConfiguration::SimpleV0(config) = &lock_config;
+        assert!(config.recipients.is_any());
+        assert!(config.recipients.is_recipient(&AccountIndex::from(0u64)));
+        assert!(config.recipients.is_recipient(&AccountIndex::from(42u64)));
 
         let bytes = common::to_bytes(&lock_config);
-        assert_eq!(hex::encode(&bytes), "0000000000000001f40000000000000000");
+        assert_eq!(hex::encode(&bytes), "000000000000000001f400000000000000");
 
         let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
-        assert!(deserialized.recipients.is_any());
+        let LockConfiguration::SimpleV0(config) = &deserialized;
+        assert!(config.recipients.is_any());
     }
 
     #[test]
@@ -547,7 +537,7 @@ mod test {
             AccountIndex::from(42u64),
             vec![
                 LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Return,
+                LockControllerSimpleV0Capability::Release,
             ],
         );
 
@@ -561,7 +551,9 @@ mod test {
 
     #[test]
     fn test_lock_controller_simple_v0_serial() {
-        let controller = LockControllerSimpleV0 {
+        let controller = LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from(0u64),
             grants: vec![LockControllerSimpleV0Grant::new(
                 AccountIndex::from(1u64),
                 vec![LockControllerSimpleV0Capability::Fund],
@@ -571,32 +563,36 @@ mod test {
             memo: Some(CborMemo::Raw(
                 Memo::try_from(vec![0x01, 0x02, 0x03]).unwrap(),
             )),
+            metadata: None,
         };
 
         let bytes = common::to_bytes(&controller);
         assert_eq!(
             hex::encode(&bytes),
-            "000100000000000000010100000106746f6b656e310101000003010203"
+            "000000000000000000000100000000000000010100000106746f6b656e31010100000301020300"
         );
 
-        let deserialized: LockControllerSimpleV0 =
+        let deserialized: LockConfigSimpleV0 =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, controller);
     }
 
     #[test]
     fn test_lock_controller_simple_v0_serial_minimal() {
-        let controller = LockControllerSimpleV0 {
+        let controller = LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from(0u64),
             grants: vec![],
             tokens: vec![],
             keep_alive: false,
             memo: None,
+            metadata: None,
         };
 
         let bytes = common::to_bytes(&controller);
-        assert_eq!(hex::encode(&bytes), "000000000000");
+        assert_eq!(hex::encode(&bytes), "00000000000000000000000000000000");
 
-        let deserialized: LockControllerSimpleV0 =
+        let deserialized: LockConfigSimpleV0 =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, controller);
     }
@@ -636,58 +632,73 @@ mod test {
             vec![LockControllerSimpleV0Capability::Fund],
         );
         assert!(
-            LockControllerSimpleV0::new(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0u64),
                 vec![grant.clone(); U16_MAX_LENGTH],
                 Vec::new(),
                 false,
-                None
+                None,
+                None,
             )
             .is_ok()
         );
         assert_eq!(
-            LockControllerSimpleV0::new(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0u64),
                 vec![grant.clone(); U16_MAX_LENGTH + 1],
                 Vec::new(),
                 false,
                 None,
+                None,
             ),
             Err(ContainerSizeOverflow {
-                field: "LockControllerSimpleV0.grants",
+                field: "LockConfigSimpleV0.grants",
                 length: U16_MAX_LENGTH + 1,
                 max_length: U16_MAX_LENGTH,
             })
         );
         assert!(
-            LockControllerSimpleV0::new(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0u64),
                 Vec::new(),
                 vec!["token".parse().unwrap(); U16_MAX_LENGTH],
                 false,
+                None,
                 None,
             )
             .is_ok()
         );
         assert_eq!(
-            LockControllerSimpleV0::new(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0u64),
                 Vec::new(),
                 vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
                 false,
                 None,
+                None,
             ),
             Err(ContainerSizeOverflow {
-                field: "LockControllerSimpleV0.tokens",
+                field: "LockConfigSimpleV0.tokens",
                 length: U16_MAX_LENGTH + 1,
                 max_length: U16_MAX_LENGTH,
             })
         );
         assert_eq!(
-            LockControllerSimpleV0::new(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0u64),
                 vec![grant; U16_MAX_LENGTH + 1],
                 vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
                 false,
                 None,
+                None,
             ),
             Err(ContainerSizeOverflow {
-                field: "LockControllerSimpleV0.grants",
+                field: "LockConfigSimpleV0.grants",
                 length: U16_MAX_LENGTH + 1,
                 max_length: U16_MAX_LENGTH,
             })
@@ -696,7 +707,9 @@ mod test {
 
     #[test]
     fn test_lock_controller_serial() {
-        let controller = LockControllerConfig::SimpleV0(LockControllerSimpleV0 {
+        let controller = LockConfiguration::SimpleV0(LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from(0u64),
             grants: vec![LockControllerSimpleV0Grant::new(
                 AccountIndex::from(1u64),
                 vec![LockControllerSimpleV0Capability::Fund],
@@ -704,15 +717,16 @@ mod test {
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
             keep_alive: true,
             memo: None,
+            metadata: None,
         });
 
         let bytes = common::to_bytes(&controller);
         assert_eq!(
             hex::encode(&bytes),
-            "00000100000000000000010100000106746f6b656e310100"
+            "00000000000000000000000100000000000000010100000106746f6b656e31010000"
         );
 
-        let deserialized: LockControllerConfig =
+        let deserialized: LockConfiguration =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, controller);
     }

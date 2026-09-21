@@ -59,17 +59,15 @@ pub fn create_lock(
         )
         .collect();
     let operations = MetaUpdateOperations {
-        operations: vec![lock_create(LockConfig {
+        operations: vec![lock_create(LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients,
             expiry: TransactionTime::from(config.expiry),
-            controller: LockController::SimpleV0(LockControllerSimpleV0 {
-                grants,
-                tokens: config.tokens,
-                keep_alive: config.keep_alive,
-                memo: None,
-            }),
+            grants,
+            tokens: config.tokens,
+            keep_alive: config.keep_alive,
+            memo: None,
             metadata: None,
-        })],
+        }))],
     };
 
     block_state
