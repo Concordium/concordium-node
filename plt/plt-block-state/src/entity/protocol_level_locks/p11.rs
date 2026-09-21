@@ -167,20 +167,22 @@ impl LockP11 {
 mod test {
     use super::*;
     use crate::entity::entity_test_stub;
-    use crate::persistent::protocol_level_locks::p11::{
-        LockControllerConfig, LockControllerSimpleV0, LockRecipients,
-    };
+    use crate::persistent::protocol_level_locks::p11::{LockConfigSimpleV0, LockRecipients};
     use concordium_base::common::types::TransactionTime;
 
     fn configuration() -> LockConfiguration {
-        LockConfiguration {
-            recipients: LockRecipients::Any,
-            expiry: TransactionTime::from(0),
-            controller: LockControllerConfig::SimpleV0(
-                LockControllerSimpleV0::new(Vec::new(), Vec::new(), false, None).unwrap(),
-            ),
-            metadata: None,
-        }
+        LockConfiguration::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        )
     }
 
     #[test]
