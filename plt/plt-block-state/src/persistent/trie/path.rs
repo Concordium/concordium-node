@@ -1,6 +1,7 @@
 use concordium_base::common::{Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial};
 use std::collections::Bound;
 use std::ops::RangeBounds;
+use std::slice;
 use tinyvec::TinyVec;
 
 /// Path represents a path in a trie, or a path to look up in the trie. A path is represented
@@ -192,13 +193,20 @@ impl<'a> PathSliceRef<'a> {
     }
 
     pub fn iter(&self) -> PathSliceIter<'_> {
-        todo!()
+        PathSliceIter {
+            buffered_byte: None,
+            bytes_iter: self.byte_slice.iter(),
+            odd_start: self.odd_start,
+            odd_end: self.odd_end,
+        }
     }
 }
 
 pub struct PathSliceIter<'a> {
-    bytes: &'a [u8],
+    buffered_byte: Option<u8>,
+    bytes_iter: slice::Iter<'a, u8>,
     odd_start: u8,
+    odd_end: u8,
 }
 
 impl<'a> Iterator for PathSliceIter<'a> {
@@ -234,7 +242,6 @@ impl PathNibble {
     }
 
     pub fn from_byte_start(byte: u8) -> Self {
-        // todo ar validate
         Self((byte & 0b11110000) >> 4)
     }
 
@@ -242,7 +249,15 @@ impl PathNibble {
         Self(byte & 0b1111)
     }
 
-    pub fn as_byte(&self) -> u8 {
+    pub fn to_byte_start(self) -> u8 {
+        self.0 << 4
+    }
+
+    pub fn to_byte_end(self) -> u8 {
+        self.0
+    }
+
+    pub fn as_byte_raw(&self) -> u8 {
         self.0
     }
 }

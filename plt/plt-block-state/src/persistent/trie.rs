@@ -965,7 +965,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for ChildEdges<INLINE
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size());
         for ChildEdge(path_nibble, child_ref) in self.0.iter() {
-            buffer.put(path_nibble.as_byte());
+            buffer.put(path_nibble.as_byte_raw());
             child_ref.store_to_buffer(&mut buffer, storer);
         }
     }
@@ -1006,7 +1006,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
         let mut hasher = sha2::Sha256::new();
         hasher.update(self.size().to_be_bytes());
         for ChildEdge(path_nibble, child_ref) in self.0.iter() {
-            hasher.update([path_nibble.as_byte()]);
+            hasher.update([path_nibble.as_byte_raw()]);
             hasher.update(child_ref.hash(loader)?);
         }
         Ok(Hash::new(hasher.finalize().into()))
