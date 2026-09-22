@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Upgraded rust version to 1.98.1. Notice that 1.95 and 1.96 has performance regressions affecting the WASM interpreter and should not be used.
+
 ## Unreleased changes (Devnet)
 
 - **BREAKING**: Change the storage model for lock recipients to it's permanent variant.
