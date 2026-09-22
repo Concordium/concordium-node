@@ -2,6 +2,8 @@
 //!
 //! See [`Trie`].
 
+mod path;
+
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
@@ -10,8 +12,9 @@ use crate::persistent::blob_store::{
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash::Hashable;
+use crate::persistent::trie::path::{Path, PathNibble, PathSliceRef};
 use crate::utils::Cow;
-use concordium_base::common::{Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial};
+use concordium_base::common::{Buffer, Get, Put, Serial};
 use concordium_base::hashes::Hash;
 use sha2::Digest;
 use std::borrow::Borrow;
@@ -130,7 +133,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     pub fn empty() -> Self {
         let root = Node {
             children: ChildEdges::default(),
-            stem: tiny_vec![],
+            stem: Path::from_tiny_vec(tiny_vec![]),
             value: None,
         };
 
@@ -169,9 +172,10 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
-            ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
+            ScanMatch::FullMatch { .. } if scan_return.path_split_remaining_length == 0 => {
                 scan_return
                     .prefix_matched_node
                     .map(|node| node.value, |node| &node.value)
@@ -199,9 +203,10 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, key_bytes.borrow())?;
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
-            ScanMatch::FullMatch { .. } if scan_return.path_split_from_matched_node.is_empty() => {
+            ScanMatch::FullMatch { .. } if scan_return.path_split_remaining_length == 0 => {
                 scan_return.prefix_matched_node.value.is_some()
             }
             _ => false,
@@ -234,9 +239,9 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         K: TrieKey,
         V: Loadable + Clone,
     {
-        let (new_root, replaced) = self
-            .root
-            .insert_rec(loader, key.to_bytes().borrow(), value)?;
+        let key_bytes = key.to_bytes();
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let (new_root, replaced) = self.root.insert_rec(loader, path_ref, value)?;
 
         let new_size = if replaced { self.size } else { self.size + 1 };
 
@@ -274,7 +279,8 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         if self.size == 0 {
             return Ok(None);
         }
-        let Some(new_root) = self.root.delete_rec(loader, key.borrow())? else {
+        let path_ref = PathSliceRef::from_byte_slice(key.borrow());
+        let Some(new_root) = self.root.delete_rec(loader, path_ref)? else {
             return Ok(None);
         };
 
@@ -312,19 +318,25 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path = key_bytes.borrow();
-        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path)?;
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { stem_matched_node } => {
                 if let Some(stem_matched_node) = stem_matched_node {
-                    let mut iter_root_path: TinyVec<_> = path
-                        .strip_suffix(scan_return.path_split_from_matched_node)
-                        .expect("path suffix")
-                        .into();
-                    iter_root_path.extend_from_slice(&stem_matched_node.stem);
+                    let mut iter_root_path = path_ref
+                        .index_path_slice(
+                            ..path_ref.len() - scan_return.path_split_remaining_length,
+                        )
+                        .to_path();
+
+                    iter_root_path.extend_from_path_slice(&stem_matched_node.stem.as_path_slice());
                     PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
                 } else {
-                    PrefixIterator::with_root(path.into(), scan_return.prefix_matched_node, loader)
+                    PrefixIterator::with_root(
+                        path_ref.to_path(),
+                        scan_return.prefix_matched_node,
+                        loader,
+                    )
                 }
             }
             ScanMatch::NotFullMatch => PrefixIterator::empty(loader),
@@ -343,7 +355,7 @@ struct PrefixIterator<'a, 'b, const INLINE_KEY_LENGTH: usize, L, K: TrieKey, V> 
 
 struct IteratorStackElement<'b, const INLINE_KEY_LENGTH: usize, V>(
     // Node path
-    TinyVec<[u8; INLINE_KEY_LENGTH]>,
+    Path<INLINE_KEY_LENGTH>,
     // Node
     Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
 );
@@ -360,7 +372,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V>
     }
 
     fn with_root(
-        node_path: TinyVec<[u8; INLINE_KEY_LENGTH]>,
+        node_path: Path<INLINE_KEY_LENGTH>,
         node: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
         loader: &'a L,
     ) -> Self {
@@ -380,20 +392,28 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(IteratorStackElement(node_path, node)) = self.node_stack.pop() {
             for child_byte in node.children.0.iter().rev().map(|edge| edge.0) {
-                let child_edge = match node.cow_project_child_edge(self.loader, child_byte) {
-                    Ok(child_edge) => child_edge.expect("child byte exists"),
+                let child = match node.cow_project_child_edge(self.loader, child_byte) {
+                    Ok(child) => child.expect("child byte exists"),
                     Err(err) => return Some(Err(err)),
                 };
 
                 let mut child_path = node_path.clone();
-                child_path.extend_from_slice(&child_edge.child.stem);
+                child_path.extend_from_path_slice(&child.stem.as_path_slice());
 
                 self.node_stack
-                    .push(IteratorStackElement(child_path, child_edge.child));
+                    .push(IteratorStackElement(child_path, child));
             }
 
             if let Some(value) = node.map(|node| node.value, |node| &node.value).transpose() {
-                let key = match K::try_from_bytes(&node_path) {
+                let byte_slice = match node_path.as_byte_slice() {
+                    Some(byte_slice) => byte_slice,
+                    None => {
+                        return Some(Err(BlockStateFailure::Invariant(
+                            "Trie entry key not aligned to bytes".to_string(),
+                        )));
+                    }
+                };
+                let key = match K::try_from_bytes(byte_slice) {
                     Ok(key) => key,
                     Err(err) => return Some(Err(err)),
                 };
@@ -409,7 +429,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
 #[derive(Debug)]
 struct Node<const INLINE_KEY_LENGTH: usize, V> {
     value: Option<V>,
-    stem: TinyVec<[u8; INLINE_KEY_LENGTH]>,
+    stem: Path<INLINE_KEY_LENGTH>,
     children: ChildEdges<INLINE_KEY_LENGTH, V>,
 }
 
@@ -429,38 +449,66 @@ where
 /// Node children
 #[derive(Debug)]
 struct ChildEdges<const INLINE_KEY_LENGTH: usize, V>(
-    /// Key-value vector, where they key is the first byte in the stem. Invariants:
+    /// Key-value vector, where they key is the first nibble in the path to the child. Invariants:
     ///
     /// * No duplicate keys
     /// * Keys are sorted
     ///
-    /// This also means there are at most 256 entries.
-    Vec<(u8, Edge<INLINE_KEY_LENGTH, V>)>,
+    /// This also means there are at most 16 entries.
+    Vec<ChildEdge<INLINE_KEY_LENGTH, V>>,
 );
+
+#[derive(Debug)]
+struct ChildEdge<const INLINE_KEY_LENGTH: usize, V>(
+    PathNibble,
+    HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>,
+);
+
+impl<const INLINE_KEY_LENGTH: usize, V> Clone for ChildEdge<INLINE_KEY_LENGTH, V> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1.clone())
+    }
+}
 
 impl<const INLINE_KEY_LENGTH: usize, V> ChildEdges<INLINE_KEY_LENGTH, V> {
     fn size(&self) -> u16 {
         self.0.len() as u16
     }
 
-    fn get(&self, byte: u8) -> Option<&Edge<INLINE_KEY_LENGTH, V>> {
-        let index = self.0.binary_search_by_key(&byte, |(byte, _)| *byte).ok()?;
+    fn get_child(
+        &self,
+        path_nibble: PathNibble,
+    ) -> Option<&HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>> {
+        let index = self
+            .0
+            .binary_search_by_key(&path_nibble, |ChildEdge(nibble, _)| *nibble)
+            .ok()?;
         Some(&self.0[index].1)
     }
 
-    fn set(&mut self, byte: u8, edge: Edge<INLINE_KEY_LENGTH, V>) {
-        match self.0.binary_search_by_key(&byte, |(byte, _)| *byte) {
+    fn set_child(
+        &mut self,
+        path_nibble: PathNibble,
+        child: HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>,
+    ) {
+        match self
+            .0
+            .binary_search_by_key(&path_nibble, |ChildEdge(nibble, _)| *nibble)
+        {
             Ok(index) => {
-                self.0[index].1 = edge;
+                self.0[index].1 = child;
             }
             Err(index) => {
-                self.0.insert(index, (byte, edge));
+                self.0.insert(index, ChildEdge(path_nibble, child));
             }
         }
     }
 
-    fn delete(&mut self, byte: u8) -> bool {
-        let Ok(index) = self.0.binary_search_by_key(&byte, |(byte, _)| *byte) else {
+    fn delete_child(&mut self, path_nibble: PathNibble) -> bool {
+        let Ok(index) = self
+            .0
+            .binary_search_by_key(&path_nibble, |ChildEdge(nibble, _)| *nibble)
+        else {
             return false;
         };
         self.0.remove(index);
@@ -480,34 +528,13 @@ impl<const INLINE_KEY_LENGTH: usize, V> Default for ChildEdges<INLINE_KEY_LENGTH
     }
 }
 
-/// Trie child edge
-#[derive(Debug)]
-struct Edge<const INLINE_KEY_LENGTH: usize, V> {
-    child_ref: HashedCacheableRef<Node<INLINE_KEY_LENGTH, V>>,
-}
-
-/// [`Edge`] with [`Cow`] structurally projected.
-/// Used as return value for [`Cow<Node>::cow_project_child_edge`].
-#[derive(Debug)]
-struct EdgeCowProjection<'b, const INLINE_KEY_LENGTH: usize, V> {
-    child: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
-}
-
-impl<const INLINE_KEY_LENGTH: usize, V> Clone for Edge<INLINE_KEY_LENGTH, V> {
-    fn clone(&self) -> Self {
-        Self {
-            child_ref: self.child_ref.clone(),
-        }
-    }
-}
-
 /// Return value from scanning a path in the trie.
 #[derive(Debug)]
-struct ScanReturn<'a, 'b, const INLINE_KEY_LENGTH: usize, V> {
+struct ScanReturn<'b, const INLINE_KEY_LENGTH: usize, V> {
     /// Node fully or partially (maximally) matched by path.
     prefix_matched_node: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
-    /// The path remaining when removing prefix matching `matched_node`.
-    path_split_from_matched_node: &'a [u8],
+    /// The length of the path remaining when removing prefix matching `matched_node`.
+    path_split_remaining_length: usize,
     /// Whether full or partial match.
     matched: ScanMatch<'b, INLINE_KEY_LENGTH, V>,
 }
@@ -524,26 +551,18 @@ enum ScanMatch<'b, const INLINE_KEY_LENGTH: usize, V> {
     NotFullMatch,
 }
 
-fn common_prefix<'a>(a: &'a [u8], b: &[u8]) -> &'a [u8] {
-    let mut i = 0;
-    while i < a.len() && i < b.len() && a[i] == b[i] {
-        i += 1;
-    }
-    &a[0..i]
-}
-
 impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
     /// Delete the entry at `path` and restore path compression.
     /// Returns `Some` with the updated node if the entry existed, or `None` otherwise.
     fn delete_rec(
         &self,
         loader: &impl BlobStoreLoad,
-        path: &[u8],
+        path_ref: PathSliceRef<'_>,
     ) -> BlockStateResult<Option<Node<INLINE_KEY_LENGTH, V>>>
     where
         V: Loadable + Clone,
     {
-        let Some(&path_byte) = path.first() else {
+        let Some(first_path_nibble) = path_ref.first_nibble() else {
             if self.value.is_none() {
                 return Ok(None);
             }
@@ -557,20 +576,24 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
             return Ok(Some(new_node));
         };
 
-        let Some(edge) = self.children.get(path_byte) else {
+        let Some(child_ref) = self.children.get_child(first_path_nibble) else {
             // The node to delete was not found. We signal that no update should occur.
             return Ok(None);
         };
 
-        let child_node = edge.child_ref.value(loader)?;
+        let child_node = child_ref.value(loader)?;
         // Find the common prefix of the remaining path and the stem of the selected child. We skip
         // the first byte here, as that has already been used to select the child node above.
-        let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
+        let common_prefix_len = path::common_prefix_len(
+            path_ref.index_path_slice(1..),
+            child_node.stem.index_path_slice(1..),
+        ) + 1;
 
         match common_prefix_len.cmp(&child_node.stem.len()) {
             // The child node is either a step on the path or the end destination
             Ordering::Equal => {
-                let deletion = child_node.delete_rec(loader, &path[child_node.stem.len()..])?;
+                let deletion = child_node
+                    .delete_rec(loader, path_ref.index_path_slice(child_node.stem.len()..))?;
                 let Some(mut new_child) = deletion else {
                     return Ok(None);
                 };
@@ -578,29 +601,26 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                 let mut new_node = self.clone();
                 if new_child.value.is_none() && new_child.children.0.is_empty() {
                     // The deleted entry left an empty node. Remove its edge.
-                    new_node.children.delete(path_byte);
+                    new_node.children.delete_child(first_path_nibble);
                     return Ok(Some(new_node));
                 }
 
                 if new_child.value.is_none() && new_child.children.size() == 1 {
                     // A non-value node with one child can be compressed into that child.
-                    let only_edge = &new_child.children.0[0].1;
-                    let grandchild = only_edge.child_ref.value(loader)?;
+                    let only_child_ref = &new_child.children.0[0].1;
+                    let grandchild = only_child_ref.value(loader)?;
+                    let mut new_child_stem = new_child.stem.clone();
+                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice());
                     new_child = Node {
-                        stem: new_child
-                            .stem
-                            .into_iter()
-                            .chain(grandchild.stem.iter().copied())
-                            .collect(),
+                        stem: new_child_stem,
                         value: grandchild.value.clone(),
                         children: grandchild.children.clone(),
                     };
                 }
 
-                let edge = Edge {
-                    child_ref: HashedCacheableRef::new(new_child),
-                };
-                new_node.children.set(path_byte, edge);
+                new_node
+                    .children
+                    .set_child(first_path_nibble, HashedCacheableRef::new(new_child));
                 Ok(Some(new_node))
             }
             // The node does not exist in the trie: the key path ends inside the child stem
@@ -616,13 +636,13 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
     fn insert_rec(
         &self,
         loader: &impl BlobStoreLoad,
-        path: &[u8],
+        path_ref: PathSliceRef<'_>,
         value: V,
     ) -> BlockStateResult<(Node<INLINE_KEY_LENGTH, V>, bool)>
     where
         V: Loadable + Clone,
     {
-        let Some(&path_byte) = path.first() else {
+        let Some(first_path_nibble) = path_ref.first_nibble() else {
             // Replace existing value.
             let new_node = Node {
                 stem: self.stem.clone(),
@@ -633,122 +653,122 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
             return Ok((new_node, self.value.is_some()));
         };
 
-        let Some(edge) = self.children.get(path_byte) else {
+        let Some(child_ref) = self.children.get_child(first_path_nibble) else {
             // Insert new child in the node.
             let child_node = Node {
-                stem: path.into(),
+                stem: path_ref.to_path(),
                 children: ChildEdges::default(),
                 value: Some(value),
             };
 
             let mut new_node = self.clone();
 
-            new_node.children.set(
-                path_byte,
-                Edge {
-                    child_ref: HashedCacheableRef::new(child_node),
-                },
-            );
+            new_node
+                .children
+                .set_child(first_path_nibble, HashedCacheableRef::new(child_node));
 
             return Ok((new_node, false));
         };
 
-        let child_node = edge.child_ref.value(loader)?;
-        let common_prefix_len = common_prefix(&path[1..], &child_node.stem[1..]).len() + 1;
+        let child_node = child_ref.value(loader)?;
+        let common_prefix_len = path::common_prefix_len(
+            path_ref.index_path_slice(1..),
+            child_node.stem.index_path_slice(1..),
+        ) + 1;
 
         Ok(
             match (
                 common_prefix_len.cmp(&child_node.stem.len()),
-                common_prefix_len.cmp(&path.len()),
+                common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Insert in child node.
-                    let (new_child_node, replaced) =
-                        child_node.insert_rec(loader, &path[child_node.stem.len()..], value)?;
+                    let (new_child_node, replaced) = child_node.insert_rec(
+                        loader,
+                        path_ref.index_path_slice(child_node.stem.len()..),
+                        value,
+                    )?;
 
                     let mut new_node = self.clone();
 
-                    new_node.children.set(
-                        path_byte,
-                        Edge {
-                            child_ref: HashedCacheableRef::new(new_child_node),
-                        },
-                    );
+                    new_node
+                        .children
+                        .set_child(first_path_nibble, HashedCacheableRef::new(new_child_node));
 
                     (new_node, replaced)
                 }
                 (Ordering::Less, Ordering::Equal) => {
                     // Insert in stem.
                     let mut stem_node = Node {
-                        stem: child_node.stem[..common_prefix_len].into(),
+                        stem: child_node
+                            .stem
+                            .index_path_slice(..common_prefix_len)
+                            .to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
                     };
 
                     let new_child_node = Node {
-                        stem: child_node.stem[common_prefix_len..].into(),
+                        stem: child_node
+                            .stem
+                            .index_path_slice(common_prefix_len..)
+                            .to_path(),
                         children: child_node.children.clone(),
                         value: child_node.value.clone(),
                     };
 
-                    stem_node.children.set(
-                        child_node.stem[common_prefix_len],
-                        Edge {
-                            child_ref: HashedCacheableRef::new(new_child_node),
-                        },
+                    stem_node.children.set_child(
+                        child_node.stem.index_path_nibble(common_prefix_len),
+                        HashedCacheableRef::new(new_child_node),
                     );
 
                     let mut new_node = self.clone();
 
-                    new_node.children.set(
-                        path_byte,
-                        Edge {
-                            child_ref: HashedCacheableRef::new(stem_node),
-                        },
-                    );
+                    new_node
+                        .children
+                        .set_child(first_path_nibble, HashedCacheableRef::new(stem_node));
 
                     (new_node, false)
                 }
                 (Ordering::Less, Ordering::Less) => {
                     // Insert as child branching out from the stem.
                     let mut stem_node = Node {
-                        stem: child_node.stem[..common_prefix_len].into(),
+                        stem: child_node
+                            .stem
+                            .index_path_slice(..common_prefix_len)
+                            .to_path(),
                         children: ChildEdges::default(),
                         value: None,
                     };
 
                     let new_child_node = Node {
-                        stem: child_node.stem[common_prefix_len..].into(),
+                        stem: child_node
+                            .stem
+                            .index_path_slice(common_prefix_len..)
+                            .to_path(),
                         children: child_node.children.clone(),
                         value: child_node.value.clone(),
                     };
 
-                    stem_node.children.set(
-                        child_node.stem[common_prefix_len],
-                        Edge {
-                            child_ref: HashedCacheableRef::new(new_child_node),
-                        },
+                    stem_node.children.set_child(
+                        child_node.stem.index_path_nibble(common_prefix_len),
+                        HashedCacheableRef::new(new_child_node),
                     );
                     let branching_child_node = Node {
-                        stem: path[common_prefix_len..].into(),
+                        stem: path_ref.index_path_slice(common_prefix_len..).to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
                     };
-                    stem_node.children.set(
-                        path[common_prefix_len],
-                        Edge {
-                            child_ref: HashedCacheableRef::new(branching_child_node),
-                        },
+                    stem_node.children.set_child(
+                        path_ref.index_path_nibble(common_prefix_len),
+                        HashedCacheableRef::new(branching_child_node),
                     );
 
                     let mut new_node = self.clone();
 
-                    new_node.children.set(
-                        path_byte,
-                        Edge {
-                            child_ref: HashedCacheableRef::new(stem_node),
-                        },
-                    );
+                    new_node
+                        .children
+                        .set_child(first_path_nibble, HashedCacheableRef::new(stem_node));
 
                     (new_node, false)
                 }
@@ -761,52 +781,55 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
 impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> {
     /// Scan the trie for the given path and return information about where the path ends
     /// in the trie.
-    fn scan_rec<'a>(
+    fn scan_rec(
         self,
         loader: &impl BlobStoreLoad,
-        path: &'a [u8],
-    ) -> BlockStateResult<ScanReturn<'a, 'b, INLINE_KEY_LENGTH, V>>
+        path_ref: PathSliceRef<'_>,
+    ) -> BlockStateResult<ScanReturn<'b, INLINE_KEY_LENGTH, V>>
     where
         V: Loadable,
     {
-        let Some(&path_byte) = path.first() else {
+        let Some(first_path_nibble) = path_ref.first_nibble() else {
             // Path matched fully
             return Ok(ScanReturn {
                 prefix_matched_node: self,
-                path_split_from_matched_node: &[],
+                path_split_remaining_length: 0,
                 matched: ScanMatch::FullMatch {
                     stem_matched_node: None,
                 },
             });
         };
 
-        let Some(edge) = self.cow_project_child_edge(loader, path_byte)? else {
+        let Some(child) = self.cow_project_child_edge(loader, first_path_nibble)? else {
             // Path matched up until node, by does not match the start of any child stems.
             return Ok(ScanReturn {
                 prefix_matched_node: self,
-                path_split_from_matched_node: path,
+                path_split_remaining_length: path_ref.len(),
                 matched: ScanMatch::NotFullMatch,
             });
         };
 
-        let common_prefix_len = common_prefix(&path[1..], &edge.child.stem[1..]).len() + 1;
+        let common_prefix_len = path::common_prefix_len(
+            path_ref.index_path_slice(1..),
+            child.stem.index_path_slice(1..),
+        ) + 1;
 
         Ok(
             match (
-                common_prefix_len.cmp(&edge.child.stem.len()),
-                common_prefix_len.cmp(&path.len()),
+                common_prefix_len.cmp(&child.stem.len()),
+                common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Path matched node and the full stem.
-                    let path_split = &path[edge.child.stem.len()..];
-                    edge.child.scan_rec(loader, path_split)?
+                    let path_split = path_ref.index_path_slice(child.stem.len()..);
+                    child.scan_rec(loader, path_split)?
                 }
                 (Ordering::Less, Ordering::Equal) => {
                     // Path fully matched node and part of the child stem.
-                    let stem_matched_node = Some(edge.child);
+                    let stem_matched_node = Some(child);
                     ScanReturn {
                         prefix_matched_node: self,
-                        path_split_from_matched_node: path,
+                        path_split_remaining_length: path_ref.len(),
                         matched: ScanMatch::FullMatch { stem_matched_node },
                     }
                 }
@@ -814,7 +837,7 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
                     // Path matched node and partly the child stem.
                     ScanReturn {
                         prefix_matched_node: self,
-                        path_split_from_matched_node: path,
+                        path_split_remaining_length: path_ref.len(),
                         matched: ScanMatch::NotFullMatch,
                     }
                 }
@@ -831,59 +854,34 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
     pub fn cow_project_child_edge(
         &self,
         loader: &impl BlobStoreLoad,
-        byte: u8,
-    ) -> BlockStateResult<Option<EdgeCowProjection<'b, INLINE_KEY_LENGTH, V>>>
+        path_nibble: PathNibble,
+    ) -> BlockStateResult<Option<Cow<'b, Node<INLINE_KEY_LENGTH, V>>>>
     where
         V: Loadable,
     {
         Ok(Some(match self {
             Cow::Owned(node) => {
-                let edge = match node.children.get(byte) {
+                let child_ref = match node.children.get_child(path_nibble) {
                     Some(edge) => edge,
                     None => return Ok(None),
                 };
 
-                match edge.child_ref.value(loader)? {
-                    Cow::Owned(child) => EdgeCowProjection {
-                        child: Cow::Owned(child),
-                    },
+                match child_ref.value(loader)? {
+                    Cow::Owned(child) => Cow::Owned(child),
                     Cow::Borrowed(_) => {
                         return Err(BlockStateFailure::CowJoin("child in trie::Node"));
                     }
                 }
             }
             Cow::Borrowed(node) => {
-                let edge = match node.children.get(byte) {
-                    Some(edge) => edge,
+                let child_ref = match node.children.get_child(path_nibble) {
+                    Some(child_ref) => child_ref,
                     None => return Ok(None),
                 };
 
-                EdgeCowProjection {
-                    child: edge.child_ref.value(loader)?,
-                }
+                child_ref.value(loader)?
             }
         }))
-    }
-}
-
-struct TinyVecSerial<'a, const INLINE_KEY_LENGTH: usize>(&'a TinyVec<[u8; INLINE_KEY_LENGTH]>);
-
-impl<'a, const INLINE_KEY_LENGTH: usize> Serial for TinyVecSerial<'a, INLINE_KEY_LENGTH> {
-    fn serial<B: Buffer>(&self, out: &mut B) {
-        out.put(self.0.len() as u64);
-        out.write_all(self.0)
-            .expect("Writing to a buffer should not fail.");
-    }
-}
-
-struct TinyVecDeserial<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
-
-impl<const INLINE_KEY_LENGTH: usize> Deserial for TinyVecDeserial<INLINE_KEY_LENGTH> {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
-        let size: u64 = source.get()?;
-        let mut vec = TinyVec::with_initial_len(size as usize);
-        source.read_exact(&mut vec)?;
-        Ok(TinyVecDeserial(vec))
     }
 }
 
@@ -916,12 +914,8 @@ impl<const INLINE_KEY_LENGTH: usize, V: Loadable> Loadable for Node<INLINE_KEY_L
         loader: &impl BlobStoreLoad,
     ) -> BlockStateResult<Self> {
         let value = Loadable::load_from_buffer(&mut buffer, loader)?;
-        let stem = <StoreSerialized<TinyVecDeserial<INLINE_KEY_LENGTH>>>::load_from_buffer(
-            &mut buffer,
-            loader,
-        )?
-        .0
-        .0;
+        let stem =
+            <StoreSerialized<Path<INLINE_KEY_LENGTH>>>::load_from_buffer(&mut buffer, loader)?.0;
         let children = Loadable::load_from_buffer(&mut buffer, loader)?;
 
         Ok(Self {
@@ -935,7 +929,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Loadable> Loadable for Node<INLINE_KEY_L
 impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Node<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.value.store_to_buffer(&mut buffer, storer);
-        StoreSerialized(TinyVecSerial(&self.stem)).store_to_buffer(&mut buffer, storer);
+        StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
     }
 }
@@ -947,19 +941,20 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
     ) -> Result<Self, BlockStateFailure> {
         let size: u16 = buffer.get().map_parse_err_to_block_state_err()?;
         let mut children = Vec::with_capacity(size as usize);
-        let mut prev_byte = None;
+        let mut prev_path_nibble = None;
         for _ in 0..size {
-            let byte: u8 = buffer.get().map_parse_err_to_block_state_err()?;
+            let path_nibble =
+                PathNibble::from_byte_raw(buffer.get().map_parse_err_to_block_state_err()?);
             let child_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
-            if let Some(prev_byte) = prev_byte
-                && byte <= prev_byte
+            if let Some(prev_byte) = prev_path_nibble
+                && path_nibble <= prev_byte
             {
                 return Err(BlockStateFailure::Invariant(
                     "Trie node edges not sorted".to_string(),
                 ));
             }
-            children.push((byte, Edge { child_ref }));
-            prev_byte = Some(byte);
+            children.push(ChildEdge(path_nibble, child_ref));
+            prev_path_nibble = Some(path_nibble);
         }
 
         Ok(Self(children))
@@ -969,9 +964,9 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
 impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for ChildEdges<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size());
-        for (byte, edge) in self.0.iter() {
-            buffer.put(*byte);
-            edge.child_ref.store_to_buffer(&mut buffer, storer);
+        for ChildEdge(path_nibble, child_ref) in self.0.iter() {
+            buffer.put(path_nibble.as_byte_raw());
+            child_ref.store_to_buffer(&mut buffer, storer);
         }
     }
 }
@@ -998,7 +993,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
         } else {
             hasher.update([0u8]);
         }
-        TinyVecSerial(&self.stem).serial(&mut hasher);
+        self.stem.serial(&mut hasher);
         hasher.update(self.children.hash(loader)?);
         Ok(Hash::new(hasher.finalize().into()))
     }
@@ -1010,9 +1005,9 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
         let mut hasher = sha2::Sha256::new();
         hasher.update(self.size().to_be_bytes());
-        for (byte, edge) in self.0.iter() {
-            hasher.update([*byte]);
-            hasher.update(edge.child_ref.hash(loader)?);
+        for ChildEdge(path_nibble, child_ref) in self.0.iter() {
+            hasher.update([path_nibble.as_byte_raw()]);
+            hasher.update(child_ref.hash(loader)?);
         }
         Ok(Hash::new(hasher.finalize().into()))
     }
@@ -1031,8 +1026,8 @@ impl<const INLINE_KEY_LENGTH: usize, V: Cacheable + Loadable> Cacheable
 {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.value.cache_reference_values(loader)?;
-        for (_, edge) in &self.children.0 {
-            edge.child_ref.cache_reference_values(loader)?;
+        for ChildEdge(_, child_ref) in &self.children.0 {
+            child_ref.cache_reference_values(loader)?;
         }
 
         Ok(())
@@ -1089,12 +1084,10 @@ impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> 
         Self: Sized,
     {
         let mut children = Vec::with_capacity(self.0.len());
-        for (byte, edge) in &self.0 {
-            children.push((
-                *byte,
-                Edge {
-                    child_ref: edge.child_ref.move_blob_store(from_store, to_store)?,
-                },
+        for ChildEdge(path_nibble, child_ref) in &self.0 {
+            children.push(ChildEdge(
+                *path_nibble,
+                child_ref.move_blob_store(from_store, to_store)?,
             ));
         }
 
@@ -1681,8 +1674,12 @@ mod tests {
         ) -> Result<PlainTrie, TestCaseError> {
             let mut entries = BTreeMap::new();
 
-            self.root
-                .validate_and_extract_entries(loader, &[], &mut entries, true)?;
+            self.root.validate_and_extract_entries(
+                loader,
+                PathSliceRef::empty(),
+                &mut entries,
+                true,
+            )?;
 
             let plain = PlainTrie { entries };
 
@@ -1707,7 +1704,7 @@ mod tests {
         fn validate_and_extract_entries(
             &self,
             loader: &impl BlobStoreLoad,
-            path: &[u8],
+            path_ref: PathSliceRef<'_>,
             entries: &mut BTreeMap<Vec<u8>, u64>,
             root: bool,
         ) -> Result<(), TestCaseError> {
@@ -1720,26 +1717,41 @@ mod tests {
 
             prop_assert!(self.stem.is_empty() || !root, "node stem empty or not root");
 
+            let path: Path<INLINE_KEY_LENGTH> = path_ref.to_path();
             if let Some(value) = &self.value {
-                let existing = entries.insert(path.to_vec(), value.0);
+                let existing = entries.insert(
+                    path.as_byte_slice()
+                        .expect("value unaligned by bytes")
+                        .to_vec(),
+                    value.0,
+                );
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
-            let mut prev_key = None;
-            for (key, edge) in self.children.0.iter() {
-                let child_node = edge.child_ref.value(loader)?;
+            let mut prev_path_nibble = None;
+            for ChildEdge(path_nibble, child_ref) in self.children.0.iter() {
+                let child_node = child_ref.value(loader)?;
 
                 prop_assert!(!child_node.stem.is_empty(), "edge stem not empty");
-                prop_assert_eq!(*key, child_node.stem[0], "key matches first byte in stem");
+                prop_assert_eq!(
+                    Some(*path_nibble),
+                    child_node.stem.as_path_slice().first_nibble(),
+                    "key matches first byte in stem"
+                );
 
-                if let Some(prev_key) = prev_key {
-                    prop_assert!(prev_key < *key, "edge keys not ascending")
+                if let Some(prev_path_nibble) = prev_path_nibble {
+                    prop_assert!(prev_path_nibble < *path_nibble, "edge keys not ascending")
                 }
 
-                let mut child_path = path.to_vec();
-                child_path.extend_from_slice(&child_node.stem);
-                child_node.validate_and_extract_entries(loader, &child_path, entries, false)?;
-                prev_key = Some(*key);
+                let mut child_path = path.clone();
+                child_path.extend_from_path_slice(&child_node.stem.as_path_slice());
+                child_node.validate_and_extract_entries(
+                    loader,
+                    child_path.as_path_slice(),
+                    entries,
+                    false,
+                )?;
+                prev_path_nibble = Some(*path_nibble);
             }
 
             Ok(())
