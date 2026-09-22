@@ -109,6 +109,11 @@ pub fn query_lock_info<C: EntityContextTypes>(
 }
 
 /// Execute [`LockOperation`].
+///
+/// Token pause, allow-list, and deny-list constraints apply only to [`LockOperation::Send`],
+/// because it transfers tokens between accounts. Creating a lock or moving tokens between an
+/// account's available and locked balances is not a transfer and is therefore not subject to
+/// those constraints.
 pub fn execute_lock_operation<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
