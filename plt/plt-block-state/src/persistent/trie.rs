@@ -82,10 +82,12 @@ pub trait TrieKey {
     ///
     /// ## Example
     /// ```
-    /// let mut bytes = [0; 16]; // key composed of two u64
-    /// bytes[..8].copy_from_slice(first.to_be_bytes());
-    /// bytes[8..].copy_from_slice(second.to_be_bytes());
-    /// bytes
+    /// fn to_bytes((fst, snd): &(u64, u64)) -> impl std::borrow::Borrow<[u8]> {
+    ///   let mut bytes = [0; 16]; // key composed of two u64
+    ///   bytes[..8].copy_from_slice(&fst.to_be_bytes());
+    ///   bytes[8..].copy_from_slice(&snd.to_be_bytes());
+    ///   bytes
+    /// }
     /// ```
     fn to_bytes(&self) -> impl Borrow<[u8]>;
 
