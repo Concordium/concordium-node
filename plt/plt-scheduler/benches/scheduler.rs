@@ -9,7 +9,9 @@
 //! Token-update and meta-update benchmarks use equivalent operations at several batch sizes. Counts
 //! 3 and 5 represent maximum expected transaction sizes; larger counts expose scaling behavior. Their
 //! difference indicates the overhead of the meta-update execution path, while the empty cases show
-//! its fixed cost. Lock benchmarks instead isolate persistence-relevant transitions: creating locks,
+//! its fixed cost.
+//!
+//! Lock benchmarks instead isolate persistence-relevant transitions: creating locks,
 //! adding versus reusing balance references, retaining versus removing references, and canceling
 //! locks with different numbers of references.
 

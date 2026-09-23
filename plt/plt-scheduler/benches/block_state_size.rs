@@ -1,8 +1,8 @@
 //! Scheduler benchmarks isolating block-state size from transaction operation count.
 //!
-//! Each case prepares increasingly complex state outside Divan's timed closure, then executes one
-//! successful operation. Separate dimensions avoid a cross-product: top-level token count measures
-//! one mint, allow-list size measures one insertion, and top-level lock count measures one creation.
+//! Each case prepares increasingly complex state outside the timed closure, then executes one
+//! successful operation. The point of the benchmarks is to measure efficiency of transaction
+//! execution across varying state complexity of the state which the transaction operates on.
 
 #[path = "../tests/utils/mod.rs"]
 mod utils;
@@ -73,21 +73,11 @@ fn token_payload(token_id: TokenId, operation: TokenOperation) -> Payload {
     }
 }
 
-/// Prepare one mint against a target token alongside unrelated top-level tokens.
+/// Prepare one mint against a target token alongside unrelated tokens.
 ///
 /// # Arguments
 ///
 /// - `filler_token_count`: Number of unrelated tokens inserted before the target token.
-///
-/// # Panics
-///
-/// Panics if deterministic benchmark state creation fails.
-///
-/// # Examples
-///
-/// ```ignore
-/// let fixture = prepare_mint_with_filler_tokens(100);
-/// ```
 fn prepare_mint_with_filler_tokens(filler_token_count: usize) -> PreparedOperation {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
@@ -132,16 +122,6 @@ fn prepare_mint_with_filler_tokens(filler_token_count: usize) -> PreparedOperati
 /// # Arguments
 ///
 /// - `existing_entry_count`: Number of distinct accounts inserted before the measured account.
-///
-/// # Panics
-///
-/// Panics if token creation or an allow-list setup operation fails.
-///
-/// # Examples
-///
-/// ```ignore
-/// let fixture = prepare_allow_list_insert(100);
-/// ```
 fn prepare_allow_list_insert(existing_entry_count: usize) -> PreparedOperation {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
@@ -188,21 +168,11 @@ fn prepare_allow_list_insert(existing_entry_count: usize) -> PreparedOperation {
     }
 }
 
-/// Prepare one lock creation against state containing unrelated top-level locks.
+/// Prepare one lock creation against state containing unrelated locks.
 ///
 /// # Arguments
 ///
 /// - `existing_lock_count`: Number of locks created before the measured transaction.
-///
-/// # Panics
-///
-/// Panics if deterministic lock setup fails.
-///
-/// # Examples
-///
-/// ```ignore
-/// let fixture = prepare_lock_create(100);
-/// ```
 fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
@@ -359,9 +329,9 @@ fn execute(mut fixture: PreparedOperation) {
     let _ = divan::black_box((result, fixture.state, fixture.context));
 }
 
-/// Measure one target-token mint as unrelated top-level token count grows.
+/// Measure one token mint as unrelated top-level token count grows.
 #[divan::bench(args = STATE_SIZES)]
-fn mint_by_top_level_token_count(bencher: Bencher, filler_token_count: usize) {
+fn mint_by_token_count(bencher: Bencher, filler_token_count: usize) {
     bencher
         .with_inputs(|| prepare_mint_with_filler_tokens(filler_token_count))
         .bench_local_values(execute);
@@ -377,7 +347,7 @@ fn allow_list_insert_by_existing_entry_count(bencher: Bencher, existing_entry_co
 
 /// Measure one lock creation as unrelated top-level lock count grows.
 #[divan::bench(args = STATE_SIZES)]
-fn lock_create_by_top_level_lock_count(bencher: Bencher, existing_lock_count: usize) {
+fn lock_create_by_lock_count(bencher: Bencher, existing_lock_count: usize) {
     bencher
         .with_inputs(|| prepare_lock_create(existing_lock_count))
         .bench_local_values(execute);
