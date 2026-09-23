@@ -110,6 +110,19 @@ impl TrieKey for Vec<u8> {
     }
 }
 
+impl<const N: usize> TrieKey for TinyVec<[u8; N]> {
+    fn to_bytes(&self) -> impl Borrow<[u8]> {
+        self.as_slice()
+    }
+
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(key.into())
+    }
+}
+
 impl<const N: usize> TrieKey for [u8; N] {
     fn to_bytes(&self) -> impl Borrow<[u8]> {
         *self
@@ -300,7 +313,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         K: TrieKey,
         V: Loadable,
     {
-        PrefixIterator::with_root(Vec::new(), Cow::Borrowed(&self.root), loader)
+        PrefixIterator::with_root(TinyVec::<_>::new(), Cow::Borrowed(&self.root), loader)
     }
 
     /// Iterates all entries with keys that have the given `key` as prefix, including
@@ -335,18 +348,14 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { stem_matched_node } => {
                 if let Some(stem_matched_node) = stem_matched_node {
-                    let mut iter_root_path = path
+                    let mut iter_root_path: TinyVec<_> = path
                         .strip_suffix(scan_return.path_split_from_matched_node)
                         .expect("path suffix")
-                        .to_vec();
+                        .into();
                     iter_root_path.extend_from_slice(&stem_matched_node.stem);
                     PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
                 } else {
-                    PrefixIterator::with_root(
-                        path.to_vec(),
-                        scan_return.prefix_matched_node,
-                        loader,
-                    )
+                    PrefixIterator::with_root(path.into(), scan_return.prefix_matched_node, loader)
                 }
             }
             ScanMatch::NotFullMatch => PrefixIterator::empty(loader),
@@ -359,9 +368,16 @@ struct PrefixIterator<'a, 'b, const INLINE_KEY_LENGTH: usize, L, K: TrieKey, V> 
     /// Blob store loader reference
     loader: &'a L,
     /// Stack of next nodes to visit.
-    node_stack: Vec<(Vec<u8>, Cow<'b, Node<INLINE_KEY_LENGTH, V>>)>,
+    node_stack: Vec<IteratorStackElement<'b, INLINE_KEY_LENGTH, V>>,
     _trie_key: PhantomData<K>,
 }
+
+struct IteratorStackElement<'b, const INLINE_KEY_LENGTH: usize, V>(
+    // Node path
+    TinyVec<[u8; INLINE_KEY_LENGTH]>,
+    // Node
+    Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
+);
 
 impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V>
     PrefixIterator<'a, 'b, INLINE_KEY_LENGTH, L, K, V>
@@ -375,13 +391,13 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V>
     }
 
     fn with_root(
-        node_path: Vec<u8>,
+        node_path: TinyVec<[u8; INLINE_KEY_LENGTH]>,
         node: Cow<'b, Node<INLINE_KEY_LENGTH, V>>,
         loader: &'a L,
     ) -> Self {
         Self {
             loader,
-            node_stack: vec![(node_path.to_vec(), node)],
+            node_stack: vec![IteratorStackElement(node_path, node)],
             _trie_key: PhantomData,
         }
     }
@@ -393,7 +409,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
     type Item = BlockStateResult<(K, Cow<'b, V>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((node_path, node)) = self.node_stack.pop() {
+        while let Some(IteratorStackElement(node_path, node)) = self.node_stack.pop() {
             for child_byte in node.children.0.iter().rev().map(|edge| edge.0) {
                 let child_edge = match node.cow_project_child_edge(self.loader, child_byte) {
                     Ok(child_edge) => child_edge.expect("child byte exists"),
@@ -403,7 +419,8 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
                 let mut child_path = node_path.clone();
                 child_path.extend_from_slice(&child_edge.child.stem);
 
-                self.node_stack.push((child_path, child_edge.child));
+                self.node_stack
+                    .push(IteratorStackElement(child_path, child_edge.child));
             }
 
             if let Some(value) = node.map(|node| node.value, |node| &node.value).transpose() {
