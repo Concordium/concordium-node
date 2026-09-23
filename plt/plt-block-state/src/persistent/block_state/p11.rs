@@ -65,11 +65,11 @@ mod test {
     use crate::persistent::protocol_level_locks::p11::{
         LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
     };
-    use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+    use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::base::AccountIndex;
     use concordium_base::common::types::TransactionTime;
     use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-    use concordium_base::protocol_level_tokens::{CborMemo, TokenModuleRef};
+    use concordium_base::protocol_level_tokens::{CborMemo, TokenId, TokenModuleRef};
     use concordium_base::transactions::Memo;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -78,6 +78,8 @@ mod test {
     fn test_store_and_load_locks() {
         let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP11::default();
+        let token_id: TokenId = "Token1".parse().unwrap();
+        let token_id_2: TokenId = "Token2".parse().unwrap();
 
         // Create locks
         let lock_id1 = LockId {
@@ -97,7 +99,7 @@ mod test {
                         LockControllerSimpleV0Capability::Fund,
                     ],
                 )],
-                vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                vec![token_id.clone(), token_id_2.clone()],
                 true,
                 Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
                 None,
@@ -113,10 +115,10 @@ mod test {
             .unwrap()
             .expect("lock should exist");
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .add_lock_balance_ref(&context, AccountIndex::from(0), &token_id)
             .unwrap();
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+            .add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
             .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
@@ -183,8 +185,8 @@ mod test {
         assert_eq!(
             lock1.lock_balance_refs(&context).unwrap(),
             vec![
-                (AccountIndex::from(0), TokenIndex(0)),
-                (AccountIndex::from(1), TokenIndex(1))
+                (AccountIndex::from(0), token_id),
+                (AccountIndex::from(1), token_id_2)
             ]
         );
         assert_eq!(
@@ -232,10 +234,18 @@ mod test {
             .as_ref() as *const _;
         let configuration_hash = lock.persistent.configuration.hash(&context.store).unwrap();
 
-        lock.add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
-            .unwrap();
-        lock.add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
-            .unwrap();
+        lock.add_lock_balance_ref(
+            &context,
+            AccountIndex::from(0),
+            &"Token1".parse::<TokenId>().unwrap(),
+        )
+        .unwrap();
+        lock.add_lock_balance_ref(
+            &context,
+            AccountIndex::from(1),
+            &"Token2".parse::<TokenId>().unwrap(),
+        )
+        .unwrap();
         assert!(std::ptr::eq(
             configuration_ptr,
             lock.persistent
@@ -291,10 +301,12 @@ mod test {
     fn snapshot_test_hash_and_storage_simple_tokens_and_locks() {
         let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP11::default();
+        let token_id: TokenId = "Token1".parse().unwrap();
+        let token_id_2: TokenId = "Token2".parse().unwrap();
 
         // Create tokens
         let configuration1 = TokenConfiguration {
-            token_id: "token1".parse().unwrap(),
+            token_id: token_id.clone(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 2,
         };
@@ -317,7 +329,7 @@ mod test {
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
-            token_id: "token2".parse().unwrap(),
+            token_id: token_id_2.clone(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 4,
         };
@@ -341,7 +353,7 @@ mod test {
                         LockControllerSimpleV0Capability::Fund,
                     ],
                 )],
-                vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
+                vec![token_id.clone(), token_id_2.clone()],
                 true,
                 Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
                 None,
@@ -356,10 +368,10 @@ mod test {
             .unwrap()
             .expect("lock should exist");
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .add_lock_balance_ref(&context, AccountIndex::from(0), &token_id)
             .unwrap();
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+            .add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
             .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
@@ -387,14 +399,14 @@ mod test {
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "e160b2ffa3ac159cae8e0a32fa01c9654d0968162a55d73de53d58aee1ac3457"
+            "0d7174c66e395bb337f581e87e91e3bf1587effb1e938dfc9df382ad3e1ce00e"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f200000000000001550000000000000014010000000000000009000000000000000000000000000000000000140100000000000000090100000000000000010000000000000000002400000000000000000700000000000000000200000000000000018f0100000000000001ab00000000000000450001000200000000000000010000000000000002000000000000006400010000000000000001020003000208746f6b656e69643108746f6b656e6964320101000002000100000000000000004001000000000000000200000000000000000000010000000000000001c700000000000001f300000000000000110100000000000000010000000000000000000000000000000000130001000000000000000000000000000000000000000000000000370100000000000000000000000000000000000000000000000000028800000000000000110200000000000000070000000000000000000000000000000000240000000000000000070000000000000000020100000000000002400200000000000002a3000000000000001c000000000000000200000000000000000000010000000000000002e200000000000000100000000000000166000000000000030e"
+            "000000000000002806546f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806546f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f2000000000000015500000000000000130100000000000000080006546f6b656e31000000000000000000130100000000000000080106546f6b656e320000000000000000002400000000000000000700000000000000000200000000000000018f0100000000000001aa00000000000000410001000200000000000000010000000000000002000000000000006400010000000000000001020003000206546f6b656e3106546f6b656e320101000002000100000000000000004001000000000000000200000000000000000000010000000000000001c500000000000001f1000000000000001101000000000000000100000000000000000000000000000000001300010000000000000000000000000000000000000000000000003701000000000000000000000000000000000000000000000000000282000000000000001102000000000000000700000000000000000000000000000000002400000000000000000700000000000000000201000000000000023a02000000000000029d000000000000001c000000000000000200000000000000000000010000000000000002dc000000000000001000000000000001660000000000000308"
         );
     }
 }

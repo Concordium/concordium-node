@@ -6,11 +6,10 @@ use crate::persistent::blob_store::{
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
-use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use crate::persistent::trie::{Trie, TrieKey};
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Serialize, from_bytes_complete};
+use concordium_base::common::{Buffer, Serialize, from_bytes_complete, to_bytes};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
@@ -21,8 +20,8 @@ use std::io::Read;
 pub type PersistentLocksP11 = Trie<24, LockId, PersistentLockP11>;
 
 /// Trie key for a locked account/token balance reference.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
-pub(crate) struct BalanceReferenceKey(pub(crate) AccountIndex, pub(crate) TokenIndex);
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+pub(crate) struct BalanceReferenceKey(pub(crate) AccountIndex, pub(crate) TokenId);
 
 impl TrieKey for LockId {
     fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
@@ -44,24 +43,19 @@ impl TrieKey for LockId {
 
 impl TrieKey for BalanceReferenceKey {
     fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
-        let mut bytes = [0; 16];
-        bytes[..8].copy_from_slice(&self.0.index.to_be_bytes());
-        bytes[8..].copy_from_slice(&self.1.0.to_be_bytes());
-        bytes
+        to_bytes(self)
     }
 
     fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self> {
-        let (account, token) = from_bytes_complete(key).map_err(|err| {
+        from_bytes_complete(key).map_err(|err| {
             BlockStateFailure::BlobStoreDecode(format!(
                 "Stored balance reference key cannot be decoded: {err}"
             ))
-        })?;
-        Ok(Self(account, token))
+        })
     }
 }
 
-// Trie inline key length 16 matches the size of `BalanceReferenceKey`
-type BalanceReferences = Trie<16, BalanceReferenceKey, StoreSerialized<()>>;
+type BalanceReferences = Trie<24, BalanceReferenceKey, StoreSerialized<()>>;
 
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone)]
@@ -455,11 +449,12 @@ mod test {
     }
 
     #[test]
-    fn trie_keys_are_fixed_width_and_ordered() {
+    fn trie_keys_are_deterministic_and_ordered() {
         let lock_ids = [LockId::new(1, 0, 0), LockId::new(1, 0, 1)];
         let balance_refs = [
-            BalanceReferenceKey(AccountIndex::from(1), TokenIndex(0)),
-            BalanceReferenceKey(AccountIndex::from(1), TokenIndex(1)),
+            BalanceReferenceKey(AccountIndex::from(1), "a".parse().unwrap()),
+            BalanceReferenceKey(AccountIndex::from(1), "mixed-length%id".parse().unwrap()),
+            BalanceReferenceKey(AccountIndex::from(1), "a".repeat(128).parse().unwrap()),
         ];
 
         for lock_id in &lock_ids {
@@ -467,12 +462,13 @@ mod test {
             assert_eq!(bytes.borrow().len(), 24);
             assert_eq!(LockId::try_from_bytes(bytes.borrow()).unwrap(), *lock_id);
         }
-        for balance_ref in balance_refs {
+        for balance_ref in &balance_refs {
             let bytes = balance_ref.to_bytes();
-            assert_eq!(bytes.borrow().len(), 16);
+            assert_eq!(&bytes.borrow()[..8], &balance_ref.0.index.to_be_bytes());
+            assert_eq!(bytes.borrow().len(), 8 + 1 + balance_ref.1.as_ref().len());
             assert_eq!(
                 BalanceReferenceKey::try_from_bytes(bytes.borrow()).unwrap(),
-                balance_ref
+                balance_ref.clone()
             );
         }
         assert!(lock_ids[0].to_bytes().borrow() < lock_ids[1].to_bytes().borrow());
@@ -494,7 +490,7 @@ mod test {
     #[test]
     fn persistent_lock_store_load_preserves_values_and_hash() {
         let mut store = BlobStoreStub::default();
-        let balance_ref = BalanceReferenceKey(AccountIndex::from(1), TokenIndex(2));
+        let balance_ref = BalanceReferenceKey(AccountIndex::from(1), "Token2".parse().unwrap());
         let mut lock = PersistentLockP11::new(lock_configuration());
         lock.locked_balances = lock
             .locked_balances
@@ -530,7 +526,7 @@ mod test {
 
     #[test]
     fn typed_key_deletion_removes_entry() {
-        let balance_ref = BalanceReferenceKey(AccountIndex::from(1), TokenIndex(2));
+        let balance_ref = BalanceReferenceKey(AccountIndex::from(1), "Token2".parse().unwrap());
         let trie = BalanceReferences::empty()
             .insert_or_update_entry(&BlobStoreStub::default(), &balance_ref, StoreSerialized(()))
             .unwrap();

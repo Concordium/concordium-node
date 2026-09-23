@@ -13,7 +13,7 @@ use plt_block_state::entity::protocol_level_tokens::p11::Roles;
 use plt_block_state::persistent::protocol_level_locks::p11::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
 };
-use plt_block_state::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Test create a token in the block state and read its configuration.
@@ -359,6 +359,8 @@ fn test_lock_by_id() {
 fn test_lock_balance_refs() {
     let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
+    let token_id_1: TokenId = "Token1".parse().unwrap();
+    let token_id_2: TokenId = "Token2".parse().unwrap();
 
     // Create lock
     let lock_id = LockId {
@@ -391,12 +393,12 @@ fn test_lock_balance_refs() {
     assert_eq!(lock.lock_balance_refs(&context).unwrap(), vec![]);
 
     // Add balance refs
-    lock.add_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+    lock.add_lock_balance_ref(&context, AccountIndex::from(0), &token_id_1)
         .unwrap();
-    lock.add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+    lock.add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
         .unwrap();
     // Re-inserting an existing membership does not duplicate it.
-    lock.add_lock_balance_ref(&context, AccountIndex::from(1), TokenIndex(1))
+    lock.add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
         .unwrap();
 
     // Update lock
@@ -410,17 +412,17 @@ fn test_lock_balance_refs() {
     assert_eq!(
         lock.lock_balance_refs(&context).unwrap(),
         vec![
-            (AccountIndex::from(0), TokenIndex(0)),
-            (AccountIndex::from(1), TokenIndex(1))
+            (AccountIndex::from(0), token_id_1.clone()),
+            (AccountIndex::from(1), token_id_2)
         ]
     );
     assert!(
-        lock.remove_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+        lock.remove_lock_balance_ref(&context, AccountIndex::from(0), &token_id_1)
             .unwrap()
     );
     assert!(
         !lock
-            .remove_lock_balance_ref(&context, AccountIndex::from(0), TokenIndex(0))
+            .remove_lock_balance_ref(&context, AccountIndex::from(0), &token_id_1)
             .unwrap()
     );
 }
