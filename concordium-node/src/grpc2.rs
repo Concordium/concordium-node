@@ -1634,6 +1634,7 @@ pub mod server {
         }
     }
 
+    #[expect(clippy::result_large_err)]
     impl RpcServerImpl {
         /// Run a computation in thread pool dedicated for running
         /// long-running computations. The gRPC server uses tokio tasks
