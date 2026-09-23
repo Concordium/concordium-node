@@ -10,17 +10,15 @@ use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use crate::persistent::trie::{Trie, TrieKey};
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::common::{Buffer, Serialize, from_bytes_complete, to_bytes};
+use concordium_base::common::{Buffer, Serialize, from_bytes_complete};
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
 use std::io::Read;
 
-/// Inline capacity matching one serialized `u64` key component.
-const TRIE_KEY_INLINE_LENGTH: usize = 8;
-
 /// Persistent collection of protocol-level locks on P11 and later protocols.
-pub type PersistentLocksP11 = Trie<TRIE_KEY_INLINE_LENGTH, LockId, PersistentLockP11>;
+// Trie inline key length 24 matches the size of `LockId`
+pub type PersistentLocksP11 = Trie<24, LockId, PersistentLockP11>;
 
 /// Trie key for a locked account/token balance reference.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -28,7 +26,11 @@ pub(crate) struct BalanceReferenceKey(pub(crate) AccountIndex, pub(crate) TokenI
 
 impl TrieKey for LockId {
     fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
-        to_bytes(self)
+        let mut bytes = [0; 24];
+        bytes[..8].copy_from_slice(&self.account_index.to_be_bytes());
+        bytes[8..16].copy_from_slice(&self.sequence_number.to_be_bytes());
+        bytes[16..].copy_from_slice(&self.creation_order.to_be_bytes());
+        bytes
     }
 
     fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self> {
@@ -42,7 +44,10 @@ impl TrieKey for LockId {
 
 impl TrieKey for BalanceReferenceKey {
     fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
-        to_bytes(&(self.0, self.1))
+        let mut bytes = [0; 16];
+        bytes[..8].copy_from_slice(&self.0.index.to_be_bytes());
+        bytes[8..].copy_from_slice(&self.1.0.to_be_bytes());
+        bytes
     }
 
     fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self> {
@@ -55,7 +60,8 @@ impl TrieKey for BalanceReferenceKey {
     }
 }
 
-type BalanceReferences = Trie<TRIE_KEY_INLINE_LENGTH, BalanceReferenceKey, StoreSerialized<()>>;
+// Trie inline key length 16 matches the size of `BalanceReferenceKey`
+type BalanceReferences = Trie<16, BalanceReferenceKey, StoreSerialized<()>>;
 
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone)]

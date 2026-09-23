@@ -27,7 +27,9 @@ use tinyvec::{TinyVec, tiny_vec};
 /// reusing the nodes that have not changed by the operation.
 /// Keys must allow converting to a type that allows borrowing a byte slice (`&[u8]`) that represents the
 /// key, and convert back again from a byte slice. See the trait [`TrieKey`]. Keys of length up to
-/// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated.
+/// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated. Notice that fixed length
+/// keys up to a size of 24 bytes are best represented with `INLINE_KEY_LENGTH` that matches the
+/// size precisely, as the heap allocated key has a mininum size of 24 bytes due to `Vec` metadata.
 ///
 /// The operations supported for creating new tries are:
 ///
@@ -75,7 +77,16 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Default for Trie<INLINE_KEY_LENGTH, K
 /// Trait implemented by trie keys, which allows them to be bijectively mapped
 /// to byte arrays or slices.
 pub trait TrieKey {
-    /// Map key to bytes
+    /// Map key to bytes. Prefer implementations that return static size arrays when working with
+    /// static size keys to avoid heap allocation.
+    ///
+    /// ## Example
+    /// ```
+    /// let mut bytes = [0; 16]; // key composed of two u64
+    /// bytes[..8].copy_from_slice(first.to_be_bytes());
+    /// bytes[8..].copy_from_slice(second.to_be_bytes());
+    /// bytes
+    /// ```
     fn to_bytes(&self) -> impl Borrow<[u8]>;
 
     /// Map bytes to key
