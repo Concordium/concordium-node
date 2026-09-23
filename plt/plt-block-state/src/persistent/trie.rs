@@ -27,7 +27,9 @@ use tinyvec::{TinyVec, tiny_vec};
 /// reusing the nodes that have not changed by the operation.
 /// Keys must allow converting to a type that allows borrowing a byte slice (`&[u8]`) that represents the
 /// key, and convert back again from a byte slice. See the trait [`TrieKey`]. Keys of length up to
-/// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated.
+/// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated. Notice that fixed length
+/// keys up to a size of 24 bytes are best represented with `INLINE_KEY_LENGTH` that matches the
+/// size precisely, as the heap allocated key has a mininum size of 24 bytes due to `Vec` metadata.
 ///
 /// The operations supported for creating new tries are:
 ///
@@ -75,7 +77,18 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Default for Trie<INLINE_KEY_LENGTH, K
 /// Trait implemented by trie keys, which allows them to be bijectively mapped
 /// to byte arrays or slices.
 pub trait TrieKey {
-    /// Map key to bytes
+    /// Map key to bytes. Prefer implementations that return static size arrays when working with
+    /// static size keys to avoid heap allocation.
+    ///
+    /// ## Example
+    /// ```
+    /// fn to_bytes((fst, snd): &(u64, u64)) -> impl std::borrow::Borrow<[u8]> {
+    ///   let mut bytes = [0; 16]; // key composed of two u64
+    ///   bytes[..8].copy_from_slice(&fst.to_be_bytes());
+    ///   bytes[8..].copy_from_slice(&snd.to_be_bytes());
+    ///   bytes
+    /// }
+    /// ```
     fn to_bytes(&self) -> impl Borrow<[u8]>;
 
     /// Map bytes to key
@@ -268,13 +281,14 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         key: &K,
     ) -> BlockStateResult<Option<Self>>
     where
-        K: Borrow<[u8]>,
+        K: TrieKey,
         V: Loadable + Clone,
     {
         if self.size == 0 {
             return Ok(None);
         }
-        let Some(new_root) = self.root.delete_rec(loader, key.borrow())? else {
+        let key_bytes = key.to_bytes();
+        let Some(new_root) = self.root.delete_rec(loader, key_bytes.borrow())? else {
             return Ok(None);
         };
 
@@ -283,6 +297,23 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
             root: new_root,
             _key_type: self._key_type,
         }))
+    }
+
+    /// Iterates all entries in lexicographical key order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockStateFailure`] if decoding data from the blob store fails, or if the trie
+    /// does not fulfill the expected invariants.
+    pub fn iter<'a, 'b, L: BlobStoreLoad>(
+        &'b self,
+        loader: &'a L,
+    ) -> impl Iterator<Item = BlockStateResult<(K, Cow<'b, V>)>> + use<'a, 'b, INLINE_KEY_LENGTH, L, K, V>
+    where
+        K: TrieKey,
+        V: Loadable,
+    {
+        PrefixIterator::with_root(TinyVec::<_>::new(), Cow::Borrowed(&self.root), loader)
     }
 
     /// Iterates all entries with keys that have the given `key` as prefix, including
