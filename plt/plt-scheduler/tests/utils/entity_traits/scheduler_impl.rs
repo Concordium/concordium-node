@@ -10,6 +10,7 @@ use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
@@ -17,27 +18,40 @@ use plt_scheduler::failure::ResultWithBlockStateFailureExt;
 use plt_scheduler::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
 use plt_scheduler::{failure, protocol_level_tokens};
-use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
+use plt_scheduler_types::types::execution::{
+    ChainUpdateOutcome, TransactionExecutionSummary, TransactionOutcome,
+};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
-use std::mem;
 
 impl SchedulerOperations for BlockStateP9 {
-    fn execute_transaction<C: EntityContextTypes>(
+    fn execute_transaction(
         &mut self,
-        context: &mut EntityContext<C>,
+        context: &mut StubbedEntityContext,
         transaction_context: TransactionContext,
         sender_account: AccountIndex,
         payload: Payload,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-        let sender_account = Account::from_existing_account(sender_account);
-
-        scheduler::p9::execute_transaction(
+        // Mirror the production transaction rollback around external callbacks.
+        let block_state_checkpoint = self.clone();
+        let external_checkpoint = context.external.clone();
+        let result = scheduler::p9::execute_transaction(
             context,
             self,
             transaction_context,
-            sender_account.clone(),
+            Account::from_existing_account(sender_account),
             payload,
-        )
+        );
+        if matches!(
+            result,
+            Ok(TransactionExecutionSummary {
+                outcome: TransactionOutcome::Rejected(_),
+                ..
+            })
+        ) {
+            *self = block_state_checkpoint;
+            context.external = external_checkpoint;
+        }
+        result
     }
 
     fn execute_chain_update<C: EntityContextTypes>(
@@ -100,25 +114,37 @@ impl SchedulerOperations for BlockStateP9 {
 }
 
 impl SchedulerOperations for BlockStateP11 {
-    fn execute_transaction<C: EntityContextTypes>(
+    fn execute_transaction(
         &mut self,
-        context: &mut EntityContext<C>,
+        context: &mut StubbedEntityContext,
         transaction_context: TransactionContext,
         sender_account: AccountIndex,
         payload: Payload,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-        let sender_account = Account::from_existing_account(sender_account);
-
-        scheduler::p11::execute_transaction(
+        // Mirror the production transaction rollback around external callbacks.
+        let block_state_checkpoint = self.clone();
+        let external_checkpoint = context.external.clone();
+        let result = scheduler::p11::execute_transaction(
             context,
             self,
             transaction_context,
-            sender_account.clone(),
+            Account::from_existing_account(sender_account),
             payload,
             &PersistentChainParametersP11 {
                 max_lock_duration: Duration::from_millis(u64::MAX),
             },
-        )
+        );
+        if matches!(
+            result,
+            Ok(TransactionExecutionSummary {
+                outcome: TransactionOutcome::Rejected(_),
+                ..
+            })
+        ) {
+            *self = block_state_checkpoint;
+            context.external = external_checkpoint;
+        }
+        result
     }
 
     fn execute_chain_update<C: EntityContextTypes>(

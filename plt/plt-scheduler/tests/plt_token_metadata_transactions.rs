@@ -60,7 +60,9 @@ fn test_token_metadata_updates() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -107,7 +109,9 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -131,7 +135,9 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -174,7 +180,9 @@ fn test_role_authorization_update_metadata() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -198,7 +206,9 @@ fn test_role_authorization_update_metadata() {
             &mut context,
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -254,7 +264,9 @@ fn test_update_metadata_rejects_with_additional_data() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);

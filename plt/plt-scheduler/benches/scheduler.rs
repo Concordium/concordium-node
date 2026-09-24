@@ -23,7 +23,7 @@ use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload, lock_create as meta_lock_create,
+    MetaOperation, MetaOperations, MetaOperationsPayload, lock_create as meta_lock_create,
     lock_fund, lock_release, lock_send,
 };
 use concordium_base::protocol_level_tokens::{
@@ -113,10 +113,12 @@ fn prepare_token(
         )
     } else {
         Payload::TokenUpdate {
-            payload: TokenOperationsPayload {
-                token_id,
-                operations: RawCbor::from(cbor::cbor_encode(&operations)),
-            },
+            payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(
+                TokenOperationsPayload {
+                    token_id,
+                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                },
+            ),
         }
     };
     Fixture {
@@ -361,11 +363,13 @@ fn meta_update_deny_list(bencher: Bencher, count: usize) {
 /// # Arguments
 ///
 /// - `operations`: Operations included in the transaction payload.
-fn meta_payload(operations: Vec<MetaUpdateOperation>) -> Payload {
-    Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&MetaUpdateOperations { operations })),
-        },
+fn meta_payload(operations: Vec<MetaOperation>) -> Payload {
+    Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&MetaOperations { operations })),
+            },
+        ),
     }
 }
 

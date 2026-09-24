@@ -433,7 +433,9 @@ fn test_query_token_account_info_allow_list_no_balance() {
                 block_timestamp: 0.into(),
             },
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

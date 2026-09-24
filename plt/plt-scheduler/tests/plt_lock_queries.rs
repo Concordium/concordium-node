@@ -13,7 +13,7 @@ use concordium_base::protocol_level_locks::{
     LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperations, MetaUpdatePayload, lock_create,
+    MetaOperations, MetaOperationsPayload, lock_create,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -163,7 +163,7 @@ fn test_query_lock_info_any_recipient() {
         description: Some("Metadata returned by GetLockInfo".to_string()),
         additional: HashMap::from([("purpose".to_string(), Value::Text("query test".to_string()))]),
     };
-    let operations = MetaUpdateOperations {
+    let operations = MetaOperations {
         operations: vec![lock_create(
             concordium_base::protocol_level_locks::LockConfig::SimpleV0(
                 concordium_base::protocol_level_locks::LockConfigSimpleV0 {
@@ -193,10 +193,12 @@ fn test_query_lock_info_any_recipient() {
                 block_timestamp: 0.into(),
             },
             owner.account_index(),
-            Payload::MetaUpdate {
-                payload: MetaUpdatePayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+                    MetaOperationsPayload {
+                        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                    },
+                ),
             },
         )
         .expect("create any-recipient lock must succeed");

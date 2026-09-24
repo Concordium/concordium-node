@@ -5,6 +5,7 @@ use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::block_state::{LockNotFoundByIdError, TokenNotFoundByIdError};
+use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::failure::BlockStateResult;
 use plt_block_state::persistent::blob_reference;
@@ -16,9 +17,9 @@ use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations,
 /// Operations and queries that the scheduler must support. Must be implemented by all
 /// protocol version block states.
 pub trait SchedulerOperations {
-    fn execute_transaction<C: EntityContextTypes>(
+    fn execute_transaction(
         &mut self,
-        context: &mut EntityContext<C>,
+        context: &mut StubbedEntityContext,
         transaction_context: TransactionContext,
         sender_account: AccountIndex,
         payload: Payload,

@@ -99,7 +99,9 @@ fn test_rbac_assign_roles() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -199,7 +201,9 @@ fn test_rbac_assign_same_roles() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -225,7 +229,9 @@ fn test_rbac_assign_same_roles() {
             &mut context,
             utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -296,7 +302,9 @@ fn test_rbac_assign_unauthorization_sender_rejects() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -335,7 +343,9 @@ fn test_rbac_assign_rejects_p10() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -372,7 +382,9 @@ fn test_rbac_assign_role_works_when_paused() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -398,7 +410,9 @@ fn test_rbac_assign_role_works_when_paused() {
             &mut context,
             utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -461,7 +475,9 @@ fn test_rbac_assign_rejects_for_unabled_burn() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -503,7 +519,9 @@ fn test_rbac_revoke_roles() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -571,7 +589,9 @@ fn test_rbac_revoke_same_roles() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -594,7 +614,9 @@ fn test_rbac_revoke_same_roles() {
             &mut context,
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -674,7 +696,9 @@ fn test_rbac_revoke_rejects_without_admin_role() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -712,7 +736,9 @@ fn test_rbac_revoke_rejects_p10() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -748,7 +774,9 @@ fn test_rbac_revoke_role_works_when_paused() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -771,7 +799,9 @@ fn test_rbac_revoke_role_works_when_paused() {
             &mut context,
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -839,7 +869,9 @@ fn test_rbac_revoke_admin_role_from_sender_rejects() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -877,7 +909,9 @@ fn test_rbac_revoke_rejects_for_unabled_burn() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
@@ -920,7 +954,9 @@ fn test_rbac_admin_role_rotation_succeeds() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -946,7 +982,9 @@ fn test_rbac_admin_role_rotation_succeeds() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));

@@ -1,4 +1,4 @@
-//! Tests for the meta-update transaction execution logic.
+//! Tests for the tokenless Token Update transaction execution logic.
 
 use std::str::FromStr;
 
@@ -21,7 +21,7 @@ use plt_scheduler_types::types::events::{
 };
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
-use plt_scheduler_types::types::tokens::{self, TokenHolder};
+use plt_scheduler_types::types::tokens::{self, RawTokenAmount, TokenHolder};
 
 use crate::utils::BlockStateLatest;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
@@ -88,7 +88,7 @@ fn setup_test_plts(
 }
 
 #[test]
-fn test_meta_update_transaction() {
+fn test_tokenless_transaction() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -125,7 +125,7 @@ fn test_meta_update_transaction() {
         remove_token_allow_list(plt_y.clone(), account_1_addr),
     ];
 
-    let payload = meta_operations::MetaUpdatePayload {
+    let payload = meta_operations::MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
     let result = block_state
@@ -138,7 +138,9 @@ fn test_meta_update_transaction() {
                 block_timestamp: 0.into(),
             },
             account_1.account_index(),
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -257,7 +259,65 @@ fn test_meta_update_transaction() {
 }
 
 #[test]
-fn test_meta_update_transaction_cbor_extra_fields() {
+fn test_tokenless_transaction_rolls_back_earlier_token_operation() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let account_1 = context.external.create_account();
+    let account_2 = context.external.create_account();
+    let account_1_addr = context
+        .external
+        .account_canonical_address(account_1.account_index());
+    let account_2_addr = context
+        .external
+        .account_canonical_address(account_2.account_index());
+    setup_test_plts(&mut context, &mut block_state, &account_1);
+    let plt_x: TokenId = PLT_X.parse().unwrap();
+    let plt_y: TokenId = PLT_Y.parse().unwrap();
+
+    use meta_operations::*;
+    let operations = vec![
+        transfer_tokens(plt_x.clone(), account_2_addr, TokenAmount::from_raw(100, 2)),
+        transfer_tokens(plt_y, account_2_addr, TokenAmount::from_raw(1, 0)),
+    ];
+    let payload = MetaOperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account_1_addr,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
+            account_1.account_index(),
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
+        )
+        .expect("transaction internal error");
+    assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
+
+    let plt_x = block_state
+        .token_by_id(&context, &plt_x)
+        .expect("query pltX")
+        .expect("pltX exists");
+    let plt_x_index = plt_x.token_p9_base.token_index();
+    assert_eq!(
+        account_1.account_token_balance(&context, plt_x_index),
+        RawTokenAmount::from(10000)
+    );
+    assert_eq!(
+        account_2.account_token_balance(&context, plt_x_index),
+        RawTokenAmount::from(0)
+    );
+}
+
+#[test]
+fn test_tokenless_transaction_cbor_extra_fields() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -268,7 +328,7 @@ fn test_meta_update_transaction_cbor_extra_fields() {
         .account_canonical_address(account_1.account_index());
     use meta_operations::*;
 
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from_str("81a1687472616e73666572a5646d656d6f440102030465746f6b656e68746f6b656e69643166616d6f756e74c482211a000186a069726563697069656e74d99d73a201d99d71a1011903970358200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2064626c616801").unwrap(),
     };
     payload
@@ -284,7 +344,9 @@ fn test_meta_update_transaction_cbor_extra_fields() {
                 block_timestamp: 0.into(),
             },
             account_1.account_index(),
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(
