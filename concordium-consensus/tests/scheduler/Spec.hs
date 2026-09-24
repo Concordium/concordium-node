@@ -13,7 +13,6 @@ import qualified SchedulerTests.InitPoliciesTest (tests)
 import qualified SchedulerTests.InitialAccountCreationSpec (tests)
 import qualified SchedulerTests.MaxIncomingAmountsTest (tests)
 import qualified SchedulerTests.MaxLockDurationUpdate (tests)
-import qualified SchedulerTests.MetaUpdateTransactions (tests)
 import qualified SchedulerTests.Payday (tests)
 import qualified SchedulerTests.RandomBakerTransactions (tests)
 import qualified SchedulerTests.ReceiveContextTest (tests)
@@ -27,6 +26,7 @@ import qualified SchedulerTests.StakedAmountLocked (tests)
 import qualified SchedulerTests.TokenCreation (tests)
 import qualified SchedulerTests.TokenHolderTransactions (tests)
 import qualified SchedulerTests.TokenModule (tests)
+import qualified SchedulerTests.TokenUpdateTransactions (tests)
 import qualified SchedulerTests.TransactionExpirySpec (tests)
 import qualified SchedulerTests.TransactionGroupingSpec2 (tests)
 import qualified SchedulerTests.TransfersWithScheduleTest (tests)
@@ -124,5 +124,5 @@ main = hspec $ do
     SchedulerTests.TokenCreation.tests
     SchedulerTests.MaxLockDurationUpdate.tests
     SchedulerTests.TokenHolderTransactions.tests
-    SchedulerTests.MetaUpdateTransactions.tests
+    SchedulerTests.TokenUpdateTransactions.tests
     SchedulerTests.RustScheduler.tests
