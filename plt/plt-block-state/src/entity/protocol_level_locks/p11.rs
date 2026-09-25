@@ -4,10 +4,10 @@ use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::protocol_level_locks::p11::{
     BalanceReferenceKey, LockConfig, PersistentLockP11, PersistentLocksP11,
 };
-use crate::persistent::protocol_level_tokens::p9::TokenIndex;
 use crate::utils;
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_locks::LockId;
+use concordium_base::protocol_level_tokens::TokenId;
 
 pub(crate) fn create_lock<C: EntityContextTypes>(
     context: &EntityContext<C>,
@@ -113,7 +113,7 @@ impl LockP11 {
     pub fn iter_lock_balance_refs<'a, C: EntityContextTypes>(
         &'a self,
         context: &'a EntityContext<C>,
-    ) -> impl Iterator<Item = BlockStateResult<(AccountIndex, TokenIndex)>> + 'a {
+    ) -> impl Iterator<Item = BlockStateResult<(AccountIndex, TokenId)>> + 'a {
         self.persistent
             .locked_balances
             .iter(&context.store)
@@ -127,7 +127,7 @@ impl LockP11 {
     pub fn lock_balance_refs<C: EntityContextTypes>(
         &self,
         context: &EntityContext<C>,
-    ) -> BlockStateResult<Vec<(AccountIndex, TokenIndex)>> {
+    ) -> BlockStateResult<Vec<(AccountIndex, TokenId)>> {
         self.iter_lock_balance_refs(context).collect()
     }
 
@@ -138,11 +138,11 @@ impl LockP11 {
         &mut self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
-        token_index: TokenIndex,
+        token_id: TokenId,
     ) -> BlockStateResult<()> {
         self.persistent.locked_balances = self.persistent.locked_balances.insert_or_update_entry(
             &context.store,
-            &BalanceReferenceKey(account_index, token_index),
+            &BalanceReferenceKey(account_index, token_id),
             StoreSerialized(()),
         )?;
         Ok(())
@@ -155,11 +155,11 @@ impl LockP11 {
         &mut self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
-        token_index: TokenIndex,
+        token_id: TokenId,
     ) -> BlockStateResult<bool> {
         let Some(references) = self.persistent.locked_balances.delete_entry(
             &context.store,
-            &BalanceReferenceKey(account_index, token_index),
+            &BalanceReferenceKey(account_index, token_id),
         )?
         else {
             return Ok(false);

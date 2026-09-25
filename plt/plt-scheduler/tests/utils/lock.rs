@@ -105,20 +105,23 @@ pub fn lock_balance(
     token_id: &TokenId,
     amount: RawTokenAmount,
 ) {
-    // Get the token and determine its index
     let token = block_state
         .token_by_id(context, token_id)
         .unwrap()
         .expect("token must exist");
-    let token_index = token.token_p9_base.token_index();
+    let token_configuration = token.token_p9_base.token_configuration(context).unwrap();
 
-    // Register the (account, token) pair in the lock state
+    // Register the (account, token) pair in the lock state.
     let mut lock = block_state
         .lock_by_id(context, lock_id)
         .unwrap()
         .expect("lock must exist");
-    lock.add_lock_balance_ref(context, funder_account, token_index)
-        .unwrap();
+    lock.add_lock_balance_ref(
+        context,
+        funder_account,
+        token_configuration.token_id.clone(),
+    )
+    .unwrap();
     block_state.update_lock(context, lock).unwrap();
 
     // Set the locked amount in the token module KV state

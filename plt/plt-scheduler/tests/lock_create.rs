@@ -123,13 +123,14 @@ fn test_create_simple_lock() {
                 LockControllerSimpleV0Capability::Fund,
             ],
         }],
-        tokens: vec![plt_x],
+        tokens: vec!["PLTx".parse().unwrap()],
         keep_alive: false,
         memo: None,
         metadata: Some(metadata.encode_raw_cbor()),
     });
     let mut canonical_config = config.clone();
     let LockConfig::SimpleV0(controller) = &mut canonical_config;
+    controller.tokens = vec![plt_x.clone()];
     controller.grants[0].roles = vec![
         LockControllerSimpleV0Capability::Fund,
         LockControllerSimpleV0Capability::Release,
@@ -194,6 +195,7 @@ fn test_create_simple_lock() {
             LockControllerSimpleV0Capability::Cancel,
         ]
     );
+    assert_eq!(controller.tokens(), &[plt_x]);
 }
 
 #[test]

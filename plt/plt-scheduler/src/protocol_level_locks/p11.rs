@@ -9,12 +9,12 @@ use concordium_base::contracts_common::Duration;
 use concordium_base::protocol_level_locks::{
     LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
 };
-use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::protocol_level_tokens::meta_operations::{
     LockOperation, MetaLockCancelDetails, MetaLockCreateDetails, MetaLockFundDetails,
     MetaLockReleaseDetails, MetaLockSendDetails,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor};
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use concordium_base::transactions;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
@@ -58,8 +58,15 @@ pub fn query_lock_info<C: EntityContextTypes>(
     // Group the tracked `(account, token)` balances by account so we emit a single
     // `LockAccountFunds` entry per account.
     let mut funds_by_account: BTreeMap<AccountIndex, Vec<LockedTokenAmount>> = BTreeMap::new();
-    for (account_index, token_index) in lock.lock_balance_refs(context)? {
-        let token = block_state.token_by_index(context, token_index)?;
+    for (account_index, token_id) in lock.lock_balance_refs(context)? {
+        let token = block_state
+            .token_by_id(context, &token_id)?
+            .map_err(|err| {
+                BlockStateFailure::Invariant(format!(
+                    "lock balance reference points to missing token {}",
+                    err.0
+                ))
+            })?;
         let token_configuration = token.token_p9_base.token_configuration(context)?;
 
         // for each locked balance record for the lock, get the locked token amount recorded in the
@@ -163,7 +170,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    details: MetaLockFundDetails,
+    mut details: MetaLockFundDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -177,6 +184,11 @@ fn execute_lock_fund<C: EntityContextTypes>(
         return Err(TransactionRejectReason::LockExpired(lock.lock_id().clone()).into());
     }
 
+    let mut token = block_state.token_by_id(context, &details.token)?.map_err(
+        |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
+    )?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
+    details.token = token_configuration.token_id.clone();
     lock_configuration::validate_operation(
         &lock_configuration,
         transaction_execution.sender_account_address(),
@@ -184,10 +196,6 @@ fn execute_lock_fund<C: EntityContextTypes>(
         &lock_configuration::LockOperation::Fund(details.clone()),
     )?;
 
-    let mut token = block_state.token_by_id(context, &details.token)?.map_err(
-        |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
-    )?;
-    let token_configuration = token.token_p9_base.token_configuration(context)?;
     let raw_amount = token_amount::to_raw_token_amount(&token_configuration, details.amount)
         .map_err(|err| {
             reject::deserialization_failure_amount_decimals_mismatch(&token_configuration, err)
@@ -208,14 +216,13 @@ fn execute_lock_fund<C: EntityContextTypes>(
         reject::insufficient_balance(&token_configuration, operation_index, err)
     })?;
 
-    let token_index = token.token_p9_base.token_index();
     block_state.update_token(context, token)?;
 
     if is_new_holder {
         lock.add_lock_balance_ref(
             context,
             transaction_execution.sender_account().account_index(),
-            token_index,
+            details.token,
         )?;
         block_state.update_lock(context, lock)?;
     }
@@ -227,7 +234,7 @@ fn execute_lock_send<C: EntityContextTypes>(
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    details: MetaLockSendDetails,
+    mut details: MetaLockSendDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -254,6 +261,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
     )?;
     let token_configuration = token.token_p9_base.token_configuration(context)?;
+    details.token = token_configuration.token_id.clone();
 
     check_transfer_constraints(
         context,
@@ -302,7 +310,6 @@ fn execute_lock_send<C: EntityContextTypes>(
         reject::insufficient_balance(&token_configuration, operation_index, err)
     })?;
 
-    let token_index = token.token_p9_base.token_index();
     block_state.update_token(context, token)?;
 
     if remaining_locked == RawTokenAmount::from(0) {
@@ -313,7 +320,7 @@ fn execute_lock_send<C: EntityContextTypes>(
             lock_configuration_keeps_alive(&lock_configuration),
             lock,
             source.account_index(),
-            token_index,
+            token_configuration.token_id.clone(),
             details.lock,
         )?;
     }
@@ -326,7 +333,7 @@ fn execute_lock_release<C: EntityContextTypes>(
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    details: MetaLockReleaseDetails,
+    mut details: MetaLockReleaseDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -345,6 +352,11 @@ fn execute_lock_release<C: EntityContextTypes>(
         .account_by_address(&source_address)
         .map_err(|_| TransactionRejectReason::InvalidAccountReference(source_address))?;
 
+    let mut token = block_state.token_by_id(context, &details.token)?.map_err(
+        |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
+    )?;
+    let token_configuration = token.token_p9_base.token_configuration(context)?;
+    details.token = token_configuration.token_id.clone();
     lock_configuration::validate_operation(
         &lock_configuration,
         transaction_execution.sender_account_address(),
@@ -352,10 +364,6 @@ fn execute_lock_release<C: EntityContextTypes>(
         &lock_configuration::LockOperation::Release(details.clone()),
     )?;
 
-    let mut token = block_state.token_by_id(context, &details.token)?.map_err(
-        |TokenNotFoundByIdError(token_id)| TransactionRejectReason::NonExistentTokenId(token_id),
-    )?;
-    let token_configuration = token.token_p9_base.token_configuration(context)?;
     let raw_amount = token_amount::to_raw_token_amount(&token_configuration, details.amount)
         .map_err(|err| {
             reject::deserialization_failure_amount_decimals_mismatch(&token_configuration, err)
@@ -376,7 +384,6 @@ fn execute_lock_release<C: EntityContextTypes>(
         reject::insufficient_balance(&token_configuration, operation_index, err)
     })?;
 
-    let token_index = token.token_p9_base.token_index();
     block_state.update_token(context, token)?;
 
     if remaining_locked == RawTokenAmount::from(0) {
@@ -387,7 +394,7 @@ fn execute_lock_release<C: EntityContextTypes>(
             lock_configuration_keeps_alive(&lock_configuration),
             lock,
             source.account_index(),
-            token_index,
+            token_configuration.token_id.clone(),
             details.lock,
         )?;
     }
@@ -466,8 +473,15 @@ fn execute_lock_cancel<C: EntityContextTypes>(
         )?;
     }
     for balance_ref in lock.iter_lock_balance_refs(context) {
-        let (account_index, token_index) = balance_ref?;
-        let mut token = block_state.token_by_index(context, token_index)?;
+        let (account_index, token_id) = balance_ref?;
+        let mut token = block_state
+            .token_by_id(context, &token_id)?
+            .map_err(|err| {
+                BlockStateFailure::Invariant(format!(
+                    "lock balance reference points to missing token {}",
+                    err.0
+                ))
+            })?;
         balance_operations::unlock_balance(
             context,
             events,
@@ -494,10 +508,10 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     lock_keeps_alive: bool,
     mut lock: plt_block_state::entity::protocol_level_locks::p11::LockP11,
     account_index: AccountIndex,
-    token_index: plt_block_state::persistent::protocol_level_tokens::p9::TokenIndex,
+    token_id: TokenId,
     lock_id: LockId,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    if !lock.remove_lock_balance_ref(context, account_index, token_index)? {
+    if !lock.remove_lock_balance_ref(context, account_index, token_id)? {
         // No lock state change needed: either the account still holds a non-zero balance
         // controlled by the lock, or there was no balance reference to remove.
         return Ok(());

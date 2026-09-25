@@ -138,7 +138,7 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
         sender.account_index(),
         0,
         vec![lock_release(
-            token_id.clone(),
+            "PLTx".parse().unwrap(),
             lock_id.clone(),
             sender_addr,
             TokenAmount::from_raw(250, 4),

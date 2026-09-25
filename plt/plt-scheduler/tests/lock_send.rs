@@ -137,7 +137,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
                 None,
             ),
             lock_send(
-                token_id.clone(),
+                "PLTx".parse().unwrap(),
                 lock_id.clone(),
                 sender_addr,
                 recipient_addr,
