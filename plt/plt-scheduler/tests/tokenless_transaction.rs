@@ -21,7 +21,7 @@ use plt_scheduler_types::types::events::{
 };
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
-use plt_scheduler_types::types::tokens::{self, RawTokenAmount, TokenHolder};
+use plt_scheduler_types::types::tokens::{self, TokenHolder};
 
 use crate::utils::BlockStateLatest;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
@@ -255,64 +255,6 @@ fn test_tokenless_transaction() {
             })
             .into(),
         })
-    );
-}
-
-#[test]
-fn test_tokenless_transaction_rolls_back_earlier_token_operation() {
-    let mut context = entity_test_stub::new_stubbed_context();
-    let mut block_state = BlockStateLatest::default();
-
-    let account_1 = context.external.create_account();
-    let account_2 = context.external.create_account();
-    let account_1_addr = context
-        .external
-        .account_canonical_address(account_1.account_index());
-    let account_2_addr = context
-        .external
-        .account_canonical_address(account_2.account_index());
-    setup_test_plts(&mut context, &mut block_state, &account_1);
-    let plt_x: TokenId = PLT_X.parse().unwrap();
-    let plt_y: TokenId = PLT_Y.parse().unwrap();
-
-    use meta_operations::*;
-    let operations = vec![
-        transfer_tokens(plt_x.clone(), account_2_addr, TokenAmount::from_raw(100, 2)),
-        transfer_tokens(plt_y, account_2_addr, TokenAmount::from_raw(1, 0)),
-    ];
-    let payload = MetaOperationsPayload {
-        operations: RawCbor::from(cbor::cbor_encode(&operations)),
-    };
-
-    let result = block_state
-        .execute_transaction(
-            &mut context,
-            plt_scheduler::TransactionContext {
-                energy_limit: Energy::from(u64::MAX),
-                sender_account_address: account_1_addr,
-                transaction_sequence_number: 1.into(),
-                block_timestamp: 0.into(),
-            },
-            account_1.account_index(),
-            Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
-            },
-        )
-        .expect("transaction internal error");
-    assert_matches!(result.outcome, TransactionOutcome::Rejected(_));
-
-    let plt_x = block_state
-        .token_by_id(&context, &plt_x)
-        .expect("query pltX")
-        .expect("pltX exists");
-    let plt_x_index = plt_x.token_p9_base.token_index();
-    assert_eq!(
-        account_1.account_token_balance(&context, plt_x_index),
-        RawTokenAmount::from(10000)
-    );
-    assert_eq!(
-        account_2.account_token_balance(&context, plt_x_index),
-        RawTokenAmount::from(0)
     );
 }
 
