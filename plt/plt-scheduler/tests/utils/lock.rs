@@ -5,7 +5,7 @@ use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
+    MetaOperation, MetaOperations, MetaOperationsPayload,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::transactions::Payload;
@@ -58,7 +58,7 @@ pub fn create_lock(
             },
         )
         .collect();
-    let operations = MetaUpdateOperations {
+    let operations = MetaOperations {
         operations: vec![lock_create(LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients,
             expiry: TransactionTime::from(config.expiry),
@@ -80,10 +80,12 @@ pub fn create_lock(
                 block_timestamp: 0.into(),
             },
             sender.account.account_index(),
-            Payload::MetaUpdate {
-                payload: MetaUpdatePayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+                    MetaOperationsPayload {
+                        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                    },
+                ),
             },
         )
         .expect("create lock transaction must succeed");

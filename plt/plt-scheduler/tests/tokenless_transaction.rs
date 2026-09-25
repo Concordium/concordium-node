@@ -1,4 +1,4 @@
-//! Tests for the meta-update transaction execution logic.
+//! Tests for the tokenless Token Update transaction execution logic.
 
 use std::str::FromStr;
 
@@ -88,7 +88,7 @@ fn setup_test_plts(
 }
 
 #[test]
-fn test_meta_update_transaction() {
+fn test_tokenless_transaction() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -125,7 +125,7 @@ fn test_meta_update_transaction() {
         remove_token_allow_list(plt_y.clone(), account_1_addr),
     ];
 
-    let payload = meta_operations::MetaUpdatePayload {
+    let payload = meta_operations::MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
     let result = block_state
@@ -138,7 +138,9 @@ fn test_meta_update_transaction() {
                 block_timestamp: 0.into(),
             },
             account_1.account_index(),
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -257,7 +259,7 @@ fn test_meta_update_transaction() {
 }
 
 #[test]
-fn test_meta_update_transaction_cbor_extra_fields() {
+fn test_tokenless_transaction_cbor_extra_fields() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -268,7 +270,7 @@ fn test_meta_update_transaction_cbor_extra_fields() {
         .account_canonical_address(account_1.account_index());
     use meta_operations::*;
 
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from_str("81a1687472616e73666572a5646d656d6f440102030465746f6b656e68746f6b656e69643166616d6f756e74c482211a000186a069726563697069656e74d99d73a201d99d71a1011903970358200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2064626c616801").unwrap(),
     };
     payload
@@ -284,7 +286,9 @@ fn test_meta_update_transaction_cbor_extra_fields() {
                 block_timestamp: 0.into(),
             },
             account_1.account_index(),
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(

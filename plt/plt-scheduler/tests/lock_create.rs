@@ -13,7 +13,7 @@ use concordium_base::{
     },
     protocol_level_tokens::{
         MetadataUrl, RawCbor, TokenAmount, TokenId, TokenModuleInitializationParameters,
-        meta_operations::{MetaUpdatePayload, lock_create},
+        meta_operations::{MetaOperationsPayload, lock_create},
     },
     transactions::Payload,
     updates::{CreatePlt, UpdatePayload},
@@ -52,7 +52,7 @@ fn execute_lock_create_with_duration(
         memo: None,
         metadata: None,
     });
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![lock_create(config)])),
     };
     let result = plt_scheduler::scheduler::p11::execute_transaction(
@@ -65,7 +65,9 @@ fn execute_lock_create_with_duration(
             block_timestamp: block_timestamp.into(),
         },
         Account::from_existing_account(account_index),
-        Payload::MetaUpdate { payload },
+        Payload::TokenUpdate {
+            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+        },
         &PersistentChainParametersP11 {
             max_lock_duration: Duration::from_millis(max_lock_duration),
         },
@@ -139,7 +141,7 @@ fn test_create_simple_lock() {
     ];
 
     let operations = vec![lock_create(config)];
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -153,7 +155,9 @@ fn test_create_simple_lock() {
                 block_timestamp: 0.into(),
             },
             account_index_1,
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
@@ -217,7 +221,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         memo: None,
         metadata: None,
     });
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![lock_create(config)])),
     };
 
@@ -231,7 +235,9 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
                 block_timestamp: 0.into(),
             },
             account_index,
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("lock creation must succeed");
 
@@ -299,7 +305,7 @@ fn test_create_any_recipient_lock() {
         metadata: None,
     });
     let operations = vec![lock_create(config.clone())];
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -313,7 +319,9 @@ fn test_create_any_recipient_lock() {
                 block_timestamp: 0.into(),
             },
             account_index_1,
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            },
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
@@ -400,7 +408,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
             metadata: None,
         })
     };
-    let payload = MetaUpdatePayload {
+    let payload = MetaOperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![
             lock_create(config(1)),
             lock_create(config(2)),
@@ -416,7 +424,9 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
             block_timestamp: 0.into(),
         },
         Account::from_existing_account(account_index),
-        Payload::MetaUpdate { payload },
+        Payload::TokenUpdate {
+            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+        },
         &PersistentChainParametersP11 {
             max_lock_duration: Duration::from_millis(1_000),
         },

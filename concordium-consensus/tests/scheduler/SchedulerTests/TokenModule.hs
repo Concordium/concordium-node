@@ -1629,20 +1629,14 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
     mkTransferOp ttAmount ttRecipient ttMemo = TokenTransfer TokenTransferBody{..}
 
     mintPayload =
-        Types.TokenUpdate
-            { tuTokenId = tokenId,
-              tuOperations = encodeTxGV mintTx
-            }
+        Types.TokenUpdate $
+            Types.SingleTokenUpdate tokenId (Types.EncodedTokenOperations (encodeTxGV mintTx))
     burnPayload =
-        Types.TokenUpdate
-            { tuTokenId = tokenId,
-              tuOperations = encodeTxGV burnTx
-            }
+        Types.TokenUpdate $
+            Types.SingleTokenUpdate tokenId (Types.EncodedTokenOperations (encodeTxGV burnTx))
     transferPayload =
-        Types.TokenUpdate
-            { tuTokenId = tokenId,
-              tuOperations = encodeTxTH transferTx
-            }
+        Types.TokenUpdate $
+            Types.SingleTokenUpdate tokenId (Types.EncodedTokenOperations (encodeTxTH transferTx))
     headerSize = fromIntegral Types.transactionHeaderSize
     mintSize =
         Energy $

@@ -456,11 +456,16 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
-                        TokenUpdate{..} ->
-                            onlyWithPLT $ handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
-                        MetaUpdate{..} ->
-                            -- 'MetaUpdate' is only supported from P11, where we have 'PLTStateV1'.
-                            onlyWithPLTV1 $ handleMetaUpdate (mkWTC TTMetaUpdate) muOperations
+                        TokenUpdate (SingleTokenUpdate tokenId (EncodedTokenOperations tokenOperations)) ->
+                            onlyWithPLT $
+                                handleTokenUpdate (mkWTC TTTokenUpdate) tokenId tokenOperations
+                        TokenUpdate (TokenlessUpdate metaOperations) ->
+                            -- Tokenless Token Update is only supported from P11, where we have
+                            -- PLTStateV1 and token-independent lock operations.
+                            onlyWithPLTV1 $
+                                RustScheduler.executeTransaction
+                                    (mkWTC TTTokenUpdate)
+                                    (TokenUpdate (TokenlessUpdate metaOperations))
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2696,7 +2701,8 @@ handleTokenUpdate ::
     SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleTokenUpdate depositContext tokenId tokenOperations = case sPltStateVersionFor (protocolVersion @(MPV m)) of
     SPLTStateV0 -> handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations
-    SPLTStateV1 -> RustScheduler.executeTransaction depositContext (TokenUpdate tokenId tokenOperations)
+    SPLTStateV1 ->
+        RustScheduler.executeTransaction depositContext (TokenUpdate (SingleTokenUpdate tokenId (EncodedTokenOperations tokenOperations)))
 
 -- | Handler for a token update transaction, for protocol version where PLT state is managed in Haskell.
 handleTokenUpdateHaskellManaged ::
@@ -2757,19 +2763,6 @@ handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations =
                         }
             (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenUpdateTransaction tc parameter
             return ((events <$ res, energyUsed), isLeft res)
-
--- | Handler for a meta update transaction.
-handleMetaUpdate ::
-    forall m.
-    ( PltStateVersionFor (MPV m) ~ PLTStateV1,
-      BlockStateOperations m
-    ) =>
-    WithDepositContext m ->
-    -- | Operations.
-    RawCbor ->
-    SchedulerT m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
-handleMetaUpdate depositContext tokenOperations =
-    RustScheduler.executeTransaction depositContext (MetaUpdate tokenOperations)
 
 -- * Chain updates
 

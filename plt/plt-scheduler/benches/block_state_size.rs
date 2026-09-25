@@ -13,7 +13,7 @@ use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload, lock_cancel as meta_lock_cancel,
+    MetaOperation, MetaOperations, MetaOperationsPayload, lock_cancel as meta_lock_cancel,
     lock_create,
 };
 use concordium_base::protocol_level_tokens::{
@@ -66,10 +66,12 @@ struct PreparedOperation {
 
 fn token_payload(token_id: TokenId, operation: TokenOperation) -> Payload {
     Payload::TokenUpdate {
-        payload: TokenOperationsPayload {
-            token_id,
-            operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
-        },
+        payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(
+            TokenOperationsPayload {
+                token_id,
+                operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
+            },
+        ),
     }
 }
 
@@ -207,12 +209,14 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
             context.external.account_canonical_address(sender),
             existing_lock_count as u64 + 1,
         ),
-        payload: Payload::MetaUpdate {
-            payload: MetaUpdatePayload {
-                operations: RawCbor::from(cbor::cbor_encode(&MetaUpdateOperations {
-                    operations: vec![lock_create(config)],
-                })),
-            },
+        payload: Payload::TokenUpdate {
+            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+                MetaOperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&MetaOperations {
+                        operations: vec![lock_create(config)],
+                    })),
+                },
+            ),
         },
         context,
         state,
@@ -220,11 +224,13 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
     }
 }
 
-fn meta_payload(operations: Vec<MetaUpdateOperation>) -> Payload {
-    Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&MetaUpdateOperations { operations })),
-        },
+fn meta_payload(operations: Vec<MetaOperation>) -> Payload {
+    Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&MetaOperations { operations })),
+            },
+        ),
     }
 }
 

@@ -13,7 +13,7 @@ use concordium_base::protocol_level_locks::{
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
     TokenListUpdateDetails, TokenModuleAccountState, TokenModuleRejectReason, TokenOperation,
-    meta_operations::{MetaUpdateOperations, MetaUpdatePayload, lock_create, lock_fund, lock_send},
+    meta_operations::{MetaOperations, MetaOperationsPayload, lock_create, lock_fund, lock_send},
 };
 use concordium_base::transactions::Payload;
 use plt_block_state::{
@@ -29,12 +29,14 @@ mod utils;
 macro_rules! execute_meta_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
-        let payload = Payload::MetaUpdate {
-            payload: MetaUpdatePayload {
-                operations: RawCbor::from(cbor::cbor_encode(&MetaUpdateOperations {
-                    operations: $operations,
-                })),
-            },
+        let payload = Payload::TokenUpdate {
+            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+                MetaOperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&MetaOperations {
+                        operations: $operations,
+                    })),
+                },
+            ),
         };
 
         $block_state

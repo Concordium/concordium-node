@@ -11,7 +11,7 @@ use concordium_base::{
     protocol_level_locks::{LockControllerSimpleV0Capability, LockId},
     protocol_level_tokens::{
         CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenOperation,
-        meta_operations::{MetaUpdatePayload, lock_cancel},
+        meta_operations::{MetaOperationsPayload, lock_cancel},
     },
     transactions::Payload,
 };
@@ -73,10 +73,15 @@ fn test_cancel_by_canceller() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                    lock_id.clone(),
+                    None,
+                )])),
+            },
+        ),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
@@ -133,10 +138,15 @@ fn test_cancel_unauthorized() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                    lock_id.clone(),
+                    None,
+                )])),
+            },
+        ),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
@@ -190,10 +200,15 @@ fn test_cancel_after_expiry() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 1000001.into(),
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                    lock_id.clone(),
+                    None,
+                )])),
+            },
+        ),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_1, payload)
@@ -296,13 +311,15 @@ fn test_cancel_with_balances() {
         block_timestamp: 0.into(),
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
-                lock_id.clone(),
-                Some(memo.clone()),
-            )])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                    lock_id.clone(),
+                    Some(memo.clone()),
+                )])),
+            },
+        ),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
@@ -356,13 +373,15 @@ fn test_cancel_nonexistent() {
         sequence_number: 999,
         creation_order: 0,
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
-                lock_id.clone(),
-                Some(memo.clone()),
-            )])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+            MetaOperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+                    lock_id.clone(),
+                    Some(memo.clone()),
+                )])),
+            },
+        ),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_1, payload)

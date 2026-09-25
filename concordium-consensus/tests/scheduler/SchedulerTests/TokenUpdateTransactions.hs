@@ -6,8 +6,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | Tests for meta-update transactions.
-module SchedulerTests.MetaUpdateTransactions (tests) where
+-- | Tests for tokenless Token Update transactions.
+module SchedulerTests.TokenUpdateTransactions (tests) where
 
 import Control.Monad
 import Data.Bool.Singletons
@@ -65,6 +65,10 @@ dummyAccount2 = Helpers.makeTestAccountFromSeed 20_000_000 2
 keys1 :: [(CredentialIndex, [(KeyIndex, SigScheme.KeyPair)])]
 keys1 = [(0, [(0, dummyKP)])]
 
+supportsTokenlessUpdate :: SProtocolVersion pv -> Bool
+supportsTokenlessUpdate SP11 = True
+supportsTokenlessUpdate _ = False
+
 -- | Create initial block state
 initialBlockState ::
     (IsProtocolVersion pv) =>
@@ -75,32 +79,32 @@ initialBlockState =
           dummyAccount2
         ]
 
-makeMetaTx ::
+makeTokenlessTx ::
     AccountAddress ->
     Nonce ->
     Energy ->
     [(CredentialIndex, [(KeyIndex, SigScheme.KeyPair)])] ->
-    [CBOR.MetaUpdateOperation] ->
+    [CBOR.MetaOperation] ->
     Runner.BlockItemDescription
-makeMetaTx sendAddr nonce nrg keys ops =
+makeTokenlessTx sendAddr nonce nrg keys ops =
     Runner.AccountTx
         Runner.TJSON
-            { payload = Runner.MetaUpdate{muOperations = mkOps ops},
+            { payload = Runner.TokenlessUpdate{tluOperations = mkOps ops},
               metadata = makeDummyHeader sendAddr nonce nrg,
               keys = keys
             }
   where
     mkOps =
         Types.rawCborFromBytes
-            . CBOR.metaUpdateTransactionToBytes
-            . CBOR.MetaUpdateTransaction
+            . CBOR.metaOperationsToBytes
+            . CBOR.MetaOperations
             . Seq.fromList
 
--- | Test an empty meta-update transaction at a given protocol version.
---  The transaction should be accepted if and only if the protocol version supports meta-update
+-- | Test an empty tokenless Token Update transaction at a given protocol version.
+--  The transaction should be accepted if and only if the protocol version supports tokenless Token Update
 --  transactions.
-testMetaUpdateSupport :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
-testMetaUpdateSupport spv = it desc $ do
+testTokenlessSupport :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testTokenlessSupport spv = it desc $ do
     Helpers.runSchedulerTestAssertIntermediateStates
         @pv
         Helpers.defaultTestConfig
@@ -108,18 +112,18 @@ testMetaUpdateSupport spv = it desc $ do
         transactionsAndAssertions
   where
     desc =
-        "Empty meta-update operation "
-            ++ (if supportsMetaUpdate spv then "" else "not ")
+        "Empty tokenless Token Update operation "
+            ++ (if supportsTokenlessUpdate spv then "" else "not ")
             ++ "supported"
-    -- Base cost: payload size = 6 = 1 (type) + 4 (CBOR size) + 1 (CBOR encoding of empty list)
-    costFail = Cost.baseCost (transactionHeaderSize + 6) 1
-    costSuccess = costFail + Cost.metaUpdateBaseCost
+    -- Base cost: payload size = 7 = 1 (type) + 1 (empty token ID) + 4 (CBOR size) + 1 (CBOR encoding of empty list)
+    costFail = Cost.baseCost (transactionHeaderSize + 7) 1
+    costSuccess = costFail + Cost.tokenUpdateBaseCost
     transactionsAndAssertions =
         [ Helpers.BlockItemAndAssertion
-            { biaaTransaction = makeMetaTx dummyAddress 1 1000 keys1 [],
+            { biaaTransaction = makeTokenlessTx dummyAddress 1 1000 keys1 [],
               biaaAssertion = \result _newState -> do
                 return $
-                    if supportsMetaUpdate spv
+                    if supportsTokenlessUpdate spv
                         then do
                             Helpers.assertSuccessWithEvents [] result
                             assertEqual "Used energy" costSuccess (Helpers.srUsedEnergy result)
@@ -201,9 +205,9 @@ distinctAlias addr
     alias = createAlias addr 0
     alias2 = createAlias addr 1
 
--- | A collection of 'CBOR.MetaUpdateOperations' for testing.
-metaUpdateMultiOperation :: [CBOR.MetaUpdateOperation]
-metaUpdateMultiOperation =
+-- | A collection of 'CBOR.MetaOperations' for testing.
+tokenlessMultiOperations :: [CBOR.MetaOperation]
+tokenlessMultiOperations =
     [ CBOR.MetaTokenUpdate (TokenId "pltX") $
         CBOR.TokenTransfer $
             CBOR.TokenTransferBody
@@ -240,9 +244,9 @@ metaUpdateMultiOperation =
         CBOR.TokenRemoveAllowList (CBOR.accountTokenHolderShort dummyAddress)
     ]
 
--- | The expected events from executing 'metaUpdateMultiOperations'.
-metaUpdateMultiEvents :: [Event]
-metaUpdateMultiEvents =
+-- | The expected events from executing 'tokenlessMultiOperationss'.
+tokenlessMultiEvents :: [Event]
+tokenlessMultiEvents =
     [ TokenTransfer
         { ettTokenId = pltX,
           ettFrom = holder1,
@@ -313,13 +317,13 @@ metaUpdateMultiEvents =
     holder1 = HolderAccount dummyAddress
     holder2 = HolderAccount dummyAddress2
 
--- | Test a meta-update transaction that consists of multiple steps and involves multiple PLTs.
-testMetaUpdateMulti :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
-testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
+-- | Test a tokenless Token Update transaction that consists of multiple steps and involves multiple PLTs.
+testTokenlessMulti :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testTokenlessMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
     SFalse -> return ()
     STrue ->
-        when (supportsMetaUpdate spv) $
-            it "Multi-token multi-step meta-update" $
+        when (supportsTokenlessUpdate spv) $
+            it "Multi-token multi-step tokenless Token Update" $
                 Helpers.runSchedulerTestAssertIntermediateStates
                     @pv
                     Helpers.defaultTestConfig
@@ -332,7 +336,7 @@ testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
           createPlt2 2,
           Helpers.BlockItemAndAssertion
             { biaaTransaction =
-                makeMetaTx dummyAddress 1 10000 keys1 metaUpdateMultiOperation,
+                makeTokenlessTx dummyAddress 1 10000 keys1 tokenlessMultiOperations,
               biaaAssertion = \result newST -> do
                 st <- BS.freezeBlockState newST
                 tiX <- queryTokenInfo (TokenId "pltX") st
@@ -342,8 +346,8 @@ testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
                 acc2 <- fromJust <$> BS.getAccount st dummyAddress2
                 ai2 <- queryAccountTokens acc2 st
                 return $ do
-                    Helpers.assertSuccessWithEvents metaUpdateMultiEvents result
-                    assertEqual "used energy" 1803 (Helpers.srUsedEnergy result)
+                    Helpers.assertSuccessWithEvents tokenlessMultiEvents result
+                    assertEqual "used energy" 1804 (Helpers.srUsedEnergy result)
                     assertEqual
                         "pltX supply"
                         (Right $ TokenAmount 9990 2)
@@ -400,12 +404,12 @@ testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
             }
         ]
 
--- | Scheduler tests for meta-update transactions.
+-- | Scheduler tests for tokenless Token Update transactions.
 tests :: Spec
 tests = parallel $
-    describe "Meta-update transactions" $
+    describe "Token Update transactions" $
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString -> do
                 describe pvString $ do
-                    testMetaUpdateSupport spv
-                    testMetaUpdateMulti spv
+                    testTokenlessSupport spv
+                    testTokenlessMulti spv

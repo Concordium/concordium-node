@@ -8,7 +8,7 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperations, MetaUpdatePayload, lock_fund, lock_release,
+    MetaOperations, MetaOperationsPayload, lock_fund, lock_release,
 };
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
@@ -28,12 +28,14 @@ mod utils;
 macro_rules! execute_meta_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
-        let payload = Payload::MetaUpdate {
-            payload: MetaUpdatePayload {
-                operations: RawCbor::from(cbor::cbor_encode(&MetaUpdateOperations {
-                    operations: $operations,
-                })),
-            },
+        let payload = Payload::TokenUpdate {
+            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
+                MetaOperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&MetaOperations {
+                        operations: $operations,
+                    })),
+                },
+            ),
         };
 
         $block_state

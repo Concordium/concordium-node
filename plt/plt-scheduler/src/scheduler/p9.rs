@@ -36,14 +36,14 @@ pub fn execute_transaction<C: EntityContextTypes>(
     let mut execution = TransactionExecution::new(transaction_context, sender_account);
 
     let outcome = match payload {
-        Payload::TokenUpdate { payload } => {
-            protocol_level_tokens::p9::execute_token_update_transaction(
-                context,
-                &mut execution,
-                block_state,
-                payload,
-            )?
-        }
+        Payload::TokenUpdate {
+            payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+        } => protocol_level_tokens::p9::execute_token_update_transaction(
+            context,
+            &mut execution,
+            block_state,
+            payload,
+        )?,
         _ => return Err(TransactionExecutionError::UnexpectedPayload),
     };
 
