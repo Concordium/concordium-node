@@ -356,7 +356,7 @@ fn test_lock_by_id() {
 
 /// Test set and get lock balance refs
 #[test]
-fn test_lock_balance_refs() {
+fn lock_balance_references_are_unique_ordered_and_removable() {
     let context = entity_test_stub::new_no_external_context();
     let mut block_state = BlockStateP11::default();
     let token_id_1: TokenId = "Token1".parse().unwrap();
@@ -393,12 +393,12 @@ fn test_lock_balance_refs() {
     assert_eq!(lock.lock_balance_refs(&context).unwrap(), vec![]);
 
     // Add balance refs
-    lock.add_lock_balance_ref(&context, AccountIndex::from(0), &token_id_1)
+    lock.add_lock_balance_ref(&context, AccountIndex::from(0), token_id_1.clone())
         .unwrap();
-    lock.add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
+    lock.add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2.clone())
         .unwrap();
     // Re-inserting an existing membership does not duplicate it.
-    lock.add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
+    lock.add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2.clone())
         .unwrap();
 
     // Update lock
@@ -417,12 +417,12 @@ fn test_lock_balance_refs() {
         ]
     );
     assert!(
-        lock.remove_lock_balance_ref(&context, AccountIndex::from(0), &token_id_1)
+        lock.remove_lock_balance_ref(&context, AccountIndex::from(0), token_id_1.clone())
             .unwrap()
     );
     assert!(
         !lock
-            .remove_lock_balance_ref(&context, AccountIndex::from(0), &token_id_1)
+            .remove_lock_balance_ref(&context, AccountIndex::from(0), token_id_1)
             .unwrap()
     );
 }

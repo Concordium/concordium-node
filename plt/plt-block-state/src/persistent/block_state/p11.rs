@@ -115,10 +115,10 @@ mod test {
             .unwrap()
             .expect("lock should exist");
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(0), &token_id)
+            .add_lock_balance_ref(&context, AccountIndex::from(0), token_id.clone())
             .unwrap();
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
+            .add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2.clone())
             .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
@@ -237,13 +237,13 @@ mod test {
         lock.add_lock_balance_ref(
             &context,
             AccountIndex::from(0),
-            &"Token1".parse::<TokenId>().unwrap(),
+            "Token1".parse::<TokenId>().unwrap(),
         )
         .unwrap();
         lock.add_lock_balance_ref(
             &context,
             AccountIndex::from(1),
-            &"Token2".parse::<TokenId>().unwrap(),
+            "Token2".parse::<TokenId>().unwrap(),
         )
         .unwrap();
         assert!(std::ptr::eq(
@@ -368,10 +368,10 @@ mod test {
             .unwrap()
             .expect("lock should exist");
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(0), &token_id)
+            .add_lock_balance_ref(&context, AccountIndex::from(0), token_id)
             .unwrap();
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
+            .add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2)
             .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {

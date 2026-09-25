@@ -222,7 +222,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         lock.add_lock_balance_ref(
             context,
             transaction_execution.sender_account().account_index(),
-            &details.token,
+            details.token,
         )?;
         block_state.update_lock(context, lock)?;
     }
@@ -320,7 +320,7 @@ fn execute_lock_send<C: EntityContextTypes>(
             lock_configuration_keeps_alive(&lock_configuration),
             lock,
             source.account_index(),
-            &token_configuration.token_id,
+            token_configuration.token_id.clone(),
             details.lock,
         )?;
     }
@@ -394,7 +394,7 @@ fn execute_lock_release<C: EntityContextTypes>(
             lock_configuration_keeps_alive(&lock_configuration),
             lock,
             source.account_index(),
-            &token_configuration.token_id,
+            token_configuration.token_id.clone(),
             details.lock,
         )?;
     }
@@ -508,7 +508,7 @@ fn remove_lock_balance_ref<C: EntityContextTypes>(
     lock_keeps_alive: bool,
     mut lock: plt_block_state::entity::protocol_level_locks::p11::LockP11,
     account_index: AccountIndex,
-    token_id: &TokenId,
+    token_id: TokenId,
     lock_id: LockId,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     if !lock.remove_lock_balance_ref(context, account_index, token_id)? {
