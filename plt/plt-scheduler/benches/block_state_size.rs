@@ -12,13 +12,11 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaOperation, MetaOperations, MetaOperationsPayload, lock_cancel as meta_lock_cancel,
-    lock_create,
+use concordium_base::protocol_level_tokens::{
+    Operation, Operations, OperationsPayload, operations, token_operations,
 };
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, RawCbor, TokenAmount, TokenId, TokenListUpdateDetails, TokenOperation,
-    TokenOperationsPayload, TokenSupplyUpdateDetails,
+    RawCbor, TokenAmount, TokenId, TokenOperation, TokenOperationsPayload,
 };
 use concordium_base::transactions::Payload;
 use divan::Bencher;
@@ -66,7 +64,7 @@ struct PreparedOperation {
 
 fn token_payload(token_id: TokenId, operation: TokenOperation) -> Payload {
     Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(
+        payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
             TokenOperationsPayload {
                 token_id,
                 operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
@@ -109,9 +107,7 @@ fn prepare_mint_with_filler_tokens(filler_token_count: usize) -> PreparedOperati
         ),
         payload: token_payload(
             token_id,
-            TokenOperation::Mint(TokenSupplyUpdateDetails {
-                amount: TokenAmount::from_raw(1, 0),
-            }),
+            token_operations::mint_tokens(TokenAmount::from_raw(1, 0)),
         ),
         context,
         state,
@@ -140,25 +136,21 @@ fn prepare_allow_list_insert(existing_entry_count: usize) -> PreparedOperation {
     let existing = (0..existing_entry_count)
         .map(|_| {
             let account = context.external.create_account();
-            TokenOperation::AddAllowList(TokenListUpdateDetails {
-                target: CborHolderAccount::from(
-                    context
-                        .external
-                        .account_canonical_address(account.account_index()),
-                ),
-            })
+            token_operations::add_token_allow_list(
+                context
+                    .external
+                    .account_canonical_address(account.account_index()),
+            )
         })
         .collect();
     utils::execute_token_operations(&mut context, &mut state, &token_id, sender, existing);
 
     let target = context.external.create_account();
-    let operation = TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(
-            context
-                .external
-                .account_canonical_address(target.account_index()),
-        ),
-    });
+    let operation = token_operations::add_token_allow_list(
+        context
+            .external
+            .account_canonical_address(target.account_index()),
+    );
     PreparedOperation {
         transaction_context: utils::simple_transaction_context(
             context.external.account_canonical_address(sender),
@@ -210,10 +202,10 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
             existing_lock_count as u64 + 1,
         ),
         payload: Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-                MetaOperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&MetaOperations {
-                        operations: vec![lock_create(config)],
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
+                OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&Operations {
+                        operations: vec![operations::create_lock(config)],
                     })),
                 },
             ),
@@ -224,13 +216,11 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
     }
 }
 
-fn meta_payload(operations: Vec<MetaOperation>) -> Payload {
+fn unscoped_payload(operations: Vec<Operation>) -> Payload {
     Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-            MetaOperationsPayload {
-                operations: RawCbor::from(cbor::cbor_encode(&MetaOperations { operations })),
-            },
-        ),
+        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
+        }),
     }
 }
 
@@ -315,7 +305,7 @@ fn prepare_lock_cancel(
         transaction_context: utils::simple_transaction_context(
             context.external.account_canonical_address(sender),
         ),
-        payload: meta_payload(vec![meta_lock_cancel(lock_id, None)]),
+        payload: unscoped_payload(vec![operations::cancel_lock(lock_id, None)]),
         context,
         state,
         sender,

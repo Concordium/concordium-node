@@ -4,10 +4,8 @@ use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaOperation, MetaOperations, MetaOperationsPayload,
-};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
+use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
 use concordium_base::transactions::Payload;
 use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Accounts;
@@ -34,7 +32,7 @@ pub fn create_lock(
     config: CreateLockSimpleConfig,
 ) {
     use concordium_base::protocol_level_locks::*;
-    use concordium_base::protocol_level_tokens::meta_operations::*;
+    use concordium_base::protocol_level_tokens::operations;
     let sender = context
         .account_by_index(lock_id.account_index())
         .expect("sender account must exist");
@@ -58,16 +56,18 @@ pub fn create_lock(
             },
         )
         .collect();
-    let operations = MetaOperations {
-        operations: vec![lock_create(LockConfig::SimpleV0(LockConfigSimpleV0 {
-            recipients,
-            expiry: TransactionTime::from(config.expiry),
-            grants,
-            tokens: config.tokens,
-            keep_alive: config.keep_alive,
-            memo: None,
-            metadata: None,
-        }))],
+    let operations = Operations {
+        operations: vec![operations::create_lock(LockConfig::SimpleV0(
+            LockConfigSimpleV0 {
+                recipients,
+                expiry: TransactionTime::from(config.expiry),
+                grants,
+                tokens: config.tokens,
+                keep_alive: config.keep_alive,
+                memo: None,
+                metadata: None,
+            },
+        ))],
     };
 
     block_state
@@ -81,8 +81,8 @@ pub fn create_lock(
             },
             sender.account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-                    MetaOperationsPayload {
+                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
+                    OperationsPayload {
                         operations: RawCbor::from(cbor::cbor_encode(&operations)),
                     },
                 ),

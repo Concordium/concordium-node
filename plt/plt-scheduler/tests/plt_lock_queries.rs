@@ -12,10 +12,8 @@ use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockMetadata,
     LockRecipients,
 };
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaOperations, MetaOperationsPayload, lock_create,
-};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
+use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
 use concordium_base::transactions::Payload;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::entity_test_stub;
@@ -163,8 +161,8 @@ fn test_query_lock_info_any_recipient() {
         description: Some("Metadata returned by GetLockInfo".to_string()),
         additional: HashMap::from([("purpose".to_string(), Value::Text("query test".to_string()))]),
     };
-    let operations = MetaOperations {
-        operations: vec![lock_create(
+    let operations = Operations {
+        operations: vec![operations::create_lock(
             concordium_base::protocol_level_locks::LockConfig::SimpleV0(
                 concordium_base::protocol_level_locks::LockConfigSimpleV0 {
                     recipients: LockRecipients::Any,
@@ -194,8 +192,8 @@ fn test_query_lock_info_any_recipient() {
             },
             owner.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-                    MetaOperationsPayload {
+                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
+                    OperationsPayload {
                         operations: RawCbor::from(cbor::cbor_encode(&operations)),
                     },
                 ),

@@ -37,7 +37,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
 
     let outcome = match payload {
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
         } => protocol_level_tokens::p9::execute_token_update_transaction(
             context,
             &mut execution,

@@ -75,7 +75,7 @@ fn test_token_pause_state() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -126,7 +126,7 @@ fn test_double_pause() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -188,7 +188,7 @@ fn test_redundant_unpause() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -235,7 +235,7 @@ fn test_unauthorized_pause() {
             utils::simple_transaction_context(non_gov_addr),
             non_governance_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -312,7 +312,7 @@ fn test_unauthorized_unpause() {
             utils::simple_transaction_context(non_gov_addr),
             non_governance_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -387,7 +387,7 @@ fn test_pause_multiple_ops() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -465,7 +465,7 @@ fn test_unpause_multiple_ops() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -527,7 +527,7 @@ fn test_role_authorization_pause() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -549,7 +549,7 @@ fn test_role_authorization_pause() {
             utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -613,7 +613,7 @@ fn test_new_account_with_role_succeeds_pause() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -635,7 +635,7 @@ fn test_new_account_with_role_succeeds_pause() {
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");

@@ -6,9 +6,9 @@
 //! mutation. It excludes transaction construction and signing, signature and header verification,
 //! and block assembly.
 //!
-//! Token-update and meta-update benchmarks use equivalent operations at several batch sizes. Counts
+//! Token-update and unscoped Token Update benchmarks use equivalent operations at several batch sizes. Counts
 //! 3 and 5 represent maximum expected transaction sizes; larger counts expose scaling behavior. Their
-//! difference indicates the overhead of the meta-update execution path, while the empty cases show
+//! difference indicates the overhead of the unscoped Token Update execution path, while the empty cases show
 //! its fixed cost.
 //!
 //! Lock benchmarks instead isolate persistence-relevant transitions: creating locks,
@@ -22,13 +22,11 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaOperation, MetaOperations, MetaOperationsPayload, lock_create as meta_lock_create,
-    lock_fund, lock_release, lock_send,
+use concordium_base::protocol_level_tokens::{
+    Operation, Operations, OperationsPayload, operations, token_operations,
 };
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, RawCbor, TokenAmount, TokenId, TokenListUpdateDetails, TokenOperation,
-    TokenOperationsPayload, TokenSupplyUpdateDetails, TokenTransfer,
+    RawCbor, TokenAmount, TokenId, TokenOperation, TokenOperationsPayload,
 };
 use concordium_base::transactions::Payload;
 use divan::Bencher;
@@ -85,7 +83,7 @@ fn token_fixture(
     (context, state, sender.account_index(), token_id)
 }
 
-/// Build a token-update or meta-update fixture from prepared state and operations.
+/// Build a token-update or unscoped Token Update fixture from prepared state and operations.
 ///
 /// # Arguments
 ///
@@ -94,7 +92,7 @@ fn token_fixture(
 /// - `sender`: Account executing the transaction.
 /// - `token_id`: Token affected by every operation.
 /// - `operations`: Equivalent operations encoded into the selected payload type.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_token(
     context: StubbedEntityContext,
     state: BlockStateLatest,
@@ -105,7 +103,7 @@ fn prepare_token(
 ) -> Fixture {
     let sender_address = context.external.account_canonical_address(sender);
     let payload = if meta {
-        meta_payload(
+        unscoped_payload(
             operations
                 .into_iter()
                 .map(|operation| (token_id.clone(), operation).into())
@@ -113,7 +111,7 @@ fn prepare_token(
         )
     } else {
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(
+            payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
                 TokenOperationsPayload {
                     token_id,
                     operations: RawCbor::from(cbor::cbor_encode(&operations)),
@@ -130,12 +128,12 @@ fn prepare_token(
     }
 }
 
-/// Prepare an empty token-update or meta-update baseline.
+/// Prepare an empty token-update or unscoped Token Update baseline.
 ///
 /// # Arguments
 ///
 /// - `_count`: Divan argument fixed at zero for consistent benchmark naming.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_empty(_count: usize, meta: bool) -> Fixture {
     let (context, state, sender, token_id) = token_fixture(Default::default(), None);
     prepare_token(context, state, sender, token_id, vec![], meta)
@@ -146,7 +144,7 @@ fn prepare_empty(_count: usize, meta: bool) -> Fixture {
 /// # Arguments
 ///
 /// - `count`: Number of transfer operations and initial sender balance.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_transfer(count: usize, meta: bool) -> Fixture {
     let (mut context, state, sender, token_id) =
         token_fixture(Default::default(), Some(RawTokenAmount::from(count as u64)));
@@ -155,13 +153,7 @@ fn prepare_transfer(count: usize, meta: bool) -> Fixture {
         .external
         .account_canonical_address(recipient.account_index());
     let operations = (0..count)
-        .map(|_| {
-            TokenOperation::Transfer(TokenTransfer {
-                amount: TokenAmount::from_raw(1, 0),
-                recipient: CborHolderAccount::from(recipient),
-                memo: None,
-            })
-        })
+        .map(|_| token_operations::transfer_tokens(recipient, TokenAmount::from_raw(1, 0)))
         .collect();
     prepare_token(context, state, sender, token_id, operations, meta)
 }
@@ -171,16 +163,12 @@ fn prepare_transfer(count: usize, meta: bool) -> Fixture {
 /// # Arguments
 ///
 /// - `count`: Number of mint operations.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_mint(count: usize, meta: bool) -> Fixture {
     let (context, state, sender, token_id) =
         token_fixture(TokenInitTestParams::default().mintable(), None);
     let operations = (0..count)
-        .map(|_| {
-            TokenOperation::Mint(TokenSupplyUpdateDetails {
-                amount: TokenAmount::from_raw(1, 0),
-            })
-        })
+        .map(|_| token_operations::mint_tokens(TokenAmount::from_raw(1, 0)))
         .collect();
     prepare_token(context, state, sender, token_id, operations, meta)
 }
@@ -190,18 +178,14 @@ fn prepare_mint(count: usize, meta: bool) -> Fixture {
 /// # Arguments
 ///
 /// - `count`: Number of burn operations and initial sender balance.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_burn(count: usize, meta: bool) -> Fixture {
     let (context, state, sender, token_id) = token_fixture(
         TokenInitTestParams::default().burnable(),
         Some(RawTokenAmount::from(count as u64)),
     );
     let operations = (0..count)
-        .map(|_| {
-            TokenOperation::Burn(TokenSupplyUpdateDetails {
-                amount: TokenAmount::from_raw(1, 0),
-            })
-        })
+        .map(|_| token_operations::burn_tokens(TokenAmount::from_raw(1, 0)))
         .collect();
     prepare_token(context, state, sender, token_id, operations, meta)
 }
@@ -211,26 +195,24 @@ fn prepare_burn(count: usize, meta: bool) -> Fixture {
 /// # Arguments
 ///
 /// - `count`: Number of accounts and list-update operations.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 /// - `params`: Token configuration enabling the list under test.
 /// - `operation`: Constructor for the allow-list or deny-list operation.
 fn prepare_list(
     count: usize,
     meta: bool,
     params: TokenInitTestParams,
-    operation: fn(TokenListUpdateDetails) -> TokenOperation,
+    operation: fn(concordium_base::contracts_common::AccountAddress) -> TokenOperation,
 ) -> Fixture {
     let (mut context, state, sender, token_id) = token_fixture(params, None);
     let operations = (0..count)
         .map(|_| {
             let account = context.external.create_account();
-            operation(TokenListUpdateDetails {
-                target: CborHolderAccount::from(
-                    context
-                        .external
-                        .account_canonical_address(account.account_index()),
-                ),
-            })
+            operation(
+                context
+                    .external
+                    .account_canonical_address(account.account_index()),
+            )
         })
         .collect();
     prepare_token(context, state, sender, token_id, operations, meta)
@@ -241,13 +223,13 @@ fn prepare_list(
 /// # Arguments
 ///
 /// - `count`: Number of accounts added to the allow list.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_allow_list(count: usize, meta: bool) -> Fixture {
     prepare_list(
         count,
         meta,
         TokenInitTestParams::default().allow_list(),
-        TokenOperation::AddAllowList,
+        token_operations::add_token_allow_list,
     )
 }
 
@@ -256,13 +238,13 @@ fn prepare_allow_list(count: usize, meta: bool) -> Fixture {
 /// # Arguments
 ///
 /// - `count`: Number of accounts added to the deny list.
-/// - `meta`: Whether to create a meta-update instead of a token-update payload.
+/// - `meta`: Whether to create a unscoped Token Update instead of a token-update payload.
 fn prepare_deny_list(count: usize, meta: bool) -> Fixture {
     prepare_list(
         count,
         meta,
         TokenInitTestParams::default().deny_list(),
-        TokenOperation::AddDenyList,
+        token_operations::add_token_deny_list,
     )
 }
 
@@ -292,9 +274,9 @@ fn token_update_empty(bencher: Bencher, count: usize) {
     bench(bencher, prepare_empty, count, false);
 }
 
-/// Measure fixed meta-update execution cost without operations.
+/// Measure fixed unscoped Token Update execution cost without operations.
 #[divan::bench(args = EMPTY_COUNTS)]
-fn meta_update_empty(bencher: Bencher, count: usize) {
+fn unscoped_update_empty(bencher: Bencher, count: usize) {
     bench(bencher, prepare_empty, count, true);
 }
 
@@ -304,9 +286,9 @@ fn token_update_transfer(bencher: Bencher, count: usize) {
     bench(bencher, prepare_transfer, count, false);
 }
 
-/// Measure meta-update transfer cost as operation count grows.
+/// Measure unscoped Token Update transfer cost as operation count grows.
 #[divan::bench(args = COUNTS)]
-fn meta_update_transfer(bencher: Bencher, count: usize) {
+fn unscoped_update_transfer(bencher: Bencher, count: usize) {
     bench(bencher, prepare_transfer, count, true);
 }
 
@@ -316,9 +298,9 @@ fn token_update_mint(bencher: Bencher, count: usize) {
     bench(bencher, prepare_mint, count, false);
 }
 
-/// Measure meta-update mint cost as operation count grows.
+/// Measure unscoped Token Update mint cost as operation count grows.
 #[divan::bench(args = COUNTS)]
-fn meta_update_mint(bencher: Bencher, count: usize) {
+fn unscoped_update_mint(bencher: Bencher, count: usize) {
     bench(bencher, prepare_mint, count, true);
 }
 
@@ -328,9 +310,9 @@ fn token_update_burn(bencher: Bencher, count: usize) {
     bench(bencher, prepare_burn, count, false);
 }
 
-/// Measure meta-update burn cost as operation count grows.
+/// Measure unscoped Token Update burn cost as operation count grows.
 #[divan::bench(args = COUNTS)]
-fn meta_update_burn(bencher: Bencher, count: usize) {
+fn unscoped_update_burn(bencher: Bencher, count: usize) {
     bench(bencher, prepare_burn, count, true);
 }
 
@@ -340,9 +322,9 @@ fn token_update_allow_list(bencher: Bencher, count: usize) {
     bench(bencher, prepare_allow_list, count, false);
 }
 
-/// Measure meta-update allow-list insertion cost as operation count grows.
+/// Measure unscoped Token Update allow-list insertion cost as operation count grows.
 #[divan::bench(args = COUNTS)]
-fn meta_update_allow_list(bencher: Bencher, count: usize) {
+fn unscoped_update_allow_list(bencher: Bencher, count: usize) {
     bench(bencher, prepare_allow_list, count, true);
 }
 
@@ -352,24 +334,22 @@ fn token_update_deny_list(bencher: Bencher, count: usize) {
     bench(bencher, prepare_deny_list, count, false);
 }
 
-/// Measure meta-update deny-list insertion cost as operation count grows.
+/// Measure unscoped Token Update deny-list insertion cost as operation count grows.
 #[divan::bench(args = COUNTS)]
-fn meta_update_deny_list(bencher: Bencher, count: usize) {
+fn unscoped_update_deny_list(bencher: Bencher, count: usize) {
     bench(bencher, prepare_deny_list, count, true);
 }
 
-/// Encode lock or token operations as a meta-update payload.
+/// Encode lock or token operations as a unscoped Token Update payload.
 ///
 /// # Arguments
 ///
 /// - `operations`: Operations included in the transaction payload.
-fn meta_payload(operations: Vec<MetaOperation>) -> Payload {
+fn unscoped_payload(operations: Vec<Operation>) -> Payload {
     Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-            MetaOperationsPayload {
-                operations: RawCbor::from(cbor::cbor_encode(&MetaOperations { operations })),
-            },
-        ),
+        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
+        }),
     }
 }
 
@@ -441,7 +421,7 @@ fn lock_fixture(
     (context, state, sender, token_id, lock_id)
 }
 
-/// Prepare one meta-update containing multiple lock-create operations.
+/// Prepare one unscoped Token Update containing multiple lock-create operations.
 ///
 /// # Arguments
 ///
@@ -465,9 +445,9 @@ fn prepare_lock_create(count: usize) -> Fixture {
         state,
         sender,
         transaction_context: utils::simple_transaction_context(sender_address),
-        payload: meta_payload(
+        payload: unscoped_payload(
             (0..count)
-                .map(|_| meta_lock_create(config.clone()))
+                .map(|_| operations::create_lock(config.clone()))
                 .collect(),
         ),
     }
@@ -483,7 +463,7 @@ fn prepare_lock_fund(existing_reference: bool) -> Fixture {
         lock_fixture(vec![LockControllerSimpleV0Capability::Fund], true);
     if existing_reference {
         let sender_address = context.external.account_canonical_address(sender);
-        let payload = meta_payload(vec![lock_fund(
+        let payload = unscoped_payload(vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(100, 0),
@@ -503,7 +483,7 @@ fn prepare_lock_fund(existing_reference: bool) -> Fixture {
         transaction_context: utils::simple_transaction_context(
             context.external.account_canonical_address(sender),
         ),
-        payload: meta_payload(vec![lock_fund(
+        payload: unscoped_payload(vec![operations::fund_lock(
             token_id,
             lock_id,
             TokenAmount::from_raw(100, 0),
@@ -536,7 +516,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
         &mut context,
         utils::simple_transaction_context(sender_address),
         sender,
-        meta_payload(vec![lock_fund(
+        unscoped_payload(vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(200, 0),
@@ -548,7 +528,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
     );
     let amount = TokenAmount::from_raw(if drain { 200 } else { 100 }, 0);
     let operation = if release_funds {
-        lock_release(
+        operations::release_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_address,
@@ -556,7 +536,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
             None,
         )
     } else {
-        lock_send(
+        operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_address,
@@ -567,7 +547,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
     };
     Fixture {
         transaction_context: utils::simple_transaction_context(sender_address),
-        payload: meta_payload(vec![operation]),
+        payload: unscoped_payload(vec![operation]),
         context,
         state,
         sender,
@@ -576,7 +556,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
 
 /// Measure lock creation and state growth as operation count increases.
 #[divan::bench(args = COUNTS)]
-fn lock_create(bencher: Bencher, count: usize) {
+fn create_lock(bencher: Bencher, count: usize) {
     bencher
         .with_inputs(|| prepare_lock_create(count))
         .bench_local_values(execute);

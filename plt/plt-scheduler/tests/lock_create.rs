@@ -12,8 +12,8 @@ use concordium_base::{
         LockControllerSimpleV0Grant, LockId, LockMetadata, LockRecipients,
     },
     protocol_level_tokens::{
-        MetadataUrl, RawCbor, TokenAmount, TokenId, TokenModuleInitializationParameters,
-        meta_operations::{MetaOperationsPayload, lock_create},
+        MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
+        TokenModuleInitializationParameters, operations,
     },
     transactions::Payload,
     updates::{CreatePlt, UpdatePayload},
@@ -52,8 +52,8 @@ fn execute_lock_create_with_duration(
         memo: None,
         metadata: None,
     });
-    let payload = MetaOperationsPayload {
-        operations: RawCbor::from(cbor::cbor_encode(&vec![lock_create(config)])),
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
     };
     let result = plt_scheduler::scheduler::p11::execute_transaction(
         &mut context,
@@ -66,7 +66,7 @@ fn execute_lock_create_with_duration(
         },
         Account::from_existing_account(account_index),
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
         },
         &PersistentChainParametersP11 {
             max_lock_duration: Duration::from_millis(max_lock_duration),
@@ -140,8 +140,8 @@ fn test_create_simple_lock() {
         LockControllerSimpleV0Capability::Cancel,
     ];
 
-    let operations = vec![lock_create(config)];
-    let payload = MetaOperationsPayload {
+    let operations = vec![operations::create_lock(config)];
+    let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -156,7 +156,7 @@ fn test_create_simple_lock() {
             },
             account_index_1,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -221,8 +221,8 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         memo: None,
         metadata: None,
     });
-    let payload = MetaOperationsPayload {
-        operations: RawCbor::from(cbor::cbor_encode(&vec![lock_create(config)])),
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
     };
 
     block_state
@@ -236,7 +236,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
             account_index,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("lock creation must succeed");
@@ -304,8 +304,8 @@ fn test_create_any_recipient_lock() {
         memo: None,
         metadata: None,
     });
-    let operations = vec![lock_create(config.clone())];
-    let payload = MetaOperationsPayload {
+    let operations = vec![operations::create_lock(config.clone())];
+    let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -320,7 +320,7 @@ fn test_create_any_recipient_lock() {
             },
             account_index_1,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -408,10 +408,10 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
             metadata: None,
         })
     };
-    let payload = MetaOperationsPayload {
+    let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![
-            lock_create(config(1)),
-            lock_create(config(2)),
+            operations::create_lock(config(1)),
+            operations::create_lock(config(2)),
         ])),
     };
     let result = plt_scheduler::scheduler::p11::execute_transaction(
@@ -425,7 +425,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         },
         Account::from_existing_account(account_index),
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
         },
         &PersistentChainParametersP11 {
             max_lock_duration: Duration::from_millis(1_000),

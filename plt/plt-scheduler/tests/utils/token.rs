@@ -4,15 +4,13 @@ use super::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaOperation, MetaOperations, MetaOperationsPayload,
-};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
     TokenModuleInitializationParameters, TokenModuleRejectReason, TokenModuleRejectReasonType,
     TokenModuleState, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
     TokenSupplyUpdateDetails, TokenTransfer,
 };
+use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::EntityContext;
@@ -217,7 +215,7 @@ pub fn increment_account_balance_p11(
             ),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -243,7 +241,7 @@ pub fn pause_token(
             utils::simple_transaction_context(gov_addr),
             gov_account,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -269,7 +267,7 @@ pub fn unpause_token(
             utils::simple_transaction_context(gov_addr),
             gov_account,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -296,27 +294,25 @@ pub fn execute_token_operations(
             utils::simple_transaction_context(sender_addr),
             sender,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(events) => events)
 }
 
-/// Execute meta-update operations as the given sender account. Returns the block item events on
+/// Execute unscoped Token Update operations as the given sender account. Returns the block item events on
 /// success, panics if the transaction fails.
-pub fn execute_meta_operations(
+pub fn execute_operations(
     context: &mut StubbedEntityContext,
     block_state: &mut impl SchedulerOperations,
     sender: AccountIndex,
-    operations: Vec<MetaOperation>,
+    operations: Vec<Operation>,
 ) -> Vec<plt_scheduler_types::types::events::BlockItemEvent> {
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-            MetaOperationsPayload {
-                operations: RawCbor::from(cbor::cbor_encode(&MetaOperations { operations })),
-            },
-        ),
+        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
+        }),
     };
     let sender_addr = context.external.account_canonical_address(sender);
     let result = block_state

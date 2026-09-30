@@ -11,28 +11,28 @@ use concordium_base::protocol_level_locks::{
     LockControllerSimpleV0Grant as CborLockControllerSimpleV0Grant, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
-    TokenListUpdateDetails, TokenModuleAccountState, TokenModuleRejectReason, TokenOperation,
-    meta_operations::{MetaOperations, MetaOperationsPayload, lock_create, lock_fund, lock_send},
+    CborHolderAccount, OperationNotPermittedRejectReason, Operations, OperationsPayload, RawCbor,
+    TokenAmount, TokenId, TokenListUpdateDetails, TokenModuleAccountState, TokenModuleRejectReason,
+    TokenOperation, operations,
 };
 use concordium_base::transactions::Payload;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_scheduler_types::types::events::{BlockItemEvent, TokenTransferEvent};
+use plt_scheduler_types::types::events::{BlockItemEvent, TokenTransferEvent, UnlockAmountEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 
 mod utils;
 
-macro_rules! execute_meta_update {
+macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
         let payload = Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-                MetaOperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&MetaOperations {
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
+                OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&Operations {
                         operations: $operations,
                     })),
                 },
@@ -51,7 +51,7 @@ macro_rules! execute_meta_update {
                 $sender,
                 payload,
             )
-            .expect("meta-update transaction must execute")
+            .expect("unscoped Token Update transaction must execute")
             .outcome
     }};
 }
@@ -126,19 +126,19 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
         vec![
-            lock_fund(
+            operations::fund_lock(
                 token_id.clone(),
                 lock_id.clone(),
                 TokenAmount::from_raw(250, 4),
                 None,
             ),
-            lock_send(
+            operations::send_locked_tokens(
                 "PLTx".parse().unwrap(),
                 lock_id.clone(),
                 sender_addr,
@@ -150,14 +150,24 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     );
     let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
 
-    assert_eq!(events.len(), 2);
-    assert_matches!(&events[1], BlockItemEvent::TokenTransfer(TokenTransferEvent {
+    assert_eq!(events.len(), 3);
+    assert_matches!(&events[1], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
+        token_id: event_token_id,
+        token_holder,
+        lock_id: event_lock_id,
+        amount,
+    }) => {
+        assert_eq!(event_token_id, &token_id);
+        assert_eq!(token_holder, &TokenHolder::Account(sender_addr));
+        assert_eq!(event_lock_id, &lock_id);
+        assert_eq!(amount.amount, RawTokenAmount::from(100));
+        assert_eq!(amount.decimals, 4);
+    });
+    assert_matches!(&events[2], BlockItemEvent::TokenTransfer(TokenTransferEvent {
         token_id: event_token_id,
         from,
         to,
         amount,
-        from_lock,
-        to_lock,
         ..
     }) => {
         assert_eq!(event_token_id, &token_id);
@@ -165,8 +175,6 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         assert_eq!(to, &TokenHolder::Account(recipient_addr));
         assert_eq!(amount.amount, RawTokenAmount::from(100));
         assert_eq!(amount.decimals, 4);
-        assert_eq!(from_lock, &Some(lock_id.clone()));
-        assert_eq!(to_lock, &None);
     });
 
     let sender_info =
@@ -230,9 +238,9 @@ fn test_lock_send_allows_any_recipient() {
         .external
         .account_canonical_address(arbitrary_recipient.account_index());
 
-    let lock_id = LockId::new(owner.account_index(), 1u64, 0); // 1 matches the seq number given by `execute_meta_update`
+    let lock_id = LockId::new(owner.account_index(), 1u64, 0); // 1 matches the seq number given by `execute_unscoped_update`
     let operations = vec![
-        lock_create(LockConfig::SimpleV0(LockConfigSimpleV0 {
+        operations::create_lock(LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: 1_804_806_000.into(),
             grants: vec![CborLockControllerSimpleV0Grant {
@@ -247,13 +255,13 @@ fn test_lock_send_allows_any_recipient() {
             memo: None,
             metadata: None,
         })),
-        lock_fund(
+        operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
             None,
         ),
-        lock_send(
+        operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             owner_addr,
@@ -263,7 +271,7 @@ fn test_lock_send_allows_any_recipient() {
         ),
     ];
 
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -338,12 +346,12 @@ fn test_lock_send_rejects_non_recipient() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -357,12 +365,12 @@ fn test_lock_send_rejects_non_recipient() {
     let non_recipient_addr = context
         .external
         .account_canonical_address(non_recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             owner_addr,
@@ -442,12 +450,12 @@ fn test_lock_send_sender_not_in_allow_list() {
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     assert_matches!(
-        execute_meta_update!(
+        execute_unscoped_update!(
             &mut context,
             &mut block_state,
             sender.account_index(),
             0,
-            vec![lock_fund(
+            vec![operations::fund_lock(
                 token_id.clone(),
                 lock_id.clone(),
                 TokenAmount::from_raw(250, 4),
@@ -466,12 +474,12 @@ fn test_lock_send_sender_not_in_allow_list() {
         })],
     );
 
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -555,12 +563,12 @@ fn test_lock_send_recipient_not_in_allow_list() {
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     assert_matches!(
-        execute_meta_update!(
+        execute_unscoped_update!(
             &mut context,
             &mut block_state,
             sender.account_index(),
             0,
-            vec![lock_fund(
+            vec![operations::fund_lock(
                 token_id.clone(),
                 lock_id.clone(),
                 TokenAmount::from_raw(250, 4),
@@ -573,12 +581,12 @@ fn test_lock_send_recipient_not_in_allow_list() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -645,12 +653,12 @@ fn test_lock_send_sender_in_deny_list() {
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     assert_matches!(
-        execute_meta_update!(
+        execute_unscoped_update!(
             &mut context,
             &mut block_state,
             sender.account_index(),
             0,
-            vec![lock_fund(
+            vec![operations::fund_lock(
                 token_id.clone(),
                 lock_id.clone(),
                 TokenAmount::from_raw(250, 4),
@@ -672,12 +680,12 @@ fn test_lock_send_sender_in_deny_list() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -747,12 +755,12 @@ fn test_lock_send_recipient_in_deny_list() {
         .external
         .account_canonical_address(sender.account_index());
     assert_matches!(
-        execute_meta_update!(
+        execute_unscoped_update!(
             &mut context,
             &mut block_state,
             sender.account_index(),
             0,
-            vec![lock_fund(
+            vec![operations::fund_lock(
                 token_id.clone(),
                 lock_id.clone(),
                 TokenAmount::from_raw(250, 4),
@@ -771,12 +779,12 @@ fn test_lock_send_recipient_in_deny_list() {
         })],
     );
 
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -843,12 +851,12 @@ fn test_lock_send_rejects_when_token_paused() {
         .external
         .account_canonical_address(sender.account_index());
     assert_matches!(
-        execute_meta_update!(
+        execute_unscoped_update!(
             &mut context,
             &mut block_state,
             sender.account_index(),
             0,
-            vec![lock_fund(
+            vec![operations::fund_lock(
                 token_id.clone(),
                 lock_id.clone(),
                 TokenAmount::from_raw(250, 4),
@@ -867,12 +875,12 @@ fn test_lock_send_rejects_when_token_paused() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -930,12 +938,12 @@ fn test_lock_send_rejects_unauthorized_sender() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -949,12 +957,12 @@ fn test_lock_send_rejects_unauthorized_sender() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id,
             lock_id.clone(),
             owner_addr,
@@ -1007,12 +1015,12 @@ fn test_lock_send_rejects_after_expiry() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -1026,12 +1034,12 @@ fn test_lock_send_rejects_after_expiry() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         20_000,
-        vec![lock_send(
+        vec![operations::send_locked_tokens(
             token_id,
             lock_id.clone(),
             owner_addr,

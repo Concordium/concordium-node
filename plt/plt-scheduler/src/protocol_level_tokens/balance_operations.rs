@@ -11,7 +11,8 @@ use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::{OverflowError, RawTokenAmountDelta};
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
 use plt_scheduler_types::types::events::{
-    BlockItemEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
+    BlockItemEvent, LockAmountEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
+    UnlockAmountEvent,
 };
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenAmount, TokenHolder};
 
@@ -275,8 +276,6 @@ pub fn transfer<C: EntityContextTypes>(
             decimals: token_configuration.decimals,
         },
         memo,
-        from_lock: None,
-        to_lock: None,
     });
 
     events.extend(Some(event));
@@ -293,7 +292,7 @@ pub fn transfer<C: EntityContextTypes>(
 ///
 /// # Events
 ///
-/// Produces a [`TokenTransferEvent`] with `to_lock` set to the lock id.
+/// Produces a [`LockAmountEvent`].
 ///
 /// # Errors
 ///
@@ -307,7 +306,6 @@ pub fn lock_amount<C: EntityContextTypes>(
     account_address: AccountAddress,
     lock_id: &LockId,
     amount: RawTokenAmount,
-    memo: Option<Memo>,
 ) -> ResultWithBlockStateFailure<bool, InsufficientBalanceError> {
     let available = available_balance(context, TokenPXRef::TokenP11(token), account)?;
     if amount > available {
@@ -326,17 +324,14 @@ pub fn lock_amount<C: EntityContextTypes>(
     token.set_locked_balance_for_account(context, account.account_index(), lock_id, new_locked)?;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
-    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+    events.extend(Some(BlockItemEvent::LockAmount(LockAmountEvent {
+        token_holder: TokenHolder::Account(account_address),
+        lock_id: lock_id.clone(),
         token_id: token_configuration.token_id,
-        from: TokenHolder::Account(account_address),
-        to: TokenHolder::Account(account_address),
         amount: TokenAmount {
             amount,
             decimals: token_configuration.decimals,
         },
-        memo,
-        from_lock: None,
-        to_lock: Some(lock_id.clone()),
     })));
 
     Ok(old_locked == RawTokenAmount::from(0) && new_locked > RawTokenAmount::from(0))
@@ -349,7 +344,7 @@ pub fn lock_amount<C: EntityContextTypes>(
 ///
 /// # Events
 ///
-/// Produces a [`TokenTransferEvent`] with `from_lock` set to the lock id.
+/// Produces an [`UnlockAmountEvent`] and a [`TokenTransferEvent`].
 ///
 /// # Errors
 ///
@@ -397,18 +392,26 @@ pub fn send_locked_amount<C: EntityContextTypes>(
         })?;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
-    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
-        token_id: token_configuration.token_id,
-        from: TokenHolder::Account(source_address),
-        to: TokenHolder::Account(recipient_address),
-        amount: TokenAmount {
-            amount,
-            decimals: token_configuration.decimals,
-        },
-        memo,
-        from_lock: Some(lock_id.clone()),
-        to_lock: None,
-    })));
+    let token_id = token_configuration.token_id;
+    let token_amount = TokenAmount {
+        amount,
+        decimals: token_configuration.decimals,
+    };
+    events.extend([
+        BlockItemEvent::UnlockAmount(UnlockAmountEvent {
+            token_holder: TokenHolder::Account(source_address),
+            lock_id: lock_id.clone(),
+            token_id: token_id.clone(),
+            amount: token_amount,
+        }),
+        BlockItemEvent::TokenTransfer(TokenTransferEvent {
+            token_id,
+            from: TokenHolder::Account(source_address),
+            to: TokenHolder::Account(recipient_address),
+            amount: token_amount,
+            memo,
+        }),
+    ]);
 
     Ok(new_locked)
 }
@@ -421,7 +424,7 @@ pub fn send_locked_amount<C: EntityContextTypes>(
 ///
 /// # Events
 ///
-/// Produces a [`TokenTransferEvent`] with `from_lock` set to the lock id.
+/// Produces an [`UnlockAmountEvent`].
 ///
 /// # Errors
 ///
@@ -435,7 +438,6 @@ pub fn release_locked_amount<C: EntityContextTypes>(
     account_address: AccountAddress,
     lock_id: &LockId,
     amount: RawTokenAmount,
-    memo: Option<Memo>,
 ) -> ResultWithBlockStateFailure<RawTokenAmount, InsufficientBalanceError> {
     let old_locked = token.get_locked_balance_for_account(context, account_index, lock_id)?;
     let new_locked = old_locked
@@ -447,24 +449,21 @@ pub fn release_locked_amount<C: EntityContextTypes>(
     token.set_locked_balance_for_account(context, account_index, lock_id, new_locked)?;
 
     let token_configuration = token.token_p9_base.token_configuration(context)?;
-    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+    events.extend(Some(BlockItemEvent::UnlockAmount(UnlockAmountEvent {
+        token_holder: TokenHolder::Account(account_address),
+        lock_id: lock_id.clone(),
         token_id: token_configuration.token_id,
-        from: TokenHolder::Account(account_address),
-        to: TokenHolder::Account(account_address),
         amount: TokenAmount {
             amount,
             decimals: token_configuration.decimals,
         },
-        memo,
-        from_lock: Some(lock_id.clone()),
-        to_lock: None,
     })));
 
     Ok(new_locked)
 }
 
 /// Unlock the balance of an account associated with a particular lock for
-/// this particular token. This generates a `TokenTransferEvent` to reflect
+/// this particular token. This generates an [`UnlockAmountEvent`] to reflect
 /// the change in the locked balance.
 pub fn unlock_balance<C: EntityContextTypes>(
     context: &EntityContext<C>,
@@ -472,7 +471,6 @@ pub fn unlock_balance<C: EntityContextTypes>(
     token: &mut TokenP11,
     account_index: AccountIndex,
     lock_id: &LockId,
-    memo: &Option<Memo>,
 ) -> BlockStateResult<()> {
     let old_balance = token.get_locked_balance_for_account(context, account_index, lock_id)?;
     if old_balance == RawTokenAmount::from(0) {
@@ -493,17 +491,14 @@ pub fn unlock_balance<C: EntityContextTypes>(
             BlockStateFailure::Invariant(format!("Account not found by index: {}", err))
         })?
         .canonical_account_address;
-    events.extend(Some(BlockItemEvent::TokenTransfer(TokenTransferEvent {
+    events.extend(Some(BlockItemEvent::UnlockAmount(UnlockAmountEvent {
+        token_holder: TokenHolder::Account(account_address),
+        lock_id: lock_id.clone(),
         token_id: token_configuration.token_id,
-        from: TokenHolder::Account(account_address),
-        to: TokenHolder::Account(account_address),
         amount: TokenAmount {
             amount: old_balance,
             decimals: token_configuration.decimals,
         },
-        memo: memo.clone(),
-        from_lock: Some(lock_id.clone()),
-        to_lock: None,
     })));
 
     Ok(())

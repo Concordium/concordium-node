@@ -459,7 +459,7 @@ mod tests {
     };
 
     use super::*;
-    use concordium_base::protocol_level_tokens::{RawCbor, meta_operations::MetaOperationsPayload};
+    use concordium_base::protocol_level_tokens::{OperationsPayload, RawCbor};
     use plt_scheduler_types::types::protocol_version::ProtocolVersion;
     use std::ptr;
 
@@ -508,8 +508,8 @@ mod tests {
     fn test_p11_transaction_requires_external_chain_parameters() {
         let block_state = PersistentBlockState::empty(ProtocolVersion::P11);
         let payload = common::to_bytes(&Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-                MetaOperationsPayload {
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
+                OperationsPayload {
                     operations: RawCbor::from(vec![]),
                 },
             ),

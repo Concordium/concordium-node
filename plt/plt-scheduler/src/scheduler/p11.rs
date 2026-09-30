@@ -1,10 +1,9 @@
 use crate::failure::ResultWithBlockStateFailureExt;
+use crate::protocol_level_locks::lock_configuration::LockOperation;
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::{OutOfEnergyError, TransactionExecution};
 use crate::{TransactionContext, protocol_level_locks, protocol_level_tokens};
-use concordium_base::protocol_level_tokens::meta_operations::{
-    LockOperation, MetaOperation, MetaOperations, MetaOperationsPayload,
-};
+use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
 use concordium_base::protocol_level_tokens::{TokenId, TokenOperation};
 use concordium_base::transactions;
 use concordium_base::transactions::Payload;
@@ -50,7 +49,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
 
     let outcome = match payload {
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+            payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
         } => protocol_level_tokens::p11::execute_token_update_transaction(
             context,
             &mut execution,
@@ -58,8 +57,8 @@ pub fn execute_transaction<C: EntityContextTypes>(
             payload,
         )?,
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(payload),
-        } => execute_meta_operations(
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+        } => execute_operations(
             context,
             &mut execution,
             block_state,
@@ -75,17 +74,17 @@ pub fn execute_transaction<C: EntityContextTypes>(
     })
 }
 
-/// Execute tokenless Token Update meta operations.
-fn execute_meta_operations<C: EntityContextTypes>(
+/// Execute unscoped Token Update operations.
+fn execute_operations<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
-    payload: MetaOperationsPayload,
+    payload: OperationsPayload,
     chain_parameters: &PersistentChainParametersP11,
 ) -> BlockStateResult<TransactionOutcome> {
     // Charge energy
     if let Err(err) =
-        transaction_execution.tick_energy(transactions::cost::META_OPERATIONS_TRANSACTIONS)
+        transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
     {
         let _: OutOfEnergyError = err; // assert type of error
         return Ok(TransactionOutcome::Rejected(
@@ -96,20 +95,19 @@ fn execute_meta_operations<C: EntityContextTypes>(
     let mut events = Vec::new();
 
     // Decode operations
-    let operations: Vec<MetaOperation> =
-        match utils::cbor_decode::<MetaOperations>(payload.operations) {
-            Ok(payload) => payload.operations,
-            Err(_) => {
-                return Ok(TransactionOutcome::Rejected(
-                    TransactionRejectReason::SerializationFailure,
-                ));
-            }
-        };
+    let operations: Vec<Operation> = match utils::cbor_decode::<Operations>(payload.operations) {
+        Ok(payload) => payload.operations,
+        Err(_) => {
+            return Ok(TransactionOutcome::Rejected(
+                TransactionRejectReason::SerializationFailure,
+            ));
+        }
+    };
 
     // Execute operations
     for (index, operation) in operations.into_iter().enumerate() {
-        match MetaOperationKind::from(operation) {
-            MetaOperationKind::Token(token_id, token_operation) => {
+        match OperationKind::from(operation) {
+            OperationKind::Token(token_id, token_operation) => {
                 match protocol_level_tokens::p11::execute_token_update_operation(
                     context,
                     transaction_execution,
@@ -127,7 +125,7 @@ fn execute_meta_operations<C: EntityContextTypes>(
                     }
                 }
             }
-            MetaOperationKind::Lock(lock_operation) => {
+            OperationKind::Lock(lock_operation) => {
                 match protocol_level_locks::p11::execute_lock_operation(
                     context,
                     transaction_execution,
@@ -207,72 +205,72 @@ pub fn execute_chain_parameters_update(
     }
 }
 
-/// A discriminated version of [`MetaOperation`] for the purpose of
+/// A discriminated version of [`Operation`] for the purpose of
 /// dispatching to the appropriate operation handler.
 #[derive(PartialEq, Debug, Clone)]
-enum MetaOperationKind {
+enum OperationKind {
     /// A [`TokenOperation`] for a specific [`TokenId`].
     Token(TokenId, TokenOperation),
-    /// A [`LockOperation`].
+    /// An internal lock operation.
     Lock(LockOperation),
 }
 
-impl From<MetaOperation> for MetaOperationKind {
-    fn from(value: MetaOperation) -> Self {
+impl From<Operation> for OperationKind {
+    fn from(value: Operation) -> Self {
         match value {
-            MetaOperation::Transfer(details) => {
+            Operation::TokenTransfer(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::Transfer(details))
             }
-            MetaOperation::Mint(details) => {
+            Operation::TokenMint(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::Mint(details))
             }
-            MetaOperation::Burn(details) => {
+            Operation::TokenBurn(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::Burn(details))
             }
-            MetaOperation::AddAllowList(details) => {
+            Operation::TokenAddAllowList(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::AddAllowList(details))
             }
-            MetaOperation::RemoveAllowList(details) => {
+            Operation::TokenRemoveAllowList(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::RemoveAllowList(details))
             }
-            MetaOperation::AddDenyList(details) => {
+            Operation::TokenAddDenyList(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::AddDenyList(details))
             }
-            MetaOperation::RemoveDenyList(details) => {
+            Operation::TokenRemoveDenyList(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::RemoveDenyList(details))
             }
-            MetaOperation::Pause(details) => {
+            Operation::TokenPause(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::Pause(details))
             }
-            MetaOperation::Unpause(details) => {
+            Operation::TokenUnpause(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::Unpause(details))
             }
-            MetaOperation::AssignAdminRoles(details) => {
+            Operation::TokenAssignAdminRoles(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::AssignAdminRoles(details))
             }
-            MetaOperation::RevokeAdminRoles(details) => {
+            Operation::TokenRevokeAdminRoles(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::RevokeAdminRoles(details))
             }
-            MetaOperation::UpdateMetadata(details) => {
+            Operation::TokenUpdateMetadata(details) => {
                 let (token_id, details) = details.into();
                 Self::Token(token_id, TokenOperation::UpdateMetadata(details))
             }
-            MetaOperation::LockFund(details) => Self::Lock(LockOperation::Fund(details)),
-            MetaOperation::LockSend(details) => Self::Lock(LockOperation::Send(details)),
-            MetaOperation::LockRelease(details) => Self::Lock(LockOperation::Release(details)),
-            MetaOperation::LockCreate(details) => Self::Lock(LockOperation::Create(details)),
-            MetaOperation::LockCancel(details) => Self::Lock(LockOperation::Cancel(details)),
+            Operation::LockFund(details) => Self::Lock(LockOperation::Fund(details)),
+            Operation::LockSend(details) => Self::Lock(LockOperation::Send(details)),
+            Operation::LockRelease(details) => Self::Lock(LockOperation::Release(details)),
+            Operation::LockCreate(details) => Self::Lock(LockOperation::Create(details)),
+            Operation::LockCancel(details) => Self::Lock(LockOperation::Cancel(details)),
         }
     }
 }
@@ -302,14 +300,14 @@ mod test {
     }
 
     #[test]
-    fn test_meta_operation_token_operation_conversion() {
-        use concordium_base::protocol_level_tokens::meta_operations::*;
+    fn test_unscoped_operation_token_operation_conversion() {
+        use concordium_base::protocol_level_tokens::operations;
         use concordium_base::protocol_level_tokens::*;
-        // For each meta-update operation variant:
-        // - construct a meta-update operation with some test data
+        // For each unscoped Token Update operation variant:
+        // - construct an unscoped Token Update operation with some test data
         // - construct the corresponding token operation with the same test data
         // - convert in each direction and check that the result matches the original
-        // - construct the meta-update operation using the `meta_operations` helper function
+        // - construct the unscoped Token Update operation using the `operations` helper function
         //   and check that it matches the original
         let token_id: TokenId = "tokenid1".parse().unwrap();
         let amount = TokenAmount::from_raw(100000, 2);
@@ -327,161 +325,177 @@ mod test {
             recipient: account.clone(),
             memo: memo.clone(),
         });
-        let meta_transfer = MetaOperation::Transfer(MetaTokenTransfer {
+        let unscoped_transfer = Operation::TokenTransfer(TokenTransferWithId {
             token: token_id.clone(),
             amount,
             recipient: account.clone(),
             memo: memo.clone(),
         });
         assert_eq!(
-            transfer_tokens_with_memo(token_id.clone(), ADDRESS, amount, cbor_memo.clone()),
-            meta_transfer
+            operations::transfer_tokens_with_memo(
+                token_id.clone(),
+                ADDRESS,
+                amount,
+                cbor_memo.clone()
+            ),
+            unscoped_transfer
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_transfer.clone())),
-            meta_transfer
+            Operation::from((token_id.clone(), token_transfer.clone())),
+            unscoped_transfer
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_transfer),
-            meta_transfer.into(),
+            OperationKind::Token(token_id.clone(), token_transfer),
+            unscoped_transfer.into(),
         );
 
         let token_mint = TokenOperation::Mint(TokenSupplyUpdateDetails { amount });
-        let meta_mint = MetaOperation::Mint(MetaTokenSupplyUpdateDetails {
+        let unscoped_mint = Operation::TokenMint(TokenSupplyUpdateDetailsWithId {
             token: token_id.clone(),
             amount,
         });
-        assert_eq!(mint_tokens(token_id.clone(), amount), meta_mint);
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_mint.clone())),
-            meta_mint
+            operations::mint_tokens(token_id.clone(), amount),
+            unscoped_mint
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_mint),
-            meta_mint.into(),
+            Operation::from((token_id.clone(), token_mint.clone())),
+            unscoped_mint
+        );
+        assert_eq!(
+            OperationKind::Token(token_id.clone(), token_mint),
+            unscoped_mint.into(),
         );
 
         let token_burn = TokenOperation::Burn(TokenSupplyUpdateDetails { amount });
-        let meta_burn = MetaOperation::Burn(MetaTokenSupplyUpdateDetails {
+        let unscoped_burn = Operation::TokenBurn(TokenSupplyUpdateDetailsWithId {
             token: token_id.clone(),
             amount,
         });
-        assert_eq!(burn_tokens(token_id.clone(), amount), meta_burn);
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_burn.clone())),
-            meta_burn
+            operations::burn_tokens(token_id.clone(), amount),
+            unscoped_burn
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_burn),
-            meta_burn.into(),
+            Operation::from((token_id.clone(), token_burn.clone())),
+            unscoped_burn
+        );
+        assert_eq!(
+            OperationKind::Token(token_id.clone(), token_burn),
+            unscoped_burn.into(),
         );
 
         let token_add_allow_list = TokenOperation::AddAllowList(TokenListUpdateDetails {
             target: account.clone(),
         });
-        let meta_add_allow_list = MetaOperation::AddAllowList(MetaTokenListUpdateDetails {
+        let unscoped_add_allow_list = Operation::TokenAddAllowList(TokenListUpdateDetailsWithId {
             token: token_id.clone(),
             target: account.clone(),
         });
         assert_eq!(
-            add_token_allow_list(token_id.clone(), ADDRESS),
-            meta_add_allow_list
+            operations::add_token_allow_list(token_id.clone(), ADDRESS),
+            unscoped_add_allow_list
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_add_allow_list.clone())),
-            meta_add_allow_list
+            Operation::from((token_id.clone(), token_add_allow_list.clone())),
+            unscoped_add_allow_list
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_add_allow_list),
-            meta_add_allow_list.into(),
+            OperationKind::Token(token_id.clone(), token_add_allow_list),
+            unscoped_add_allow_list.into(),
         );
 
         let token_remove_allow_list = TokenOperation::RemoveAllowList(TokenListUpdateDetails {
             target: account.clone(),
         });
-        let meta_remove_allow_list = MetaOperation::RemoveAllowList(MetaTokenListUpdateDetails {
-            token: token_id.clone(),
-            target: account.clone(),
-        });
+        let unscoped_remove_allow_list =
+            Operation::TokenRemoveAllowList(TokenListUpdateDetailsWithId {
+                token: token_id.clone(),
+                target: account.clone(),
+            });
         assert_eq!(
-            remove_token_allow_list(token_id.clone(), ADDRESS),
-            meta_remove_allow_list
+            operations::remove_token_allow_list(token_id.clone(), ADDRESS),
+            unscoped_remove_allow_list
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_remove_allow_list.clone())),
-            meta_remove_allow_list
+            Operation::from((token_id.clone(), token_remove_allow_list.clone())),
+            unscoped_remove_allow_list
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_remove_allow_list),
-            meta_remove_allow_list.into(),
+            OperationKind::Token(token_id.clone(), token_remove_allow_list),
+            unscoped_remove_allow_list.into(),
         );
 
         let token_add_deny_list = TokenOperation::AddDenyList(TokenListUpdateDetails {
             target: account.clone(),
         });
-        let meta_add_deny_list = MetaOperation::AddDenyList(MetaTokenListUpdateDetails {
+        let unscoped_add_deny_list = Operation::TokenAddDenyList(TokenListUpdateDetailsWithId {
             token: token_id.clone(),
             target: account.clone(),
         });
         assert_eq!(
-            add_token_deny_list(token_id.clone(), ADDRESS),
-            meta_add_deny_list
+            operations::add_token_deny_list(token_id.clone(), ADDRESS),
+            unscoped_add_deny_list
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_add_deny_list.clone())),
-            meta_add_deny_list
+            Operation::from((token_id.clone(), token_add_deny_list.clone())),
+            unscoped_add_deny_list
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_add_deny_list),
-            meta_add_deny_list.into(),
+            OperationKind::Token(token_id.clone(), token_add_deny_list),
+            unscoped_add_deny_list.into(),
         );
 
         let token_remove_deny_list = TokenOperation::RemoveDenyList(TokenListUpdateDetails {
             target: account.clone(),
         });
-        let meta_remove_deny_list = MetaOperation::RemoveDenyList(MetaTokenListUpdateDetails {
-            token: token_id.clone(),
-            target: account.clone(),
-        });
+        let unscoped_remove_deny_list =
+            Operation::TokenRemoveDenyList(TokenListUpdateDetailsWithId {
+                token: token_id.clone(),
+                target: account.clone(),
+            });
         assert_eq!(
-            remove_token_deny_list(token_id.clone(), ADDRESS),
-            meta_remove_deny_list
+            operations::remove_token_deny_list(token_id.clone(), ADDRESS),
+            unscoped_remove_deny_list
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_remove_deny_list.clone())),
-            meta_remove_deny_list
+            Operation::from((token_id.clone(), token_remove_deny_list.clone())),
+            unscoped_remove_deny_list
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_remove_deny_list),
-            meta_remove_deny_list.into(),
+            OperationKind::Token(token_id.clone(), token_remove_deny_list),
+            unscoped_remove_deny_list.into(),
         );
 
         let token_pause = TokenOperation::Pause(TokenPauseDetails {});
-        let meta_pause = MetaOperation::Pause(MetaTokenPauseDetails {
+        let unscoped_pause = Operation::TokenPause(TokenPauseDetailsWithId {
             token: token_id.clone(),
         });
-        assert_eq!(pause(token_id.clone()), meta_pause);
+        assert_eq!(operations::pause_token(token_id.clone()), unscoped_pause);
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_pause.clone())),
-            meta_pause
+            Operation::from((token_id.clone(), token_pause.clone())),
+            unscoped_pause
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_pause),
-            meta_pause.into(),
+            OperationKind::Token(token_id.clone(), token_pause),
+            unscoped_pause.into(),
         );
 
         let token_unpause = TokenOperation::Unpause(TokenPauseDetails {});
-        let meta_unpause = MetaOperation::Unpause(MetaTokenPauseDetails {
+        let unscoped_unpause = Operation::TokenUnpause(TokenPauseDetailsWithId {
             token: token_id.clone(),
         });
-        assert_eq!(unpause(token_id.clone()), meta_unpause);
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_unpause.clone())),
-            meta_unpause
+            operations::unpause_token(token_id.clone()),
+            unscoped_unpause
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_unpause),
-            meta_unpause.into(),
+            Operation::from((token_id.clone(), token_unpause.clone())),
+            unscoped_unpause
+        );
+        assert_eq!(
+            OperationKind::Token(token_id.clone(), token_unpause),
+            unscoped_unpause.into(),
         );
 
         let assign_roles = vec![TokenAdminRole::Mint, TokenAdminRole::Pause];
@@ -490,23 +504,23 @@ mod test {
                 roles: assign_roles.clone(),
                 account: account.clone(),
             });
-        let meta_assign_admin_roles =
-            MetaOperation::AssignAdminRoles(MetaTokenUpdateAdminRolesDetails {
+        let unscoped_assign_admin_roles =
+            Operation::TokenAssignAdminRoles(TokenUpdateAdminRolesDetailsWithId {
                 token: token_id.clone(),
                 roles: assign_roles.clone(),
                 account: account.clone(),
             });
         assert_eq!(
-            assign_admin_roles(token_id.clone(), ADDRESS, assign_roles.clone()),
-            meta_assign_admin_roles
+            operations::assign_token_admin_roles(token_id.clone(), ADDRESS, assign_roles.clone()),
+            unscoped_assign_admin_roles
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_assign_admin_roles.clone())),
-            meta_assign_admin_roles
+            Operation::from((token_id.clone(), token_assign_admin_roles.clone())),
+            unscoped_assign_admin_roles
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_assign_admin_roles),
-            meta_assign_admin_roles.into(),
+            OperationKind::Token(token_id.clone(), token_assign_admin_roles),
+            unscoped_assign_admin_roles.into(),
         );
 
         let revoke_roles = vec![
@@ -519,46 +533,47 @@ mod test {
                 roles: revoke_roles.clone(),
                 account: account.clone(),
             });
-        let meta_revoke_admin_roles =
-            MetaOperation::RevokeAdminRoles(MetaTokenUpdateAdminRolesDetails {
+        let unscoped_revoke_admin_roles =
+            Operation::TokenRevokeAdminRoles(TokenUpdateAdminRolesDetailsWithId {
                 token: token_id.clone(),
                 roles: revoke_roles.clone(),
                 account: account.clone(),
             });
         assert_eq!(
-            revoke_admin_roles(token_id.clone(), ADDRESS, revoke_roles.clone()),
-            meta_revoke_admin_roles
+            operations::revoke_token_admin_roles(token_id.clone(), ADDRESS, revoke_roles.clone()),
+            unscoped_revoke_admin_roles
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_revoke_admin_roles.clone())),
-            meta_revoke_admin_roles
+            Operation::from((token_id.clone(), token_revoke_admin_roles.clone())),
+            unscoped_revoke_admin_roles
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_revoke_admin_roles),
-            meta_revoke_admin_roles.into(),
+            OperationKind::Token(token_id.clone(), token_revoke_admin_roles),
+            unscoped_revoke_admin_roles.into(),
         );
 
-        let metadata_url = MetadataUrl {
+        let metadata_url = TokenMetadataUrlDetails {
             url: "https://example.com/metadata.json".to_string(),
             checksum_sha_256: Some([0u8; 32].into()),
-            additional: Default::default(),
         };
         let token_update_metadata = TokenOperation::UpdateMetadata(metadata_url.clone());
-        let meta_update_metadata = MetaOperation::UpdateMetadata(MetaMetadataUrlDetails {
-            token: token_id.clone(),
-            metadata_url: metadata_url.clone(),
-        });
+        let unscoped_update_metadata =
+            Operation::TokenUpdateMetadata(TokenMetadataUrlDetailsWithId {
+                token: token_id.clone(),
+                url: metadata_url.url.clone(),
+                checksum_sha_256: metadata_url.checksum_sha_256,
+            });
         assert_eq!(
-            update_metadata(token_id.clone(), metadata_url.clone()),
-            meta_update_metadata
+            operations::update_token_metadata(token_id.clone(), metadata_url.clone()),
+            unscoped_update_metadata
         );
         assert_eq!(
-            MetaOperation::from((token_id.clone(), token_update_metadata.clone())),
-            meta_update_metadata
+            Operation::from((token_id.clone(), token_update_metadata.clone())),
+            unscoped_update_metadata
         );
         assert_eq!(
-            MetaOperationKind::Token(token_id.clone(), token_update_metadata),
-            meta_update_metadata.into(),
+            OperationKind::Token(token_id.clone(), token_update_metadata),
+            unscoped_update_metadata.into(),
         );
     }
 }

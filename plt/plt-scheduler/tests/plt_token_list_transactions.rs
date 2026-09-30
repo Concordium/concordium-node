@@ -210,7 +210,7 @@ fn test_add_allow_list_reject_non_governance() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -275,7 +275,7 @@ fn test_remove_allow_list_reject_non_governance() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -339,7 +339,7 @@ fn test_add_deny_list_reject_non_governance() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -403,7 +403,7 @@ fn test_remove_deny_list_reject_non_governance() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -642,7 +642,7 @@ fn test_add_to_not_enabled_allow_list() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -695,7 +695,7 @@ fn test_remove_from_not_enabled_allow_list() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -748,7 +748,7 @@ fn test_add_to_not_enabled_deny_list() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -801,7 +801,7 @@ fn test_remove_from_not_enabled_deny_list() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -852,7 +852,7 @@ fn test_reject_add_denylist_without_role() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -873,7 +873,7 @@ fn test_reject_add_denylist_without_role() {
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -927,7 +927,7 @@ fn test_reject_add_allowlist_without_role() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -948,7 +948,7 @@ fn test_reject_add_allowlist_without_role() {
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1012,7 +1012,7 @@ fn test_reject_remove_denylist_without_role() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1033,7 +1033,7 @@ fn test_reject_remove_denylist_without_role() {
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1097,7 +1097,7 @@ fn test_reject_remove_allowlist_without_role() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1118,7 +1118,7 @@ fn test_reject_remove_allowlist_without_role() {
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1177,7 +1177,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1198,7 +1198,7 @@ fn test_succeeds_add_deny_list_new_account_with_role() {
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1251,7 +1251,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -1272,7 +1272,7 @@ fn test_succeeds_add_allow_list_new_account_with_role() {
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::SingleToken(payload),
+                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");

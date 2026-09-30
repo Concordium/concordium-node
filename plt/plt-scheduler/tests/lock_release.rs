@@ -7,9 +7,7 @@ use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaOperations, MetaOperationsPayload, lock_fund, lock_release,
-};
+use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
 };
@@ -18,20 +16,20 @@ use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent, TokenTransferEvent};
+use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent, UnlockAmountEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 
 mod utils;
 
-macro_rules! execute_meta_update {
+macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
         let payload = Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Tokenless(
-                MetaOperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&MetaOperations {
+            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
+                OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&Operations {
                         operations: $operations,
                     })),
                 },
@@ -50,7 +48,7 @@ macro_rules! execute_meta_update {
                 $sender,
                 payload,
             )
-            .expect("meta-update transaction must execute")
+            .expect("unscoped Token Update transaction must execute")
             .outcome
     }};
 }
@@ -118,12 +116,12 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -134,12 +132,12 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
     let sender_addr = context
         .external
         .account_canonical_address(sender.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_release(
+        vec![operations::release_locked_tokens(
             "PLTx".parse().unwrap(),
             lock_id.clone(),
             sender_addr,
@@ -150,22 +148,17 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
     let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 2);
-    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(TokenTransferEvent {
+    assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
         token_id: event_token_id,
-        from,
-        to,
+        token_holder,
+        lock_id: event_lock_id,
         amount,
-        from_lock,
-        to_lock,
-        ..
     }) => {
         assert_eq!(event_token_id, &token_id);
-        assert_eq!(from, &TokenHolder::Account(sender_addr));
-        assert_eq!(to, &TokenHolder::Account(sender_addr));
+        assert_eq!(token_holder, &TokenHolder::Account(sender_addr));
+        assert_eq!(event_lock_id, &lock_id);
         assert_eq!(amount.amount, RawTokenAmount::from(250));
         assert_eq!(amount.decimals, 4);
-        assert_eq!(from_lock, &Some(lock_id.clone()));
-        assert_eq!(to_lock, &None);
     });
     assert_matches!(&events[1], BlockItemEvent::LockDestroyed(LockDestroyEvent { lock_id: event_lock_id }) => {
         assert_eq!(event_lock_id, &lock_id);
@@ -225,12 +218,12 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
         keep_alive: true,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -241,12 +234,12 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     let sender_addr = context
         .external
         .account_canonical_address(sender.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
         0,
-        vec![lock_release(
+        vec![operations::release_locked_tokens(
             token_id.clone(),
             lock_id.clone(),
             sender_addr,
@@ -257,7 +250,7 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(..));
+    assert_matches!(&events[0], BlockItemEvent::UnlockAmount(..));
 
     let lock_info: LockInfo = cbor::cbor_decode(
         block_state
@@ -304,12 +297,12 @@ fn test_lock_release_rejects_unauthorized_sender() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -320,12 +313,12 @@ fn test_lock_release_rejects_unauthorized_sender() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_release(
+        vec![operations::release_locked_tokens(
             token_id,
             lock_id.clone(),
             owner_addr,
@@ -377,12 +370,12 @@ fn test_lock_release_rejects_after_expiry() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    execute_meta_update!(
+    execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             TokenAmount::from_raw(250, 4),
@@ -393,12 +386,12 @@ fn test_lock_release_rejects_after_expiry() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let outcome = execute_meta_update!(
+    let outcome = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         20_000,
-        vec![lock_release(
+        vec![operations::release_locked_tokens(
             token_id,
             lock_id.clone(),
             owner_addr,
