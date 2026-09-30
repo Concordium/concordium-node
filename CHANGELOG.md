@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 10.0.12
+
+- Implemented runtime metering of copy operations in the WASM interpreter `wasm-transform` to prevent misusing cost-free operations to emit free copy operations.
+
 ## 10.0.11
 
 - Fix security bug where V1 contract-state query `entry-size` and `entry-read` resulted in a variable amount of work, but for a fixed energy cost. The fix ensures the query runs in same time-complexity as the energy charged.
