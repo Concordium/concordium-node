@@ -2,7 +2,7 @@
 
 # Use the same Ubuntu release for the build and runtime stages. This prevents
 # incompatibilities between the build-time and runtime system libraries.
-ARG UBUNTU_VERSION=22.04
+ARG UBUNTU_VERSION=26.04
 
 # Compile the Haskell and Rust components in a disposable build stage.
 FROM ubuntu:${UBUNTU_VERSION} AS builder
