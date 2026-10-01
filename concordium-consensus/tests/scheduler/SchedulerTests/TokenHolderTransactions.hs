@@ -215,7 +215,7 @@ testTwoOperations _ pvString =
             createPLTPayload = Types.CreatePLTUpdatePayload createPLT
             testOps =
                 mkOps $
-                    CBOR.TokenUpdateTransaction $
+                    CBOR.TokenOperations $
                         Seq.fromList
                             [ CBOR.TokenTransfer $
                                 CBOR.TokenTransferBody
@@ -230,7 +230,7 @@ testTwoOperations _ pvString =
                                       ttMemo = Nothing
                                     }
                             ]
-            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
+            mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes
 
             transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
@@ -317,18 +317,14 @@ testTwoOperations _ pvString =
                                       ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
                                       ettTo = HolderAccount $ CBOR.chaAccount recptAcct,
                                       ettAmount = TokenAmount 10 0,
-                                      ettMemo = Nothing,
-                                      ettFromLock = Nothing,
-                                      ettToLock = Nothing
+                                      ettMemo = Nothing
                                     },
                                   TokenTransfer
                                     { ettTokenId = gtu,
                                       ettFrom = HolderAccount $ CBOR.chaAccount govAcct,
                                       ettTo = HolderAccount $ CBOR.chaAccount recptAcct,
                                       ettAmount = TokenAmount 90 0,
-                                      ettMemo = Nothing,
-                                      ettFromLock = Nothing,
-                                      ettToLock = Nothing
+                                      ettMemo = Nothing
                                     }
                                 ]
                                 result
@@ -350,7 +346,7 @@ testRollback ::
     Spec
 testRollback _ pvString =
     specify (pvString ++ ": State rollback") $ do
-        let mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
+        let mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes
             govAcct = CBOR.accountTokenHolder dummyAddress
             recptAcct = CBOR.accountTokenHolder dummyAddress2
             gtu = Types.TokenId $ fromString "Gtu"
@@ -371,7 +367,7 @@ testRollback _ pvString =
             createPLTPayload = Types.CreatePLTUpdatePayload createPLT
             testOps =
                 mkOps $
-                    CBOR.TokenUpdateTransaction $
+                    CBOR.TokenOperations $
                         Seq.fromList
                             [ CBOR.TokenTransfer $
                                 CBOR.TokenTransferBody
@@ -578,9 +574,9 @@ testTransfer spv = property (ioProperty . theTest)
             createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
             condOp True = Seq.singleton
             condOp False = mempty
-            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
+            mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes
             initOps =
-                mkOps . CBOR.TokenUpdateTransaction $
+                mkOps . CBOR.TokenOperations $
                     condOp tcSenderAllow (CBOR.TokenAddAllowList govAcct)
                         <> condOp tcRecvAllow (CBOR.TokenAddAllowList recptAcct)
                         <> condOp tcSenderDeny (CBOR.TokenAddDenyList govAcct)
@@ -598,7 +594,7 @@ testTransfer spv = property (ioProperty . theTest)
                 | tcSenderAlias = distinctAlias dummyAddress
                 | otherwise = dummyAddress
             testOps =
-                mkOps . CBOR.TokenUpdateTransaction . Seq.singleton $
+                mkOps . CBOR.TokenOperations . Seq.singleton $
                     CBOR.TokenTransfer $
                         CBOR.TokenTransferBody
                             { ttAmount = if tcSenderBalanceSufficient then mintAmt else excessiveAmt,
@@ -846,9 +842,7 @@ testTransfer spv = property (ioProperty . theTest)
                                               ettFrom = HolderAccount actualSenderAddress,
                                               ettTo = HolderAccount actualRecipientAddress,
                                               ettAmount = mintAmt,
-                                              ettMemo = CBOR.taggableMemoInner <$> tcMemo,
-                                              ettFromLock = Nothing,
-                                              ettToLock = Nothing
+                                              ettMemo = CBOR.taggableMemoInner <$> tcMemo
                                             }
                                         ]
                                         result
@@ -898,7 +892,7 @@ testPauseUnpause spv = do
     createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
     keys1 = [(0, [(0, dummyKP)])]
     keys2 = [(0, [(0, Helpers.keyPairFromSeed 2)])]
-    mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+    mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes . CBOR.TokenOperations . Seq.fromList
     mkUpdateTx sendAddr nonce nrg keys ops =
         Runner.AccountTx
             Runner.TJSON
@@ -1065,9 +1059,7 @@ testPauseUnpause spv = do
                           ettFrom = HolderAccount dummyAddress,
                           ettTo = HolderAccount dummyAddress,
                           ettAmount = TokenAmount 10 0,
-                          ettMemo = Nothing,
-                          ettFromLock = Nothing,
-                          ettToLock = Nothing
+                          ettMemo = Nothing
                         },
                       pauseEvent
                     ]
@@ -1118,7 +1110,7 @@ testMintBurn spv mintEnabled burnEnabled = do
     createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
     keys1 = [(0, [(0, dummyKP)])]
     keys2 = [(0, [(0, Helpers.keyPairFromSeed 2)])]
-    mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+    mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes . CBOR.TokenOperations . Seq.fromList
     mkUpdateTx sendAddr nonce nrg keys ops =
         Runner.AccountTx
             Runner.TJSON
@@ -1432,10 +1424,10 @@ testNoCoinInfoTransfer _ pvString =
                     }
             tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
-            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes
+            mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes
             transferOps =
                 mkOps $
-                    CBOR.TokenUpdateTransaction $
+                    CBOR.TokenOperations $
                         Seq.singleton $
                             CBOR.TokenTransfer $
                                 CBOR.TokenTransferBody
@@ -1493,9 +1485,7 @@ testNoCoinInfoTransfer _ pvString =
                                       ettFrom = HolderAccount dummyAddress,
                                       ettTo = HolderAccount dummyAddress2,
                                       ettAmount = transferAmt,
-                                      ettMemo = Nothing,
-                                      ettFromLock = Nothing,
-                                      ettToLock = Nothing
+                                      ettMemo = Nothing
                                     }
                                 ]
                                 result
@@ -1557,7 +1547,7 @@ testNoCoinInfoAllowDenyList _ pvString =
                     }
             tp = Types.rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes params
             createPLT = Types.CreatePLT pltName tokenModuleV0Ref 0 tp
-            mkOps = Types.rawCborFromBytes . CBOR.tokenUpdateTransactionToBytes . CBOR.TokenUpdateTransaction . Seq.fromList
+            mkOps = Types.rawCborFromBytes . CBOR.tokenOperationsToBytes . CBOR.TokenOperations . Seq.fromList
             -- Helper to build a TokenModuleEvent for a list update.
             listEvent evtType target =
                 TokenModuleEvent

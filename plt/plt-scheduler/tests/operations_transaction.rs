@@ -1,4 +1,4 @@
-//! Tests for the meta-update transaction execution logic.
+//! Tests for the unscoped Token Update transaction execution logic.
 
 use std::str::FromStr;
 
@@ -6,11 +6,11 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborMemo, MetadataUrl, RawCbor, TokenAmount, TokenId, TokenListUpdateEventDetails,
-    TokenModuleInitializationParameters, TokenPauseDetails, TokenPauseEventDetails,
-    meta_operations,
+    CborMemo, MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
+    TokenListUpdateEventDetails, TokenModuleInitializationParameters, TokenPauseDetails,
+    TokenPauseEventDetails, operations,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::entity_test_stub;
@@ -88,7 +88,7 @@ fn setup_test_plts(
 }
 
 #[test]
-fn test_meta_update_transaction() {
+fn test_unscoped_transaction() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -105,27 +105,26 @@ fn test_meta_update_transaction() {
     let plt_x: TokenId = PLT_X.parse().unwrap();
     let plt_y: TokenId = PLT_Y.parse().unwrap();
 
-    use meta_operations::*;
     let operations = vec![
-        transfer_tokens(plt_x.clone(), account_2_addr, TokenAmount::from_raw(100, 2)),
-        mint_tokens(plt_y.clone(), TokenAmount::from_raw(100000, 0)),
-        pause(plt_x.clone()),
-        add_token_allow_list(plt_y.clone(), account_2_addr),
-        add_token_deny_list(plt_y.clone(), account_1_addr),
-        add_token_allow_list(plt_y.clone(), account_1_addr),
-        remove_token_deny_list(plt_y.clone(), account_1_addr),
-        transfer_tokens_with_memo(
+        operations::transfer_tokens(plt_x.clone(), account_2_addr, TokenAmount::from_raw(100, 2)),
+        operations::mint_tokens(plt_y.clone(), TokenAmount::from_raw(100000, 0)),
+        operations::pause_token(plt_x.clone()),
+        operations::add_token_allow_list(plt_y.clone(), account_2_addr),
+        operations::add_token_deny_list(plt_y.clone(), account_1_addr),
+        operations::add_token_allow_list(plt_y.clone(), account_1_addr),
+        operations::remove_token_deny_list(plt_y.clone(), account_1_addr),
+        operations::transfer_tokens_with_memo(
             plt_y.clone(),
             account_2_addr,
             TokenAmount::from_raw(2200, 0),
             CborMemo::Cbor(vec![0xa0u8].try_into().unwrap()),
         ),
-        unpause(plt_x.clone()),
-        burn_tokens(plt_x.clone(), TokenAmount::from_raw(10, 2)),
-        remove_token_allow_list(plt_y.clone(), account_1_addr),
+        operations::unpause_token(plt_x.clone()),
+        operations::burn_tokens(plt_x.clone(), TokenAmount::from_raw(10, 2)),
+        operations::remove_token_allow_list(plt_y.clone(), account_1_addr),
     ];
 
-    let payload = meta_operations::MetaUpdatePayload {
+    let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
     let result = block_state
@@ -138,7 +137,9 @@ fn test_meta_update_transaction() {
                 block_timestamp: 0.into(),
             },
             account_1.account_index(),
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(payload),
+            },
         )
         .expect("transaction internal error");
     let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
@@ -151,8 +152,6 @@ fn test_meta_update_transaction() {
             to: TokenHolder::Account(account_2_addr),
             amount: tokens::TokenAmount::from_raw(100, 2),
             memo: None,
-            from_lock: None,
-            to_lock: None,
         })
     );
     assert_eq!(
@@ -223,8 +222,6 @@ fn test_meta_update_transaction() {
             to: TokenHolder::Account(account_2_addr),
             amount: tokens::TokenAmount::from_raw(2200, 0),
             memo: Some(vec![0xa0u8].try_into().unwrap()),
-            from_lock: None,
-            to_lock: None,
         })
     );
     assert_eq!(
@@ -257,7 +254,7 @@ fn test_meta_update_transaction() {
 }
 
 #[test]
-fn test_meta_update_transaction_cbor_extra_fields() {
+fn test_unscoped_transaction_cbor_extra_fields() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -266,10 +263,8 @@ fn test_meta_update_transaction_cbor_extra_fields() {
     let account_1_addr = context
         .external
         .account_canonical_address(account_1.account_index());
-    use meta_operations::*;
-
-    let payload = MetaUpdatePayload {
-        operations: RawCbor::from_str("81a1687472616e73666572a5646d656d6f440102030465746f6b656e68746f6b656e69643166616d6f756e74c482211a000186a069726563697069656e74d99d73a201d99d71a1011903970358200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2064626c616801").unwrap(),
+    let payload = OperationsPayload {
+        operations: RawCbor::from_str("81a16d746f6b656e5472616e73666572a5646d656d6f440102030465746f6b656e68746f6b656e69643166616d6f756e74c482211a000186a069726563697069656e74d99d73a201d99d71a1011903970358200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2064626c616801").unwrap(),
     };
     payload
         .decode_operations()
@@ -284,7 +279,9 @@ fn test_meta_update_transaction_cbor_extra_fields() {
                 block_timestamp: 0.into(),
             },
             account_1.account_index(),
-            Payload::MetaUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(

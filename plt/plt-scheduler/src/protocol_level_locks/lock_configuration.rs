@@ -7,8 +7,8 @@ use concordium_base::protocol_level_locks::{
     LockControllerSimpleV0Capability, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::CborHolderAccount;
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaLockCancelDetails, MetaLockFundDetails, MetaLockReleaseDetails, MetaLockSendDetails,
+use concordium_base::protocol_level_tokens::{
+    LockCancelDetails, LockCreateDetails, LockFundDetails, LockReleaseDetails, LockSendDetails,
 };
 use plt_block_state::entity::accounts::{Account, Accounts};
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
@@ -76,17 +76,19 @@ pub fn from_cbor_recipients<C: EntityContextTypes>(
     }
 }
 
-/// Lock operation requiring authorization against a lock configuration.
+/// Internal lock operation dispatched by the scheduler.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LockOperation {
+    /// Create a lock; no existing configuration authorization is required.
+    Create(LockCreateDetails),
     /// Fund a lock with a token amount.
-    Fund(MetaLockFundDetails),
+    Fund(LockFundDetails),
     /// Send locked funds to an eligible recipient.
-    Send(MetaLockSendDetails),
+    Send(LockSendDetails),
     /// Release locked funds to their source account.
-    Release(MetaLockReleaseDetails),
+    Release(LockReleaseDetails),
     /// Cancel a lock and return all remaining funds.
-    Cancel(MetaLockCancelDetails),
+    Cancel(LockCancelDetails),
 }
 
 /// Validate that the sender may perform an operation under the lock configuration.
@@ -101,6 +103,7 @@ pub fn validate_operation(
 ) -> Result<(), TransactionRejectReason> {
     let LockConfig::SimpleV0(config) = config;
     let (role, lock) = match operation {
+        LockOperation::Create(_) => return Ok(()),
         LockOperation::Fund(details) => (LockControllerSimpleV0Capability::Fund, &details.lock),
         LockOperation::Send(details) => (LockControllerSimpleV0Capability::Send, &details.lock),
         LockOperation::Release(details) => {
@@ -110,6 +113,7 @@ pub fn validate_operation(
     };
     if !config.has_role(sender.account_index(), role) {
         return Err(match operation {
+            LockOperation::Create(_) => return Ok(()),
             LockOperation::Fund(_) => {
                 TransactionRejectReason::LockFundNotAuthorized(lock.clone(), sender_address)
             }

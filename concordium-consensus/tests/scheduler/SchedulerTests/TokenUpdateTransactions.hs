@@ -6,14 +6,14 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | Tests for meta-update transactions.
-module SchedulerTests.MetaUpdateTransactions (tests) where
+-- | Tests for unscoped Token Update transactions.
+module SchedulerTests.TokenUpdateTransactions (tests) where
 
 import Control.Monad
 import Data.Bool.Singletons
+import Data.ByteString (ByteString)
 import qualified Data.Map as Map
 import Data.Maybe
-import qualified Data.Sequence as Seq
 import Data.Word
 import Test.HUnit
 import Test.Hspec
@@ -75,32 +75,20 @@ initialBlockState =
           dummyAccount2
         ]
 
-makeMetaTx ::
-    AccountAddress ->
-    Nonce ->
-    Energy ->
-    [(CredentialIndex, [(KeyIndex, SigScheme.KeyPair)])] ->
-    [CBOR.MetaUpdateOperation] ->
-    Runner.BlockItemDescription
-makeMetaTx sendAddr nonce nrg keys ops =
+makeUnscopedTx :: AccountAddress -> Nonce -> Energy -> [(CredentialIndex, [(KeyIndex, SigScheme.KeyPair)])] -> ByteString -> Runner.BlockItemDescription
+makeUnscopedTx sendAddr nonce nrg keys ops =
     Runner.AccountTx
         Runner.TJSON
-            { payload = Runner.MetaUpdate{muOperations = mkOps ops},
+            { payload = Runner.UnscopedTokenUpdate{utuOperations = Types.rawCborFromBytes ops},
               metadata = makeDummyHeader sendAddr nonce nrg,
               keys = keys
             }
-  where
-    mkOps =
-        Types.rawCborFromBytes
-            . CBOR.metaUpdateTransactionToBytes
-            . CBOR.MetaUpdateTransaction
-            . Seq.fromList
 
--- | Test an empty meta-update transaction at a given protocol version.
---  The transaction should be accepted if and only if the protocol version supports meta-update
+-- | Test an empty unscoped Token Update transaction at a given protocol version.
+--  The transaction should be accepted if and only if the protocol version supports unscoped Token Update
 --  transactions.
-testMetaUpdateSupport :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
-testMetaUpdateSupport spv = it desc $ do
+testUnscopedSupport :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testUnscopedSupport spv = it desc $ do
     Helpers.runSchedulerTestAssertIntermediateStates
         @pv
         Helpers.defaultTestConfig
@@ -108,18 +96,18 @@ testMetaUpdateSupport spv = it desc $ do
         transactionsAndAssertions
   where
     desc =
-        "Empty meta-update operation "
-            ++ (if supportsMetaUpdate spv then "" else "not ")
+        "Empty unscoped Token Update operation "
+            ++ (if supportsUnscopedTokenUpdate spv then "" else "not ")
             ++ "supported"
-    -- Base cost: payload size = 6 = 1 (type) + 4 (CBOR size) + 1 (CBOR encoding of empty list)
-    costFail = Cost.baseCost (transactionHeaderSize + 6) 1
-    costSuccess = costFail + Cost.metaUpdateBaseCost
+    -- Base cost: payload size = 7 = 1 (type) + 1 (empty token ID) + 4 (CBOR size) + 1 (CBOR encoding of empty list)
+    costFail = Cost.baseCost (transactionHeaderSize + 7) 1
+    costSuccess = costFail + Cost.tokenUpdateBaseCost
     transactionsAndAssertions =
         [ Helpers.BlockItemAndAssertion
-            { biaaTransaction = makeMetaTx dummyAddress 1 1000 keys1 [],
+            { biaaTransaction = makeUnscopedTx dummyAddress 1 1000 keys1 "\x80",
               biaaAssertion = \result _newState -> do
                 return $
-                    if supportsMetaUpdate spv
+                    if supportsUnscopedTokenUpdate spv
                         then do
                             Helpers.assertSuccessWithEvents [] result
                             assertEqual "Used energy" costSuccess (Helpers.srUsedEnergy result)
@@ -201,56 +189,87 @@ distinctAlias addr
     alias = createAlias addr 0
     alias2 = createAlias addr 1
 
--- | A collection of 'CBOR.MetaUpdateOperations' for testing.
-metaUpdateMultiOperation :: [CBOR.MetaUpdateOperation]
-metaUpdateMultiOperation =
-    [ CBOR.MetaTokenUpdate (TokenId "pltX") $
-        CBOR.TokenTransfer $
-            CBOR.TokenTransferBody
-                { ttAmount = TokenAmount 100 2,
-                  ttRecipient = CBOR.accountTokenHolder dummyAddress2,
-                  ttMemo = Nothing
-                },
-      CBOR.MetaTokenUpdate (TokenId "pltY") $
-        CBOR.TokenMint $
-            TokenAmount 100000 0,
-      CBOR.MetaTokenUpdate (TokenId "pltX") $
-        CBOR.TokenPause,
-      CBOR.MetaTokenUpdate (TokenId "pltY") $
-        CBOR.TokenAddAllowList (CBOR.accountTokenHolderShort dummyAddress2),
-      CBOR.MetaTokenUpdate (TokenId "pltY") $
-        CBOR.TokenAddDenyList (CBOR.accountTokenHolder (distinctAlias dummyAddress)),
-      CBOR.MetaTokenUpdate (TokenId "pltY") $
-        CBOR.TokenAddAllowList (CBOR.accountTokenHolder dummyAddress),
-      CBOR.MetaTokenUpdate (TokenId "PLTY") $
-        CBOR.TokenRemoveDenyList (CBOR.accountTokenHolder dummyAddress),
-      CBOR.MetaTokenUpdate (TokenId "pltY") $
-        CBOR.TokenTransfer $
-            CBOR.TokenTransferBody
-                { ttAmount = TokenAmount 2200 0,
-                  ttRecipient = CBOR.accountTokenHolder dummyAddress2,
-                  ttMemo = Just $ CBOR.CBORMemo (Memo "\xa0")
-                },
-      CBOR.MetaTokenUpdate (TokenId "pltX") $
-        CBOR.TokenUnpause,
-      CBOR.MetaTokenUpdate (TokenId "PltX") $
-        CBOR.TokenBurn $
-            TokenAmount 10 2,
-      CBOR.MetaTokenUpdate (TokenId "plty") $
-        CBOR.TokenRemoveAllowList (CBOR.accountTokenHolderShort dummyAddress)
-    ]
+-- | Opaque multi-token operations verified with the Rust CBOR decoder and encoder.
+-- Diagnostic CBOR notation:
+-- [
+--   {"tokenTransfer": {
+--     "token": "pltX", "amount": 4([-2, 100]),
+--     "recipient": 40307({1: 40305({1: 919}),
+--       3: h'170086c8ae4ab9a4c8158b907fdd731935fe99dcabce1fa6f3da0991dde82c50'})
+--   }},
+--   {"tokenMint": {"token": "pltY", "amount": 4([0, 100000])}},
+--   {"tokenPause": {"token": "pltX"}},
+--   {"tokenAddAllowList": {
+--     "token": "pltY", "target": 40307({
+--       3: h'170086c8ae4ab9a4c8158b907fdd731935fe99dcabce1fa6f3da0991dde82c50'})
+--   }},
+--   {"tokenAddDenyList": {
+--     "token": "pltY", "target": 40307({1: 40305({1: 919}),
+--       3: h'e26c23d707abfc3a1abb11ca6a286ddcf583febf9c7dda634e304bd059000000'})
+--   }},
+--   {"tokenAddAllowList": {
+--     "token": "pltY", "target": 40307({1: 40305({1: 919}),
+--       3: h'e26c23d707abfc3a1abb11ca6a286ddcf583febf9c7dda634e304bd059f588e3'})
+--   }},
+--   {"tokenRemoveDenyList": {
+--     "token": "PLTY", "target": 40307({1: 40305({1: 919}),
+--       3: h'e26c23d707abfc3a1abb11ca6a286ddcf583febf9c7dda634e304bd059f588e3'})
+--   }},
+--   {"tokenTransfer": {
+--     "memo": 24(h'a0'), "token": "pltY", "amount": 4([0, 2200]),
+--     "recipient": 40307({1: 40305({1: 919}),
+--       3: h'170086c8ae4ab9a4c8158b907fdd731935fe99dcabce1fa6f3da0991dde82c50'})
+--   }},
+--   {"tokenUnpause": {"token": "pltX"}},
+--   {"tokenBurn": {"token": "PltX", "amount": 4([-2, 10])}},
+--   {"tokenRemoveAllowList": {
+--     "token": "plty", "target": 40307({
+--       3: h'e26c23d707abfc3a1abb11ca6a286ddcf583febf9c7dda634e304bd059f588e3'})
+--   }}
+-- ]
+unscopedMultiOperations :: ByteString
+unscopedMultiOperations =
+    "\x8b\xa1\x6d\x74\x6f\x6b\x65\x6e\x54\x72\x61\x6e\x73\x66\x65\x72\xa3\x65\x74\x6f\x6b\x65\x6e\x64\
+    \\x70\x6c\x74\x58\x66\x61\x6d\x6f\x75\x6e\x74\xc4\x82\x21\x18\x64\x69\x72\x65\x63\x69\x70\x69\x65\
+    \\x6e\x74\xd9\x9d\x73\xa2\x01\xd9\x9d\x71\xa1\x01\x19\x03\x97\x03\x58\x20\x17\x00\x86\xc8\xae\x4a\
+    \\xb9\xa4\xc8\x15\x8b\x90\x7f\xdd\x73\x19\x35\xfe\x99\xdc\xab\xce\x1f\xa6\xf3\xda\x09\x91\xdd\xe8\
+    \\x2c\x50\xa1\x69\x74\x6f\x6b\x65\x6e\x4d\x69\x6e\x74\xa2\x65\x74\x6f\x6b\x65\x6e\x64\x70\x6c\x74\
+    \\x59\x66\x61\x6d\x6f\x75\x6e\x74\xc4\x82\x00\x1a\x00\x01\x86\xa0\xa1\x6a\x74\x6f\x6b\x65\x6e\x50\
+    \\x61\x75\x73\x65\xa1\x65\x74\x6f\x6b\x65\x6e\x64\x70\x6c\x74\x58\xa1\x71\x74\x6f\x6b\x65\x6e\x41\
+    \\x64\x64\x41\x6c\x6c\x6f\x77\x4c\x69\x73\x74\xa2\x65\x74\x6f\x6b\x65\x6e\x64\x70\x6c\x74\x59\x66\
+    \\x74\x61\x72\x67\x65\x74\xd9\x9d\x73\xa1\x03\x58\x20\x17\x00\x86\xc8\xae\x4a\xb9\xa4\xc8\x15\x8b\
+    \\x90\x7f\xdd\x73\x19\x35\xfe\x99\xdc\xab\xce\x1f\xa6\xf3\xda\x09\x91\xdd\xe8\x2c\x50\xa1\x70\x74\
+    \\x6f\x6b\x65\x6e\x41\x64\x64\x44\x65\x6e\x79\x4c\x69\x73\x74\xa2\x65\x74\x6f\x6b\x65\x6e\x64\x70\
+    \\x6c\x74\x59\x66\x74\x61\x72\x67\x65\x74\xd9\x9d\x73\xa2\x01\xd9\x9d\x71\xa1\x01\x19\x03\x97\x03\
+    \\x58\x20\xe2\x6c\x23\xd7\x07\xab\xfc\x3a\x1a\xbb\x11\xca\x6a\x28\x6d\xdc\xf5\x83\xfe\xbf\x9c\x7d\
+    \\xda\x63\x4e\x30\x4b\xd0\x59\x00\x00\x00\xa1\x71\x74\x6f\x6b\x65\x6e\x41\x64\x64\x41\x6c\x6c\x6f\
+    \\x77\x4c\x69\x73\x74\xa2\x65\x74\x6f\x6b\x65\x6e\x64\x70\x6c\x74\x59\x66\x74\x61\x72\x67\x65\x74\
+    \\xd9\x9d\x73\xa2\x01\xd9\x9d\x71\xa1\x01\x19\x03\x97\x03\x58\x20\xe2\x6c\x23\xd7\x07\xab\xfc\x3a\
+    \\x1a\xbb\x11\xca\x6a\x28\x6d\xdc\xf5\x83\xfe\xbf\x9c\x7d\xda\x63\x4e\x30\x4b\xd0\x59\xf5\x88\xe3\
+    \\xa1\x73\x74\x6f\x6b\x65\x6e\x52\x65\x6d\x6f\x76\x65\x44\x65\x6e\x79\x4c\x69\x73\x74\xa2\x65\x74\
+    \\x6f\x6b\x65\x6e\x64\x50\x4c\x54\x59\x66\x74\x61\x72\x67\x65\x74\xd9\x9d\x73\xa2\x01\xd9\x9d\x71\
+    \\xa1\x01\x19\x03\x97\x03\x58\x20\xe2\x6c\x23\xd7\x07\xab\xfc\x3a\x1a\xbb\x11\xca\x6a\x28\x6d\xdc\
+    \\xf5\x83\xfe\xbf\x9c\x7d\xda\x63\x4e\x30\x4b\xd0\x59\xf5\x88\xe3\xa1\x6d\x74\x6f\x6b\x65\x6e\x54\
+    \\x72\x61\x6e\x73\x66\x65\x72\xa4\x64\x6d\x65\x6d\x6f\xd8\x18\x41\xa0\x65\x74\x6f\x6b\x65\x6e\x64\
+    \\x70\x6c\x74\x59\x66\x61\x6d\x6f\x75\x6e\x74\xc4\x82\x00\x19\x08\x98\x69\x72\x65\x63\x69\x70\x69\
+    \\x65\x6e\x74\xd9\x9d\x73\xa2\x01\xd9\x9d\x71\xa1\x01\x19\x03\x97\x03\x58\x20\x17\x00\x86\xc8\xae\
+    \\x4a\xb9\xa4\xc8\x15\x8b\x90\x7f\xdd\x73\x19\x35\xfe\x99\xdc\xab\xce\x1f\xa6\xf3\xda\x09\x91\xdd\
+    \\xe8\x2c\x50\xa1\x6c\x74\x6f\x6b\x65\x6e\x55\x6e\x70\x61\x75\x73\x65\xa1\x65\x74\x6f\x6b\x65\x6e\
+    \\x64\x70\x6c\x74\x58\xa1\x69\x74\x6f\x6b\x65\x6e\x42\x75\x72\x6e\xa2\x65\x74\x6f\x6b\x65\x6e\x64\
+    \\x50\x6c\x74\x58\x66\x61\x6d\x6f\x75\x6e\x74\xc4\x82\x21\x0a\xa1\x74\x74\x6f\x6b\x65\x6e\x52\x65\
+    \\x6d\x6f\x76\x65\x41\x6c\x6c\x6f\x77\x4c\x69\x73\x74\xa2\x65\x74\x6f\x6b\x65\x6e\x64\x70\x6c\x74\
+    \\x79\x66\x74\x61\x72\x67\x65\x74\xd9\x9d\x73\xa1\x03\x58\x20\xe2\x6c\x23\xd7\x07\xab\xfc\x3a\x1a\
+    \\xbb\x11\xca\x6a\x28\x6d\xdc\xf5\x83\xfe\xbf\x9c\x7d\xda\x63\x4e\x30\x4b\xd0\x59\xf5\x88\xe3"
 
--- | The expected events from executing 'metaUpdateMultiOperations'.
-metaUpdateMultiEvents :: [Event]
-metaUpdateMultiEvents =
+-- | The expected events from executing 'unscopedMultiOperations'.
+unscopedMultiEvents :: [Event]
+unscopedMultiEvents =
     [ TokenTransfer
         { ettTokenId = pltX,
           ettFrom = holder1,
           ettTo = holder2,
           ettAmount = TokenAmount{taValue = 100, taDecimals = 2},
-          ettMemo = Nothing,
-          ettFromLock = Nothing,
-          ettToLock = Nothing
+          ettMemo = Nothing
         },
       TokenMint
         { etmTokenId = pltY,
@@ -287,9 +306,7 @@ metaUpdateMultiEvents =
           ettFrom = holder1,
           ettTo = holder2,
           ettAmount = TokenAmount{taValue = 2200, taDecimals = 0},
-          ettMemo = Just (Memo "\xa0"),
-          ettFromLock = Nothing,
-          ettToLock = Nothing
+          ettMemo = Just (Memo "\xa0")
         },
       TokenModuleEvent
         { etmeTokenId = pltX,
@@ -313,13 +330,13 @@ metaUpdateMultiEvents =
     holder1 = HolderAccount dummyAddress
     holder2 = HolderAccount dummyAddress2
 
--- | Test a meta-update transaction that consists of multiple steps and involves multiple PLTs.
-testMetaUpdateMulti :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
-testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
+-- | Test a unscoped Token Update transaction that consists of multiple steps and involves multiple PLTs.
+testUnscopedMulti :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testUnscopedMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
     SFalse -> return ()
     STrue ->
-        when (supportsMetaUpdate spv) $
-            it "Multi-token multi-step meta-update" $
+        when (supportsUnscopedTokenUpdate spv) $
+            it "Multi-token multi-step unscoped Token Update" $
                 Helpers.runSchedulerTestAssertIntermediateStates
                     @pv
                     Helpers.defaultTestConfig
@@ -332,7 +349,7 @@ testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
           createPlt2 2,
           Helpers.BlockItemAndAssertion
             { biaaTransaction =
-                makeMetaTx dummyAddress 1 10000 keys1 metaUpdateMultiOperation,
+                makeUnscopedTx dummyAddress 1 10000 keys1 unscopedMultiOperations,
               biaaAssertion = \result newST -> do
                 st <- BS.freezeBlockState newST
                 tiX <- queryTokenInfo (TokenId "pltX") st
@@ -342,8 +359,8 @@ testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
                 acc2 <- fromJust <$> BS.getAccount st dummyAddress2
                 ai2 <- queryAccountTokens acc2 st
                 return $ do
-                    Helpers.assertSuccessWithEvents metaUpdateMultiEvents result
-                    assertEqual "used energy" 1803 (Helpers.srUsedEnergy result)
+                    Helpers.assertSuccessWithEvents unscopedMultiEvents result
+                    assertEqual "used energy" 1859 (Helpers.srUsedEnergy result)
                     assertEqual
                         "pltX supply"
                         (Right $ TokenAmount 9990 2)
@@ -400,12 +417,12 @@ testMetaUpdateMulti spv = case sSupportsPLT (sAccountVersionFor spv) of
             }
         ]
 
--- | Scheduler tests for meta-update transactions.
+-- | Scheduler tests for unscoped Token Update transactions.
 tests :: Spec
 tests = parallel $
-    describe "Meta-update transactions" $
+    describe "Token Update transactions" $ do
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString -> do
                 describe pvString $ do
-                    testMetaUpdateSupport spv
-                    testMetaUpdateMulti spv
+                    testUnscopedSupport spv
+                    testUnscopedMulti spv

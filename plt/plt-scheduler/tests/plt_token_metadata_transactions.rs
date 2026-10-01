@@ -6,10 +6,10 @@ use assert_matches::assert_matches;
 use concordium_base::common::{self, cbor};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, OperationNotPermittedRejectReason, RawCbor, TokenAdminRole,
-    TokenId, TokenModuleRejectReason, TokenModuleState, TokenOperation, TokenOperationsPayload,
-    TokenUpdateAdminRolesDetails, UnsupportedOperationRejectReason,
+    TokenId, TokenMetadataUrlDetails, TokenModuleRejectReason, TokenModuleState, TokenOperation,
+    TokenOperationsPayload, TokenUpdateAdminRolesDetails,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 
@@ -49,7 +49,10 @@ fn test_token_metadata_updates() {
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
-            new_metadata_url.clone(),
+            TokenMetadataUrlDetails {
+                url: new_metadata_url.url.clone(),
+                checksum_sha_256: new_metadata_url.checksum_sha_256,
+            },
         )])),
     };
     let gov_account_addr = context
@@ -60,7 +63,9 @@ fn test_token_metadata_updates() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Scoped(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -107,7 +112,9 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             &mut context,
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Scoped(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -123,7 +130,10 @@ fn test_new_account_with_role_succeeds_update_metadata() {
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
-            new_metadata_url.clone(),
+            TokenMetadataUrlDetails {
+                url: new_metadata_url.url.clone(),
+                checksum_sha_256: new_metadata_url.checksum_sha_256,
+            },
         )])),
     };
     let result = block_state
@@ -131,7 +141,9 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             &mut context,
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Scoped(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -174,7 +186,9 @@ fn test_role_authorization_update_metadata() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Scoped(payload),
+            },
         )
         .expect("transaction internal error");
     assert_matches!(result.outcome, TransactionOutcome::Success(_));
@@ -190,7 +204,10 @@ fn test_role_authorization_update_metadata() {
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
-            new_metadata_url,
+            TokenMetadataUrlDetails {
+                url: new_metadata_url.url.clone(),
+                checksum_sha_256: new_metadata_url.checksum_sha_256,
+            },
         )])),
     };
     let result = block_state
@@ -198,7 +215,9 @@ fn test_role_authorization_update_metadata() {
             &mut context,
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Scoped(payload),
+            },
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
@@ -245,8 +264,14 @@ fn test_update_metadata_rejects_with_additional_data() {
         .account_canonical_address(gov_account.account_index());
     let payload = TokenOperationsPayload {
         token_id: token_id.clone(),
-        operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::UpdateMetadata(
-            new_metadata_url,
+        operations: RawCbor::from(cbor::cbor_encode(&vec![common::cbor::value::Value::Map(
+            vec![(
+                common::cbor::value::Value::Text("updateMetadata".into()),
+                cbor::cbor_decode::<common::cbor::value::Value>(&cbor::cbor_encode(
+                    &new_metadata_url,
+                ))
+                .unwrap(),
+            )],
         )])),
     };
     let result = block_state
@@ -254,20 +279,15 @@ fn test_update_metadata_rejects_with_additional_data() {
             &mut context,
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
-            Payload::TokenUpdate { payload },
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Scoped(payload),
+            },
         )
         .expect("transaction internal error");
     let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(r) => r);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReason::UnsupportedOperation(UnsupportedOperationRejectReason {
-            index: 0,
-            reason: Some(reason),
-            operation_type
-        }) => {
-            assert_eq!(&operation_type, "updateMetadata");
-            assert_eq!(&reason, "Unknown additional metadata fields");
-        }
+        TokenModuleRejectReason::DeserializationFailure(_)
     );
 }

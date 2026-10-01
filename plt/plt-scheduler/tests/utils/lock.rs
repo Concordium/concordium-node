@@ -4,11 +4,9 @@ use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperation, MetaUpdateOperations, MetaUpdatePayload,
-};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
-use concordium_base::transactions::Payload;
+use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
@@ -34,7 +32,7 @@ pub fn create_lock(
     config: CreateLockSimpleConfig,
 ) {
     use concordium_base::protocol_level_locks::*;
-    use concordium_base::protocol_level_tokens::meta_operations::*;
+    use concordium_base::protocol_level_tokens::operations;
     let sender = context
         .account_by_index(lock_id.account_index())
         .expect("sender account must exist");
@@ -58,16 +56,18 @@ pub fn create_lock(
             },
         )
         .collect();
-    let operations = MetaUpdateOperations {
-        operations: vec![lock_create(LockConfig::SimpleV0(LockConfigSimpleV0 {
-            recipients,
-            expiry: TransactionTime::from(config.expiry),
-            grants,
-            tokens: config.tokens,
-            keep_alive: config.keep_alive,
-            memo: None,
-            metadata: None,
-        }))],
+    let operations = Operations {
+        operations: vec![operations::create_lock(LockConfig::SimpleV0(
+            LockConfigSimpleV0 {
+                recipients,
+                expiry: TransactionTime::from(config.expiry),
+                grants,
+                tokens: config.tokens,
+                keep_alive: config.keep_alive,
+                memo: None,
+                metadata: None,
+            },
+        ))],
     };
 
     block_state
@@ -80,10 +80,10 @@ pub fn create_lock(
                 block_timestamp: 0.into(),
             },
             sender.account.account_index(),
-            Payload::MetaUpdate {
-                payload: MetaUpdatePayload {
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
                     operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                },
+                }),
             },
         )
         .expect("create lock transaction must succeed");
