@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Upgraded rust version to 1.98.1. Notice that 1.95 and 1.96 has performance regressions affecting the WASM interpreter and should not be used.
+
 ## Unreleased changes (Devnet)
 
 - Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.

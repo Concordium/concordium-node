@@ -123,13 +123,14 @@ fn test_create_simple_lock() {
                 LockControllerSimpleV0Capability::Fund,
             ],
         }],
-        tokens: vec![plt_x],
+        tokens: vec!["PLTx".parse().unwrap()],
         keep_alive: false,
         memo: None,
         metadata: Some(metadata.encode_raw_cbor()),
     });
     let mut canonical_config = config.clone();
     let LockConfig::SimpleV0(controller) = &mut canonical_config;
+    controller.tokens = vec![plt_x.clone()];
     controller.grants[0].roles = vec![
         LockControllerSimpleV0Capability::Fund,
         LockControllerSimpleV0Capability::Release,
@@ -176,7 +177,7 @@ fn test_create_simple_lock() {
     let stored_lock = block_state.lock_by_id(&context, &lock_id).unwrap().unwrap();
     let stored_configuration = stored_lock.lock_configuration(&context).unwrap();
     assert_eq!(
-        match &stored_configuration.config {
+        match stored_configuration.as_ref() {
             plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(
                 config,
             ) => config.metadata.clone(),
@@ -184,7 +185,7 @@ fn test_create_simple_lock() {
         Some(metadata.encode_raw_cbor())
     );
     let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
-        &stored_configuration.config;
+        stored_configuration.as_ref();
     assert_eq!(
         controller.grants()[0].roles(),
         [
@@ -194,6 +195,7 @@ fn test_create_simple_lock() {
             LockControllerSimpleV0Capability::Cancel,
         ]
     );
+    assert_eq!(controller.tokens(), &[plt_x]);
 }
 
 #[test]
@@ -240,14 +242,14 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
     let stored_configuration = stored_lock
         .lock_configuration(&context)
         .expect("lock configuration must load");
-    let bytes = concordium_base::common::to_bytes(&*stored_configuration);
-    let reloaded: plt_block_state::persistent::protocol_level_locks::p11::LockConfiguration =
+    let bytes = concordium_base::common::to_bytes(stored_configuration.as_ref());
+    let reloaded: plt_block_state::persistent::protocol_level_locks::p11::LockConfig =
         concordium_base::common::from_bytes_complete(&bytes)
             .expect("canonical lock configuration must reload completely");
 
     assert_eq!(reloaded, *stored_configuration);
     let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
-        reloaded.config;
+        reloaded;
     assert_eq!(
         controller.grants()[0].roles(),
         [LockControllerSimpleV0Capability::Fund]
@@ -332,7 +334,7 @@ fn test_create_any_recipient_lock() {
         .lock_configuration(&context)
         .expect("lock configuration must load");
     assert!(
-        matches!(&configuration.config, plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
+        matches!(configuration.as_ref(), plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
     );
 }
 

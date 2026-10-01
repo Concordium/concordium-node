@@ -21,6 +21,12 @@ use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[derive(Debug)]
 pub struct PersistentState(RwLock<trie::PersistentState>);
 
+impl Clone for PersistentState {
+    fn clone(&self) -> Self {
+        Self(RwLock::new(self.lock_read().clone()))
+    }
+}
+
 impl PersistentState {
     /// Create empty trie.
     pub fn empty() -> Self {
@@ -36,7 +42,7 @@ impl PersistentState {
     }
 
     /// Iterate entries whose keys start with the given prefix. Returns an iterator over
-    /// key-value pairs.
+    /// key-value pairs. Use [`Self::keys_with_prefix`] when only keys are needed.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,
@@ -168,7 +174,7 @@ impl MutableState {
     }
 
     /// Iterate entries whose keys start with the given prefix. Returns an iterator over
-    /// key-value pairs.
+    /// key-value pairs. Use [`Self::keys_with_prefix`] when only keys are needed.
     pub fn iter_prefix<'a, L: BlobStoreLoad>(
         &self,
         loader: &'a L,

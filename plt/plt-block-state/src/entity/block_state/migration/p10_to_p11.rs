@@ -21,7 +21,7 @@ pub fn migrate_from_p10_to_p11(
 
     let new_persistent = PersistentBlockStateP11 {
         tokens: HashedCacheableRef::new(new_tokens),
-        locks: HashedCacheableRef::new(PersistentLocksP11::default()),
+        locks: HashedCacheableRef::new(PersistentLocksP11::empty()),
     };
 
     Ok(BlockStateP11 {
