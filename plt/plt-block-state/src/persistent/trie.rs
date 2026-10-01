@@ -133,7 +133,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     pub fn empty() -> Self {
         let root = Node {
             children: ChildEdges::default(),
-            stem: Path::from_tiny_vec(tiny_vec![]),
+            stem: Path::empty(),
             value: None,
         };
 
@@ -446,7 +446,7 @@ struct ChildEdges<const INLINE_KEY_LENGTH: usize, V>(
     /// * No duplicate keys
     /// * Keys are sorted
     ///
-    /// This also means there are at most 16 entries.
+    /// This also means there are at most 256 entries.
     Vec<ChildEdge<INLINE_KEY_LENGTH, V>>,
 );
 
@@ -1397,6 +1397,8 @@ mod tests {
                 prop_assert_eq!(entries, plain.iter_prefix(key));
             }
         }
+
+
 
         #[test]
         fn prop_test_iter_prefix_fixed_key(entries in arb_fixed_key_entries()) {

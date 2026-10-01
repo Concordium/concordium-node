@@ -8,6 +8,12 @@ use tinyvec::TinyVec;
 pub struct Path<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
 
 impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
+    /// Create empty path
+    #[allow(unused)]
+    pub fn empty() -> Self {
+        Self(TinyVec::new())
+    }
+
     /// If path is empty.
     #[allow(unused)]
     pub fn is_empty(&self) -> bool {
