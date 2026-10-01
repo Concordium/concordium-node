@@ -17,7 +17,7 @@ pub struct Path<const INLINE_KEY_LENGTH: usize> {
 }
 
 impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
-    /// If path slice is empty.
+    /// If path is empty.
     #[allow(unused)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
