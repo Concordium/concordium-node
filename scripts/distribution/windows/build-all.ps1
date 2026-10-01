@@ -8,29 +8,43 @@ Write-Output "protoc version: $(protoc --version)"
 # Set the default Rust toolchain so that consensus Rust dependencies use it.
 $gnuToolchain = "$rustVersion-x86_64-pc-windows-gnu"
 rustup default $gnuToolchain
+if ($LASTEXITCODE -ne 0) { throw "Failed selecting the GNU Rust toolchain" }
 
-# Stack changes PATH while it builds consensus, which can cause Cargo to use
-# Stack's LLVM dlltool instead of the GNU dlltool. Prebuild the Rust library
-# before entering Stack's environment so that Cargo generates the import libraries
-# with the expected toolchain.
-Write-Output "Prebuilding the smart contract engine..."
-rustup show active-toolchain
-Get-Command dlltool -All
-cargo +$gnuToolchain build `
-    --release `
-    --locked `
-    --manifest-path concordium-base\smart-contracts\wasm-chain-integration\Cargo.toml `
-    --features=enable-ffi
-if ($LASTEXITCODE -ne 0) { throw "Failed prebuilding the smart contract engine" }
+# Resolve GNU dlltool before Stack puts GHC's LLVM tools first on PATH.
+# Rust uses this absolute path to generate import libraries in every workspace.
+$gnuDlltool = (Get-Command dlltool -CommandType Application -ErrorAction Stop).Source
+$dlltoolVersion = & $gnuDlltool --version
+if ($LASTEXITCODE -ne 0 -or ($dlltoolVersion -join "`n") -notmatch "GNU dlltool") {
+    throw "Expected GNU dlltool at $gnuDlltool"
+}
+Write-Output "Rust import library tool: $gnuDlltool"
 
-Write-Output "Building consensus..."
-stack exec -- where.exe dlltool
-stack build
-if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
+# Encoded flags preserve arguments that contain spaces, including the tool path.
+# Keep existing environment flags in Cargo's precedence order.
+$originalEncodedRustflags = $env:CARGO_ENCODED_RUSTFLAGS
+$rustflagSeparator = [char]0x1f
+if ($null -ne $originalEncodedRustflags) {
+    $rustflags = @($originalEncodedRustflags -split $rustflagSeparator | Where-Object { $_ -ne "" })
+} else {
+    $rustflags = @($env:RUSTFLAGS -split '\s+' | Where-Object { $_ -ne "" })
+}
 
-Write-Output "Building node..."
-stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --locked
-if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
+try {
+    $env:CARGO_ENCODED_RUSTFLAGS = ($rustflags + @("-C", "dlltool=$gnuDlltool")) -join $rustflagSeparator
+
+    Write-Output "Building consensus..."
+    rustup show active-toolchain
+    stack exec -- where.exe dlltool
+    stack build
+    if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
+
+    Write-Output "Building node..."
+    stack exec -- cargo +$gnuToolchain build --manifest-path concordium-node\Cargo.toml --release --locked
+    if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
+} finally {
+    # Do not pass the GNU tool selection to the MSVC builds or the caller.
+    $env:CARGO_ENCODED_RUSTFLAGS = $originalEncodedRustflags
+}
 
 Write-Output "Building the collector..."
 cargo +$rustVersion-x86_64-pc-windows-msvc build --manifest-path collector\Cargo.toml --release --locked
