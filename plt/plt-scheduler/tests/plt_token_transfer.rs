@@ -12,7 +12,7 @@ use concordium_base::protocol_level_tokens::{
     TokenId, TokenListUpdateDetails, TokenModuleRejectReason, TokenOperation,
     TokenOperationsPayload, TokenPauseDetails, TokenTransfer,
 };
-use concordium_base::transactions::{Memo, Payload};
+use concordium_base::transactions::{Memo, Payload, TokenUpdatePayload};
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
@@ -66,18 +66,16 @@ fn test_transfer() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -129,18 +127,16 @@ fn test_transfer_with_memo() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: Some(memo),
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: Some(memo),
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -187,18 +183,16 @@ fn test_transfer_self() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(sender_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(sender_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -245,18 +239,16 @@ fn test_transfer_insufficient_balance() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(10000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(10000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -330,18 +322,16 @@ fn test_transfer_insufficient_available_balance() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(800, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(800, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -390,18 +380,16 @@ fn test_transfer_decimals_mismatch() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 4),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 4),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -445,18 +433,16 @@ fn test_transfer_to_non_existing_receiver() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -516,18 +502,16 @@ fn test_transfer_allow_list_success() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -599,18 +583,16 @@ fn test_transfer_deny_list_success() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -664,18 +646,16 @@ fn test_transfer_sender_not_in_allow_list() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -732,18 +712,16 @@ fn test_transfer_recipient_not_in_allow_list() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -821,18 +799,16 @@ fn test_transfer_sender_in_deny_list() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -910,18 +886,16 @@ fn test_transfer_recipient_in_deny_list() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");
@@ -983,7 +957,7 @@ fn test_transfer_paused() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("pause");
@@ -998,18 +972,16 @@ fn test_transfer_paused() {
             utils::simple_transaction_context_with_nonce(gov_account_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                    TokenOperationsPayload {
-                        token_id: token_id.clone(),
-                        operations: RawCbor::from(cbor::cbor_encode(&vec![
-                            TokenOperation::Transfer(TokenTransfer {
-                                amount: TokenAmount::from_raw(1000, 2),
-                                recipient: CborHolderAccount::from(receiver_addr),
-                                memo: None,
-                            }),
-                        ])),
-                    },
-                ),
+                payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                    token_id: token_id.clone(),
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![TokenOperation::Transfer(
+                        TokenTransfer {
+                            amount: TokenAmount::from_raw(1000, 2),
+                            recipient: CborHolderAccount::from(receiver_addr),
+                            memo: None,
+                        },
+                    )])),
+                }),
             },
         )
         .expect("transaction internal error");

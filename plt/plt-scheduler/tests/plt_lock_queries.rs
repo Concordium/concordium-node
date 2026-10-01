@@ -14,7 +14,7 @@ use concordium_base::protocol_level_locks::{
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
@@ -192,11 +192,9 @@ fn test_query_lock_info_any_recipient() {
             },
             owner.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
-                    OperationsPayload {
-                        operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                    },
-                ),
+                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                }),
             },
         )
         .expect("create any-recipient lock must succeed");

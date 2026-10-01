@@ -11,7 +11,7 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
     TokenModuleState, TokenOperation, TokenOperationsPayload,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
 use plt_scheduler::TOKEN_MODULE_REF;
@@ -434,7 +434,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
             },
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");

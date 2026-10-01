@@ -13,7 +13,7 @@ use concordium_base::{
         CborHolderAccount, OperationsPayload, RawCbor, TokenId, TokenListUpdateDetails,
         TokenOperation,
     },
-    transactions::Payload,
+    transactions::{Payload, TokenUpdatePayload},
 };
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
@@ -74,7 +74,7 @@ fn test_cancel_by_canceller() {
         block_timestamp: 0.into(),
     };
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 None,
@@ -137,7 +137,7 @@ fn test_cancel_unauthorized() {
         block_timestamp: 0.into(),
     };
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 None,
@@ -197,7 +197,7 @@ fn test_cancel_after_expiry() {
         block_timestamp: 1000001.into(),
     };
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 None,
@@ -306,7 +306,7 @@ fn test_cancel_with_balances() {
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 Some(memo.clone()),
@@ -370,7 +370,7 @@ fn test_cancel_nonexistent() {
         creation_order: 0,
     };
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 Some(memo.clone()),

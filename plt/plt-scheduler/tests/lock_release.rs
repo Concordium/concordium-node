@@ -11,7 +11,7 @@ use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, oper
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
@@ -27,13 +27,11 @@ macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
         let payload = Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
-                OperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&Operations {
-                        operations: $operations,
-                    })),
-                },
-            ),
+            payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&Operations {
+                    operations: $operations,
+                })),
+            }),
         };
 
         $block_state

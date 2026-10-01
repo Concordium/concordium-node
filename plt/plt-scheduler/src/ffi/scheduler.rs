@@ -449,6 +449,7 @@ extern "C" fn ffi_execute_external_chain_parameters_update(
 
 #[cfg(test)]
 mod tests {
+    use concordium_base::transactions::TokenUpdatePayload;
     use plt_block_state::ffi::blob_store_callbacks::tests_helpers::UNIMPLEMENTED_LOAD_CALLBACK;
     use plt_block_state::ffi::block_state_callbacks::tests_helpers::{
         UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
@@ -508,11 +509,9 @@ mod tests {
     fn test_p11_transaction_requires_external_chain_parameters() {
         let block_state = PersistentBlockState::empty(ProtocolVersion::P11);
         let payload = common::to_bytes(&Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
-                OperationsPayload {
-                    operations: RawCbor::from(vec![]),
-                },
-            ),
+            payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                operations: RawCbor::from(vec![]),
+            }),
         });
         let sender_address = [0; contracts_common::ACCOUNT_ADDRESS_SIZE];
         let block_state_out = Box::into_raw(Box::new(ptr::null_mut()));

@@ -11,7 +11,7 @@ use concordium_base::protocol_level_tokens::{
     TokenAmount, TokenId, TokenModuleRejectReason, TokenOperation, TokenOperationsPayload,
     TokenTransfer,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -51,7 +51,7 @@ fn test_update_token_decode_failure() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -116,7 +116,7 @@ fn test_update_token_additional_fields() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -193,7 +193,7 @@ fn test_multiple_operations() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -263,7 +263,7 @@ fn test_single_failing_operation() {
             utils::simple_transaction_context(sender_addr),
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -328,7 +328,7 @@ fn test_energy_charge() {
             },
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -390,7 +390,7 @@ fn test_out_of_energy_error() {
             },
             sender.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");

@@ -11,7 +11,7 @@ use concordium_base::protocol_level_tokens::{
     TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::{Account, Accounts};
@@ -215,7 +215,7 @@ pub fn increment_account_balance_p11(
             ),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -241,7 +241,7 @@ pub fn pause_token(
             utils::simple_transaction_context(gov_addr),
             gov_account,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -267,7 +267,7 @@ pub fn unpause_token(
             utils::simple_transaction_context(gov_addr),
             gov_account,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -294,7 +294,7 @@ pub fn execute_token_operations(
             utils::simple_transaction_context(sender_addr),
             sender,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -310,7 +310,7 @@ pub fn execute_operations(
     operations: Vec<Operation>,
 ) -> Vec<plt_scheduler_types::types::events::BlockItemEvent> {
     let payload = Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
         }),
     };

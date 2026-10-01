@@ -15,7 +15,7 @@ use concordium_base::{
         MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
         TokenModuleInitializationParameters, operations,
     },
-    transactions::Payload,
+    transactions::{Payload, TokenUpdatePayload},
     updates::{CreatePlt, UpdatePayload},
 };
 use plt_block_state::entity::accounts::Account;
@@ -66,7 +66,7 @@ fn execute_lock_create_with_duration(
         },
         Account::from_existing_account(account_index),
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+            payload: TokenUpdatePayload::Unscoped(payload),
         },
         &PersistentChainParametersP11 {
             max_lock_duration: Duration::from_millis(max_lock_duration),
@@ -156,7 +156,7 @@ fn test_create_simple_lock() {
             },
             account_index_1,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+                payload: TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -236,7 +236,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
             account_index,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+                payload: TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("lock creation must succeed");
@@ -320,7 +320,7 @@ fn test_create_any_recipient_lock() {
             },
             account_index_1,
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+                payload: TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -425,7 +425,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         },
         Account::from_existing_account(account_index),
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+            payload: TokenUpdatePayload::Unscoped(payload),
         },
         &PersistentChainParametersP11 {
             max_lock_duration: Duration::from_millis(1_000),

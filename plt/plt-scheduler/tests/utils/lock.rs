@@ -6,7 +6,7 @@ use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
@@ -81,11 +81,9 @@ pub fn create_lock(
             },
             sender.account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
-                    OperationsPayload {
-                        operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                    },
-                ),
+                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
+                }),
             },
         )
         .expect("create lock transaction must succeed");

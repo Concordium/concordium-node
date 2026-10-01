@@ -18,7 +18,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenOperation, TokenOperationsPayload,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use divan::Bencher;
 use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
@@ -64,12 +64,10 @@ struct PreparedOperation {
 
 fn token_payload(token_id: TokenId, operation: TokenOperation) -> Payload {
     Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-            TokenOperationsPayload {
-                token_id,
-                operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
-            },
-        ),
+        payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+            token_id,
+            operations: RawCbor::from(cbor::cbor_encode(&vec![operation])),
+        }),
     }
 }
 
@@ -202,13 +200,11 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
             existing_lock_count as u64 + 1,
         ),
         payload: Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(
-                OperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&Operations {
-                        operations: vec![operations::create_lock(config)],
-                    })),
-                },
-            ),
+            payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                operations: RawCbor::from(cbor::cbor_encode(&Operations {
+                    operations: vec![operations::create_lock(config)],
+                })),
+            }),
         },
         context,
         state,
@@ -218,7 +214,7 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
 
 fn unscoped_payload(operations: Vec<Operation>) -> Payload {
     Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
         }),
     }

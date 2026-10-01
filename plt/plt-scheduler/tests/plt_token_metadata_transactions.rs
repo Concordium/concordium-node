@@ -9,7 +9,7 @@ use concordium_base::protocol_level_tokens::{
     TokenId, TokenMetadataUrlDetails, TokenModuleRejectReason, TokenModuleState, TokenOperation,
     TokenOperationsPayload, TokenUpdateAdminRolesDetails,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::entity_test_stub;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 
@@ -64,7 +64,7 @@ fn test_token_metadata_updates() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -113,7 +113,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             utils::simple_transaction_context(gov_account_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -142,7 +142,7 @@ fn test_new_account_with_role_succeeds_update_metadata() {
             utils::simple_transaction_context(account2_addr),
             account2.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -187,7 +187,7 @@ fn test_role_authorization_update_metadata() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -216,7 +216,7 @@ fn test_role_authorization_update_metadata() {
             utils::simple_transaction_context_with_nonce(gov_addr, 2),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -280,7 +280,7 @@ fn test_update_metadata_rejects_with_additional_data() {
             utils::simple_transaction_context(gov_addr),
             gov_account.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+                payload: TokenUpdatePayload::Scoped(payload),
             },
         )
         .expect("transaction internal error");

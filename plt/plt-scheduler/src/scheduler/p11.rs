@@ -6,7 +6,7 @@ use crate::{TransactionContext, protocol_level_locks, protocol_level_tokens};
 use concordium_base::protocol_level_tokens::{Operation, Operations, OperationsPayload};
 use concordium_base::protocol_level_tokens::{TokenId, TokenOperation};
 use concordium_base::transactions;
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
@@ -49,7 +49,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
 
     let outcome = match payload {
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+            payload: TokenUpdatePayload::Scoped(payload),
         } => protocol_level_tokens::p11::execute_token_update_transaction(
             context,
             &mut execution,
@@ -57,7 +57,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
             payload,
         )?,
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+            payload: TokenUpdatePayload::Unscoped(payload),
         } => execute_operations(
             context,
             &mut execution,

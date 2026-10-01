@@ -1,7 +1,7 @@
 use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::transaction_execution::TransactionExecution;
 use crate::{TransactionContext, protocol_level_tokens};
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use concordium_base::updates::UpdatePayload;
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::block_state::p9::BlockStateP9;
@@ -37,7 +37,7 @@ pub fn execute_transaction<C: EntityContextTypes>(
 
     let outcome = match payload {
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Scoped(payload),
+            payload: TokenUpdatePayload::Scoped(payload),
         } => protocol_level_tokens::p9::execute_token_update_transaction(
             context,
             &mut execution,

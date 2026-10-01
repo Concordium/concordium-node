@@ -28,7 +28,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenOperation, TokenOperationsPayload,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use divan::Bencher;
 use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
@@ -111,12 +111,10 @@ fn prepare_token(
         )
     } else {
         Payload::TokenUpdate {
-            payload: concordium_base::transactions::TokenUpdatePayload::Scoped(
-                TokenOperationsPayload {
-                    token_id,
-                    operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                },
-            ),
+            payload: TokenUpdatePayload::Scoped(TokenOperationsPayload {
+                token_id,
+                operations: RawCbor::from(cbor::cbor_encode(&operations)),
+            }),
         }
     };
     Fixture {
@@ -347,7 +345,7 @@ fn unscoped_update_deny_list(bencher: Bencher, count: usize) {
 /// - `operations`: Operations included in the transaction payload.
 fn unscoped_payload(operations: Vec<Operation>) -> Payload {
     Payload::TokenUpdate {
-        payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(OperationsPayload {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
             operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
         }),
     }

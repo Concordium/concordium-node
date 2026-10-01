@@ -10,7 +10,7 @@ use concordium_base::protocol_level_tokens::{
     TokenListUpdateEventDetails, TokenModuleInitializationParameters, TokenPauseDetails,
     TokenPauseEventDetails, operations,
 };
-use concordium_base::transactions::Payload;
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::entity_test_stub;
@@ -138,7 +138,7 @@ fn test_unscoped_transaction() {
             },
             account_1.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+                payload: TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("transaction internal error");
@@ -280,7 +280,7 @@ fn test_unscoped_transaction_cbor_extra_fields() {
             },
             account_1.account_index(),
             Payload::TokenUpdate {
-                payload: concordium_base::transactions::TokenUpdatePayload::Unscoped(payload),
+                payload: TokenUpdatePayload::Unscoped(payload),
             },
         )
         .expect("transaction internal error");
