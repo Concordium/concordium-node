@@ -487,7 +487,7 @@ struct ChildEdges<const INLINE_KEY_LENGTH: usize, V>(
     /// * No duplicate keys
     /// * Keys are sorted
     ///
-    /// This also means there are at most 256 entries.
+    /// This also means there are at most 16 entries.
     Vec<ChildEdge<INLINE_KEY_LENGTH, V>>,
 );
 
@@ -504,8 +504,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Clone for ChildEdge<INLINE_KEY_LENGTH, V
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V> ChildEdges<INLINE_KEY_LENGTH, V> {
-    fn size(&self) -> u16 {
-        self.0.len() as u16
+    fn size(&self) -> u8 {
+        self.0.len() as u8
     }
 
     fn get_child(
@@ -972,7 +972,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> Result<Self, BlockStateFailure> {
-        let size: u16 = buffer.get().map_parse_err_to_block_state_err()?;
+        let size: u8 = buffer.get().map_parse_err_to_block_state_err()?;
         let mut children = Vec::with_capacity(size as usize);
         let mut prev_path_chunk = None;
         for _ in 0..size {
