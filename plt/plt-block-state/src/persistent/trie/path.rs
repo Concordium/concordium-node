@@ -72,6 +72,7 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     }
 
     /// Create path from the bytes in the given vector, but excluding the last nibble.
+    #[allow(unused)]
     pub fn from_tiny_vec_odd_end(tiny_vec: TinyVec<[u8; INLINE_KEY_LENGTH]>) -> Self {
         Self {
             bytes: tiny_vec,
@@ -308,7 +309,6 @@ impl PathNibble {
 #[cfg(test)]
 mod test {
     use super::*;
-    use tinyvec::tiny_vec;
 
     type TestPath = Path<4>;
 
@@ -366,7 +366,7 @@ mod test {
 
     #[test]
     fn test_first_nibble() {
-        let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
 
         let path_ref = path.index_path_slice(0..);
         assert_eq!(
@@ -385,7 +385,7 @@ mod test {
     /// effectively testing both at the same time.
     #[test]
     fn test_index_path_slice_using_iter() {
-        let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         let path_nibbles: Vec<_> = path.as_path_slice().iter().collect();
         assert_eq!(
             path_nibbles,
@@ -430,24 +430,39 @@ mod test {
 
     #[test]
     fn test_extend_from_path_slice() {
-        let mut path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let mut path =
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         path.extend_from_path_slice(&path.clone().index_path_slice(0..2));
         assert_eq!(
             path,
-            TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8, 1u8 << 4 | 2u8])
+            path_from_nibbles([
+                PathNibble(1),
+                PathNibble(2),
+                PathNibble(3),
+                PathNibble(4),
+                PathNibble(1),
+                PathNibble(2),
+            ])
         );
 
-        let mut path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let mut path =
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         path.extend_from_path_slice(&path.clone().index_path_slice(0..1));
         assert_eq!(
             path,
-            TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8, 1u8 << 4])
+            path_from_nibbles([
+                PathNibble(1),
+                PathNibble(2),
+                PathNibble(3),
+                PathNibble(4),
+                PathNibble(1),
+            ])
         );
     }
 
     #[test]
     fn test_len() {
-        let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         assert_eq!(path.len(), 4);
 
         let path_ref = path.as_path_slice();
@@ -468,7 +483,7 @@ mod test {
         let path_ref = path.index_path_slice(2..2);
         assert_eq!(path_ref.len(), 0);
 
-        let path = TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
         assert_eq!(path.len(), 3);
     }
 
@@ -480,7 +495,7 @@ mod test {
         let path_ref = PathSliceRef::empty();
         assert!(path_ref.is_empty());
 
-        let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         assert!(!path.is_empty());
 
         let path_ref = path.as_path_slice();
@@ -498,20 +513,20 @@ mod test {
         let path = TestPath::empty();
         assert_eq!(path.as_byte_slice(), Some([0u8; 0].as_slice()));
 
-        let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         assert_eq!(
             path.as_byte_slice(),
             Some([1u8 << 4 | 2u8, 3u8 << 4 | 4u8].as_slice())
         );
 
-        let path = TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4]);
+        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
         assert_eq!(path.as_byte_slice(), None);
     }
 
     #[test]
     fn test_common_prefix_len() {
-        let path1 = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
-        let path2 = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 4u8 << 4 | 5u8]);
+        let path1 = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+        let path2 = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(4), PathNibble(5)]);
 
         assert_eq!(
             common_prefix_len(path1.as_path_slice(), path1.index_path_slice(0..3)),
