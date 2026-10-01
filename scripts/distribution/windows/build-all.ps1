@@ -5,10 +5,26 @@ Write-Output "cargo version: $(cargo --version)"
 Write-Output "flatc version: $(flatc --version)"
 Write-Output "protoc version: $(protoc --version)"
 
-# Set the default rust toolchain so that consensus rust dependencies use it.
-rustup default $rustVersion-x86_64-pc-windows-gnu
+# Set the default Rust toolchain so that consensus Rust dependencies use it.
+$gnuToolchain = "$rustVersion-x86_64-pc-windows-gnu"
+rustup default $gnuToolchain
+
+# Stack changes PATH while it builds consensus, which can cause Cargo to use
+# Stack's LLVM dlltool instead of the GNU dlltool. Prebuild the Rust library
+# before entering Stack's environment so that Cargo generates the import libraries
+# with the expected toolchain.
+Write-Output "Prebuilding the smart contract engine..."
+rustup show active-toolchain
+Get-Command dlltool -All
+cargo +$gnuToolchain build `
+    --release `
+    --locked `
+    --manifest-path concordium-base\smart-contracts\wasm-chain-integration\Cargo.toml `
+    --features=enable-ffi
+if ($LASTEXITCODE -ne 0) { throw "Failed prebuilding the smart contract engine" }
 
 Write-Output "Building consensus..."
+stack exec -- where.exe dlltool
 stack build
 if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
 
