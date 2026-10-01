@@ -2,6 +2,10 @@
 *.swo
 *.swp
 **/target
+/concordium-base/lib
+/concordium-base/smart-contracts/lib
+/concordium-consensus/lib
+/concordium-consensus/concordium-consensus.cabal
 *.orig
 *.bk
 _rust_rocksdb*
