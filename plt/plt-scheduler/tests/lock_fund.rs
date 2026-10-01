@@ -174,6 +174,82 @@ fn test_lock_fund_updates_account_and_lock_state() {
 }
 
 #[test]
+fn test_lock_fund_persists_canonical_references_for_multiple_tokens() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let sender = context.external.create_account();
+    let recipient = context.external.create_account();
+    let first_token_id: TokenId = "pltX".parse().unwrap();
+    let second_token_id: TokenId = "TokenY".parse().unwrap();
+    for token_id in [&first_token_id, &second_token_id] {
+        utils::create_and_init_token_p11(
+            &mut context,
+            &mut block_state,
+            token_id.clone(),
+            TokenInitTestParams::default().mintable(),
+            4,
+            None,
+        );
+        utils::increment_account_balance_p11(
+            &mut context,
+            &mut block_state,
+            sender.account_index(),
+            token_id,
+            RawTokenAmount::from(1000),
+        );
+    }
+
+    let lock_id = LockId::new(sender.account_index(), 7u64, 0);
+    utils::create_lock(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        utils::CreateLockSimpleConfig {
+            recipients: vec![recipient.account_index()],
+            grants: vec![LockControllerSimpleV0Grant::new(
+                sender.account_index(),
+                vec![LockControllerSimpleV0Capability::Fund],
+            )],
+            tokens: vec![first_token_id.clone(), second_token_id.clone()],
+            expiry: 1_804_806_000,
+            keep_alive: false,
+        },
+    );
+
+    let outcome = execute_meta_update!(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        0,
+        vec![
+            lock_fund(
+                "PLTx".parse().unwrap(),
+                lock_id.clone(),
+                TokenAmount::from_raw(250, 4),
+                None,
+            ),
+            lock_fund(
+                "tOKENy".parse().unwrap(),
+                lock_id.clone(),
+                TokenAmount::from_raw(500, 4),
+                None,
+            ),
+        ],
+    );
+    assert_matches!(outcome, TransactionOutcome::Success(_));
+
+    let lock = block_state
+        .lock_by_id(&context, &lock_id)
+        .unwrap()
+        .expect("lock must exist");
+    let balance_refs = lock.lock_balance_refs(&context).unwrap();
+    assert_eq!(balance_refs.len(), 2);
+    assert!(balance_refs.contains(&(sender.account_index(), first_token_id)));
+    assert!(balance_refs.contains(&(sender.account_index(), second_token_id)));
+}
+
+#[test]
 fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();

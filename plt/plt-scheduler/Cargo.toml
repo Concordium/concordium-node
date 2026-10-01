@@ -2,6 +2,7 @@
 name = "plt-scheduler"
 version = "0.1.0"
 edition = "2024"
+autobenches = false
 
 [features]
 default = ["ffi"]
@@ -21,4 +22,13 @@ libc = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_matches.workspace = true
+divan.workspace = true
 hex.workspace = true
+
+[[bench]]
+name = "scheduler"
+harness = false
+
+[[bench]]
+name = "block_state_size"
+harness = false

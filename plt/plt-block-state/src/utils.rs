@@ -83,6 +83,12 @@ impl<T> Deref for Cow<'_, T> {
     }
 }
 
+impl<T> AsRef<T> for Cow<'_, T> {
+    fn as_ref(&self) -> &T {
+        self
+    }
+}
+
 /// Decode given CBOR using decode options set to suit the token module. The decode options
 /// will generally be strict.
 pub fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationResult<T> {

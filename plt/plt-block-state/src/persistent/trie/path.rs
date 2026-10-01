@@ -9,7 +9,6 @@ pub struct Path<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>
 
 impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     /// Create empty path
-    #[allow(unused)]
     pub fn empty() -> Self {
         Self(TinyVec::new())
     }
@@ -33,11 +32,6 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     /// Extend the path with the given path slice.
     pub fn extend_from_path_slice(&mut self, slice: &PathSliceRef<'_>) {
         self.0.extend_from_slice(slice.0)
-    }
-
-    /// Create path from the bytes in the given vector.
-    pub fn from_tiny_vec(tiny_vec: TinyVec<[u8; INLINE_KEY_LENGTH]>) -> Self {
-        Self(tiny_vec)
     }
 
     /// Index into the path.

@@ -63,14 +63,13 @@ mod test {
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
     use crate::persistent::hash::Hashable;
     use crate::persistent::protocol_level_locks::p11::{
-        LockConfig, LockConfigSimpleV0, LockConfiguration, LockControllerSimpleV0Grant,
-        LockRecipients,
+        LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
     };
-    use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+    use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::base::AccountIndex;
     use concordium_base::common::types::TransactionTime;
     use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-    use concordium_base::protocol_level_tokens::{CborMemo, TokenModuleRef};
+    use concordium_base::protocol_level_tokens::{CborMemo, TokenId, TokenModuleRef};
     use concordium_base::transactions::Memo;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -79,6 +78,8 @@ mod test {
     fn test_store_and_load_locks() {
         let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP11::default();
+        let token_id: TokenId = "Token1".parse().unwrap();
+        let token_id_2: TokenId = "Token2".parse().unwrap();
 
         // Create locks
         let lock_id1 = LockId {
@@ -86,61 +87,59 @@ mod test {
             sequence_number: 1,
             creation_order: 0,
         };
-        let configuration1 = LockConfiguration {
-            lock_id: lock_id1.clone(),
-            config: LockConfig::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
-                        .unwrap(),
-                    TransactionTime::from(100u64),
-                    vec![LockControllerSimpleV0Grant::new(
-                        AccountIndex::from(1),
-                        vec![
-                            LockControllerSimpleV0Capability::Cancel,
-                            LockControllerSimpleV0Capability::Fund,
-                        ],
-                    )],
-                    vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-                    true,
-                    Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
+        let configuration1 = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
+                    .unwrap(),
+                TransactionTime::from(100u64),
+                vec![LockControllerSimpleV0Grant::new(
+                    AccountIndex::from(1),
+                    vec![
+                        LockControllerSimpleV0Capability::Cancel,
+                        LockControllerSimpleV0Capability::Fund,
+                    ],
+                )],
+                vec![token_id.clone(), token_id_2.clone()],
+                true,
+                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                None,
+            )
+            .unwrap(),
+        );
 
         block_state
-            .create_lock(&context, configuration1.clone())
+            .create_lock(&context, &lock_id1, configuration1.clone())
             .unwrap();
         let mut lock1 = block_state
             .lock_by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
-        lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
-        lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(0), token_id.clone())
+            .unwrap();
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2.clone())
+            .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
             sequence_number: 7,
             creation_order: 0,
         };
-        let configuration2 = LockConfiguration {
-            lock_id: lock_id2.clone(),
-            config: LockConfig::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::try_from(vec![]).unwrap(),
-                    TransactionTime::from(0u64),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    None,
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
+        let configuration2 = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
         block_state
-            .create_lock(&context, configuration2.clone())
+            .create_lock(&context, &lock_id2, configuration2.clone())
             .unwrap();
 
         // Create a third lock and then delete it
@@ -149,22 +148,21 @@ mod test {
             sequence_number: 1,
             creation_order: 0,
         };
-        let configuration3 = LockConfiguration {
-            lock_id: lock_id3.clone(),
-            config: LockConfig::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::try_from(vec![]).unwrap(),
-                    TransactionTime::from(0u64),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    None,
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
-        block_state.create_lock(&context, configuration3).unwrap();
+        let configuration3 = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        block_state
+            .create_lock(&context, &lock_id3, configuration3)
+            .unwrap();
         let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
         assert!(was_deleted, "lock3 should be deleted");
 
@@ -185,10 +183,10 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(
-            lock1.lock_balance_refs(),
+            lock1.lock_balance_refs(&context).unwrap(),
             vec![
-                (AccountIndex::from(0), TokenIndex(0)),
-                (AccountIndex::from(1), TokenIndex(1))
+                (AccountIndex::from(0), token_id),
+                (AccountIndex::from(1), token_id_2)
             ]
         );
         assert_eq!(
@@ -199,11 +197,79 @@ mod test {
             .lock_by_id(&context, &lock_id2)
             .unwrap()
             .unwrap();
-        assert_eq!(lock2.lock_balance_refs(), vec![]);
+        assert_eq!(lock2.lock_balance_refs(&context).unwrap(), vec![]);
         assert_eq!(
             lock2.lock_configuration(&context).unwrap().into_owned(),
             configuration2
         );
+    }
+
+    #[test]
+    fn balance_updates_reuse_lock_configuration_and_preserve_hashes_after_reload() {
+        let mut context = entity_test_stub::new_no_external_context();
+        let mut block_state = BlockStateP11::default();
+        let lock_id = LockId::new(1, 1, 0);
+        let configuration = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(100),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+
+        block_state
+            .create_lock(&context, &lock_id, configuration)
+            .unwrap();
+        let mut lock = block_state.lock_by_id(&context, &lock_id).unwrap().unwrap();
+        let configuration_ptr = lock
+            .persistent
+            .configuration
+            .value(&context.store)
+            .unwrap()
+            .as_ref() as *const _;
+        let configuration_hash = lock.persistent.configuration.hash(&context.store).unwrap();
+
+        lock.add_lock_balance_ref(
+            &context,
+            AccountIndex::from(0),
+            "Token1".parse::<TokenId>().unwrap(),
+        )
+        .unwrap();
+        lock.add_lock_balance_ref(
+            &context,
+            AccountIndex::from(1),
+            "Token2".parse::<TokenId>().unwrap(),
+        )
+        .unwrap();
+        assert!(std::ptr::eq(
+            configuration_ptr,
+            lock.persistent
+                .configuration
+                .value(&context.store)
+                .unwrap()
+                .as_ref(),
+        ));
+        assert_eq!(
+            lock.persistent.configuration.hash(&context.store).unwrap(),
+            configuration_hash
+        );
+        let lock_hash = lock.persistent.hash(&context.store).unwrap();
+        block_state.update_lock(&context, lock).unwrap();
+        let state_hash = block_state.persistent.hash(&context.store).unwrap();
+
+        let location = blob_store::store_to_store(&mut context.store, &block_state.persistent);
+        let loaded = entity_test_stub::load_block_state_p11(&context, location);
+        let loaded_lock = loaded.lock_by_id(&context, &lock_id).unwrap().unwrap();
+        assert_eq!(
+            loaded_lock.persistent.hash(&context.store).unwrap(),
+            lock_hash
+        );
+        assert_eq!(loaded.persistent.hash(&context.store).unwrap(), state_hash);
     }
 
     /// Assert that hash and stored bytes of an empty block state matches snapshot.
@@ -217,14 +283,14 @@ mod test {
         let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "db35d91962f8f0315adb99d687d65c796ac67f2956b02e80fb667589f64efcb5"
+            "21238c14891e14e616aed254c3033fb56386834711f9fb4dd2840b4fe642fca5"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &persistent_block_state);
         assert_eq!(
             hex::encode(context.store.0),
-            "0000000000000008000000000000000000000000000000080000000000000000000000000000001000000000000000000000000000000010"
+            "00000000000000080000000000000000000000000000001300000000000000000000000000000000000000000000000000001000000000000000000000000000000010"
         );
     }
 
@@ -235,10 +301,12 @@ mod test {
     fn snapshot_test_hash_and_storage_simple_tokens_and_locks() {
         let mut context = entity_test_stub::new_no_external_context();
         let mut block_state = BlockStateP11::default();
+        let token_id: TokenId = "Token1".parse().unwrap();
+        let token_id_2: TokenId = "Token2".parse().unwrap();
 
         // Create tokens
         let configuration1 = TokenConfiguration {
-            token_id: "token1".parse().unwrap(),
+            token_id: token_id.clone(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 2,
         };
@@ -261,7 +329,7 @@ mod test {
             .unwrap();
         block_state.update_token(&context, token1).unwrap();
         let configuration2 = TokenConfiguration {
-            token_id: "token2".parse().unwrap(),
+            token_id: token_id_2.clone(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 4,
         };
@@ -273,70 +341,72 @@ mod test {
             sequence_number: 1,
             creation_order: 0,
         };
-        let configuration1 = LockConfiguration {
-            lock_id: lock_id1.clone(),
-            config: LockConfig::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
-                        .unwrap(),
-                    TransactionTime::from(100u64),
-                    vec![LockControllerSimpleV0Grant::new(
-                        AccountIndex::from(1),
-                        vec![
-                            LockControllerSimpleV0Capability::Cancel,
-                            LockControllerSimpleV0Capability::Fund,
-                        ],
-                    )],
-                    vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-                    true,
-                    Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
-        block_state.create_lock(&context, configuration1).unwrap();
+        let configuration1 = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
+                    .unwrap(),
+                TransactionTime::from(100u64),
+                vec![LockControllerSimpleV0Grant::new(
+                    AccountIndex::from(1),
+                    vec![
+                        LockControllerSimpleV0Capability::Cancel,
+                        LockControllerSimpleV0Capability::Fund,
+                    ],
+                )],
+                vec![token_id.clone(), token_id_2.clone()],
+                true,
+                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
+                None,
+            )
+            .unwrap(),
+        );
+        block_state
+            .create_lock(&context, &lock_id1, configuration1)
+            .unwrap();
         let mut lock1 = block_state
             .lock_by_id(&context, &lock_id1)
             .unwrap()
             .expect("lock should exist");
-        lock1.add_lock_balance_ref(AccountIndex::from(0), TokenIndex(0));
-        lock1.add_lock_balance_ref(AccountIndex::from(1), TokenIndex(1));
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(0), token_id)
+            .unwrap();
+        lock1
+            .add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2)
+            .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
             account_index: 2,
             sequence_number: 7,
             creation_order: 0,
         };
-        let configuration2 = LockConfiguration {
-            lock_id: lock_id2.clone(),
-            config: LockConfig::SimpleV0(
-                LockConfigSimpleV0::new(
-                    LockRecipients::try_from(vec![]).unwrap(),
-                    TransactionTime::from(0u64),
-                    Vec::new(),
-                    Vec::new(),
-                    false,
-                    None,
-                    None,
-                )
-                .unwrap(),
-            ),
-        };
-        block_state.create_lock(&context, configuration2).unwrap();
+        let configuration2 = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::try_from(vec![]).unwrap(),
+                TransactionTime::from(0u64),
+                Vec::new(),
+                Vec::new(),
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        block_state
+            .create_lock(&context, &lock_id2, configuration2)
+            .unwrap();
 
         // Assert hash
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "539561ed445f1614093f96825e6eff1530cb34c694768879174c94f1a1edc8c2"
+            "0d7174c66e395bb337f581e87e91e3bf1587effb1e938dfc9df382ad3e1ce00e"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806746f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806746f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000005d0000000000000001000000000000000100000000000000000001000200000000000000010000000000000002000000000000006400010000000000000001020003000208746f6b656e69643108746f6b656e696432010100000200010000000000000000310100000000000000020000000000000000000000000000000000000000000000010000000000000001000000000000018f00000000000000090000000000000001f4000000000000002b000000000000000200000000000000070000000000000000000100000000000000000000000000000000000000000000000011010000000000000000000000000000023e000000000000000900000000000000027100000000000000210000000000000002010000000000000000000000000000022d000000000000028a00000000000000100000000000000166000000000000029b"
+            "000000000000002806546f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806546f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f2000000000000015500000000000000130100000000000000080006546f6b656e31000000000000000000130100000000000000080106546f6b656e320000000000000000002400000000000000000700000000000000000200000000000000018f0100000000000001aa00000000000000410001000200000000000000010000000000000002000000000000006400010000000000000001020003000206546f6b656e3106546f6b656e320101000002000100000000000000004001000000000000000200000000000000000000010000000000000001c500000000000001f1000000000000001101000000000000000100000000000000000000000000000000001300010000000000000000000000000000000000000000000000003701000000000000000000000000000000000000000000000000000282000000000000001102000000000000000700000000000000000000000000000000002400000000000000000700000000000000000201000000000000023a02000000000000029d000000000000001c000000000000000200000000000000000000010000000000000002dc000000000000001000000000000001660000000000000308"
         );
     }
 }
