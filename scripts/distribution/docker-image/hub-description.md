@@ -172,7 +172,7 @@ Omit `CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM` when the custom network do
 
 The run and Compose examples enable the collector in the same container as the node. Replace each example node name with a unique name before you start the container. Use the collector backend URL for the selected network. Set `CONCORDIUM_NODE_COLLECTOR_ENABLED=false` to run the node without the collector.
 
-The node continues to run if the collector exits.
+The node continues to run if the collector exits. The entrypoint does not restart the collector. To restart the collector independently, run it in a separate container with `/usr/local/bin/node-collector` as its entrypoint.
 
 ## Monitor the node
 

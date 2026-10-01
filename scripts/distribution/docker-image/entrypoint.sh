@@ -6,6 +6,7 @@ set -euo pipefail
 # node as the primary process and returns the node exit status to the container.
 node_pid=
 collector_pid=
+termination_signals=0
 
 # Send a termination signal to each child process that is still running.
 terminate_children() {
@@ -22,16 +23,22 @@ terminate_children() {
 wait_for_child() {
     local child_pid=$1
     local child_status
+    local signals_before_wait
 
-    set +e
-    wait "$child_pid"
-    child_status=$?
-    set -e
-    return "$child_status"
+    while true; do
+        signals_before_wait=$termination_signals
+        child_status=0
+        wait "$child_pid" || child_status=$?
+        # A trapped signal interrupts wait before the child finishes. Retry
+        # rather than treating the interrupted wait as the child's exit.
+        if [[ "$termination_signals" -eq "$signals_before_wait" ]]; then
+            return "$child_status"
+        fi
+    done
 }
 
 # Forward container termination signals to the managed child processes.
-trap terminate_children INT TERM
+trap 'termination_signals=$((termination_signals + 1)); terminate_children' INT TERM
 
 # Use the node as the default command. Treat leading options as node options,
 # in the same way as a standard Docker entrypoint.
@@ -99,6 +106,12 @@ while [[ -n "$collector_pid" ]]; do
     exited_pid=
     exited_status=0
     wait -n -p exited_pid "$node_pid" "$collector_pid" || exited_status=$?
+
+    # An interrupted wait does not assign exited_pid. Keep monitoring until
+    # a child exits, including while the children perform shutdown cleanup.
+    if [[ -z "${exited_pid:-}" ]]; then
+        continue
+    fi
 
     if [[ "$exited_pid" == "$node_pid" ]]; then
         node_status=$exited_status
