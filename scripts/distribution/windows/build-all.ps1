@@ -12,7 +12,10 @@ if ($LASTEXITCODE -ne 0) { throw "Failed selecting the GNU Rust toolchain" }
 
 # Resolve GNU dlltool before Stack puts GHC's LLVM tools first on PATH.
 # Rust uses this absolute path to generate import libraries in every workspace.
-$gnuDlltool = (Get-Command dlltool -CommandType Application -ErrorAction Stop).Source
+$gnuDlltool = (
+    Get-Command dlltool -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
+).Source
 $dlltoolVersion = & $gnuDlltool --version
 if ($LASTEXITCODE -ne 0 -or ($dlltoolVersion -join "`n") -notmatch "GNU dlltool") {
     throw "Expected GNU dlltool at $gnuDlltool"
