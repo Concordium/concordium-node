@@ -31,8 +31,6 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
         }
     }
 
-    // todo ar test
-
     /// Borrow as path slice.
     pub fn as_path_slice(&self) -> PathSliceRef<'_> {
         PathSliceRef {
@@ -41,8 +39,6 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
             odd_end: self.odd_end,
         }
     }
-
-    // todo ar test
 
     /// Returns the path represented as bytes, if the path is an even number of nibbles.
     /// If the path is an odd number of nibbles, `None` is returned.
@@ -67,6 +63,14 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
         Self {
             bytes: tiny_vec,
             odd_end: 0,
+        }
+    }
+
+    /// Create path from the bytes in the given vector, but excluding the last nibble.
+    pub fn from_tiny_vec_odd_end(tiny_vec: TinyVec<[u8; INLINE_KEY_LENGTH]>) -> Self {
+        Self {
+            bytes: tiny_vec,
+            odd_end: 1,
         }
     }
 
@@ -313,6 +317,24 @@ mod test {
         assert_eq!(path.index_path_nibble(2), PathNibble::from_byte_raw(3u8));
         assert_eq!(path.index_path_nibble(3), PathNibble::from_byte_raw(4u8));
 
+        let path_ref = path.as_path_slice();
+        assert_eq!(
+            path_ref.index_path_nibble(0),
+            PathNibble::from_byte_raw(1u8)
+        );
+        assert_eq!(
+            path_ref.index_path_nibble(1),
+            PathNibble::from_byte_raw(2u8)
+        );
+        assert_eq!(
+            path_ref.index_path_nibble(2),
+            PathNibble::from_byte_raw(3u8)
+        );
+        assert_eq!(
+            path_ref.index_path_nibble(3),
+            PathNibble::from_byte_raw(4u8)
+        );
+
         let path_ref = path.index_path_slice(0..);
         assert_eq!(
             path_ref.index_path_nibble(0),
@@ -444,6 +466,12 @@ mod test {
     fn test_first_nibble() {
         let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
 
+        let path_ref = path.as_path_slice();
+        assert_eq!(
+            path_ref.first_nibble(),
+            Some(PathNibble::from_byte_raw(1u8))
+        );
+
         let path_ref = path.index_path_slice(0..);
         assert_eq!(
             path_ref.first_nibble(),
@@ -473,6 +501,9 @@ mod test {
     fn test_len() {
         let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
         assert_eq!(path.len(), 4);
+
+        let path_ref = path.as_path_slice();
+        assert_eq!(path_ref.len(), 4);
 
         let path_ref = path.index_path_slice(0..);
         assert_eq!(path_ref.len(), 4);
@@ -506,6 +537,18 @@ mod test {
 
         let path_ref = path.index_path_slice(2..2);
         assert_eq!(path_ref.len(), 0);
+
+        let path = TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4]);
+        assert_eq!(path.len(), 3);
+
+        let path_ref = path.as_path_slice();
+        assert_eq!(path_ref.len(), 3);
+
+        let path_ref = path.index_path_slice(1..);
+        assert_eq!(path_ref.len(), 2);
+
+        let path = TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4]);
+        assert_eq!(path.len(), 1);
     }
 
     #[test]
@@ -513,8 +556,14 @@ mod test {
         let path = TestPath::empty();
         assert!(path.is_empty());
 
+        let path_ref = path.as_path_slice();
+        assert!(path_ref.is_empty());
+
         let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
         assert!(!path.is_empty());
+
+        let path_ref = path.as_path_slice();
+        assert!(!path_ref.is_empty());
 
         let path_ref = path.index_path_slice(0..4);
         assert!(!path_ref.is_empty());
@@ -527,5 +576,41 @@ mod test {
 
         let path = PathSliceRef::empty();
         assert!(path.is_empty());
+
+        let path = TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4]);
+        assert!(!path.is_empty());
+
+        let path_ref = path.as_path_slice();
+        assert!(!path_ref.is_empty());
+
+        let path_ref = path.index_path_slice(1..);
+        assert!(path_ref.is_empty());
+
+        let path_ref = path.index_path_slice(..0);
+        assert!(path_ref.is_empty());
+
+        let path_ref = path.index_path_slice(0..1);
+        assert!(!path_ref.is_empty());
+
+        let path_ref = path.index_path_slice(..1);
+        assert!(!path_ref.is_empty());
+
+        let path_ref = path.index_path_slice(0..);
+        assert!(!path_ref.is_empty());
+    }
+
+    #[test]
+    fn test_as_byte_slice() {
+        let path = TestPath::empty();
+        assert_eq!(path.as_byte_slice(), Some([0u8; 0].as_slice()));
+
+        let path = TestPath::from_tiny_vec(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4 | 4u8]);
+        assert_eq!(
+            path.as_byte_slice(),
+            Some([1u8 << 4 | 2u8, 3u8 << 4 | 4u8].as_slice())
+        );
+
+        let path = TestPath::from_tiny_vec_odd_end(tiny_vec![1u8 << 4 | 2u8, 3u8 << 4]);
+        assert_eq!(path.as_byte_slice(), None);
     }
 }
