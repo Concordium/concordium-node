@@ -54,12 +54,45 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     pub fn extend_from_path_slice(&mut self, slice: &PathSliceRef<'_>) {
         if self.odd_end == 0 && slice.odd_start == 0 {
             self.bytes.extend_from_slice(slice.byte_slice);
-            if slice.odd_end == 1 {
-                *self.bytes.last_mut().unwrap() &= !0b1111;
-                self.odd_end = 1;
+            self.odd_end = slice.odd_end;
+        } else if self.odd_end == 1 && slice.odd_start == 1 {
+            *self.bytes.last_mut().unwrap() =
+                PathNibble::from_byte_start(*self.bytes.last().unwrap())
+                    .splice_to_byte(PathNibble::from_byte_end(slice.byte_slice[0]));
+            self.bytes.extend_from_slice(&slice.byte_slice[1..]);
+            self.odd_end = slice.odd_end;
+        } else if self.odd_end == 0 && slice.odd_start == 1 {
+            self.bytes.reserve(slice.byte_slice.len());
+            let mut buffered_nibble = PathNibble::from_byte_end(slice.byte_slice[0]);
+            for &byte in &slice.byte_slice[1..] {
+                self.bytes
+                    .push(buffered_nibble.splice_to_byte(PathNibble::from_byte_start(byte)));
+                buffered_nibble = PathNibble::from_byte_end(byte);
             }
-        } else {
-            todo!()
+            if slice.odd_end == 0 {
+                self.bytes
+                    .push(buffered_nibble.splice_to_byte(PathNibble::zero()));
+            }
+            self.odd_end = slice.odd_end ^ 1;
+        } else if self.odd_end == 1 && slice.odd_start == 0 {
+            self.bytes.reserve(slice.byte_slice.len());
+            let mut buffered_nibble =
+                PathNibble::from_byte_start(self.bytes.last().copied().unwrap());
+            self.bytes.pop().unwrap();
+            for &byte in slice.byte_slice {
+                self.bytes
+                    .push(buffered_nibble.splice_to_byte(PathNibble::from_byte_start(byte)));
+                buffered_nibble = PathNibble::from_byte_end(byte);
+            }
+            if slice.odd_end == 0 {
+                self.bytes
+                    .push(buffered_nibble.splice_to_byte(PathNibble::zero()));
+            }
+            self.odd_end = slice.odd_end ^ 1;
+        }
+
+        if self.odd_end == 1 {
+            *self.bytes.last_mut().unwrap() &= !0b1111;
         }
     }
 
@@ -68,15 +101,6 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
         Self {
             bytes: tiny_vec,
             odd_end: 0,
-        }
-    }
-
-    /// Create path from the bytes in the given vector, but excluding the last nibble.
-    #[allow(unused)]
-    pub fn from_tiny_vec_odd_end(tiny_vec: TinyVec<[u8; INLINE_KEY_LENGTH]>) -> Self {
-        Self {
-            bytes: tiny_vec,
-            odd_end: 1,
         }
     }
 
@@ -251,7 +275,7 @@ impl<'a> Iterator for PathSliceIter<'a> {
                 None
             };
 
-            if self.odd_start != 0 {
+            if self.odd_start == 1 {
                 self.odd_start = 0;
 
                 end_nibble
@@ -284,6 +308,10 @@ pub fn common_prefix_len(path_ref1: PathSliceRef<'_>, path_ref2: PathSliceRef<'_
 pub struct PathNibble(u8);
 
 impl PathNibble {
+    pub fn zero() -> Self {
+        Self(0)
+    }
+
     pub fn from_byte_raw(byte: u8) -> Self {
         assert_eq!(byte & !0b1111, 0);
         Self(byte)
@@ -297,8 +325,8 @@ impl PathNibble {
         Self(byte & 0b1111)
     }
 
-    pub fn to_byte(start: Self, end: Self) -> u8 {
-        start.0 << 4 | end.0
+    pub fn splice_to_byte(self, other: Self) -> u8 {
+        self.0 << 4 | other.0
     }
 
     pub fn as_byte_raw(&self) -> u8 {
@@ -318,7 +346,7 @@ mod test {
 
         for (index, chunk) in vec.chunks(2).enumerate() {
             bytes[index] =
-                PathNibble::to_byte(chunk[0], chunk.get(1).copied().unwrap_or(PathNibble(0)));
+                chunk[0].splice_to_byte(chunk.get(1).copied().unwrap_or(PathNibble::zero()));
         }
 
         TestPath {
@@ -430,9 +458,19 @@ mod test {
 
     #[test]
     fn test_extend_from_path_slice() {
+        // Test with both ends of splicing byte aligned
+
+        let ref_path = path_from_nibbles([
+            PathNibble(1),
+            PathNibble(2),
+            PathNibble(3),
+            PathNibble(4),
+            PathNibble(5),
+        ]);
+
         let mut path =
             path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
-        path.extend_from_path_slice(&path.clone().index_path_slice(0..2));
+        path.extend_from_path_slice(&ref_path.index_path_slice(0..2));
         assert_eq!(
             path,
             path_from_nibbles([
@@ -447,7 +485,7 @@ mod test {
 
         let mut path =
             path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
-        path.extend_from_path_slice(&path.clone().index_path_slice(0..1));
+        path.extend_from_path_slice(&ref_path.index_path_slice(0..1));
         assert_eq!(
             path,
             path_from_nibbles([
@@ -457,6 +495,73 @@ mod test {
                 PathNibble(4),
                 PathNibble(1),
             ])
+        );
+
+        // Test with neither ends of splicing byte aligned
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(1..3));
+        assert_eq!(
+            path,
+            path_from_nibbles([
+                PathNibble(1),
+                PathNibble(2),
+                PathNibble(3),
+                PathNibble(2),
+                PathNibble(3),
+            ])
+        );
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(1..2));
+        assert_eq!(
+            path,
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(2),])
+        );
+
+        // Test with left end of splicing byte aligned but right not
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(1..3));
+        assert_eq!(
+            path,
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(2), PathNibble(3),])
+        );
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(1..2));
+        assert_eq!(
+            path,
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(2),])
+        );
+
+        // Test with right end of splicing byte aligned but left not
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(0..2));
+        assert_eq!(
+            path,
+            path_from_nibbles([
+                PathNibble(1),
+                PathNibble(2),
+                PathNibble(3),
+                PathNibble(1),
+                PathNibble(2),
+            ])
+        );
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(0..1));
+        assert_eq!(
+            path,
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(1),])
+        );
+
+        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        path.extend_from_path_slice(&ref_path.index_path_slice(0..0));
+        assert_eq!(
+            path,
+            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)])
         );
     }
 
@@ -528,6 +633,15 @@ mod test {
         let path1 = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
         let path2 = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(4), PathNibble(5)]);
 
+        // Test identical paths
+
+        assert_eq!(
+            common_prefix_len(path1.as_path_slice(), path1.as_path_slice()),
+            4
+        );
+
+        // Test path prefix of other path
+
         assert_eq!(
             common_prefix_len(path1.as_path_slice(), path1.index_path_slice(0..3)),
             3
@@ -537,6 +651,8 @@ mod test {
             common_prefix_len(path1.index_path_slice(0..3), path1.as_path_slice()),
             3
         );
+
+        // Test paths not identical
 
         assert_eq!(
             common_prefix_len(path1.as_path_slice(), path2.as_path_slice()),
