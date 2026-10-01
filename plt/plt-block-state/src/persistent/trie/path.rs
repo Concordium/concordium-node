@@ -5,14 +5,14 @@ use std::{iter, slice};
 use tinyvec::TinyVec;
 
 /// Path represents a path in a trie, or a path to look up in the trie. A path is represented
-/// as a sequence of bytes, but the length is in granularity of nibbles (4 bits).
+/// as a sequence of bytes, but the length is in granularity of 4 bit chunks.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Path<const INLINE_KEY_LENGTH: usize> {
-    /// Bytes in the path. The last nibble is not part of the path,
-    /// if `odd_length` is `1` - in this case the last nibble is always `0`.
+    /// Bytes in the path. The last chunk is not part of the path,
+    /// if `odd_length` is `1` - in this case the last chunk is always `0`.
     bytes: TinyVec<[u8; INLINE_KEY_LENGTH]>,
     /// If `0`, the path is `bytes`; if `1`,
-    /// the path is `bytes` except for the last nibble.
+    /// the path is `bytes` except for the last chunk.
     odd_end: u8,
 }
 
@@ -40,8 +40,8 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
         }
     }
 
-    /// Returns the path represented as bytes, if the path is an even number of nibbles.
-    /// If the path is an odd number of nibbles, `None` is returned.
+    /// Returns the path represented as bytes, if the path is an even number of chunks.
+    /// If the path is an odd number of chunks, `None` is returned.
     pub fn as_byte_slice(&self) -> Option<&[u8]> {
         if self.odd_end == 0 {
             Some(&self.bytes)
@@ -57,36 +57,36 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
             self.odd_end = slice.odd_end;
         } else if self.odd_end == 1 && slice.odd_start == 1 {
             *self.bytes.last_mut().unwrap() =
-                PathNibble::from_byte_start(*self.bytes.last().unwrap())
-                    .splice_to_byte(PathNibble::from_byte_end(slice.byte_slice[0]));
+                PathChunk::from_byte_start(*self.bytes.last().unwrap())
+                    .splice_to_byte(PathChunk::from_byte_end(slice.byte_slice[0]));
             self.bytes.extend_from_slice(&slice.byte_slice[1..]);
             self.odd_end = slice.odd_end;
         } else if self.odd_end == 0 && slice.odd_start == 1 {
             self.bytes.reserve(slice.byte_slice.len());
-            let mut buffered_nibble = PathNibble::from_byte_end(slice.byte_slice[0]);
+            let mut buffered_chunk = PathChunk::from_byte_end(slice.byte_slice[0]);
             for &byte in &slice.byte_slice[1..] {
                 self.bytes
-                    .push(buffered_nibble.splice_to_byte(PathNibble::from_byte_start(byte)));
-                buffered_nibble = PathNibble::from_byte_end(byte);
+                    .push(buffered_chunk.splice_to_byte(PathChunk::from_byte_start(byte)));
+                buffered_chunk = PathChunk::from_byte_end(byte);
             }
             if slice.odd_end == 0 {
                 self.bytes
-                    .push(buffered_nibble.splice_to_byte(PathNibble::zero()));
+                    .push(buffered_chunk.splice_to_byte(PathChunk::zero()));
             }
             self.odd_end = slice.odd_end ^ 1;
         } else if self.odd_end == 1 && slice.odd_start == 0 {
             self.bytes.reserve(slice.byte_slice.len());
-            let mut buffered_nibble =
-                PathNibble::from_byte_start(self.bytes.last().copied().unwrap());
+            let mut buffered_chunk =
+                PathChunk::from_byte_start(self.bytes.last().copied().unwrap());
             self.bytes.pop().unwrap();
             for &byte in slice.byte_slice {
                 self.bytes
-                    .push(buffered_nibble.splice_to_byte(PathNibble::from_byte_start(byte)));
-                buffered_nibble = PathNibble::from_byte_end(byte);
+                    .push(buffered_chunk.splice_to_byte(PathChunk::from_byte_start(byte)));
+                buffered_chunk = PathChunk::from_byte_end(byte);
             }
             if slice.odd_end == 0 {
                 self.bytes
-                    .push(buffered_nibble.splice_to_byte(PathNibble::zero()));
+                    .push(buffered_chunk.splice_to_byte(PathChunk::zero()));
             }
             self.odd_end = slice.odd_end ^ 1;
         }
@@ -96,25 +96,17 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
         }
     }
 
-    /// Create path from the bytes in the given vector.
-    pub fn from_tiny_vec(tiny_vec: TinyVec<[u8; INLINE_KEY_LENGTH]>) -> Self {
-        Self {
-            bytes: tiny_vec,
-            odd_end: 0,
-        }
-    }
-
-    /// Index into the path using nibbles as index.
+    /// Index into the path using chunks as index.
     pub fn index_path_slice(&self, index: impl RangeBounds<usize>) -> PathSliceRef<'_> {
         self.as_path_slice().index_path_slice(index)
     }
 
-    /// Index into the path using nibbles as index.
-    pub fn index_path_nibble(&self, index: usize) -> PathNibble {
-        self.as_path_slice().index_path_nibble(index)
+    /// Index into the path using chunks as index.
+    pub fn index_path_chunk(&self, index: usize) -> PathChunk {
+        self.as_path_slice().index_path_chunk(index)
     }
 
-    /// Length of the path slice in nibbles.
+    /// Length of the path slice in chunks.
     pub fn len(&self) -> usize {
         (self.bytes.len() << 1) - self.odd_end as usize
     }
@@ -145,9 +137,9 @@ impl<const INLINE_KEY_LENGTH: usize> Deserial for Path<INLINE_KEY_LENGTH> {
 /// Reference to slice of [`Path`]
 #[derive(Debug, Copy, Clone)]
 pub struct PathSliceRef<'a> {
-    /// Slice of bytes that defines the path nibbles. If `odd_start` is `1`,
-    /// the first nibble in the first byte is undefined and not part of the slice. The same the
-    /// last nibble in the last byte if `odd_end` is `1`.
+    /// Slice of bytes that defines the path chunks. If `odd_start` is `1`,
+    /// the first chunk in the first byte is undefined and not part of the slice. The same the
+    /// last chunk in the last byte if `odd_end` is `1`.
     byte_slice: &'a [u8],
     odd_start: u8,
     odd_end: u8,
@@ -169,15 +161,15 @@ impl<'a> PathSliceRef<'a> {
         self.len() == 0
     }
 
-    /// Index into the path slice using nibbles as index.
+    /// Index into the path slice using chunks as index.
     pub fn index_path_slice(&self, range_bounds: impl RangeBounds<usize>) -> PathSliceRef<'a> {
         let start_slice_index = match range_bounds.start_bound() {
             Bound::Included(&index) => index,
             Bound::Excluded(&index) => index + 1,
             Bound::Unbounded => 0,
         };
-        let start_nibble_index = start_slice_index + self.odd_start as usize;
-        let start_byte_index = start_nibble_index >> 1;
+        let start_chunk_index = start_slice_index + self.odd_start as usize;
+        let start_byte_index = start_chunk_index >> 1;
 
         let end_slice_index = match range_bounds.end_bound() {
             Bound::Included(&index) => index + 1,
@@ -185,30 +177,30 @@ impl<'a> PathSliceRef<'a> {
             Bound::Unbounded => self.len(),
         };
         assert!(end_slice_index <= self.len());
-        let end_nibble_index = end_slice_index + self.odd_start as usize;
-        let end_byte_index = (end_nibble_index + 1) >> 1;
+        let end_chunk_index = end_slice_index + self.odd_start as usize;
+        let end_byte_index = (end_chunk_index + 1) >> 1;
 
         Self {
             byte_slice: &self.byte_slice[start_byte_index..end_byte_index],
-            odd_start: (start_nibble_index & 1) as u8,
-            odd_end: (end_nibble_index & 1) as u8,
+            odd_start: (start_chunk_index & 1) as u8,
+            odd_end: (end_chunk_index & 1) as u8,
         }
     }
 
-    /// Index into the path slice using nibbles as index.
-    pub fn index_path_nibble(&self, slice_index: usize) -> PathNibble {
+    /// Index into the path slice using chunks as index.
+    pub fn index_path_chunk(&self, slice_index: usize) -> PathChunk {
         assert!(slice_index < self.len());
 
-        let nibble_index = slice_index + self.odd_start as usize;
-        let byte_index = nibble_index >> 1;
+        let chunk_index = slice_index + self.odd_start as usize;
+        let byte_index = chunk_index >> 1;
 
-        if nibble_index & 1 == 0 {
-            PathNibble::from_byte_start(self.byte_slice[byte_index])
+        if chunk_index & 1 == 0 {
+            PathChunk::from_byte_start(self.byte_slice[byte_index])
         } else {
             if self.odd_end == 1 && byte_index + 1 == self.byte_slice.len() {
                 panic!("slice index out of bounds");
             }
-            PathNibble::from_byte_end(self.byte_slice[byte_index])
+            PathChunk::from_byte_end(self.byte_slice[byte_index])
         }
     }
 
@@ -221,12 +213,12 @@ impl<'a> PathSliceRef<'a> {
         }
     }
 
-    /// The first nibble in the path slice.
-    pub fn first_nibble(&self) -> Option<PathNibble> {
+    /// The first chunk in the path slice.
+    pub fn first_chunk(&self) -> Option<PathChunk> {
         if self.is_empty() {
             None
         } else {
-            Some(self.index_path_nibble(0))
+            Some(self.index_path_chunk(0))
         }
     }
 
@@ -237,14 +229,14 @@ impl<'a> PathSliceRef<'a> {
         path
     }
 
-    /// Length of the path slice in nibbles.
+    /// Length of the path slice in chunks.
     pub fn len(&self) -> usize {
         (self.byte_slice.len() << 1) - self.odd_start as usize - self.odd_end as usize
     }
 
     pub fn iter(&self) -> PathSliceIter<'_> {
         PathSliceIter {
-            buffered_nibble: None,
+            buffered_chunk: None,
             bytes_iter: self.byte_slice.iter().peekable(),
             odd_start: self.odd_start,
             odd_end: self.odd_end,
@@ -253,24 +245,24 @@ impl<'a> PathSliceRef<'a> {
 }
 
 pub struct PathSliceIter<'a> {
-    buffered_nibble: Option<PathNibble>,
+    buffered_chunk: Option<PathChunk>,
     bytes_iter: iter::Peekable<slice::Iter<'a, u8>>,
     odd_start: u8,
     odd_end: u8,
 }
 
 impl<'a> Iterator for PathSliceIter<'a> {
-    type Item = PathNibble;
+    type Item = PathChunk;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(buffered_byte) = self.buffered_nibble.take() {
+        if let Some(buffered_byte) = self.buffered_chunk.take() {
             return Some(buffered_byte);
         }
 
         if let Some(&byte) = self.bytes_iter.next() {
-            let start_nibble = PathNibble::from_byte_start(byte);
-            let end_nibble = if self.bytes_iter.peek().is_some() || self.odd_end == 0 {
-                Some(PathNibble::from_byte_end(byte))
+            let start_chunk = PathChunk::from_byte_start(byte);
+            let end_chunk = if self.bytes_iter.peek().is_some() || self.odd_end == 0 {
+                Some(PathChunk::from_byte_end(byte))
             } else {
                 None
             };
@@ -278,10 +270,10 @@ impl<'a> Iterator for PathSliceIter<'a> {
             if self.odd_start == 1 {
                 self.odd_start = 0;
 
-                end_nibble
+                end_chunk
             } else {
-                self.buffered_nibble = end_nibble;
-                Some(start_nibble)
+                self.buffered_chunk = end_chunk;
+                Some(start_chunk)
             }
         } else {
             None
@@ -289,7 +281,7 @@ impl<'a> Iterator for PathSliceIter<'a> {
     }
 }
 
-/// Length of common prefix in nibbles of the two path slices.
+/// Length of common prefix in chunks of the two path slices.
 pub fn common_prefix_len(path_ref1: PathSliceRef<'_>, path_ref2: PathSliceRef<'_>) -> usize {
     let mut iter1 = path_ref1.iter();
     let mut iter2 = path_ref2.iter();
@@ -303,11 +295,11 @@ pub fn common_prefix_len(path_ref1: PathSliceRef<'_>, path_ref2: PathSliceRef<'_
     i
 }
 
-/// Stores the nibble in the first 4 bits of the `u8`
+/// Chunk of a path. A chunk is 4 bits.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, PartialEq, Eq)]
-pub struct PathNibble(u8);
+pub struct PathChunk(u8);
 
-impl PathNibble {
+impl PathChunk {
     pub fn zero() -> Self {
         Self(0)
     }
@@ -329,7 +321,7 @@ impl PathNibble {
         self.0 << 4 | other.0
     }
 
-    pub fn as_byte_raw(&self) -> u8 {
+    pub fn to_byte_raw(self) -> u8 {
         self.0
     }
 }
@@ -340,13 +332,13 @@ mod test {
 
     type TestPath = Path<4>;
 
-    fn path_from_nibbles(iter: impl IntoIterator<Item = PathNibble>) -> TestPath {
+    fn path_from_chunks(iter: impl IntoIterator<Item = PathChunk>) -> TestPath {
         let vec: Vec<_> = iter.into_iter().collect();
         let mut bytes = TinyVec::with_initial_len((vec.len() + 1) >> 1);
 
         for (index, chunk) in vec.chunks(2).enumerate() {
             bytes[index] =
-                chunk[0].splice_to_byte(chunk.get(1).copied().unwrap_or(PathNibble::zero()));
+                chunk[0].splice_to_byte(chunk.get(1).copied().unwrap_or(PathChunk::zero()));
         }
 
         TestPath {
@@ -356,218 +348,192 @@ mod test {
     }
 
     #[test]
-    fn test_index_path_nibble() {
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
-        assert_eq!(path.index_path_nibble(0), PathNibble::from_byte_raw(1u8));
-        assert_eq!(path.index_path_nibble(1), PathNibble::from_byte_raw(2u8));
-        assert_eq!(path.index_path_nibble(2), PathNibble::from_byte_raw(3u8));
-        assert_eq!(path.index_path_nibble(3), PathNibble::from_byte_raw(4u8));
+    fn test_index_path_chunk() {
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
+        assert_eq!(path.index_path_chunk(0), PathChunk::from_byte_raw(1u8));
+        assert_eq!(path.index_path_chunk(1), PathChunk::from_byte_raw(2u8));
+        assert_eq!(path.index_path_chunk(2), PathChunk::from_byte_raw(3u8));
+        assert_eq!(path.index_path_chunk(3), PathChunk::from_byte_raw(4u8));
 
         let path_ref = path.index_path_slice(1..);
-        assert_eq!(
-            path_ref.index_path_nibble(0),
-            PathNibble::from_byte_raw(2u8)
-        );
-        assert_eq!(
-            path_ref.index_path_nibble(1),
-            PathNibble::from_byte_raw(3u8)
-        );
-        assert_eq!(
-            path_ref.index_path_nibble(2),
-            PathNibble::from_byte_raw(4u8)
-        );
+        assert_eq!(path_ref.index_path_chunk(0), PathChunk::from_byte_raw(2u8));
+        assert_eq!(path_ref.index_path_chunk(1), PathChunk::from_byte_raw(3u8));
+        assert_eq!(path_ref.index_path_chunk(2), PathChunk::from_byte_raw(4u8));
 
         let path_ref = path.index_path_slice(..3);
-        assert_eq!(
-            path_ref.index_path_nibble(0),
-            PathNibble::from_byte_raw(1u8)
-        );
-        assert_eq!(
-            path_ref.index_path_nibble(1),
-            PathNibble::from_byte_raw(2u8)
-        );
-        assert_eq!(
-            path_ref.index_path_nibble(2),
-            PathNibble::from_byte_raw(3u8)
-        );
+        assert_eq!(path_ref.index_path_chunk(0), PathChunk::from_byte_raw(1u8));
+        assert_eq!(path_ref.index_path_chunk(1), PathChunk::from_byte_raw(2u8));
+        assert_eq!(path_ref.index_path_chunk(2), PathChunk::from_byte_raw(3u8));
     }
 
     #[test]
-    fn test_first_nibble() {
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+    fn test_first_chunk() {
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
 
         let path_ref = path.index_path_slice(0..);
-        assert_eq!(
-            path_ref.first_nibble(),
-            Some(PathNibble::from_byte_raw(1u8))
-        );
+        assert_eq!(path_ref.first_chunk(), Some(PathChunk::from_byte_raw(1u8)));
 
         let path_ref = path.index_path_slice(1..);
-        assert_eq!(
-            path_ref.first_nibble(),
-            Some(PathNibble::from_byte_raw(2u8))
-        );
+        assert_eq!(path_ref.first_chunk(), Some(PathChunk::from_byte_raw(2u8)));
     }
 
     /// Tests `index_path_slice` using `iter` for assertions, so
     /// effectively testing both at the same time.
     #[test]
     fn test_index_path_slice_using_iter() {
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
-        let path_nibbles: Vec<_> = path.as_path_slice().iter().collect();
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
+        let path_chunks: Vec<_> = path.as_path_slice().iter().collect();
         assert_eq!(
-            path_nibbles,
+            path_chunks,
             vec![
-                PathNibble(1u8),
-                PathNibble(2u8),
-                PathNibble(3u8),
-                PathNibble(4u8)
+                PathChunk(1u8),
+                PathChunk(2u8),
+                PathChunk(3u8),
+                PathChunk(4u8)
             ]
         );
 
-        let path_nibbles: Vec<_> = path.index_path_slice(1..).iter().collect();
+        let path_chunks: Vec<_> = path.index_path_slice(1..).iter().collect();
         assert_eq!(
-            path_nibbles,
-            vec![PathNibble(2u8), PathNibble(3u8), PathNibble(4u8)]
+            path_chunks,
+            vec![PathChunk(2u8), PathChunk(3u8), PathChunk(4u8)]
         );
 
-        let path_nibbles: Vec<_> = path.index_path_slice(..3).iter().collect();
+        let path_chunks: Vec<_> = path.index_path_slice(..3).iter().collect();
         assert_eq!(
-            path_nibbles,
-            vec![PathNibble(1u8), PathNibble(2u8), PathNibble(3u8)]
+            path_chunks,
+            vec![PathChunk(1u8), PathChunk(2u8), PathChunk(3u8)]
         );
 
-        let path_nibbles: Vec<_> = path.index_path_slice(..=2).iter().collect();
+        let path_chunks: Vec<_> = path.index_path_slice(..=2).iter().collect();
         assert_eq!(
-            path_nibbles,
-            vec![PathNibble(1u8), PathNibble(2u8), PathNibble(3u8)]
+            path_chunks,
+            vec![PathChunk(1u8), PathChunk(2u8), PathChunk(3u8)]
         );
 
-        let path_nibbles: Vec<_> = path.index_path_slice(1..1).iter().collect();
-        assert_eq!(path_nibbles, vec![]);
+        let path_chunks: Vec<_> = path.index_path_slice(1..1).iter().collect();
+        assert_eq!(path_chunks, vec![]);
 
-        let path_nibbles: Vec<_> = path.index_path_slice(2..2).iter().collect();
-        assert_eq!(path_nibbles, vec![]);
+        let path_chunks: Vec<_> = path.index_path_slice(2..2).iter().collect();
+        assert_eq!(path_chunks, vec![]);
 
-        let path_nibbles: Vec<_> = path.index_path_slice(1..2).iter().collect();
-        assert_eq!(path_nibbles, vec![PathNibble(2u8),]);
+        let path_chunks: Vec<_> = path.index_path_slice(1..2).iter().collect();
+        assert_eq!(path_chunks, vec![PathChunk(2u8),]);
 
-        let path_nibbles: Vec<_> = path.index_path_slice(0..1).iter().collect();
-        assert_eq!(path_nibbles, vec![PathNibble(1u8),]);
+        let path_chunks: Vec<_> = path.index_path_slice(0..1).iter().collect();
+        assert_eq!(path_chunks, vec![PathChunk(1u8),]);
     }
 
     #[test]
     fn test_extend_from_path_slice() {
         // Test with both ends of splicing byte aligned
 
-        let ref_path = path_from_nibbles([
-            PathNibble(1),
-            PathNibble(2),
-            PathNibble(3),
-            PathNibble(4),
-            PathNibble(5),
+        let ref_path = path_from_chunks([
+            PathChunk(1),
+            PathChunk(2),
+            PathChunk(3),
+            PathChunk(4),
+            PathChunk(5),
         ]);
 
-        let mut path =
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(0..2));
         assert_eq!(
             path,
-            path_from_nibbles([
-                PathNibble(1),
-                PathNibble(2),
-                PathNibble(3),
-                PathNibble(4),
-                PathNibble(1),
-                PathNibble(2),
+            path_from_chunks([
+                PathChunk(1),
+                PathChunk(2),
+                PathChunk(3),
+                PathChunk(4),
+                PathChunk(1),
+                PathChunk(2),
             ])
         );
 
-        let mut path =
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(0..1));
         assert_eq!(
             path,
-            path_from_nibbles([
-                PathNibble(1),
-                PathNibble(2),
-                PathNibble(3),
-                PathNibble(4),
-                PathNibble(1),
+            path_from_chunks([
+                PathChunk(1),
+                PathChunk(2),
+                PathChunk(3),
+                PathChunk(4),
+                PathChunk(1),
             ])
         );
 
         // Test with neither ends of splicing byte aligned
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(1..3));
         assert_eq!(
             path,
-            path_from_nibbles([
-                PathNibble(1),
-                PathNibble(2),
-                PathNibble(3),
-                PathNibble(2),
-                PathNibble(3),
+            path_from_chunks([
+                PathChunk(1),
+                PathChunk(2),
+                PathChunk(3),
+                PathChunk(2),
+                PathChunk(3),
             ])
         );
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(1..2));
         assert_eq!(
             path,
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(2),])
+            path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(2),])
         );
 
         // Test with left end of splicing byte aligned but right not
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(1..3));
         assert_eq!(
             path,
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(2), PathNibble(3),])
+            path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(2), PathChunk(3),])
         );
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(1..2));
         assert_eq!(
             path,
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(2),])
+            path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(2),])
         );
 
         // Test with right end of splicing byte aligned but left not
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(0..2));
         assert_eq!(
             path,
-            path_from_nibbles([
-                PathNibble(1),
-                PathNibble(2),
-                PathNibble(3),
-                PathNibble(1),
-                PathNibble(2),
+            path_from_chunks([
+                PathChunk(1),
+                PathChunk(2),
+                PathChunk(3),
+                PathChunk(1),
+                PathChunk(2),
             ])
         );
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(0..1));
         assert_eq!(
             path,
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(1),])
+            path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(1),])
         );
 
-        let mut path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let mut path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         path.extend_from_path_slice(&ref_path.index_path_slice(0..0));
         assert_eq!(
             path,
-            path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)])
+            path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)])
         );
     }
 
     #[test]
     fn test_len() {
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
         assert_eq!(path.len(), 4);
 
         let path_ref = path.as_path_slice();
@@ -588,7 +554,7 @@ mod test {
         let path_ref = path.index_path_slice(2..2);
         assert_eq!(path_ref.len(), 0);
 
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         assert_eq!(path.len(), 3);
     }
 
@@ -600,7 +566,7 @@ mod test {
         let path_ref = PathSliceRef::empty();
         assert!(path_ref.is_empty());
 
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
         assert!(!path.is_empty());
 
         let path_ref = path.as_path_slice();
@@ -618,20 +584,20 @@ mod test {
         let path = TestPath::empty();
         assert_eq!(path.as_byte_slice(), Some([0u8; 0].as_slice()));
 
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
         assert_eq!(
             path.as_byte_slice(),
             Some([1u8 << 4 | 2u8, 3u8 << 4 | 4u8].as_slice())
         );
 
-        let path = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3)]);
+        let path = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3)]);
         assert_eq!(path.as_byte_slice(), None);
     }
 
     #[test]
     fn test_common_prefix_len() {
-        let path1 = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(3), PathNibble(4)]);
-        let path2 = path_from_nibbles([PathNibble(1), PathNibble(2), PathNibble(4), PathNibble(5)]);
+        let path1 = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(3), PathChunk(4)]);
+        let path2 = path_from_chunks([PathChunk(1), PathChunk(2), PathChunk(4), PathChunk(5)]);
 
         // Test identical paths
 
