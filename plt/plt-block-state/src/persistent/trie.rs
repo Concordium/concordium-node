@@ -836,12 +836,12 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
         };
 
         let common_prefix_len =
-            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem.as_path_slice()) + 1;
+            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem.as_path_slice());
 
         Ok(
             match (
-                common_prefix_len.cmp(&(child.stem.len() + 1)),
-                common_prefix_len.cmp(&path_ref.len()),
+                common_prefix_len.cmp(&child.stem.len()),
+                common_prefix_len.cmp(&(path_ref.len() - 1)),
             ) {
                 (Ordering::Equal, _) => {
                     // Path matched node and the full stem.
