@@ -185,7 +185,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_remaining_length == 0 => {
@@ -216,7 +216,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_remaining_length == 0 => {
@@ -253,7 +253,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable + Clone,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let (new_root, replaced) = self.root.insert_rec(loader, path_ref, value)?;
 
         let new_size = if replaced { self.size } else { self.size + 1 };
@@ -293,7 +293,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
             return Ok(None);
         }
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let Some(new_root) = self.root.delete_rec(loader, path_ref)? else {
             return Ok(None);
         };
@@ -349,7 +349,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { stem_matched_node } => {
@@ -360,7 +360,8 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
                         )
                         .to_path();
 
-                    iter_root_path.extend_from_path_slice(&stem_matched_node.stem.as_path_slice());
+                    iter_root_path
+                        .extend_from_path_slice(&stem_matched_node.stem.as_path_slice())?;
                     PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
                 } else {
                     PrefixIterator::with_root(
@@ -429,8 +430,12 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
                 };
 
                 let mut child_path = node_path.clone();
-                child_path.extend_with_chunk(child_byte);
-                child_path.extend_from_path_slice(&child.stem.as_path_slice());
+                if let Err(err) = child_path.extend_with_chunk(child_byte) {
+                    return Some(Err(err));
+                };
+                if let Err(err) = child_path.extend_from_path_slice(&child.stem.as_path_slice()) {
+                    return Some(Err(err));
+                };
 
                 self.node_stack
                     .push(IteratorStackElement(child_path, child));
@@ -635,8 +640,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let ChildEdge(only_child_path_chunk, only_child_ref) = &new_child.children.0[0];
                     let grandchild = only_child_ref.value(loader)?;
                     let mut new_child_stem = new_child.stem.clone();
-                    new_child_stem.extend_with_chunk(*only_child_path_chunk);
-                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice());
+                    new_child_stem.extend_with_chunk(*only_child_path_chunk)?;
+                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice())?;
                     new_child = Node {
                         stem: new_child_stem,
                         value: grandchild.value.clone(),
@@ -1769,8 +1774,8 @@ mod tests {
                 }
 
                 let mut child_path = path.clone();
-                child_path.extend_with_chunk(*path_chunk);
-                child_path.extend_from_path_slice(&child_node.stem.as_path_slice());
+                child_path.extend_with_chunk(*path_chunk)?;
+                child_path.extend_from_path_slice(&child_node.stem.as_path_slice())?;
                 child_node.validate_and_extract_entries(
                     loader,
                     child_path.as_path_slice(),
