@@ -634,7 +634,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let ChildEdge(only_child_path_chunk, only_child_ref) = &new_child.children.0[0];
                     let grandchild = only_child_ref.value(loader)?;
                     let mut new_child_stem = new_child.stem1.clone();
-                    // todo extend with only_child_path_chunk
+                    new_child_stem.extend_with_chunk(only_child_path_chunk);
                     new_child_stem.extend_from_path_slice(&grandchild.stem1.as_path_slice());
                     new_child = Node {
                         stem1: new_child_stem,
@@ -1770,7 +1770,7 @@ mod tests {
                 }
 
                 let mut child_path = path.clone();
-                // todo add path chunk
+                child_path.extend_with_chunk(path_chunk);
                 child_path.extend_from_path_slice(&child_node.stem1.as_path_slice());
                 child_node.validate_and_extract_entries(
                     loader,
