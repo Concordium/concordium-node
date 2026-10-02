@@ -111,6 +111,43 @@ Keep these contracts synchronized when runtime behavior changes:
 
 The image runs as UID and GID `10001:10001`. The entrypoint requires an explicit genesis path, starts the collector only when enabled, keeps the node running if the collector exits, and stops the collector when the node exits.
 
-## Publish documentation
+## Release guide
 
-Use `hub-description.md` as the Docker Hub repository description. Keep operational instructions there rather than duplicating them in this maintainer document.
+Use these instructions to release the `concordium/node` image.
+
+### 1. Publish the image
+
+1. Check the version in `concordium-node/Cargo.toml`.
+2. Update `hub-description.md` if the configuration or operating instructions changed.
+3. Create a Git tag with the same version and a new build number. Use the format `<version>-<build>-rc` or `<version>-<build>-alpha`.
+4. Push the tag. For example:
+
+   ```shell
+   git tag 9.0.1-0-rc
+   git push origin 9.0.1-0-rc
+   ```
+
+5. Check that [Docker node image release](../../../.github/workflows/docker-release.yaml) completes successfully in GitHub Actions.
+
+### 2. Check the description
+
+[Docker node description release](../../../.github/workflows/docker-description-release.yaml) starts automatically after the image release succeeds.
+
+1. Check that the description workflow completes successfully.
+2. Check the description on Docker Hub.
+
+For a documentation-only release, commit the changes to `hub-description.md`. Run the description workflow manually from the branch with those changes.
+
+### 3. Test the image
+
+1. Pull `concordium/node:<version>`.
+2. Do the checks in [Validate](#validate). Replace `concordium/node:latest` with the versioned image in each command.
+3. Run the end-to-end tests with the same image.
+
+### 4. Update latest
+
+1. Open [Promote Docker node image to latest](../../../.github/workflows/docker-promote-latest.yaml) in GitHub Actions.
+2. Select **Run workflow** and select the repository's default branch.
+3. Enter the image version tag, for example `9.0.1-0`. Do not enter `9.0.1-0-rc`, `latest`, or a full image reference.
+4. Start the workflow.
+5. Check that the workflow completes successfully.
