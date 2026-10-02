@@ -17,10 +17,14 @@ $gnuDlltool = (
         Select-Object -First 1
 ).Source
 $dlltoolVersion = & $gnuDlltool --version
-if ($LASTEXITCODE -ne 0 -or ($dlltoolVersion -join "`n") -notmatch "GNU dlltool") {
-    throw "Expected GNU dlltool at $gnuDlltool"
-}
+$dlltoolExitCode = $LASTEXITCODE
+$dlltoolVersionText = $dlltoolVersion -join "`n"
 Write-Output "Rust import library tool: $gnuDlltool"
+Write-Output $dlltoolVersionText
+# GNU dlltool includes its invocation name, which can be an absolute path.
+if ($dlltoolExitCode -ne 0 -or $dlltoolVersionText -notmatch '^GNU\s+.*dlltool(?:\.exe)?(?:\s|$)') {
+    throw "Expected GNU dlltool at $gnuDlltool (exit code $dlltoolExitCode). Version output: $dlltoolVersionText"
+}
 
 # Encoded flags preserve arguments that contain spaces, including the tool path.
 # Keep existing environment flags in Cargo's precedence order.
