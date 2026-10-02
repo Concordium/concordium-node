@@ -146,7 +146,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
     pub fn empty() -> Self {
         let root = Node {
             children: ChildEdges::default(),
-            stem1: Path::empty(),
+            stem: Path::empty(),
             value: None,
         };
 
@@ -360,7 +360,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
                         )
                         .to_path();
 
-                    iter_root_path.extend_from_path_slice(&stem_matched_node.stem1.as_path_slice());
+                    iter_root_path.extend_from_path_slice(&stem_matched_node.stem.as_path_slice());
                     PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
                 } else {
                     PrefixIterator::with_root(
@@ -430,7 +430,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
 
                 let mut child_path = node_path.clone();
                 child_path.extend_with_chunk(child_byte);
-                child_path.extend_from_path_slice(&child.stem1.as_path_slice());
+                child_path.extend_from_path_slice(&child.stem.as_path_slice());
 
                 self.node_stack
                     .push(IteratorStackElement(child_path, child));
@@ -453,7 +453,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
 #[derive(Debug)]
 struct Node<const INLINE_KEY_LENGTH: usize, V> {
     value: Option<V>,
-    stem1: Path<INLINE_KEY_LENGTH>,
+    stem: Path<INLINE_KEY_LENGTH>,
     children: ChildEdges<INLINE_KEY_LENGTH, V>,
 }
 
@@ -464,7 +464,7 @@ where
     fn clone(&self) -> Self {
         Self {
             children: self.children.clone(),
-            stem1: self.stem1.clone(),
+            stem: self.stem.clone(),
             value: self.value.clone(),
         }
     }
@@ -593,7 +593,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
 
             // The node to delete has been found. We propagate an update signal upwards.
             let new_node = Node {
-                stem1: self.stem1.clone(),
+                stem: self.stem.clone(),
                 value: None,
                 children: self.children.clone(),
             };
@@ -609,15 +609,15 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         // Find the common prefix of the remaining path and the stem of the selected child.
         let common_prefix_len = path::common_prefix_len(
             path_ref.index_path_slice(1..),
-            child_node.stem1.as_path_slice(),
+            child_node.stem.as_path_slice(),
         );
 
-        match common_prefix_len.cmp(&child_node.stem1.len()) {
+        match common_prefix_len.cmp(&child_node.stem.len()) {
             // The child node is either a step on the path or the end destination
             Ordering::Equal => {
                 let deletion = child_node.delete_rec(
                     loader,
-                    path_ref.index_path_slice(child_node.stem1.len() + 1..),
+                    path_ref.index_path_slice(child_node.stem.len() + 1..),
                 )?;
                 let Some(mut new_child) = deletion else {
                     return Ok(None);
@@ -634,11 +634,11 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     // A non-value node with one child can be compressed into that child.
                     let ChildEdge(only_child_path_chunk, only_child_ref) = &new_child.children.0[0];
                     let grandchild = only_child_ref.value(loader)?;
-                    let mut new_child_stem = new_child.stem1.clone();
+                    let mut new_child_stem = new_child.stem.clone();
                     new_child_stem.extend_with_chunk(*only_child_path_chunk);
-                    new_child_stem.extend_from_path_slice(&grandchild.stem1.as_path_slice());
+                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice());
                     new_child = Node {
-                        stem1: new_child_stem,
+                        stem: new_child_stem,
                         value: grandchild.value.clone(),
                         children: grandchild.children.clone(),
                     };
@@ -671,7 +671,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let Some(first_path_chunk) = path_ref.first_chunk() else {
             // Replace existing value.
             let new_node = Node {
-                stem1: self.stem1.clone(),
+                stem: self.stem.clone(),
                 children: self.children.clone(),
                 value: Some(value),
             };
@@ -682,7 +682,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let Some(child_ref) = self.children.get_child(first_path_chunk) else {
             // Insert new child in the node.
             let child_node = Node {
-                stem1: path_ref.index_path_slice(1..).to_path(),
+                stem: path_ref.index_path_slice(1..).to_path(),
                 children: ChildEdges::default(),
                 value: Some(value),
             };
@@ -699,19 +699,19 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let child_node = child_ref.value(loader)?;
         let common_prefix_len = path::common_prefix_len(
             path_ref.index_path_slice(1..),
-            child_node.stem1.as_path_slice(),
+            child_node.stem.as_path_slice(),
         );
 
         Ok(
             match (
-                common_prefix_len.cmp(&child_node.stem1.len()),
+                common_prefix_len.cmp(&child_node.stem.len()),
                 common_prefix_len.cmp(&(path_ref.len() - 1)),
             ) {
                 (Ordering::Equal, _) => {
                     // Insert in child node.
                     let (new_child_node, replaced) = child_node.insert_rec(
                         loader,
-                        path_ref.index_path_slice(child_node.stem1.len() + 1..),
+                        path_ref.index_path_slice(child_node.stem.len() + 1..),
                         value,
                     )?;
 
@@ -726,8 +726,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                 (Ordering::Less, Ordering::Equal) => {
                     // Insert in stem.
                     let mut stem_node = Node {
-                        stem1: child_node
-                            .stem1
+                        stem: child_node
+                            .stem
                             .index_path_slice(..common_prefix_len)
                             .to_path(),
                         children: ChildEdges::default(),
@@ -735,8 +735,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     };
 
                     let new_child_node = Node {
-                        stem1: child_node
-                            .stem1
+                        stem: child_node
+                            .stem
                             .index_path_slice(common_prefix_len + 1..)
                             .to_path(),
                         children: child_node.children.clone(),
@@ -744,7 +744,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     };
 
                     stem_node.children.set_child(
-                        child_node.stem1.index_path_chunk(common_prefix_len),
+                        child_node.stem.index_path_chunk(common_prefix_len),
                         HashedCacheableRef::new(new_child_node),
                     );
 
@@ -759,8 +759,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                 (Ordering::Less, Ordering::Less) => {
                     // Insert as child branching out from the stem.
                     let mut stem_node = Node {
-                        stem1: child_node
-                            .stem1
+                        stem: child_node
+                            .stem
                             .index_path_slice(..common_prefix_len)
                             .to_path(),
                         children: ChildEdges::default(),
@@ -768,8 +768,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     };
 
                     let new_child_node = Node {
-                        stem1: child_node
-                            .stem1
+                        stem: child_node
+                            .stem
                             .index_path_slice(common_prefix_len + 1..)
                             .to_path(),
                         children: child_node.children.clone(),
@@ -777,11 +777,11 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     };
 
                     stem_node.children.set_child(
-                        child_node.stem1.index_path_chunk(common_prefix_len),
+                        child_node.stem.index_path_chunk(common_prefix_len),
                         HashedCacheableRef::new(new_child_node),
                     );
                     let branching_child_node = Node {
-                        stem1: path_ref.index_path_slice(common_prefix_len + 2..).to_path(),
+                        stem: path_ref.index_path_slice(common_prefix_len + 2..).to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
                     };
@@ -836,17 +836,16 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
         };
 
         let common_prefix_len =
-            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem1.as_path_slice())
-                + 1;
+            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem.as_path_slice()) + 1;
 
         Ok(
             match (
-                common_prefix_len.cmp(&(child.stem1.len() + 1)),
+                common_prefix_len.cmp(&(child.stem.len() + 1)),
                 common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Path matched node and the full stem.
-                    let path_split = path_ref.index_path_slice(child.stem1.len() + 1..);
+                    let path_split = path_ref.index_path_slice(child.stem.len() + 1..);
                     child.scan_rec(loader, path_split)?
                 }
                 (Ordering::Less, Ordering::Equal) => {
@@ -945,7 +944,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Loadable> Loadable for Node<INLINE_KEY_L
 
         Ok(Self {
             value,
-            stem1: stem,
+            stem,
             children,
         })
     }
@@ -954,7 +953,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Loadable> Loadable for Node<INLINE_KEY_L
 impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for Node<INLINE_KEY_LENGTH, V> {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.value.store_to_buffer(&mut buffer, storer);
-        StoreSerialized(&self.stem1).store_to_buffer(&mut buffer, storer);
+        StoreSerialized(&self.stem).store_to_buffer(&mut buffer, storer);
         self.children.store_to_buffer(&mut buffer, storer);
     }
 }
@@ -1017,7 +1016,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
         } else {
             hasher.update([0u8]);
         }
-        self.stem1.serial(&mut hasher);
+        self.stem.serial(&mut hasher);
         hasher.update(self.children.hash(loader)?);
         Ok(Hash::new(hasher.finalize().into()))
     }
@@ -1090,7 +1089,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: BlobStoreMovable + Loadable + Storable> 
     {
         Ok(Self {
             value: self.value.move_blob_store(from_store, to_store)?,
-            stem1: self.stem1.clone(),
+            stem: self.stem.clone(),
             children: self.children.move_blob_store(from_store, to_store)?,
         })
     }
@@ -1753,7 +1752,7 @@ mod tests {
                 "node value or more than one child"
             );
 
-            prop_assert!(!root || self.stem1.is_empty(), "root stem must be empty");
+            prop_assert!(!root || self.stem.is_empty(), "root stem must be empty");
 
             let path: Path<INLINE_KEY_LENGTH> = path_ref.to_path();
             if let Some(value) = &self.value {
@@ -1771,7 +1770,7 @@ mod tests {
 
                 let mut child_path = path.clone();
                 child_path.extend_with_chunk(*path_chunk);
-                child_path.extend_from_path_slice(&child_node.stem1.as_path_slice());
+                child_path.extend_from_path_slice(&child_node.stem.as_path_slice());
                 child_node.validate_and_extract_entries(
                     loader,
                     child_path.as_path_slice(),
