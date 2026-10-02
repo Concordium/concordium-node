@@ -610,9 +610,9 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let common_prefix_len = path::common_prefix_len(
             path_ref.index_path_slice(1..),
             child_node.stem.as_path_slice(),
-        );
+        ) + 1;
 
-        match common_prefix_len.cmp(&child_node.stem.len()) {
+        match common_prefix_len.cmp(&(child_node.stem.len() + 1)) {
             // The child node is either a step on the path or the end destination
             Ordering::Equal => {
                 let deletion = child_node.delete_rec(
@@ -700,12 +700,12 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let common_prefix_len = path::common_prefix_len(
             path_ref.index_path_slice(1..),
             child_node.stem.as_path_slice(),
-        );
+        ) + 1;
 
         Ok(
             match (
-                common_prefix_len.cmp(&child_node.stem.len()),
-                common_prefix_len.cmp(&(path_ref.len() - 1)),
+                common_prefix_len.cmp(&(child_node.stem.len() + 1)),
+                common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Insert in child node.
@@ -728,7 +728,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let mut stem_node = Node {
                         stem: child_node
                             .stem
-                            .index_path_slice(..common_prefix_len)
+                            .index_path_slice(..common_prefix_len - 1)
                             .to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
@@ -737,14 +737,14 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let new_child_node = Node {
                         stem: child_node
                             .stem
-                            .index_path_slice(common_prefix_len + 1..)
+                            .index_path_slice(common_prefix_len..)
                             .to_path(),
                         children: child_node.children.clone(),
                         value: child_node.value.clone(),
                     };
 
                     stem_node.children.set_child(
-                        child_node.stem.index_path_chunk(common_prefix_len),
+                        child_node.stem.index_path_chunk(common_prefix_len - 1),
                         HashedCacheableRef::new(new_child_node),
                     );
 
@@ -761,7 +761,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let mut stem_node = Node {
                         stem: child_node
                             .stem
-                            .index_path_slice(..common_prefix_len)
+                            .index_path_slice(..common_prefix_len - 1)
                             .to_path(),
                         children: ChildEdges::default(),
                         value: None,
@@ -770,23 +770,23 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let new_child_node = Node {
                         stem: child_node
                             .stem
-                            .index_path_slice(common_prefix_len + 1..)
+                            .index_path_slice(common_prefix_len..)
                             .to_path(),
                         children: child_node.children.clone(),
                         value: child_node.value.clone(),
                     };
 
                     stem_node.children.set_child(
-                        child_node.stem.index_path_chunk(common_prefix_len),
+                        child_node.stem.index_path_chunk(common_prefix_len - 1),
                         HashedCacheableRef::new(new_child_node),
                     );
                     let branching_child_node = Node {
-                        stem: path_ref.index_path_slice(common_prefix_len + 2..).to_path(),
+                        stem: path_ref.index_path_slice(common_prefix_len + 1..).to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
                     };
                     stem_node.children.set_child(
-                        path_ref.index_path_chunk(common_prefix_len + 1),
+                        path_ref.index_path_chunk(common_prefix_len),
                         HashedCacheableRef::new(branching_child_node),
                     );
 
@@ -836,12 +836,12 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
         };
 
         let common_prefix_len =
-            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem.as_path_slice());
+            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem.as_path_slice()) + 1;
 
         Ok(
             match (
-                common_prefix_len.cmp(&child.stem.len()),
-                common_prefix_len.cmp(&(path_ref.len() - 1)),
+                common_prefix_len.cmp(&(child.stem.len() + 1)),
+                common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Path matched node and the full stem.
