@@ -19,7 +19,6 @@ use plt_scheduler::{TransactionContext, protocol_level_locks, scheduler};
 use plt_scheduler::{failure, protocol_level_tokens};
 use plt_scheduler_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 use plt_scheduler_types::types::queries::{TokenAccountInfo, TokenAuthorizations, TokenInfo};
-use std::mem;
 
 impl SchedulerOperations for BlockStateP9 {
     fn execute_transaction<C: EntityContextTypes>(
@@ -29,13 +28,11 @@ impl SchedulerOperations for BlockStateP9 {
         sender_account: AccountIndex,
         payload: Payload,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-        let sender_account = Account::from_existing_account(sender_account);
-
         scheduler::p9::execute_transaction(
             context,
             self,
             transaction_context,
-            sender_account.clone(),
+            Account::from_existing_account(sender_account),
             payload,
         )
     }
@@ -107,13 +104,11 @@ impl SchedulerOperations for BlockStateP11 {
         sender_account: AccountIndex,
         payload: Payload,
     ) -> Result<TransactionExecutionSummary, TransactionExecutionError> {
-        let sender_account = Account::from_existing_account(sender_account);
-
         scheduler::p11::execute_transaction(
             context,
             self,
             transaction_context,
-            sender_account.clone(),
+            Account::from_existing_account(sender_account),
             payload,
             &PersistentChainParametersP11 {
                 max_lock_duration: Duration::from_millis(u64::MAX),

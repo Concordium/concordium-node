@@ -12,11 +12,9 @@ use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockMetadata,
     LockRecipients,
 };
-use concordium_base::protocol_level_tokens::meta_operations::{
-    MetaUpdateOperations, MetaUpdatePayload, lock_create,
-};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
-use concordium_base::transactions::Payload;
+use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
+use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
@@ -163,8 +161,8 @@ fn test_query_lock_info_any_recipient() {
         description: Some("Metadata returned by GetLockInfo".to_string()),
         additional: HashMap::from([("purpose".to_string(), Value::Text("query test".to_string()))]),
     };
-    let operations = MetaUpdateOperations {
-        operations: vec![lock_create(
+    let operations = Operations {
+        operations: vec![operations::create_lock(
             concordium_base::protocol_level_locks::LockConfig::SimpleV0(
                 concordium_base::protocol_level_locks::LockConfigSimpleV0 {
                     recipients: LockRecipients::Any,
@@ -193,10 +191,10 @@ fn test_query_lock_info_any_recipient() {
                 block_timestamp: 0.into(),
             },
             owner.account_index(),
-            Payload::MetaUpdate {
-                payload: MetaUpdatePayload {
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
                     operations: RawCbor::from(cbor::cbor_encode(&operations)),
-                },
+                }),
             },
         )
         .expect("create any-recipient lock must succeed");

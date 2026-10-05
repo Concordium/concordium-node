@@ -10,9 +10,9 @@ use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     MetadataUrl, TokenAdminRole, TokenListUpdateDetails, TokenListUpdateEventDetails,
-    TokenModuleEvent, TokenOperation, TokenPauseEventDetails, TokenSupplyUpdateDetails,
-    TokenTransfer, TokenUpdateAdminRolesDetails, TokenUpdateAdminRolesEventDetails,
-    TokenUpdateMetadataEventDetails,
+    TokenMetadataUrlDetails, TokenModuleEvent, TokenOperation, TokenPauseEventDetails,
+    TokenSupplyUpdateDetails, TokenTransfer, TokenUpdateAdminRolesDetails,
+    TokenUpdateAdminRolesEventDetails, TokenUpdateMetadataEventDetails,
 };
 use concordium_base::transactions::Memo;
 use plt_block_state::entity::accounts::{Account, Accounts};
@@ -884,15 +884,15 @@ fn execute_update_metadata<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     events: &mut impl Extend<BlockItemEvent>,
     token: &mut TokenP11,
-    metadata_url: &MetadataUrl,
+    details: &TokenMetadataUrlDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let token_configuration = token.token_p9_base.token_configuration(context)?;
 
-    if !metadata_url.additional.is_empty() {
-        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
-            reason: "Unknown additional metadata fields",
-        });
-    }
+    let metadata_url = MetadataUrl {
+        url: details.url.clone(),
+        checksum_sha_256: details.checksum_sha_256,
+        additional: Default::default(),
+    };
     check_authorized(
         transaction_execution,
         context,
@@ -901,7 +901,7 @@ fn execute_update_metadata<C: EntityContextTypes>(
     )?;
     token
         .token_p9_base
-        .set_metadata_url(context, metadata_url)?;
+        .set_metadata_url(context, &metadata_url)?;
     let event = TokenModuleEvent::UpdateMetadata(TokenUpdateMetadataEventDetails {
         metadata_url: metadata_url.clone(),
     });

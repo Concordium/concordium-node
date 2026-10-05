@@ -1,5 +1,5 @@
 use crate::failure::{ResultWithBlockStateFailure, ResultWithBlockStateFailureExt};
-use crate::protocol_level_locks::lock_configuration;
+use crate::protocol_level_locks::lock_configuration::{self, LockOperation};
 use crate::protocol_level_tokens::token_module::check_transfer_constraints;
 use crate::protocol_level_tokens::{balance_operations, reject, token_amount, token_module};
 use crate::transaction_execution::TransactionExecution;
@@ -9,11 +9,10 @@ use concordium_base::contracts_common::Duration;
 use concordium_base::protocol_level_locks::{
     LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
 };
-use concordium_base::protocol_level_tokens::meta_operations::{
-    LockOperation, MetaLockCancelDetails, MetaLockCreateDetails, MetaLockFundDetails,
-    MetaLockReleaseDetails, MetaLockSendDetails,
-};
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor};
+use concordium_base::protocol_level_tokens::{
+    LockCancelDetails, LockCreateDetails, LockFundDetails, LockReleaseDetails, LockSendDetails,
+};
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use concordium_base::transactions;
 use plt_block_state::entity::accounts::Accounts;
@@ -111,12 +110,12 @@ pub fn query_lock_info<C: EntityContextTypes>(
     Ok(RawCbor::from(cbor::cbor_encode(&lock_info)))
 }
 
-/// Execute [`LockOperation`].
+/// Execute an internal lock operation.
 ///
-/// Token pause, allow-list, and deny-list constraints apply only to [`LockOperation::Send`],
-/// because it transfers tokens between accounts. Creating a lock or moving tokens between an
-/// account's available and locked balances is not a transfer and is therefore not subject to
-/// those constraints.
+/// Token pause, allow-list, and deny-list constraints apply only to
+/// [`LockOperation::Send`], because it transfers tokens between accounts. Creating a lock
+/// or moving tokens between an account's available and locked balances is not a transfer and is
+/// therefore not subject to those constraints.
 pub fn execute_lock_operation<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
@@ -170,7 +169,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    mut details: MetaLockFundDetails,
+    mut details: LockFundDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -193,7 +192,7 @@ fn execute_lock_fund<C: EntityContextTypes>(
         &lock_configuration,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
-        &lock_configuration::LockOperation::Fund(details.clone()),
+        &LockOperation::Fund(details.clone()),
     )?;
 
     let raw_amount = token_amount::to_raw_token_amount(&token_configuration, details.amount)
@@ -201,7 +200,6 @@ fn execute_lock_fund<C: EntityContextTypes>(
             reject::deserialization_failure_amount_decimals_mismatch(&token_configuration, err)
         })?;
 
-    let memo = details.memo.map(transactions::Memo::from);
     let is_new_holder = balance_operations::lock_amount(
         context,
         events,
@@ -210,7 +208,6 @@ fn execute_lock_fund<C: EntityContextTypes>(
         transaction_execution.sender_account_address(),
         lock.lock_id(),
         raw_amount,
-        memo,
     )
     .map_nested_err(|err| {
         reject::insufficient_balance(&token_configuration, operation_index, err)
@@ -234,7 +231,7 @@ fn execute_lock_send<C: EntityContextTypes>(
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    mut details: MetaLockSendDetails,
+    mut details: LockSendDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -285,7 +282,7 @@ fn execute_lock_send<C: EntityContextTypes>(
         &lock_configuration,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
-        &lock_configuration::LockOperation::Send(details.clone()),
+        &LockOperation::Send(details.clone()),
     )?;
 
     let raw_amount = token_amount::to_raw_token_amount(&token_configuration, details.amount)
@@ -333,7 +330,7 @@ fn execute_lock_release<C: EntityContextTypes>(
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
-    mut details: MetaLockReleaseDetails,
+    mut details: LockReleaseDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -361,7 +358,7 @@ fn execute_lock_release<C: EntityContextTypes>(
         &lock_configuration,
         transaction_execution.sender_account_address(),
         transaction_execution.sender_account(),
-        &lock_configuration::LockOperation::Release(details.clone()),
+        &LockOperation::Release(details.clone()),
     )?;
 
     let raw_amount = token_amount::to_raw_token_amount(&token_configuration, details.amount)
@@ -369,7 +366,6 @@ fn execute_lock_release<C: EntityContextTypes>(
             reject::deserialization_failure_amount_decimals_mismatch(&token_configuration, err)
         })?;
 
-    let memo = details.memo.map(transactions::Memo::from);
     let remaining_locked = balance_operations::release_locked_amount(
         context,
         events,
@@ -378,7 +374,6 @@ fn execute_lock_release<C: EntityContextTypes>(
         source_address,
         lock.lock_id(),
         raw_amount,
-        memo,
     )
     .map_nested_err(|err| {
         reject::insufficient_balance(&token_configuration, operation_index, err)
@@ -407,7 +402,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     max_lock_duration: Duration,
-    details: MetaLockCreateDetails,
+    details: LockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     let account_index = transaction_execution.sender_account().account_index();
@@ -452,7 +447,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
     transaction_execution: &TransactionExecution,
     block_state: &mut BlockStateP11,
-    details: MetaLockCancelDetails,
+    details: LockCancelDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     // TODO: (COR-2306) charge.
@@ -462,14 +457,13 @@ fn execute_lock_cancel<C: EntityContextTypes>(
 
     let lock_configuration = lock.lock_configuration(context)?;
     let LockConfig::SimpleV0(config) = &*lock_configuration;
-    let memo: Option<transactions::Memo> = details.memo.clone().map(transactions::Memo::from);
 
     if !config.expiry.is_expired(transaction_execution.timestamp()) {
         lock_configuration::validate_operation(
             &lock_configuration,
             transaction_execution.sender_account_address(),
             transaction_execution.sender_account(),
-            &lock_configuration::LockOperation::Cancel(details),
+            &LockOperation::Cancel(details),
         )?;
     }
     for balance_ref in lock.iter_lock_balance_refs(context) {
@@ -488,7 +482,6 @@ fn execute_lock_cancel<C: EntityContextTypes>(
             &mut token,
             account_index,
             lock.lock_id(),
-            &memo,
         )?;
         block_state.update_token(context, token)?;
     }

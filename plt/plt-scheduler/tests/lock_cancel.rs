@@ -4,16 +4,16 @@ use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::CborMemo;
-use concordium_base::protocol_level_tokens::meta_operations::lock_fund;
+use concordium_base::protocol_level_tokens::operations;
 use concordium_base::{
     base::Energy,
     common::cbor,
     protocol_level_locks::{LockControllerSimpleV0Capability, LockId},
     protocol_level_tokens::{
-        CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenOperation,
-        meta_operations::{MetaUpdatePayload, lock_cancel},
+        CborHolderAccount, OperationsPayload, RawCbor, TokenId, TokenListUpdateDetails,
+        TokenOperation,
     },
-    transactions::Payload,
+    transactions::{Payload, TokenUpdatePayload},
 };
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
@@ -23,7 +23,7 @@ use plt_block_state::{
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::TokenHolder;
 use plt_scheduler_types::types::{
-    events::{BlockItemEvent, LockDestroyEvent},
+    events::{BlockItemEvent, LockDestroyEvent, UnlockAmountEvent},
     execution::TransactionOutcome,
     tokens::{RawTokenAmount, TokenAmount},
 };
@@ -73,10 +73,13 @@ fn test_cancel_by_canceller() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
+                lock_id.clone(),
+                None,
+            )])),
+        }),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
@@ -133,10 +136,13 @@ fn test_cancel_unauthorized() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
+                lock_id.clone(),
+                None,
+            )])),
+        }),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
@@ -190,10 +196,13 @@ fn test_cancel_after_expiry() {
         transaction_sequence_number: 1.into(),
         block_timestamp: 1000001.into(),
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(lock_id.clone(), None)])),
-        },
+    let payload = Payload::TokenUpdate {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
+                lock_id.clone(),
+                None,
+            )])),
+        }),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_1, payload)
@@ -296,36 +305,40 @@ fn test_cancel_with_balances() {
         block_timestamp: 0.into(),
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+    let payload = Payload::TokenUpdate {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 Some(memo.clone()),
             )])),
-        },
+        }),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 3);
-        assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
-            assert_eq!(transfer.token_id, plt_x);
-            assert_eq!(transfer.amount, TokenAmount::from_raw(500, 2));
-            assert_eq!(transfer.from, TokenHolder::Account(plt_x_gov_acct_address));
-            assert_eq!(transfer.to, TokenHolder::Account(plt_x_gov_acct_address));
-            assert_eq!(transfer.from_lock.as_ref(), Some(&lock_id));
-            assert_eq!(transfer.to_lock, None);
-            assert_eq!(transfer.memo, Some(memo.clone().into()));
+        assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
+            token_id,
+            token_holder,
+            lock_id: event_lock_id,
+            amount,
+        }) => {
+            assert_eq!(token_id, &plt_x);
+            assert_eq!(amount, &TokenAmount::from_raw(500, 2));
+            assert_eq!(token_holder, &TokenHolder::Account(plt_x_gov_acct_address));
+            assert_eq!(event_lock_id, &lock_id);
         });
-        assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
-            assert_eq!(transfer.token_id, plt_y);
-            assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 6));
-            assert_eq!(transfer.from, TokenHolder::Account(plt_y_gov_acct_address));
-            assert_eq!(transfer.to, TokenHolder::Account(plt_y_gov_acct_address));
-            assert_eq!(transfer.from_lock.as_ref(), Some(&lock_id));
-            assert_eq!(transfer.to_lock, None);
-            assert_eq!(transfer.memo, Some(memo.into()));
+        assert_matches!(&events[1], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
+            token_id,
+            token_holder,
+            lock_id: event_lock_id,
+            amount,
+        }) => {
+            assert_eq!(token_id, &plt_y);
+            assert_eq!(amount, &TokenAmount::from_raw(1000, 6));
+            assert_eq!(token_holder, &TokenHolder::Account(plt_y_gov_acct_address));
+            assert_eq!(event_lock_id, &lock_id);
         });
         assert_matches!(&events[2], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {
             assert_eq!(event_lock_id, &lock_id);
@@ -356,13 +369,13 @@ fn test_cancel_nonexistent() {
         sequence_number: 999,
         creation_order: 0,
     };
-    let payload = Payload::MetaUpdate {
-        payload: MetaUpdatePayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![lock_cancel(
+    let payload = Payload::TokenUpdate {
+        payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
                 lock_id.clone(),
                 Some(memo.clone()),
             )])),
-        },
+        }),
     };
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_1, payload)
@@ -428,11 +441,11 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
-    let fund_events = utils::execute_meta_operations(
+    let fund_events = utils::execute_operations(
         &mut context,
         &mut block_state,
         owner.account_index(),
-        vec![lock_fund(
+        vec![operations::fund_lock(
             token_id.clone(),
             lock_id.clone(),
             concordium_base::protocol_level_tokens::TokenAmount::from_raw(500, 2),
@@ -457,11 +470,11 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
         gov_account.account_index(),
     );
 
-    let events = utils::execute_meta_operations(
+    let events = utils::execute_operations(
         &mut context,
         &mut block_state,
         canceller.account_index(),
-        vec![lock_cancel(lock_id.clone(), None)],
+        vec![operations::cancel_lock(lock_id.clone(), None)],
     );
     assert_eq!(events.len(), 2);
     assert_matches!(&events[1], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {

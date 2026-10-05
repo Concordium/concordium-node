@@ -177,7 +177,7 @@ data PreprocessedTokenOperation
 preprocessTokenUpdateTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
-    TokenUpdateTransaction ->
+    TokenOperations ->
     m (Seq.Seq PreprocessedTokenOperation)
 preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
   where
@@ -269,7 +269,7 @@ executeTokenUpdateTransaction ::
     RawCbor ->
     m ()
 executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
-    parsedTransaction <- case tokenUpdateTransactionFromBytes tokenParamLBS of
+    parsedTransaction <- case tokenOperationsFromBytes tokenParamLBS of
         Right parsedTransaction -> return parsedTransaction
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
     decimals <- getDecimals
