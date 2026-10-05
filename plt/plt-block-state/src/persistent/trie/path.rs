@@ -1,3 +1,4 @@
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use concordium_base::common::{Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial};
 use std::ops::RangeBounds;
 use tinyvec::TinyVec;
@@ -5,7 +6,13 @@ use tinyvec::TinyVec;
 /// Path represents a path in a trie, or a path to look up in the trie. A path is represented
 /// as a sequence of bytes.
 #[derive(Debug, Clone)]
-pub struct Path<const INLINE_KEY_LENGTH: usize>(TinyVec<[u8; INLINE_KEY_LENGTH]>);
+pub struct Path<const INLINE_KEY_LENGTH: usize>(
+    /// Invariant: Length is always less or equal to [`MAX_PATH_LENGTH`]
+    TinyVec<[u8; INLINE_KEY_LENGTH]>,
+);
+
+/// Max length of a path. Must be kept in sync with `Serial` and `Deserial` implementations.
+const MAX_PATH_LENGTH: usize = u16::MAX as usize;
 
 impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     /// Create empty path
@@ -30,13 +37,17 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     }
 
     /// Extend the path with the given path slice.
-    pub fn extend_from_path_slice(&mut self, slice: &PathSliceRef<'_>) {
-        self.0.extend_from_slice(slice.0)
+    pub fn extend_from_path_slice(&mut self, slice: &PathSliceRef<'_>) -> BlockStateResult<()> {
+        check_length(self.0.len() + slice.0.len())?;
+        self.0.extend_from_slice(slice.0);
+        Ok(())
     }
 
     /// Extend the path with the given chunk.
-    pub fn extend_with_chunk(&mut self, chunk: PathChunk) {
+    pub fn extend_with_chunk(&mut self, chunk: PathChunk) -> BlockStateResult<()> {
+        check_length(self.0.len() + 1)?;
         self.0.push(chunk.to_byte());
+        Ok(())
     }
 
     /// Index into the path.
@@ -58,9 +69,20 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
     }
 }
 
+fn check_length(length: usize) -> BlockStateResult<()> {
+    if length > MAX_PATH_LENGTH {
+        Err(BlockStateFailure::Invariant(format!(
+            "trie path max length exceeded: {}",
+            length
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 impl<const INLINE_KEY_LENGTH: usize> Serial for Path<INLINE_KEY_LENGTH> {
     fn serial<B: Buffer>(&self, out: &mut B) {
-        out.put(self.len() as u64);
+        out.put(u16::try_from(self.len()).expect("path length invariant broken"));
         out.write_all(self.0.as_slice())
             .expect("Writing to a buffer should not fail.");
     }
@@ -68,7 +90,7 @@ impl<const INLINE_KEY_LENGTH: usize> Serial for Path<INLINE_KEY_LENGTH> {
 
 impl<const INLINE_KEY_LENGTH: usize> Deserial for Path<INLINE_KEY_LENGTH> {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
-        let size: u64 = source.get()?;
+        let size: u16 = source.get()?;
         let mut vec = TinyVec::with_initial_len(size as usize);
         source.read_exact(&mut vec)?;
         Ok(Path(vec))
@@ -77,7 +99,10 @@ impl<const INLINE_KEY_LENGTH: usize> Deserial for Path<INLINE_KEY_LENGTH> {
 
 /// Reference to slice of [`Path`]
 #[derive(Debug, Copy, Clone)]
-pub struct PathSliceRef<'a>(&'a [u8]);
+pub struct PathSliceRef<'a>(
+    /// Invariant: Length is always less or equal to [`MAX_PATH_LENGTH`]
+    &'a [u8],
+);
 
 impl<'a> PathSliceRef<'a> {
     /// Create empty path slice
@@ -100,8 +125,9 @@ impl<'a> PathSliceRef<'a> {
     }
 
     /// Create path slice from given byte slice.
-    pub fn from_byte_slice(slice: &'a [u8]) -> Self {
-        Self(slice)
+    pub fn from_byte_slice(slice: &'a [u8]) -> BlockStateResult<Self> {
+        check_length(slice.len())?;
+        Ok(Self(slice))
     }
 
     /// The first chunk in the path slice.

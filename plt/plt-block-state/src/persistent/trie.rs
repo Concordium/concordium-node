@@ -28,11 +28,11 @@ use tinyvec::TinyVec;
 /// The represented trie is immutable in the sense that the trie and its values does not change,
 /// once it has been created. When entries are inserted, updated or deleted, a new trie is created,
 /// reusing the nodes that have not changed by the operation.
-/// Keys must allow converting to a type that allows borrowing a byte slice (`&[u8]`) that represents the
-/// key, and convert back again from a byte slice. See the trait [`TrieKey`]. Keys of length up to
+/// Keys must allow converting to a type that allows borrowing a byte slice (`&[u8]` of max length `u16::MAX`)
+/// that represents the key, and convert back again from a byte slice. See the trait [`TrieKey`]. Keys of length up to
 /// `INLINE_KEY_LENGTH` are stored "inline" and are not heap allocated. Notice that fixed length
 /// keys up to a size of 24 bytes are best represented with `INLINE_KEY_LENGTH` that matches the
-/// size precisely, as the heap allocated key has a mininum size of 24 bytes due to `Vec` metadata.
+/// size precisely, as the heap allocated key has a minimum size of 24 bytes due to `Vec` metadata.
 ///
 /// The operations supported for creating new tries are:
 ///
@@ -80,7 +80,8 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Default for Trie<INLINE_KEY_LENGTH, K
 /// Trait implemented by trie keys, which allows them to be bijectively mapped
 /// to byte arrays or slices.
 pub trait TrieKey {
-    /// Map key to bytes. Prefer implementations that return static size arrays when working with
+    /// Map key to bytes. The returned bytes must be of length at most `u16::MAX`.
+    /// Prefer implementations that return static size arrays when working with
     /// static size keys to avoid heap allocation.
     ///
     /// ## Example
@@ -185,7 +186,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_remaining_length == 0 => {
@@ -216,7 +217,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { .. } if scan_return.path_split_remaining_length == 0 => {
@@ -253,7 +254,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable + Clone,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let (new_root, replaced) = self.root.insert_rec(loader, path_ref, value)?;
 
         let new_size = if replaced { self.size } else { self.size + 1 };
@@ -293,7 +294,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
             return Ok(None);
         }
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let Some(new_root) = self.root.delete_rec(loader, path_ref)? else {
             return Ok(None);
         };
@@ -349,7 +350,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         V: Loadable,
     {
         let key_bytes = key.to_bytes();
-        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
+        let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow())?;
         let scan_return = Cow::Borrowed(&self.root).scan_rec(loader, path_ref)?;
         Ok(match scan_return.matched {
             ScanMatch::FullMatch { stem_matched_node } => {
@@ -360,7 +361,8 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
                         )
                         .to_path();
 
-                    iter_root_path.extend_from_path_slice(&stem_matched_node.stem.as_path_slice());
+                    iter_root_path
+                        .extend_from_path_slice(&stem_matched_node.stem.as_path_slice())?;
                     PrefixIterator::with_root(iter_root_path, stem_matched_node, loader)
                 } else {
                     PrefixIterator::with_root(
@@ -429,8 +431,12 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
                 };
 
                 let mut child_path = node_path.clone();
-                child_path.extend_with_chunk(child_byte);
-                child_path.extend_from_path_slice(&child.stem.as_path_slice());
+                if let Err(err) = child_path.extend_with_chunk(child_byte) {
+                    return Some(Err(err));
+                };
+                if let Err(err) = child_path.extend_from_path_slice(&child.stem.as_path_slice()) {
+                    return Some(Err(err));
+                };
 
                 self.node_stack
                     .push(IteratorStackElement(child_path, child));
@@ -635,8 +641,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let ChildEdge(only_child_path_chunk, only_child_ref) = &new_child.children.0[0];
                     let grandchild = only_child_ref.value(loader)?;
                     let mut new_child_stem = new_child.stem.clone();
-                    new_child_stem.extend_with_chunk(*only_child_path_chunk);
-                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice());
+                    new_child_stem.extend_with_chunk(*only_child_path_chunk)?;
+                    new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice())?;
                     new_child = Node {
                         stem: new_child_stem,
                         value: grandchild.value.clone(),
@@ -1769,8 +1775,8 @@ mod tests {
                 }
 
                 let mut child_path = path.clone();
-                child_path.extend_with_chunk(*path_chunk);
-                child_path.extend_from_path_slice(&child_node.stem.as_path_slice());
+                child_path.extend_with_chunk(*path_chunk)?;
+                child_path.extend_from_path_slice(&child_node.stem.as_path_slice())?;
                 child_node.validate_and_extract_entries(
                     loader,
                     child_path.as_path_slice(),
@@ -1791,7 +1797,7 @@ mod tests {
         let hash = trie.hash(&UnreachableBlobStore).unwrap();
         assert_eq!(
             hex::encode(hash.bytes),
-            "19ba90b05fe2ffc32d375b67c65e99b30f0492f511e3975ffda16914ea5c0b8b"
+            "53a705c138a2e7e980e39c0326b2c048c781252203a1562e37dad621a67de7f8"
         );
     }
 
@@ -1823,7 +1829,7 @@ mod tests {
         let hash = trie.hash(&UnreachableBlobStore).unwrap();
         assert_eq!(
             hex::encode(hash.bytes),
-            "af2a441fc5a96946f6df727687b93f2e6a175c6f74b354eaaa23abec4a51d1bb"
+            "7559b39b7eb180e5eafda1d5bb3c87bc05a8bf804d2d9d32bde7c2694aafd859"
         );
     }
 
@@ -1838,7 +1844,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(store.0),
-            "000000000000001300000000000000000000000000000000000000"
+            "000000000000000d00000000000000000000000000"
         );
     }
 
@@ -1873,7 +1879,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(store.0),
-            "00000000000000130100000000000000020000000000000000000000000000000000130100000000000000030000000000000000000000000000000000250100000000000000010000000000000000000202000000000000000003000000000000001b00000000000000140100000000000000040000000000000001040000000000000000001d0000000000000000000002010000000000000036040000000000000063000000000000001c0000000000000004000000000000000000000100000000000000007f"
+            "000000000000000d01000000000000000200000000000000000000000d01000000000000000300000000000000000000001f01000000000000000100000002020000000000000000030000000000000015000000000000000e01000000000000000400010400000000000000000017000000000201000000000000002a040000000000000051000000000000001600000000000000040000000001000000000000000067"
         );
     }
 }
