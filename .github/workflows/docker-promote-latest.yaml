@@ -93,7 +93,8 @@ jobs:
               echo '::error::Could not resolve the previous latest digest.'
               exit 1
             fi
-          elif grep --extended-regexp --ignore-case --quiet 'manifest unknown|no such manifest' "$manifest_error"; then
+          elif grep --extended-regexp --ignore-case --quiet 'manifest unknown|no such manifest' "$manifest_error" ||
+               grep --fixed-strings --line-regexp --quiet "ERROR: docker.io/$latest_ref: not found" "$manifest_error"; then
             previous_digest='absent'
           else
             cat "$manifest_error" >&2
