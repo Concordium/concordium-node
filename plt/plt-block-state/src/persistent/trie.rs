@@ -292,6 +292,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
         if self.size == 0 {
             return Ok(None);
         }
+
         let key_bytes = key.to_bytes();
         let path_ref = PathSliceRef::from_byte_slice(key_bytes.borrow());
         let Some(new_root) = self.root.delete_rec(loader, path_ref)? else {
@@ -436,7 +437,16 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
             }
 
             if let Some(value) = node.map(|node| node.value, |node| &node.value).transpose() {
-                let key = match K::try_from_bytes(node_path.as_byte_slice()) {
+                let byte_slice = match node_path.as_byte_slice() {
+                    Some(byte_slice) => byte_slice,
+                    None => {
+                        return Some(Err(BlockStateFailure::Invariant(
+                            "Trie entry key not aligned to bytes".to_string(),
+                        )));
+                    }
+                };
+
+                let key = match K::try_from_bytes(byte_slice) {
                     Ok(key) => key,
                     Err(err) => return Some(Err(err)),
                 };
@@ -477,7 +487,7 @@ struct ChildEdges<const INLINE_KEY_LENGTH: usize, V>(
     /// * No duplicate keys
     /// * Keys are sorted
     ///
-    /// This also means there are at most 256 entries.
+    /// This also means there are at most 16 entries.
     Vec<ChildEdge<INLINE_KEY_LENGTH, V>>,
 );
 
@@ -494,8 +504,8 @@ impl<const INLINE_KEY_LENGTH: usize, V> Clone for ChildEdge<INLINE_KEY_LENGTH, V
 }
 
 impl<const INLINE_KEY_LENGTH: usize, V> ChildEdges<INLINE_KEY_LENGTH, V> {
-    fn size(&self) -> u16 {
-        self.0.len() as u16
+    fn size(&self) -> u8 {
+        self.0.len() as u8
     }
 
     fn get_child(
@@ -962,11 +972,12 @@ impl<const INLINE_KEY_LENGTH: usize, V> Loadable for ChildEdges<INLINE_KEY_LENGT
         mut buffer: impl Read,
         loader: &impl BlobStoreLoad,
     ) -> Result<Self, BlockStateFailure> {
-        let size: u16 = buffer.get().map_parse_err_to_block_state_err()?;
+        let size: u8 = buffer.get().map_parse_err_to_block_state_err()?;
         let mut children = Vec::with_capacity(size as usize);
         let mut prev_path_chunk = None;
         for _ in 0..size {
-            let path_chunk = PathChunk::from_byte(buffer.get().map_parse_err_to_block_state_err()?);
+            let path_chunk =
+                PathChunk::from_byte_raw(buffer.get().map_parse_err_to_block_state_err()?);
             let child_ref = Loadable::load_from_buffer(&mut buffer, loader)?;
             if let Some(prev_chunk) = prev_path_chunk
                 && path_chunk <= prev_chunk
@@ -987,7 +998,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Storable> Storable for ChildEdges<INLINE
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         buffer.put(self.size());
         for ChildEdge(path_chunk, child_ref) in self.0.iter() {
-            buffer.put(path_chunk.to_byte());
+            buffer.put(path_chunk.to_byte_raw());
             child_ref.store_to_buffer(&mut buffer, storer);
         }
     }
@@ -1028,7 +1039,7 @@ impl<const INLINE_KEY_LENGTH: usize, V: Hashable + Loadable> Hashable
         let mut hasher = sha2::Sha256::new();
         hasher.update(self.size().to_be_bytes());
         for ChildEdge(path_chunk, child_ref) in self.0.iter() {
-            hasher.update([path_chunk.to_byte()]);
+            hasher.update([path_chunk.to_byte_raw()]);
             hasher.update(child_ref.hash(loader)?);
         }
         Ok(Hash::new(hasher.finalize().into()))
@@ -1757,7 +1768,10 @@ mod tests {
 
             let path: Path<INLINE_KEY_LENGTH> = path_ref.to_path();
             if let Some(value) = &self.value {
-                let existing = entries.insert(path.as_byte_slice().to_vec(), value.0);
+                let existing = entries.insert(
+                    path.as_byte_slice().expect("aligned to bytes").to_vec(),
+                    value.0,
+                );
                 prop_assert!(existing.is_none(), "existing entry with same key")
             };
 
