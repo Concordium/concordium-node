@@ -356,7 +356,7 @@ impl<const INLINE_KEY_LENGTH: usize, K, V> Trie<INLINE_KEY_LENGTH, K, V> {
                 if let Some(stem_matched_node) = stem_matched_node {
                     let mut iter_root_path = path_ref
                         .index_path_slice(
-                            ..path_ref.len() - scan_return.path_split_remaining_length,
+                            ..path_ref.len() - scan_return.path_split_remaining_length + 1,
                         )
                         .to_path();
 
@@ -429,6 +429,7 @@ impl<'a, 'b, const INLINE_KEY_LENGTH: usize, L: BlobStoreLoad, K: TrieKey, V: Lo
                 };
 
                 let mut child_path = node_path.clone();
+                child_path.extend_with_chunk(child_byte);
                 child_path.extend_from_path_slice(&child.stem.as_path_slice());
 
                 self.node_stack
@@ -605,18 +606,19 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         };
 
         let child_node = child_ref.value(loader)?;
-        // Find the common prefix of the remaining path and the stem of the selected child. We skip
-        // the first byte here, as that has already been used to select the child node above.
+        // Find the common prefix of the remaining path and the stem of the selected child.
         let common_prefix_len = path::common_prefix_len(
             path_ref.index_path_slice(1..),
-            child_node.stem.index_path_slice(1..),
+            child_node.stem.as_path_slice(),
         ) + 1;
 
-        match common_prefix_len.cmp(&child_node.stem.len()) {
+        match common_prefix_len.cmp(&(child_node.stem.len() + 1)) {
             // The child node is either a step on the path or the end destination
             Ordering::Equal => {
-                let deletion = child_node
-                    .delete_rec(loader, path_ref.index_path_slice(child_node.stem.len()..))?;
+                let deletion = child_node.delete_rec(
+                    loader,
+                    path_ref.index_path_slice(child_node.stem.len() + 1..),
+                )?;
                 let Some(mut new_child) = deletion else {
                     return Ok(None);
                 };
@@ -630,9 +632,10 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
 
                 if new_child.value.is_none() && new_child.children.size() == 1 {
                     // A non-value node with one child can be compressed into that child.
-                    let only_child_ref = &new_child.children.0[0].1;
+                    let ChildEdge(only_child_path_chunk, only_child_ref) = &new_child.children.0[0];
                     let grandchild = only_child_ref.value(loader)?;
                     let mut new_child_stem = new_child.stem.clone();
+                    new_child_stem.extend_with_chunk(*only_child_path_chunk);
                     new_child_stem.extend_from_path_slice(&grandchild.stem.as_path_slice());
                     new_child = Node {
                         stem: new_child_stem,
@@ -679,7 +682,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let Some(child_ref) = self.children.get_child(first_path_chunk) else {
             // Insert new child in the node.
             let child_node = Node {
-                stem: path_ref.to_path(),
+                stem: path_ref.index_path_slice(1..).to_path(),
                 children: ChildEdges::default(),
                 value: Some(value),
             };
@@ -696,19 +699,19 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
         let child_node = child_ref.value(loader)?;
         let common_prefix_len = path::common_prefix_len(
             path_ref.index_path_slice(1..),
-            child_node.stem.index_path_slice(1..),
+            child_node.stem.as_path_slice(),
         ) + 1;
 
         Ok(
             match (
-                common_prefix_len.cmp(&child_node.stem.len()),
+                common_prefix_len.cmp(&(child_node.stem.len() + 1)),
                 common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Insert in child node.
                     let (new_child_node, replaced) = child_node.insert_rec(
                         loader,
-                        path_ref.index_path_slice(child_node.stem.len()..),
+                        path_ref.index_path_slice(child_node.stem.len() + 1..),
                         value,
                     )?;
 
@@ -725,7 +728,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let mut stem_node = Node {
                         stem: child_node
                             .stem
-                            .index_path_slice(..common_prefix_len)
+                            .index_path_slice(..common_prefix_len - 1)
                             .to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
@@ -741,7 +744,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     };
 
                     stem_node.children.set_child(
-                        child_node.stem.index_path_chunk(common_prefix_len),
+                        child_node.stem.index_path_chunk(common_prefix_len - 1),
                         HashedCacheableRef::new(new_child_node),
                     );
 
@@ -758,7 +761,7 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     let mut stem_node = Node {
                         stem: child_node
                             .stem
-                            .index_path_slice(..common_prefix_len)
+                            .index_path_slice(..common_prefix_len - 1)
                             .to_path(),
                         children: ChildEdges::default(),
                         value: None,
@@ -774,11 +777,11 @@ impl<const INLINE_KEY_LENGTH: usize, V> Node<INLINE_KEY_LENGTH, V> {
                     };
 
                     stem_node.children.set_child(
-                        child_node.stem.index_path_chunk(common_prefix_len),
+                        child_node.stem.index_path_chunk(common_prefix_len - 1),
                         HashedCacheableRef::new(new_child_node),
                     );
                     let branching_child_node = Node {
-                        stem: path_ref.index_path_slice(common_prefix_len..).to_path(),
+                        stem: path_ref.index_path_slice(common_prefix_len + 1..).to_path(),
                         children: ChildEdges::default(),
                         value: Some(value),
                     };
@@ -832,19 +835,17 @@ impl<'b, const INLINE_KEY_LENGTH: usize, V> Cow<'b, Node<INLINE_KEY_LENGTH, V>> 
             });
         };
 
-        let common_prefix_len = path::common_prefix_len(
-            path_ref.index_path_slice(1..),
-            child.stem.index_path_slice(1..),
-        ) + 1;
+        let common_prefix_len =
+            path::common_prefix_len(path_ref.index_path_slice(1..), child.stem.as_path_slice()) + 1;
 
         Ok(
             match (
-                common_prefix_len.cmp(&child.stem.len()),
+                common_prefix_len.cmp(&(child.stem.len() + 1)),
                 common_prefix_len.cmp(&path_ref.len()),
             ) {
                 (Ordering::Equal, _) => {
                     // Path matched node and the full stem.
-                    let path_split = path_ref.index_path_slice(child.stem.len()..);
+                    let path_split = path_ref.index_path_slice(child.stem.len() + 1..);
                     child.scan_rec(loader, path_split)?
                 }
                 (Ordering::Less, Ordering::Equal) => {
@@ -1751,9 +1752,7 @@ mod tests {
                 "node value or more than one child"
             );
 
-            prop_assert!(!self.stem.is_empty() || root, "node stem not empty or root");
-
-            prop_assert!(self.stem.is_empty() || !root, "node stem empty or not root");
+            prop_assert!(!root || self.stem.is_empty(), "root stem must be empty");
 
             let path: Path<INLINE_KEY_LENGTH> = path_ref.to_path();
             if let Some(value) = &self.value {
@@ -1765,18 +1764,12 @@ mod tests {
             for ChildEdge(path_chunk, child_ref) in self.children.0.iter() {
                 let child_node = child_ref.value(loader)?;
 
-                prop_assert!(!child_node.stem.is_empty(), "edge stem not empty");
-                prop_assert_eq!(
-                    Some(*path_chunk),
-                    child_node.stem.as_path_slice().first_chunk(),
-                    "key matches first byte in stem"
-                );
-
                 if let Some(prev_path_chunk) = prev_path_chunk {
                     prop_assert!(prev_path_chunk < *path_chunk, "edge keys not ascending")
                 }
 
                 let mut child_path = path.clone();
+                child_path.extend_with_chunk(*path_chunk);
                 child_path.extend_from_path_slice(&child_node.stem.as_path_slice());
                 child_node.validate_and_extract_entries(
                     loader,
@@ -1830,7 +1823,7 @@ mod tests {
         let hash = trie.hash(&UnreachableBlobStore).unwrap();
         assert_eq!(
             hex::encode(hash.bytes),
-            "41739dc9ab8b91987954dcdbba5dccf9a83126d72fa0031660837a056d9694e1"
+            "af2a441fc5a96946f6df727687b93f2e6a175c6f74b354eaaa23abec4a51d1bb"
         );
     }
 
@@ -1880,7 +1873,7 @@ mod tests {
 
         assert_eq!(
             hex::encode(store.0),
-            "00000000000000140100000000000000020000000000000001020000000000000000001401000000000000000300000000000000010300000000000000000026010000000000000001000000000000000101000202000000000000000003000000000000001c0000000000000015010000000000000004000000000000000204040000000000000000001e000000000000000001000002010000000000000038040000000000000066000000000000001c00000000000000040000000000000000000001000000000000000083"
+            "00000000000000130100000000000000020000000000000000000000000000000000130100000000000000030000000000000000000000000000000000250100000000000000010000000000000000000202000000000000000003000000000000001b00000000000000140100000000000000040000000000000001040000000000000000001d0000000000000000000002010000000000000036040000000000000063000000000000001c0000000000000004000000000000000000000100000000000000007f"
         );
     }
 }

@@ -34,6 +34,11 @@ impl<const INLINE_KEY_LENGTH: usize> Path<INLINE_KEY_LENGTH> {
         self.0.extend_from_slice(slice.0)
     }
 
+    /// Extend the path with the given chunk.
+    pub fn extend_with_chunk(&mut self, chunk: PathChunk) {
+        self.0.push(chunk.to_byte());
+    }
+
     /// Index into the path.
     pub fn index_path_slice(
         &self,
