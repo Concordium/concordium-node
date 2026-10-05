@@ -32,7 +32,8 @@ use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use divan::Bencher;
 use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
-use plt_scheduler_types::types::execution::TransactionOutcome;
+use plt_scheduler::scheduler::TransactionExecutionError;
+use plt_scheduler_types::types::execution::{TransactionExecutionSummary, TransactionOutcome};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use utils::entity_traits::scheduler::SchedulerOperations;
 use utils::{BlockStateLatest, TokenInitTestParams};
@@ -247,7 +248,13 @@ fn prepare_deny_list(count: usize, meta: bool) -> Fixture {
 }
 
 /// Execute only the Rust scheduler path measured by every benchmark.
-fn execute(mut fixture: Fixture) {
+fn execute(
+    mut fixture: Fixture,
+) -> (
+    Result<TransactionExecutionSummary, TransactionExecutionError>,
+    BlockStateLatest,
+    StubbedEntityContext,
+) {
     let result = fixture.state.execute_transaction(
         &mut fixture.context,
         fixture.transaction_context,
@@ -257,7 +264,8 @@ fn execute(mut fixture: Fixture) {
     assert!(
         matches!(result, Ok(ref result) if matches!(result.outcome, TransactionOutcome::Success(_)))
     );
-    let _ = divan::black_box((result, fixture.state, fixture.context));
+    // Return owned values so Divan defers teardown until after timing.
+    (result, fixture.state, fixture.context)
 }
 
 fn bench(bencher: Bencher, prepare: fn(usize, bool) -> Fixture, count: usize, meta: bool) {
