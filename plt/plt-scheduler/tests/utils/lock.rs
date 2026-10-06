@@ -52,7 +52,7 @@ pub fn create_lock(
         .map(
             |grant| concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                 account: resolve_account(&grant.account()),
-                roles: grant.roles().to_vec(),
+                roles: grant.roles(),
             },
         )
         .collect();

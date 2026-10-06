@@ -214,7 +214,7 @@ pub fn to_cbor_config<C: EntityContextTypes>(
             Ok(
                 concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                     account: CborHolderAccount::from(account.canonical_account_address),
-                    roles: grant.roles().to_vec(),
+                    roles: grant.roles(),
                 },
             )
         })
