@@ -30,6 +30,8 @@ use utils::{BlockStateLatest, TokenInitTestParams};
 
 const STATE_SIZES: &[usize] = &[0, 1, 10, 100, 1000];
 
+const GRANT_COUNTS: &[usize] = &[1, 10, 100, 1000];
+
 fn main() {
     divan::main();
 }
@@ -389,5 +391,119 @@ fn lock_cancel_many_accounts_many_tokens(bencher: Bencher, reference_count: usiz
                 CancelReferenceDistribution::ManyAccountsManyTokens,
             )
         })
+        .bench_local_values(execute);
+}
+
+/// Prepare one successful operation.
+///
+/// `grant_count` distinct ascending accounts all receive `capability`; the executor additionally
+/// receives Fund for send/release. Setup is untimed.
+fn prepare_lock_grants(
+    grant_count: usize,
+    capability: LockControllerSimpleV0Capability,
+) -> PreparedOperation {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut state = BlockStateLatest::default();
+    let token_id: TokenId = "PLT".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        0,
+        None,
+    );
+    let recipient = context.external.create_account().account_index();
+    let accounts: Vec<_> = (0..grant_count)
+        .map(|_| context.external.create_account().account_index())
+        .collect();
+    let sender = accounts[grant_count - 1];
+    let grants = accounts
+        .iter()
+        .map(|&account| {
+            let mut roles = vec![capability.clone()];
+            if account == sender && capability != LockControllerSimpleV0Capability::Fund {
+                roles.push(LockControllerSimpleV0Capability::Fund);
+            }
+            LockControllerSimpleV0Grant::new(account, roles)
+        })
+        .collect();
+    let lock_id = LockId::new(sender, 1, 0);
+    utils::create_lock(
+        &mut context,
+        &mut state,
+        &lock_id,
+        utils::CreateLockSimpleConfig {
+            recipients: vec![recipient],
+            grants,
+            tokens: vec![token_id.clone()],
+            expiry: 1_804_806_000,
+            keep_alive: true,
+        },
+    );
+    utils::increment_account_balance_p11(
+        &mut context,
+        &mut state,
+        sender,
+        &token_id,
+        RawTokenAmount::from(1000),
+    );
+    utils::lock_balance(
+        &mut context,
+        &mut state,
+        &lock_id,
+        sender,
+        &token_id,
+        RawTokenAmount::from(100),
+    );
+    let sender_address = context.external.account_canonical_address(sender);
+    let amount = TokenAmount::from_raw(10, 0);
+    let operation = match capability {
+        LockControllerSimpleV0Capability::Fund => {
+            operations::fund_lock(token_id, lock_id, amount, None)
+        }
+        LockControllerSimpleV0Capability::Send => operations::send_locked_tokens(
+            token_id,
+            lock_id,
+            sender_address,
+            context.external.account_canonical_address(recipient),
+            amount,
+            None,
+        ),
+        LockControllerSimpleV0Capability::Release => {
+            operations::release_locked_tokens(token_id, lock_id, sender_address, amount, None)
+        }
+        _ => unreachable!("only fund/send/release are measured"),
+    };
+    PreparedOperation {
+        transaction_context: utils::simple_transaction_context(sender_address),
+        payload: unscoped_payload(vec![operation]),
+        context,
+        state,
+        sender,
+    }
+}
+
+/// Measure one fund using an existing reference as Fund grant count grows.
+#[divan::bench(args = GRANT_COUNTS)]
+fn lock_fund_by_grant_count(bencher: Bencher, grant_count: usize) {
+    bencher
+        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Fund))
+        .bench_local_values(execute);
+}
+
+/// Measure one partial send as Send grant count grows.
+#[divan::bench(args = GRANT_COUNTS)]
+fn lock_send_by_grant_count(bencher: Bencher, grant_count: usize) {
+    bencher
+        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Send))
+        .bench_local_values(execute);
+}
+
+/// Measure one partial release as Release grant count grows.
+#[divan::bench(args = GRANT_COUNTS)]
+fn lock_release_by_grant_count(bencher: Bencher, grant_count: usize) {
+    bencher
+        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Release))
         .bench_local_values(execute);
 }
