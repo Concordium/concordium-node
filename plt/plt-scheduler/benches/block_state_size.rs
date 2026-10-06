@@ -29,6 +29,7 @@ use utils::entity_traits::scheduler::SchedulerOperations;
 use utils::{BlockStateLatest, TokenInitTestParams};
 
 const STATE_SIZES: &[usize] = &[0, 1, 10, 100, 1000];
+const RELEASE_REFERENCE_COUNTS: &[usize] = &[1, 10, 100, 1000];
 
 const GRANT_COUNTS: &[usize] = &[1, 10, 100, 1000];
 
@@ -224,29 +225,31 @@ fn unscoped_payload(operations: Vec<Operation>) -> Payload {
 }
 
 #[derive(Clone, Copy)]
-enum CancelReferenceDistribution {
+enum BalanceReferenceDistribution {
     ManyAccountsOneToken,
     OneAccountManyTokens,
     ManyAccountsManyTokens,
 }
 
-/// Prepare cancellation of a lock with the requested balance-reference distribution.
+/// Prepare cancellation or release of one balance with the requested reference distribution.
 ///
 /// # Arguments
 ///
 /// - `reference_count`: Total number of `(account, token)` balance references.
 /// - `distribution`: Whether references vary by account, token, or both.
-fn prepare_lock_cancel(
+/// - `release_one`: Release the first balance instead of cancelling; requires a nonzero count.
+fn prepare_lock_balance_operation(
     reference_count: usize,
-    distribution: CancelReferenceDistribution,
+    distribution: BalanceReferenceDistribution,
+    release_one: bool,
 ) -> PreparedOperation {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
     let sender = context.external.create_account().account_index();
     let token_count = match distribution {
-        CancelReferenceDistribution::ManyAccountsOneToken => 1,
-        CancelReferenceDistribution::OneAccountManyTokens
-        | CancelReferenceDistribution::ManyAccountsManyTokens => reference_count.max(1),
+        BalanceReferenceDistribution::ManyAccountsOneToken => 1,
+        BalanceReferenceDistribution::OneAccountManyTokens
+        | BalanceReferenceDistribution::ManyAccountsManyTokens => reference_count.max(1),
     };
     let token_ids: Vec<TokenId> = (0..token_count)
         .map(|index| {
@@ -271,25 +274,30 @@ fn prepare_lock_cancel(
             recipients: vec![sender],
             grants: vec![LockControllerSimpleV0Grant::new(
                 sender,
-                vec![LockControllerSimpleV0Capability::Cancel],
+                vec![if release_one {
+                    LockControllerSimpleV0Capability::Release
+                } else {
+                    LockControllerSimpleV0Capability::Cancel
+                }],
             )],
             tokens: token_ids.clone(),
             expiry: 1_804_806_000,
             keep_alive: true,
         },
     );
+    let mut first_balance = None;
     for index in 0..reference_count {
         let account = match distribution {
-            CancelReferenceDistribution::OneAccountManyTokens => sender,
-            CancelReferenceDistribution::ManyAccountsOneToken
-            | CancelReferenceDistribution::ManyAccountsManyTokens => {
+            BalanceReferenceDistribution::OneAccountManyTokens => sender,
+            BalanceReferenceDistribution::ManyAccountsOneToken
+            | BalanceReferenceDistribution::ManyAccountsManyTokens => {
                 context.external.create_account().account_index()
             }
         };
         let token_id = match distribution {
-            CancelReferenceDistribution::ManyAccountsOneToken => &token_ids[0],
-            CancelReferenceDistribution::OneAccountManyTokens
-            | CancelReferenceDistribution::ManyAccountsManyTokens => &token_ids[index],
+            BalanceReferenceDistribution::ManyAccountsOneToken => &token_ids[0],
+            BalanceReferenceDistribution::OneAccountManyTokens
+            | BalanceReferenceDistribution::ManyAccountsManyTokens => &token_ids[index],
         };
         utils::lock_balance(
             &mut context,
@@ -299,12 +307,27 @@ fn prepare_lock_cancel(
             token_id,
             RawTokenAmount::from(1),
         );
+        if index == 0 {
+            first_balance = Some((account, token_id.clone()));
+        }
     }
+    let operation = if release_one {
+        let (account, token_id) = first_balance.unwrap();
+        operations::release_locked_tokens(
+            token_id,
+            lock_id,
+            context.external.account_canonical_address(account),
+            TokenAmount::from_raw(1, 0),
+            None,
+        )
+    } else {
+        operations::cancel_lock(lock_id, None)
+    };
     PreparedOperation {
         transaction_context: utils::simple_transaction_context(
             context.external.account_canonical_address(sender),
         ),
-        payload: unscoped_payload(vec![operations::cancel_lock(lock_id, None)]),
+        payload: unscoped_payload(vec![operation]),
         context,
         state,
         sender,
@@ -360,9 +383,10 @@ fn lock_create_by_lock_count(bencher: Bencher, existing_lock_count: usize) {
 fn lock_cancel_many_accounts_one_token(bencher: Bencher, reference_count: usize) {
     bencher
         .with_inputs(|| {
-            prepare_lock_cancel(
+            prepare_lock_balance_operation(
                 reference_count,
-                CancelReferenceDistribution::ManyAccountsOneToken,
+                BalanceReferenceDistribution::ManyAccountsOneToken,
+                false,
             )
         })
         .bench_local_values(execute);
@@ -373,9 +397,10 @@ fn lock_cancel_many_accounts_one_token(bencher: Bencher, reference_count: usize)
 fn lock_cancel_one_account_many_tokens(bencher: Bencher, reference_count: usize) {
     bencher
         .with_inputs(|| {
-            prepare_lock_cancel(
+            prepare_lock_balance_operation(
                 reference_count,
-                CancelReferenceDistribution::OneAccountManyTokens,
+                BalanceReferenceDistribution::OneAccountManyTokens,
+                false,
             )
         })
         .bench_local_values(execute);
@@ -386,9 +411,52 @@ fn lock_cancel_one_account_many_tokens(bencher: Bencher, reference_count: usize)
 fn lock_cancel_many_accounts_many_tokens(bencher: Bencher, reference_count: usize) {
     bencher
         .with_inputs(|| {
-            prepare_lock_cancel(
+            prepare_lock_balance_operation(
                 reference_count,
-                CancelReferenceDistribution::ManyAccountsManyTokens,
+                BalanceReferenceDistribution::ManyAccountsManyTokens,
+                false,
+            )
+        })
+        .bench_local_values(execute);
+}
+
+/// Measure release of one balance as holder count grows for a single token.
+#[divan::bench(args = RELEASE_REFERENCE_COUNTS)]
+fn lock_release_many_accounts_one_token(bencher: Bencher, reference_count: usize) {
+    bencher
+        .with_inputs(|| {
+            prepare_lock_balance_operation(
+                reference_count,
+                BalanceReferenceDistribution::ManyAccountsOneToken,
+                true,
+            )
+        })
+        .bench_local_values(execute);
+}
+
+/// Measure release of one balance as token count grows for a single holder.
+#[divan::bench(args = RELEASE_REFERENCE_COUNTS)]
+fn lock_release_one_account_many_tokens(bencher: Bencher, reference_count: usize) {
+    bencher
+        .with_inputs(|| {
+            prepare_lock_balance_operation(
+                reference_count,
+                BalanceReferenceDistribution::OneAccountManyTokens,
+                true,
+            )
+        })
+        .bench_local_values(execute);
+}
+
+/// Measure release of one balance as distinct holder/token pairs grow.
+#[divan::bench(args = RELEASE_REFERENCE_COUNTS)]
+fn lock_release_many_accounts_many_tokens(bencher: Bencher, reference_count: usize) {
+    bencher
+        .with_inputs(|| {
+            prepare_lock_balance_operation(
+                reference_count,
+                BalanceReferenceDistribution::ManyAccountsManyTokens,
+                true,
             )
         })
         .bench_local_values(execute);
