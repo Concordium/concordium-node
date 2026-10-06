@@ -115,10 +115,10 @@ mod test {
             .unwrap()
             .expect("lock should exist");
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(0), &token_id)
+            .add_lock_balance_ref(&context, AccountIndex::from(0), token_id.clone())
             .unwrap();
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
+            .add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2.clone())
             .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {
@@ -237,13 +237,13 @@ mod test {
         lock.add_lock_balance_ref(
             &context,
             AccountIndex::from(0),
-            &"Token1".parse::<TokenId>().unwrap(),
+            "Token1".parse::<TokenId>().unwrap(),
         )
         .unwrap();
         lock.add_lock_balance_ref(
             &context,
             AccountIndex::from(1),
-            &"Token2".parse::<TokenId>().unwrap(),
+            "Token2".parse::<TokenId>().unwrap(),
         )
         .unwrap();
         assert!(std::ptr::eq(
@@ -283,14 +283,14 @@ mod test {
         let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "21238c14891e14e616aed254c3033fb56386834711f9fb4dd2840b4fe642fca5"
+            "56885fb4a622ab251473c851455ae4bb4ad0c52038f306d77cf61dfad44635b2"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &persistent_block_state);
         assert_eq!(
             hex::encode(context.store.0),
-            "00000000000000080000000000000000000000000000001300000000000000000000000000000000000000000000000000001000000000000000000000000000000010"
+            "00000000000000080000000000000000000000000000000d00000000000000000000000000000000000000001000000000000000000000000000000010"
         );
     }
 
@@ -368,10 +368,10 @@ mod test {
             .unwrap()
             .expect("lock should exist");
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(0), &token_id)
+            .add_lock_balance_ref(&context, AccountIndex::from(0), token_id)
             .unwrap();
         lock1
-            .add_lock_balance_ref(&context, AccountIndex::from(1), &token_id_2)
+            .add_lock_balance_ref(&context, AccountIndex::from(1), token_id_2)
             .unwrap();
         block_state.update_lock(&context, lock1).unwrap();
         let lock_id2 = LockId {

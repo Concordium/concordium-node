@@ -138,11 +138,11 @@ impl LockP11 {
         &mut self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
-        token_id: &TokenId,
+        token_id: TokenId,
     ) -> BlockStateResult<()> {
         self.persistent.locked_balances = self.persistent.locked_balances.insert_or_update_entry(
             &context.store,
-            &BalanceReferenceKey(account_index, token_id.clone()),
+            &BalanceReferenceKey(account_index, token_id),
             StoreSerialized(()),
         )?;
         Ok(())
@@ -155,11 +155,11 @@ impl LockP11 {
         &mut self,
         context: &EntityContext<C>,
         account_index: AccountIndex,
-        token_id: &TokenId,
+        token_id: TokenId,
     ) -> BlockStateResult<bool> {
         let Some(references) = self.persistent.locked_balances.delete_entry(
             &context.store,
-            &BalanceReferenceKey(account_index, token_id.clone()),
+            &BalanceReferenceKey(account_index, token_id),
         )?
         else {
             return Ok(false);
