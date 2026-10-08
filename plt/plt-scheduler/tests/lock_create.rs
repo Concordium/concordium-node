@@ -208,14 +208,47 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
     let mut block_state = BlockStateLatest::default();
     let account_index = context.external.create_account().account_index();
     let account = context.external.account_canonical_address(account_index);
+    let other_index = context.external.create_account().account_index();
+    let other = context.external.account_canonical_address(other_index);
     let lock_id = LockId::new(account_index, 1, 0);
     let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(1_000),
-        grants: vec![LockControllerSimpleV0Grant {
-            account: account.into(),
-            roles: vec![LockControllerSimpleV0Capability::Fund; 256],
-        }],
+        grants: vec![
+            LockControllerSimpleV0Grant {
+                account: other.into(),
+                roles: vec![],
+            },
+            LockControllerSimpleV0Grant {
+                account: account.into(),
+                roles: vec![LockControllerSimpleV0Capability::Send],
+            },
+            LockControllerSimpleV0Grant {
+                account: account.into(),
+                roles: vec![LockControllerSimpleV0Capability::Fund; 256],
+            },
+        ],
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
+        metadata: None,
+    });
+    let expected = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        grants: vec![
+            LockControllerSimpleV0Grant {
+                account: account.into(),
+                roles: vec![
+                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Send,
+                ],
+            },
+            LockControllerSimpleV0Grant {
+                account: other.into(),
+                roles: vec![],
+            },
+        ],
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(1_000),
         tokens: vec![],
         keep_alive: false,
         memo: None,
@@ -225,7 +258,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
     };
 
-    block_state
+    let result = block_state
         .execute_transaction(
             &mut context,
             plt_scheduler::TransactionContext {
@@ -240,6 +273,17 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
         )
         .expect("lock creation must succeed");
+    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    assert_eq!(
+        events,
+        vec![BlockItemEvent::LockCreated(LockCreateEvent {
+            lock_id: lock_id.clone(),
+            lock_config: RawCbor::from(cbor::cbor_encode(&expected))
+        })]
+    );
+    let info: concordium_base::protocol_level_locks::LockInfo =
+        cbor::cbor_decode(block_state.query_lock_info(&context, &lock_id).unwrap()).unwrap();
+    assert_eq!(info.config, expected);
 
     let stored_lock = block_state
         .lock_by_id(&context, &lock_id)
@@ -258,7 +302,10 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         reloaded;
     assert_eq!(
         controller.grants()[0].roles(),
-        [LockControllerSimpleV0Capability::Fund]
+        [
+            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Send
+        ]
     );
 }
 
