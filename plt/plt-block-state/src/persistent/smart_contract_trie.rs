@@ -271,6 +271,24 @@ impl<'a, L: BlobStoreLoad> trie::BackingStoreLoad for LoaderAdapter<'a, L> {
     fn load_raw(&mut self, location: trie::Reference) -> trie::LoadResult<Self::R> {
         Ok(self.0.load_raw(BlobStoreLocation(location.reference)))
     }
+
+    fn load_raw_length(&mut self, location: trie::Reference) -> trie::LoadResult<u64> {
+        Ok(self.load_raw(location)?.len() as u64)
+    }
+
+    fn load_raw_range(
+        &mut self,
+        location: trie::Reference,
+        offset: u64,
+        length: usize,
+    ) -> trie::LoadResult<Self::R> {
+        let data = self.load_raw(location)?;
+        let start = usize::try_from(offset)
+            .unwrap_or(usize::MAX)
+            .min(data.len());
+        let end = start + length.min(data.len() - start);
+        Ok(data[start..end].to_vec())
+    }
 }
 
 impl Loadable for PersistentState {
@@ -314,6 +332,33 @@ mod test {
     use crate::persistent::blob_store::test_stub::{BlobStoreStub, UnreachableBlobStore};
     use crate::persistent::cacheable::Cacheable;
     use crate::persistent::smart_contract_trie::PersistentState;
+
+    #[test]
+    fn test_loader_adapter_length_and_range() {
+        use super::LoaderAdapter;
+        use crate::persistent::blob_store::BlobStoreStore;
+        use concordium_smart_contract_engine::v1::trie::{BackingStoreLoad, Reference};
+
+        let mut store = BlobStoreStub::default();
+        let location = Reference {
+            reference: store.store_raw([1, 2, 3, 4]).0,
+        };
+        let mut loader = LoaderAdapter(&store);
+        assert_eq!(loader.load_raw_length(location).unwrap(), 4);
+        assert_eq!(loader.load_raw_range(location, 1, 2).unwrap(), [2, 3]);
+        assert_eq!(
+            loader.load_raw_range(location, 2, usize::MAX).unwrap(),
+            [3, 4]
+        );
+        assert!(loader.load_raw_range(location, 0, 0).unwrap().is_empty());
+        assert!(loader.load_raw_range(location, 4, 1).unwrap().is_empty());
+        assert!(
+            loader
+                .load_raw_range(location, u64::MAX, 1)
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn test_insert_delete_and_lookup() {
