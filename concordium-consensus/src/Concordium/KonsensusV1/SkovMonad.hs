@@ -189,8 +189,7 @@ data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
 
 instance HasBlobStore (SkovV1Context pv m) where
     blobStore = blobStore . _vcPersistentBlockStateContext
-    blobLoadCallback = blobLoadCallback . _vcPersistentBlockStateContext
-    blobStoreCallback = blobStoreCallback . _vcPersistentBlockStateContext
+    blobCallbacks = blobCallbacks . _vcPersistentBlockStateContext
 
 instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (SkovV1Context pv m) where
     projectCache = Cache.projectCache . _vcPersistentBlockStateContext
@@ -385,8 +384,7 @@ makeLenses ''InitContext
 
 instance HasBlobStore (InitContext pv) where
     blobStore = blobStore . _icPersistentBlockStateContext
-    blobLoadCallback = blobLoadCallback . _icPersistentBlockStateContext
-    blobStoreCallback = blobStoreCallback . _icPersistentBlockStateContext
+    blobCallbacks = blobCallbacks . _icPersistentBlockStateContext
 
 instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (InitContext pv) where
     projectCache = Cache.projectCache . _icPersistentBlockStateContext

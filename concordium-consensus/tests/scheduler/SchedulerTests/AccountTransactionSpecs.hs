@@ -43,6 +43,22 @@ cdi7' =
           credential = Types.credential cdi7
         }
 
+emptyArDataAccountCreation :: Types.AccountCreation
+emptyArDataAccountCreation =
+    case Types.credential cdi1 of
+        Types.NormalACWP cdi ->
+            cdi1
+                { Types.credential =
+                    Types.NormalACWP
+                        cdi
+                            { Types.cdiValues =
+                                (Types.cdiValues cdi)
+                                    { Types.cdvArData = mempty
+                                    }
+                            }
+                }
+        Types.InitialACWP{} -> error "cdi1 must contain a normal credential"
+
 transactionsInput :: [CredentialDeploymentWithStatus]
 transactionsInput =
     map ((\x -> (x, Nothing)) . Types.addMetadata 0) $
@@ -123,8 +139,34 @@ testAccountCreation _ pvString = specify
             assertBool "Newly created accounts." $ all isJust lookups
             accountAmountAssertion
 
+testEmptyArDataCredentialDeployment ::
+    forall pv.
+    (IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+testEmptyArDataCredentialDeployment _ pvString =
+    specify (pvString ++ ": empty AR data is rejected during credential deployment re-verification") $ do
+        let transaction =
+                Types.TGCredentialDeployment
+                    (Types.addMetadata 0 emptyArDataAccountCreation, Nothing)
+        (Helpers.SchedulerResult{srTransactions = schedulerTransactions}, ()) <-
+            Helpers.runSchedulerTest
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                (\_ _ -> return ())
+                [transaction]
+        assertEqual
+            "The deployment is rejected before credential verification"
+            [Types.UnsupportedAnonymityRevokers]
+            (map snd $ Sch.ftFailedCredentials schedulerTransactions)
+        assertEqual "No credential deployment is added" [] (Sch.ftAdded schedulerTransactions)
+
 tests :: Spec
 tests =
     describe "Account creation" $
         sequence_ $
-            Helpers.forEveryProtocolVersion testAccountCreation
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                testAccountCreation spv pvString
+                testEmptyArDataCredentialDeployment spv pvString

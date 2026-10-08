@@ -30,6 +30,7 @@ import Concordium.Crypto.SHA256 as Hash
 import Data.FixedByteString as FBS
 
 import Concordium.Crypto.DummyData
+import Concordium.GlobalState.ContractStateFFIHelpers (errorBlobStoreCallbacks)
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState (emptyPersistentTransactionOutcomes)
@@ -118,7 +119,7 @@ instance MonadBlobStore (DummyHashMonad (pv :: ProtocolVersion)) where
     storeRaw = undefined
     loadRaw = undefined
     flushStore = undefined
-    getCallbacks = undefined
+    getCallbacks = return errorBlobStoreCallbacks
     loadBlobPtr = undefined
 
 instance (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) => MonadProtocolVersion (DummyHashMonad (pv :: ProtocolVersion)) where

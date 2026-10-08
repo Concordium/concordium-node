@@ -59,9 +59,9 @@ migrateInstanceStateV ::
     t m (InstanceStateV v)
 migrateInstanceStateV (InstanceStateV0 s) = return (InstanceStateV0 s) -- flat state, no inner references.
 migrateInstanceStateV (InstanceStateV1 s) = do
-    (oldLoadCallback, _) <- lift getCallbacks
-    (_, newStoreCallback) <- getCallbacks
-    InstanceStateV1 <$> liftIO (StateV1.migratePersistentState oldLoadCallback newStoreCallback s)
+    oldCallbacks <- lift getCallbacks
+    newStoreCallback <- storeCallback <$> getCallbacks
+    InstanceStateV1 <$> liftIO (StateV1.migratePersistentState oldCallbacks newStoreCallback s)
 
 -- | The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters

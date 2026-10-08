@@ -1,0 +1,199 @@
+name: Docker node image release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*.*.*-*-rc'
+      - '*.*.*-*-alpha'
+
+concurrency:
+  group: docker-node-image-release
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: concordium/node
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+      image_ref: ${{ steps.release.outputs.image_ref }}
+      image_version: ${{ steps.release.outputs.image_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Derive release metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo_version=$(awk -F '"' '/^version = "/ { print $2; exit }' concordium-node/Cargo.toml)
+          if [[ -z "$cargo_version" ]]; then
+            echo '::error::Could not read the Concordium node version.'
+            exit 1
+          fi
+
+          if [[ "${{ github.event_name }}" == 'push' ]]; then
+            if [[ ! "${{ github.ref_name }}" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-(rc|alpha)$ ]]; then
+              echo '::error::Release tags must have the form <version>-<numeric build>-<rc|alpha>.'
+              exit 1
+            fi
+
+            tag_version="${BASH_REMATCH[1]}"
+            build_number="${BASH_REMATCH[2]}"
+            if [[ "$tag_version" != "$cargo_version" ]]; then
+              echo "::error::Cargo version $cargo_version does not match tag version $tag_version."
+              exit 1
+            fi
+
+            image_version="$tag_version-$build_number"
+          else
+            image_version="$cargo_version-${GITHUB_SHA:0:7}"
+          fi
+
+          {
+            echo "artifact_name=concordium-node-image-$image_version"
+            echo "image_ref=${{ env.IMAGE_REPOSITORY }}:$image_version"
+            echo "image_version=$image_version"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: scripts/distribution/docker-image/builder.Dockerfile
+          platforms: linux/amd64
+          pull: true
+          no-cache: true
+          push: false
+          provenance: false
+          tags: ${{ needs.prepare.outputs.image_ref }}
+          labels: |
+            org.opencontainers.image.title=Concordium Node
+            org.opencontainers.image.description=Concordium node and collector
+            org.opencontainers.image.source=https://github.com/Concordium/concordium-node
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.image_version }}
+          outputs: type=docker,dest=/tmp/concordium-node-image.tar
+
+      - name: Upload Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: /tmp/concordium-node-image.tar
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: /tmp
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Check image tag
+        id: existing-image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_ref='${{ needs.prepare.outputs.image_ref }}'
+          manifest_error=$(mktemp)
+          if docker manifest inspect "$image_ref" >/dev/null 2>"$manifest_error"; then
+            rm "$manifest_error"
+          elif grep --extended-regexp --ignore-case --quiet 'manifest unknown|no such manifest' "$manifest_error"; then
+            rm "$manifest_error"
+            echo 'resume=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            cat "$manifest_error" >&2
+            rm "$manifest_error"
+            echo "::error::Could not determine whether image $image_ref already exists."
+            exit 1
+          fi
+
+          if (( ${{ github.run_attempt }} <= 1 )); then
+            echo "::error::Image $image_ref already exists."
+            exit 1
+          fi
+
+          docker pull "$image_ref"
+          image_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_ref")
+          image_version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$image_ref")
+
+          if [[ "$image_revision" != '${{ github.sha }}' || "$image_version" != '${{ needs.prepare.outputs.image_version }}' ]]; then
+            echo "::error::Existing image $image_ref does not match this release."
+            exit 1
+          fi
+
+          image_digest=$(docker image inspect --format '{{ index .RepoDigests 0 }}' "$image_ref")
+          echo 'resume=true' >> "$GITHUB_OUTPUT"
+          echo "image_digest=$image_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Load Docker image
+        if: steps.existing-image.outputs.resume != 'true'
+        run: docker load --input /tmp/concordium-node-image.tar
+
+      - name: Push Docker image
+        if: steps.existing-image.outputs.resume != 'true'
+        run: docker push '${{ needs.prepare.outputs.image_ref }}'
+
+      - name: Resolve image digest
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ '${{ steps.existing-image.outputs.resume }}' == 'true' ]]; then
+            image_digest='${{ steps.existing-image.outputs.image_digest }}'
+          else
+            image_digest=$(docker image inspect --format '{{ index .RepoDigests 0 }}' '${{ needs.prepare.outputs.image_ref }}')
+          fi
+
+          if [[ -z "$image_digest" ]]; then
+            echo '::error::Could not resolve the published image digest.'
+            exit 1
+          fi
+          echo "image_digest=$image_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.8.2
+        with:
+          cosign-release: v2.5.0
+
+      - name: Sign Docker image
+        run: cosign sign --yes '${{ steps.image.outputs.image_digest }}'

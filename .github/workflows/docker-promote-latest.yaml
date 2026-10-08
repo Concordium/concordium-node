@@ -1,0 +1,119 @@
+name: Promote Docker node image to latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing concordium/node version tag to approve for production (older versions allow rollback)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-node-latest-promotion
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: concordium/node
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          # Stop if a command fails or a required variable is not set.
+          set -euo pipefail
+
+          # Use the reviewed workflow on the default branch for production changes.
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo '::error::Run this workflow from the default branch.'
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check that the source image exists
+        env:
+          SOURCE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          # Stop if a command fails or a required variable is not set.
+          set -euo pipefail
+
+          # Accept only a tag within the fixed repository. Do not promote latest to itself.
+          if [[ ! "$SOURCE_VERSION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ || "$SOURCE_VERSION" == 'latest' ]]; then
+            echo '::error::Supply a valid existing Docker version tag, not latest.'
+            exit 1
+          fi
+
+          # Fail before approval if the requested image is not available.
+          docker buildx imagetools inspect "$IMAGE_REPOSITORY:$SOURCE_VERSION" >/dev/null
+
+  promote:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Promote the source image
+        env:
+          SOURCE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          # Stop if a command fails or a required variable is not set.
+          set -euo pipefail
+
+          # Select the current source image after approval and preserve its digest during promotion.
+          source_ref="$IMAGE_REPOSITORY:$SOURCE_VERSION"
+          source_digest=$(docker buildx imagetools inspect "$source_ref" --format '{{.Manifest.Digest}}')
+          pinned_source="$IMAGE_REPOSITORY@$source_digest"
+          latest_ref="$IMAGE_REPOSITORY:latest"
+
+          # Read the current latest digest after approval. It can change during the wait.
+          # Allow first publication, but do not treat registry errors as a missing tag.
+          manifest_error=$(mktemp)
+          trap 'rm -f "$manifest_error"' EXIT
+          if previous_digest=$(docker buildx imagetools inspect "$latest_ref" --format '{{.Manifest.Digest}}' 2>"$manifest_error"); then
+            if [[ ! "$previous_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo '::error::Could not resolve the previous latest digest.'
+              exit 1
+            fi
+          elif grep --extended-regexp --ignore-case --quiet 'manifest unknown|no such manifest' "$manifest_error" ||
+               grep --fixed-strings --line-regexp --quiet "ERROR: docker.io/$latest_ref: not found" "$manifest_error"; then
+            previous_digest='absent'
+          else
+            cat "$manifest_error" >&2
+            echo '::error::Could not determine whether latest exists.'
+            exit 1
+          fi
+
+          # Record the source and previous digest before changing latest.
+          {
+            echo '## Docker node production promotion'
+            printf '\n- Source tag: `%s`\n' "$source_ref"
+            printf -- '- Source digest: `%s`\n' "$source_digest"
+            printf -- '- Previous latest digest: `%s`\n' "$previous_digest"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Avoid a registry write when latest already identifies the source image.
+          if [[ "$previous_digest" == "$source_digest" ]]; then
+            echo '- Promotion: already matching; no change.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Preserve the digest. Do not wrap a single-platform manifest in a new index.
+            docker buildx imagetools create --prefer-index=false --tag "$latest_ref" "$pinned_source"
+          fi

@@ -289,10 +289,13 @@ impl P2PNode {
                     return;
                 }
 
-                if conn.pending_messages_semaphore_reached
-                    || (events
+                // Read from connection stream if we have some messages which were previously
+                // blocked due to resource limitations
+                // or if any of the network events are signalling the connection is readable.
+                if conn.has_deferred_read()
+                    || events
                         .iter()
-                        .any(|event| event.token() == conn.token() && event.is_readable()))
+                        .any(|event| event.token() == conn.token() && event.is_readable())
                 {
                     match conn.read_stream(&conn_stats) {
                         Err(e) => {

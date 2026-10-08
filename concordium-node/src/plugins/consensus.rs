@@ -1,16 +1,15 @@
 //! Consensus layer handling.
 use anyhow::{bail, Context};
 use crossbeam_channel::TrySendError;
-use tokio::sync::OwnedSemaphorePermit;
 
 use crate::{
     common::{get_current_stamp, p2p_peer::RemotePeerId},
     configuration::{self, MAX_CATCH_UP_TIME},
-    connection::ConnChange,
+    connection::{ConnChange, ProcessMessagePermit},
     consensus_ffi::{
         catch_up::{PeerList, PeerStatus},
         consensus::{
-            ConsensusContainer, ConsensusRuntimeParameters, SemaphoredMessage, CALLBACK_QUEUE,
+            ConsensusContainer, ConsensusRuntimeParameters, MessageWithPermit, CALLBACK_QUEUE,
         },
         ffi::{self, ExecuteBlockCallback, StartConsensusConfig},
         helpers::{
@@ -141,7 +140,7 @@ pub fn handle_pkt_out(
     dont_relay_to: Vec<RemotePeerId>,
     peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
-    permit: OwnedSemaphorePermit,
+    permit: ProcessMessagePermit,
     is_broadcast: bool,
 ) -> anyhow::Result<()> {
     let (consensus_type_bytes, payload) = msg
@@ -167,7 +166,7 @@ pub fn handle_pkt_out(
         None,
     );
 
-    let request = SemaphoredMessage::new(consensus_message, permit);
+    let request = MessageWithPermit::new(consensus_message, permit);
 
     match packet_type {
         PacketType::Transaction => {
