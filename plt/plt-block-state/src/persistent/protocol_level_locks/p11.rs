@@ -270,7 +270,7 @@ impl LockConfigSimpleV0 {
         memo: Option<CborMemo>,
         metadata: Option<RawCbor>,
     ) -> Result<Self, ContainerSizeOverflow> {
-        grants.sort_by_key(|grant| grant.account);
+        grants.sort_unstable_by_key(|grant| grant.account);
         grants.dedup_by(|next, previous| {
             if next.account == previous.account {
                 previous.roles = previous.roles.union(next.roles);
@@ -377,16 +377,18 @@ impl LockControllerSimpleV0Capabilities {
     }
 }
 
+const INVALID_GRANTS_MASK: u8 = !0x0f;
+
 impl Deserial for LockControllerSimpleV0Capabilities {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
-        let mask: u8 = source.get()?;
-        if mask & !0x0f != 0 {
+        let bitmap: u8 = source.get()?;
+        if bitmap & INVALID_GRANTS_MASK != 0 {
             return Err(BlockStateFailure::Invariant(
                 "Found unknown lock capabilities bit".to_string(),
             )
             .into());
         }
-        Ok(Self(mask))
+        Ok(Self(bitmap))
     }
 }
 
