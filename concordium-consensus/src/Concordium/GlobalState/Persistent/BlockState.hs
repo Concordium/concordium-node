@@ -4602,8 +4602,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
         -- Construct the context needed for running block state query actions that we unlift
         context <- ask
         let bscBlobStore = blobStore context
-            bscLoadCallback = blobLoadCallback context
-            bscStoreCallback = blobStoreCallback context
+            bscCallbacks = blobCallbacks context
             pbscBlobStore = BlobStore{..}
 
             pbscAccountCache = Cache.projectCache context
@@ -4794,8 +4793,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
         -- Construct the context needed for running block state operation actions that we unlift
         context <- ask
         let bscBlobStore = blobStore context
-            bscLoadCallback = blobLoadCallback context
-            bscStoreCallback = blobStoreCallback context
+            bscCallbacks = blobCallbacks context
             pbscBlobStore = BlobStore{..}
 
             pbscAccountCache = Cache.projectCache context

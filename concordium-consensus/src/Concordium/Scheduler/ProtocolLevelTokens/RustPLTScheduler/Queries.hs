@@ -73,7 +73,7 @@ queryPLTList bs = do
         pltBlockState
         queryCallbacks =
             do
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
                         readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
@@ -185,7 +185,7 @@ queryTokenInfoInBlobStoreMonad
     queryCallbacks
     tokenId =
         do
-            loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+            loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
             liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                 do
                     readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
@@ -305,7 +305,7 @@ queryTokenAuthorizations bs tokenId = do
         pltBlockState
         queryCallbacks =
             do
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
                         readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
@@ -425,7 +425,7 @@ queryTokenAccountInfos bs accountIndex = do
         pltBlockState
         queryCallbacks =
             do
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
                         readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
@@ -556,7 +556,7 @@ queryLockList bs = do
         pltBlockState
         queryCallbacks =
             do
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
                         readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
@@ -655,7 +655,7 @@ queryLockInfo bs lockId = do
         pltBlockState
         queryCallbacks =
             do
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                     do
                         readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance $ readTokenAccountBalance queryCallbacks
