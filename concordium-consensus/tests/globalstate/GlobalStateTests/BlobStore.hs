@@ -13,14 +13,18 @@
 --  Both the 'BlobStore' and 'MemBlobStore' implementations are tested.
 module GlobalStateTests.BlobStore where
 
+import Control.Monad (when)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as Unsafe
+import Data.IORef
 import qualified Data.Sequence as Seq
 import Data.Void
 import Data.Word
 import Foreign
 import Foreign.C.Types
+import System.FilePath ((</>))
+import System.IO.Temp (withTempDirectory)
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
@@ -183,6 +187,8 @@ bsoOKTest = tst Seq.empty 0
         0 <= i && i < n && 0 <= j && j < Seq.length s && tst s n cont
 
 foreign import ccall "dynamic" callLoadCallback :: LoadCallback -> LoadCallbackType
+foreign import ccall "dynamic" callLoadLengthCallback :: LoadLengthCallback -> LoadLengthCallbackType
+foreign import ccall "dynamic" callLoadRangeCallback :: LoadRangeCallback -> LoadRangeCallbackType
 foreign import ccall "dynamic" callStoreCallback :: StoreCallback -> StoreCallbackType
 
 foreign import ccall "return_value_to_byte_array" vectorToByteArray :: Ptr Vec -> Ptr CSize -> IO (Ptr Word8)
@@ -192,7 +198,12 @@ foreign import ccall unsafe "box_vec_u8_free" freeVector :: Ptr Vec -> IO ()
 -- | Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore', given:
 --  - A context of 'BlobRef's that have already been written, with their contents.
 --  - A context of callbacks that have already been obtained from calls to 'getCallbacks'.
-runBlobStoreOperation' :: (MonadBlobStore m) => Seq.Seq (BlobRef Void, BS.ByteString) -> Seq.Seq (LoadCallback, StoreCallback) -> BlobStoreOperation -> m ()
+runBlobStoreOperation' ::
+    (MonadBlobStore m) =>
+    Seq.Seq (BlobRef Void, BS.ByteString) ->
+    Seq.Seq BlobStoreCallbacks ->
+    BlobStoreOperation ->
+    m ()
 runBlobStoreOperation' _ _ Done = return ()
 runBlobStoreOperation' s cbks (Store bs cont) = do
     r <- storeRaw bs
@@ -216,12 +227,12 @@ runBlobStoreOperation' s cbks (GetCallbacks cont) = do
     cb <- getCallbacks
     runBlobStoreOperation' s (cb Seq.<| cbks) cont
 runBlobStoreOperation' s cbks (StoreViaCallbacks i bs cont) = do
-    let (_, storeCbk) = Seq.index cbks i
+    let storeCbk = storeCallback $ Seq.index cbks i
     r <- liftIO $ Unsafe.unsafeUseAsCStringLen bs $ \(cs, len) ->
         callStoreCallback storeCbk (castPtr cs) (fromIntegral len)
     runBlobStoreOperation' ((BlobRef r, bs) Seq.<| s) cbks cont
 runBlobStoreOperation' s cbks (LoadViaCallbacks i j cont) = do
-    let (loadCbk, _) = Seq.index cbks i
+    let loadCbk = loadCallback $ Seq.index cbks i
     let (BlobRef r, expect) = Seq.index s j
     liftIO $ do
         vec <- callLoadCallback loadCbk r
@@ -236,6 +247,117 @@ runBlobStoreOperation' s cbks (LoadViaCallbacks i j cont) = do
 -- | Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore'.
 runBlobStoreOperation :: (MonadBlobStore m) => BlobStoreOperation -> m ()
 runBlobStoreOperation = runBlobStoreOperation' Seq.empty Seq.empty
+
+-- | Make sure that the metadata callback returns the exact length and does not
+-- use the complete-value callback. A Rust test separately measures the loaded
+-- payload bytes. This test checks the same callback behavior for both stores.
+checkLengthCallback :: (MonadBlobStore m) => m ()
+checkLengthCallback = do
+    let payload = BS.replicate 4096 7
+    BlobRef reference <- storeRaw payload
+    callbacks <- getCallbacks
+    (status, actualLength) <- liftIO $ alloca $ \outLength -> do
+        status <- callLoadLengthCallback (loadLengthCallback callbacks) reference outLength
+        lengthValue <- peek outLength
+        return (status, lengthValue)
+    liftIO $ do
+        assertEqual "Length callback status" 0 status
+        assertEqual "Stored payload length" (fromIntegral $ BS.length payload) actualLength
+
+-- | Check clamping and exact bytes through a storage range callback.
+checkRangeCallback :: (MonadBlobStore m) => m ()
+checkRangeCallback = do
+    BlobRef reference <- storeRaw $ BS.pack [0 .. 127]
+    callbacks <- getCallbacks
+    liftIO $ checkRangeResults callbacks reference
+
+checkRangeResults :: BlobStoreCallbacks -> Word64 -> IO ()
+checkRangeResults callbacks reference = do
+    let readRange offset requestedLength = alloca $ \outVector -> do
+            poke outVector nullPtr
+            status <- callLoadRangeCallback (loadRangeCallback callbacks) reference offset (fromIntegral requestedLength) outVector
+            assertEqual "Range callback status" 0 status
+            storedRangeVector <- peek outVector
+            assertBool "Range callback output" (storedRangeVector /= nullPtr)
+            actual <- alloca $ \lenPtr -> do
+                byteArray <- vectorToByteArray storedRangeVector lenPtr
+                actualLength <- peek lenPtr
+                Unsafe.unsafePackCStringFinalizer byteArray (fromIntegral actualLength) (freeByteArray byteArray (fromIntegral actualLength))
+            freeVector storedRangeVector
+            return actual
+    withinRange <- readRange 17 (3 :: Int)
+    crossingEnd <- readRange 126 (8 :: Int)
+    atEnd <- readRange 128 (4 :: Int)
+    beyondEnd <- readRange 200 (4 :: Int)
+    assertEqual "Range within payload" (BS.pack [17, 18, 19]) withinRange
+    assertEqual "Range crossing payload end" (BS.pack [126, 127]) crossingEnd
+    assertEqual "Range at payload end" BS.empty atEnd
+    assertEqual "Range beyond payload end" BS.empty beyondEnd
+
+checkMappedRangeCallback :: IO ()
+checkMappedRangeCallback = withTempDirectory "." "mapped-blob-range" $ \directory -> do
+    let path = directory </> "blob.dat"
+    BlobRef reference <- bracket (createBlobStore path) closeBlobStore $ \store ->
+        runBlobStoreT (storeRaw $ BS.pack [0 .. 127]) store
+    bracket (loadBlobStore path) closeBlobStore $ \store ->
+        checkRangeResults (bscCallbacks store) reference
+
+-- | Check that a metadata read does not change the position of the next write.
+checkLengthCallbackPreservesWritePosition :: (MonadBlobStore m) => m ()
+checkLengthCallbackPreservesWritePosition = do
+    let firstPayload = BS.replicate 32 1
+        secondPayload = BS.replicate 32 2
+    BlobRef firstReference <- storeRaw firstPayload
+    callbacks <- getCallbacks
+    status <- liftIO $ alloca $ \outLength ->
+        callLoadLengthCallback (loadLengthCallback callbacks) firstReference outLength
+    liftIO $ assertEqual "Length callback status" 0 status
+    secondReference <- storeRaw secondPayload
+    actualFirstPayload <- loadRaw (BlobRef firstReference)
+    actualSecondPayload <- loadRaw secondReference
+    liftIO $ do
+        assertEqual "First payload after metadata read and write" firstPayload actualFirstPayload
+        assertEqual "Second payload after metadata read" secondPayload actualSecondPayload
+
+checkRangeCallbackRejectsUnrepresentableLength :: IO ()
+checkRangeCallbackRejectsUnrepresentableLength =
+    when (toInteger (maxBound :: CSize) > toInteger (maxBound :: Int)) $ do
+        queryCalled <- newIORef False
+        let requestedLength = fromInteger (toInteger (maxBound :: Int) + 1)
+            query _ _ _ = writeIORef queryCalled True >> return BS.empty
+        bracket (createSafeLoadRangeCallback query) freeHaskellFunPtr $ \callback ->
+            alloca $ \outVector -> do
+                poke outVector nullPtr
+                status <- callLoadRangeCallback callback 0 0 requestedLength outVector
+                storedRangeVector <- peek outVector
+                wasQueryCalled <- readIORef queryCalled
+                assertEqual "Unrepresentable range callback length status" 1 status
+                assertEqual "Unrepresentable range callback output" nullPtr storedRangeVector
+                assertBool "Unrepresentable range length must be rejected before the query" (not wasQueryCalled)
+
+checkRangeCallbackFailures :: IO ()
+checkRangeCallbackFailures = do
+    checkFailure (\_ _ _ -> throwIO $ userError "test failure") "Range callback exception status"
+    checkFailure (\_ _ _ -> return $ BS.pack [1, 2]) "Oversized range callback status"
+  where
+    checkFailure query message = bracket (createSafeLoadRangeCallback query) freeHaskellFunPtr $ \callback ->
+        alloca $ \outVector -> do
+            poke outVector nullPtr
+            status <- callLoadRangeCallback callback 0 0 1 outVector
+            storedRangeVector <- peek outVector
+            assertEqual message 1 status
+            assertEqual "Failed range callback output" nullPtr storedRangeVector
+
+checkLengthCallbackException :: IO ()
+checkLengthCallbackException = bracket makeCallback freeHaskellFunPtr $ \callback ->
+    alloca $ \outLength -> do
+        poke outLength 42
+        status <- callLoadLengthCallback callback 0 outLength
+        actualLength <- peek outLength
+        assertEqual "Callback failure status" 1 status
+        assertEqual "Failed callback output" 42 actualLength
+  where
+    makeCallback = createSafeLoadLengthCallback $ \_ -> throwIO $ userError "test failure"
 
 -- | Run a 'BlobStoreOperation' in the 'MemBlobStore'.
 testMemBlobStore :: BlobStoreOperation -> Property
@@ -256,3 +378,15 @@ tests = describe "BlobStore" $ do
     it "MemBlobStore" $ property testMemBlobStore
     -- Test the disk blob store.
     it "BlobStore" $ property testBlobStore
+    it "MemBlobStore metadata length" $
+        bracket newMemBlobStore destroyMemBlobStore (runMemBlobStoreT checkLengthCallback)
+    it "BlobStore metadata length" $ (runBlobStoreTemp "." checkLengthCallback :: IO ())
+    it "MemBlobStore range reads are clamped" $
+        bracket newMemBlobStore destroyMemBlobStore (runMemBlobStoreT checkRangeCallback)
+    it "BlobStore file-handle range reads are clamped" $ (runBlobStoreTemp "." checkRangeCallback :: IO ())
+    it "BlobStore mapped range reads are clamped" checkMappedRangeCallback
+    it "BlobStore metadata reads preserve the next write position" $
+        (runBlobStoreTemp "." checkLengthCallbackPreservesWritePosition :: IO ())
+    it "Metadata callback contains exceptions" checkLengthCallbackException
+    it "Range callback rejects exceptions and oversized results" checkRangeCallbackFailures
+    it "Range callback rejects lengths that Int cannot represent" checkRangeCallbackRejectsUnrepresentableLength

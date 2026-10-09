@@ -96,7 +96,7 @@ loadFromBlobRef ::
     BlobStore.BlobRef RustPLTBlockState ->
     m (ForeignPLTBlockStatePtr pv)
 loadFromBlobRef blobRef = do
-    loadCallback <- fst <$> BlobStore.getCallbacks
+    loadCallback <- FFI.loadCallback <$> BlobStore.getCallbacks
     liftIO $! do
         FFI.alloca $ \blockStateDestPtr -> do
             status <-
@@ -115,7 +115,7 @@ instance
     where
     load = S.get >>= pure . loadFromBlobRef
     storeUpdate pltBlockState = do
-        storeCallback <- snd <$> BlobStore.getCallbacks
+        storeCallback <- FFI.storeCallback <$> BlobStore.getCallbacks
         blobRef <- liftIO $ FFI.alloca $ \blobRefDestPtr -> do
             status <- withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback blobRefDestPtr
             Monad.unless (status == 0) $ error "Unexpected panic when storing a block state"
@@ -154,7 +154,7 @@ foreign import ccall "ffi_store_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m (ForeignPLTBlockStatePtr pv) where
     cache blockState = do
-        loadCallback <- fst <$> BlobStore.getCallbacks
+        loadCallback <- FFI.loadCallback <$> BlobStore.getCallbacks
         status <- liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
         Monad.unless (status == 0) $ error "Unexpected panic when caching a block state"
         return blockState
@@ -179,7 +179,7 @@ instance
     Hashable.MHashableTo m ProtocolLevelTokensHash (ForeignPLTBlockStatePtr pv)
     where
     getHashM blockState = do
-        loadCallback <- fst <$> BlobStore.getCallbacks
+        loadCallback <- FFI.loadCallback <$> BlobStore.getCallbacks
         ((), hash) <-
             liftIO $
                 withPLTBlockState blockState $ \blockStatePtr ->
@@ -211,9 +211,11 @@ migrate ::
     -- | New migrated block state
     t m (ForeignPLTBlockStatePtr pv)
 migrate currentState = do
-    oldLoadCallback <- fst <$> lift BlobStore.getCallbacks
-    (newLoadCallback, newStoreCallback) <- BlobStore.getCallbacks
-    let newSProtocolVersion = Types.protocolVersion @pv
+    oldLoadCallback <- FFI.loadCallback <$> lift BlobStore.getCallbacks
+    newCallbacks <- BlobStore.getCallbacks
+    let newLoadCallback = FFI.loadCallback newCallbacks
+        newStoreCallback = FFI.storeCallback newCallbacks
+        newSProtocolVersion = Types.protocolVersion @pv
     liftIO $ FFI.alloca $ \newStateDestPtr -> do
         status <-
             withPLTBlockState currentState $

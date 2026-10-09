@@ -133,6 +133,18 @@ Possible values of `message` are:
 - `"finalization message"`
 - `"catch-up status message"`
 
+### `consensus_inbound_peer_queue_byte_threshold_delays_total`
+
+Total number of inbound-read delay episodes caused by a peer reaching the configured threshold for queued inbound consensus bytes.
+
+This is a backpressure metric, not a drop counter. Repeated increases indicate one or more peers are sustaining enough queued inbound consensus traffic to keep hitting the configured `queued-bytes-per-peer-threshold`.
+
+### `consensus_inbound_peer_queue_message_count_limit_delays_total`
+
+Total number of inbound-read delay episodes caused by a peer reaching the configured limit for queued inbound message count.
+
+This is a backpressure metric, not a drop counter. Repeated increases indicate one or more peers are sustaining enough queued inbound consensus traffic to keep hitting the configured `max-queued-messages-per-peer` limit.
+
 ### `network_soft_banned_peers`
 
 Current number of soft banned peers. The node temporarily bans peers if they fail to follow the protocol.

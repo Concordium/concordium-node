@@ -195,7 +195,7 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
         remainingEnergy =
             do
                 let transactionPayloadByteString = S.runPut $ Types.putPayload tokenUpdate
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \usedEnergyOutPtr -> FFI.alloca $ \resultingBlockStateOutPtr ->
                     FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                         do
@@ -443,7 +443,7 @@ executeChainUpdate updateHeader createPLT =
         operationCallbacks =
             do
                 let chainUpdatePayloadByteString = S.runPut $ Types.putUpdatePayload $ Types.CreatePLTUpdatePayload createPLT
-                loadCallbackPtr <- fst <$> BlobStore.getCallbacks
+                loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
                 liftIO $ FFI.alloca $ \resultingBlockStateOutPtr ->
                     FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
                         do

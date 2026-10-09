@@ -103,11 +103,13 @@ updateStatsOnArrive ::
 updateStatsOnArrive nominalTime arrivalTime transactionCount =
     updateTransactionsPerBlock . updatePeriod . updateLatency . (blocksVerifiedCount +~ 1)
   where
-    -- Update the block arrival latency stats.
-    updateLatency s =
-        s
-            & (blockArriveLatencyEMA .~ oldEMA + emaWeight * delta)
-            & (blockArriveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
+    -- Update latency only when the nominal block time is not after its arrival.
+    updateLatency s
+        | nominalTime > arrivalTime = s
+        | otherwise =
+            s
+                & (blockArriveLatencyEMA .~ oldEMA + emaWeight * delta)
+                & (blockArriveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
       where
         oldEMA = s ^. blockArriveLatencyEMA
         delta = realToFrac (diffUTCTime arrivalTime nominalTime) - oldEMA
@@ -177,11 +179,13 @@ updateStatsOnReceive ::
 updateStatsOnReceive nominalTime receiveTime =
     updatePeriod . updateLatency . (blocksReceivedCount +~ 1)
   where
-    -- Update the block receive latency stats.
-    updateLatency s =
-        s
-            & (blockReceiveLatencyEMA .~ oldEMA + emaWeight * delta)
-            & (blockReceiveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
+    -- Update latency only when the nominal block time is not after its receipt.
+    updateLatency s
+        | nominalTime > receiveTime = s
+        | otherwise =
+            s
+                & (blockReceiveLatencyEMA .~ oldEMA + emaWeight * delta)
+                & (blockReceiveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
       where
         oldEMA = s ^. blockReceiveLatencyEMA
         delta = realToFrac (diffUTCTime receiveTime nominalTime) - oldEMA

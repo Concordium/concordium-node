@@ -5,28 +5,53 @@ Write-Output "cargo version: $(cargo --version)"
 Write-Output "flatc version: $(flatc --version)"
 Write-Output "protoc version: $(protoc --version)"
 
-# Override the rust toolchain so that consensus rust dependencies use it.
-rustup override set $rustVersion-x86_64-pc-windows-gnu
+# Override the repository toolchain so that consensus Rust dependencies use GNU Rust.
+$gnuToolchain = "$rustVersion-x86_64-pc-windows-gnu"
+rustup override set $gnuToolchain
+if ($LASTEXITCODE -ne 0) { throw "Failed selecting the GNU Rust toolchain" }
 
-# The reason we "prebuild" the node Rust library dependency:
-# When Setup.hs is run (which invokes the cargo build), stack puts 
-# the LLVM version of dlltool on the path, which is not compatible with the gnu dlltool. 
-# It thus does not generate the expected import lib. By the rust upfront, when it is 
-# subsequently built in Setup.hs it will already be built and so does not get rebuilt.
-Write-Output "Prebuilding node Rust library..."
-Push-Location plt
-rustup show active-toolchain
-cargo build --release --locked -p node-rust-library
-Pop-Location
+# Resolve GNU dlltool before Stack puts GHC's LLVM tools first on PATH.
+# Rust uses this absolute path to generate import libraries in every workspace.
+$gnuDlltool = (
+    Get-Command dlltool -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
+).Source
+$dlltoolVersion = & $gnuDlltool --version
+$dlltoolExitCode = $LASTEXITCODE
+$dlltoolVersionText = $dlltoolVersion -join "`n"
+Write-Output "Rust import library tool: $gnuDlltool"
+Write-Output $dlltoolVersionText
+# GNU dlltool includes its invocation name, which can be an absolute path.
+if ($dlltoolExitCode -ne 0 -or $dlltoolVersionText -notmatch '^GNU\s+.*dlltool(?:\.exe)?(?:\s|$)') {
+    throw "Expected GNU dlltool at $gnuDlltool (exit code $dlltoolExitCode). Version output: $dlltoolVersionText"
+}
 
-Write-Output "Building consensus..."
-stack build
-if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
+# Encoded flags preserve arguments that contain spaces, including the tool path.
+# Keep existing environment flags in Cargo's precedence order.
+$originalEncodedRustflags = $env:CARGO_ENCODED_RUSTFLAGS
+$rustflagSeparator = [char]0x1f
+if ($null -ne $originalEncodedRustflags) {
+    $rustflags = @($originalEncodedRustflags -split $rustflagSeparator | Where-Object { $_ -ne "" })
+} else {
+    $rustflags = @($env:RUSTFLAGS -split '\s+' | Where-Object { $_ -ne "" })
+}
 
-Write-Output "Building node..."
-stack exec -- rustup show active-toolchain
-stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --locked
-if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
+try {
+    $env:CARGO_ENCODED_RUSTFLAGS = ($rustflags + @("-C", "dlltool=$gnuDlltool")) -join $rustflagSeparator
+
+    Write-Output "Building consensus..."
+    rustup show active-toolchain
+    stack exec -- where.exe dlltool
+    stack build
+    if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
+
+    Write-Output "Building node..."
+    stack exec -- cargo +$gnuToolchain build --manifest-path concordium-node\Cargo.toml --release --locked
+    if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
+} finally {
+    # Do not pass the GNU tool selection to the MSVC builds or the caller.
+    $env:CARGO_ENCODED_RUSTFLAGS = $originalEncodedRustflags
+}
 
 Write-Output "Building the collector..."
 cargo +$rustVersion-x86_64-pc-windows-msvc build --manifest-path collector\Cargo.toml --release --locked

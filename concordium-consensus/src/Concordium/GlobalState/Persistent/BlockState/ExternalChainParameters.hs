@@ -81,7 +81,7 @@ instance (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) => BlobStore.B
     load = do
         blobRef <- S.get
         pure $! do
-            loadCallback <- fst <$> BlobStore.getCallbacks
+            loadCallback <- FFI.loadCallback <$> BlobStore.getCallbacks
             liftIO $! do
                 FFI.alloca $ \paramsDestPtr -> do
                     status <-
@@ -94,7 +94,7 @@ instance (BlobStore.MonadBlobStore m, Types.IsProtocolVersion pv) => BlobStore.B
                     params <- FFI.peek paramsDestPtr
                     wrapFFIPtr params
     storeUpdate params = do
-        storeCallback <- snd <$> BlobStore.getCallbacks
+        storeCallback <- FFI.storeCallback <$> BlobStore.getCallbacks
         blobRef <- liftIO $ FFI.alloca $ \blobRefDestPtr -> do
             status <- withExternalChainParameters params $ ffiStoreExternalChainParameters storeCallback blobRefDestPtr
             Monad.unless (status == 0) $ error "Unexpected panic when storing external chain parameters"
@@ -118,7 +118,7 @@ foreign import ccall "ffi_store_external_chain_parameters"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m (ForeignExternalChainParametersPtr pv) where
     cache params = do
-        loadCallback <- fst <$> BlobStore.getCallbacks
+        loadCallback <- FFI.loadCallback <$> BlobStore.getCallbacks
         status <- liftIO $! withExternalChainParameters params (ffiCacheExternalChainParameters loadCallback)
         Monad.unless (status == 0) $ error "Unexpected panic when caching external chain parameters"
         return params
@@ -135,7 +135,7 @@ newtype ExternalChainParametersHash = ExternalChainParametersHash {theExternalCh
 
 instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ExternalChainParametersHash (ForeignExternalChainParametersPtr pv) where
     getHashM params = do
-        loadCallback <- fst <$> BlobStore.getCallbacks
+        loadCallback <- FFI.loadCallback <$> BlobStore.getCallbacks
         ((), hash) <-
             liftIO $
                 withExternalChainParameters params $ \paramsPtr ->

@@ -46,6 +46,20 @@
 
 - Protocol level tokens logic has been rewritten in Rust (no behavioral change from P9/P10)
 
+## 10.0.12
+
+- Implemented runtime metering of copy operations in the WASM interpreter `wasm-transform` to prevent misusing cost-free operations to emit free copy operations.
+
+## 10.0.11
+
+- Fix security bug where V1 contract-state query `entry-size` and `entry-read` resulted in a variable amount of work, but for a fixed energy cost. The fix ensures the query runs in same time-complexity as the energy charged.
+- Add a per-peer queued inbound consensus byte backpressure threshold, alongside the existing per-peer queued message limit, to bound retained queue memory from aggressively sending peers.
+  The new threshold is configurable with `--queued-bytes-per-peer-threshold` / `CONCORDIUM_NODE_CONNECTION_QUEUED_BYTES_PER_PEER_THRESHOLD`.
+- Expose Prometheus counters for byte-threshold (`consensus_inbound_peer_queue_byte_threshold_delays_total`) and message-count (`consensus_inbound_peer_queue_message_count_limit_delays_total`) backpressure events.
+- Fix a bug where update credentials transactions with an empty AR map would be accepted by the node.
+- Improve handling of huge timeouts scheduled in timers.
+- Reject blocks received with a timestamp that is too far in the future compared to a fixed threshold.
+
 ## 10.0.10
 
 - Fix a bug where pending blocks with unknown parents are relayed to peers.

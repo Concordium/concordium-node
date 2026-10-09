@@ -21,6 +21,7 @@ import Data.Time
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
+import Concordium.Constants.Time (futureBlockTolerance)
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
@@ -36,7 +37,6 @@ import Concordium.Utils
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.PurgeTransactions
 import Concordium.GlobalState.Statistics
@@ -125,34 +125,45 @@ uponReceivingBlock ::
     m (BlockResult (MPV m))
 uponReceivingBlock pendingBlock = do
     isShutdown <- use isConsensusShutdown
-    if isShutdown
-        then return BlockResultConsensusShutdown
-        else do
+    if isShutdown then return BlockResultConsensusShutdown else receiveBlock
+  where
+    pbHash :: BlockHash
+    pbHash = getHash pendingBlock
+
+    receiveTimestamp = utcTimeToTimestamp $ pbReceiveTime pendingBlock
+
+    receiveBlock
+        | blockTimestamp pendingBlock > receiveTimestamp
+            && tsMillis (blockTimestamp pendingBlock) - tsMillis receiveTimestamp > durationMillis futureBlockTolerance = do
+            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is too far in the future."
+            -- early here means that the block is received early in comparison to the timestamp tolerance
+            return BlockResultEarly
+        | otherwise = do
             lfb <- use lastFinalized
             if blockEpoch pendingBlock < blockEpoch lfb || blockRound pendingBlock <= blockRound lfb
                 then do
                     -- The block is from an old epoch, or already finalized round
                     logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is from an old round or epoch."
                     return BlockResultStale
-                else do
-                    sd <- get
-                    -- Check that the block is not already live or pending. The network-layer deduplication
-                    -- should generally prevent such blocks from getting here, but having this check means
-                    -- we can rely on the fact.
-                    case getMemoryBlockStatus pbHash sd of
-                        Just _ -> do
-                            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is a duplicate."
-                            return BlockResultDuplicate
-                        Nothing -> do
-                            getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
-                                RecentBlock (BlockAlive parent) -> receiveBlockKnownParent parent pendingBlock
-                                RecentBlock (BlockFinalized parent) -> receiveBlockKnownParent parent pendingBlock
-                                RecentBlock BlockDead -> rejectBadParent
-                                RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
-                                OldFinalized -> rejectBadParent
-  where
-    pbHash :: BlockHash
-    pbHash = getHash pendingBlock
+                else receiveNewBlock
+
+    receiveNewBlock = do
+        sd <- get
+        -- Check that the block is not already live or pending. The network-layer deduplication
+        -- should generally prevent such blocks from getting here, but having this check means
+        -- we can rely on the fact.
+        case getMemoryBlockStatus pbHash sd of
+            Just _ -> do
+                logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is a duplicate."
+                return BlockResultDuplicate
+            Nothing ->
+                getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
+                    RecentBlock (BlockAlive parent) -> receiveBlockKnownParent parent pendingBlock
+                    RecentBlock (BlockFinalized parent) -> receiveBlockKnownParent parent pendingBlock
+                    RecentBlock BlockDead -> rejectBadParent
+                    RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
+                    OldFinalized -> rejectBadParent
+
     rejectBadParent = do
         logEvent Konsensus LLTrace $
             "Block "
@@ -325,24 +336,15 @@ receiveBlockKnownParent parent pendingBlock = do
 
 -- | Process receiving a block when the parent is not live.
 --  Precondition: the block is for a round and epoch that have not already been finalized.
---
---  If the timestamp is no less than the receive time of the block + the early block threshold, the
---  function returns 'BlockResultEarly'. Otherwise, it returns 'BlockResultPending'.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
       MonadLogger m
     ) =>
     PendingBlock (MPV m) ->
     m (BlockResult (MPV m))
 receiveBlockUnknownParent pendingBlock = do
-    earlyThreshold <- rpEarlyBlockThreshold <$> use runtimeParameters
-    if blockTimestamp pendingBlock
-        < addDuration (utcTimeToTimestamp $ pbReceiveTime pendingBlock) earlyThreshold
-        then do
-            logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " is pending its parent " <> show (blockParent pendingBlock) <> "."
-            return BlockResultPending
-        else return BlockResultEarly
+    logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " is pending its parent " <> show (blockParent pendingBlock) <> "."
+    return BlockResultPending
   where
     pbHash :: BlockHash
     pbHash = getHash pendingBlock

@@ -93,7 +93,7 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
                   icSenderPolicies = []
                 }
     let initInterpreterEnergy = 1_000_000_000
-    (cbk, _) <- Blob.getCallbacks
+    cbk <- Blob.getCallbacks
     artifact <- BS.getModuleArtifact (GSWasm.miModule miv)
     case WasmV1.applyInitFun cbk artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
         Nothing ->
