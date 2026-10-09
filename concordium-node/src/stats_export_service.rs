@@ -591,6 +591,7 @@ impl StatsExportService {
     }
 
     /// Starts the statistics server.
+    #[allow(clippy::result_unit_err)]
     pub async fn start_server(
         &self,
         listen_addr: SocketAddr,

@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module ConcordiumTests.FinalizationRecover where
@@ -55,7 +56,7 @@ genesis nBakers =
         []
         1234
         Dummy.dummyKeyCollection
-        Dummy.dummyChainParameters
+        (Dummy.dummyChainParameters' @ChainParametersV0)
 
 makeFinalizationInstance :: BakerIdentity -> FinalizationInstance
 makeFinalizationInstance bid = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)

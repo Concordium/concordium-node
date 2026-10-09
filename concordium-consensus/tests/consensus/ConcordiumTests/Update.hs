@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 
@@ -107,7 +108,7 @@ createInitStates dir = do
             -- This does not happen due to how `bis` is constructed
             _ -> error "bis should be a list with two elements"
         bakerAccounts = (^. _3) <$> bis
-        cps = Dummy.dummyChainParameters & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
+        cps = Dummy.dummyChainParameters' @ChainParametersV0 & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen =
             GDP1
                 GDP1Initial

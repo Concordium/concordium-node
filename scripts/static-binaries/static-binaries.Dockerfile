@@ -29,14 +29,12 @@ ARG build_version
 ARG extra_features
 ARG protoc_version
 ARG flatbuffers_version
-ARG rust_toolchain_version
 
 WORKDIR /build
 RUN BRANCH="${branch}" \
     EXTRA_FEATURES="${extra_features}" \
     PROTOC_VERSION="${protoc_version}" \
     FLATBUFFERS_VERSION="${flatbuffers_version}" \
-    RUST_TOOLCHAIN_VERSION="${rust_toolchain_version}" \
       /build-on-ubuntu.sh
 
 # The binaries are available in the

@@ -1,0 +1,15 @@
+[package]
+name = "plt-scheduler-types"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Concordium dependencies
+concordium_base.workspace = true
+
+# Third party dependencies
+thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+proptest.workspace = true

@@ -343,7 +343,8 @@ main = do
                         { _ppBakerStakeThreshold = 300000000000
                         },
                   _cpFinalizationCommitteeParameters = NoParam,
-                  _cpValidatorScoreParameters = NoParam
+                  _cpValidatorScoreParameters = NoParam,
+                  _cpMaxLockDuration = NoParam
                 }
     let (genesisData, bakerIdentities, _) =
             makeGenesisDataV0 @PV

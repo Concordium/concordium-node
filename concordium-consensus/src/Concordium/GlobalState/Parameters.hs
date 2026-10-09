@@ -189,6 +189,8 @@ data UpdateValue (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) 
     UVFinalizationCommitteeParameters :: (IsSupported 'PTFinalizationCommitteeParameters cpv ~ 'True) => !FinalizationCommitteeParameters -> UpdateValue cpv auv
     -- | Updates to the validator score parameters for chain parameters version 3.
     UVValidatorScoreParameters :: (IsSupported 'PTValidatorScoreParameters cpv ~ 'True) => !ValidatorScoreParameters -> UpdateValue cpv auv
+    -- | Updates to the maximum relative duration for protocol-level token locks.
+    UVMaxLockDuration :: (SupportsTokenParameters auv ~ 'True) => !Duration -> UpdateValue cpv auv
 
 deriving instance Eq (UpdateValue cpv auv)
 deriving instance Show (UpdateValue cpv auv)

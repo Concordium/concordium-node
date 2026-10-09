@@ -108,7 +108,7 @@ testDoMintingP4 = do
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
             DummyData.dummyKeyCollection
-            DummyData.dummyChainParameters
+            (DummyData.dummyChainParameters @'P4)
     -- Run a test of doMintingP4. It is provided a list of updates (paired with effective slot time),
     -- a list of expected special transaction outcomes to have been produced, the expected balance
     -- on the foundation account and the expected bank status.
@@ -123,7 +123,7 @@ testDoMintingP4 = do
             initialState <- thawBlockState =<< initialBlockState
             newState <-
                 doMintingP4
-                    dummyChainParameters
+                    (dummyChainParameters @'P4)
                     targetEpoch
                     mintRate
                     foundationAccount
@@ -305,7 +305,7 @@ genesis nBakers =
         []
         1_234
         (withIsAuthorizationsVersionFor (protocolVersion @pv) dummyKeyCollection)
-        dummyChainParameters
+        (dummyChainParameters @pv)
 
 type MyPersistentTreeState pv = SkovPersistentData pv
 type MyPersistentMonad pv =

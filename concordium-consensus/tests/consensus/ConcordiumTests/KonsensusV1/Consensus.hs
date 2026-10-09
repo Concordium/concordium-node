@@ -40,7 +40,7 @@ genesisDataV1 ::
     SProtocolVersion pv ->
     (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 genesisDataV1 sProtocolVersion =
-    makeGenesisDataV1 @pv
+    makeGenesisDataV1
         0
         10
         3_600_000
@@ -50,7 +50,7 @@ genesisDataV1 sProtocolVersion =
         [ foundationAcct
         ]
         (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
-        Dummy.dummyChainParameters
+        (Dummy.dummyChainParameters @pv)
   where
     foundationAcct =
         Dummy.createCustomAccount
