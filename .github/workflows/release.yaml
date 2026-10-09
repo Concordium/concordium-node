@@ -14,10 +14,10 @@ on:
           - p2p-bootstrapper
           - database-exporter
 
-  push:
-    tags:
-     - '*.*.*-*-rc'
-     - '*.*.*-*-alpha'
+  # push:
+  #   tags:
+  #    - '*.*.*-*-rc'
+  #    - '*.*.*-*-alpha'
 
 env:
   UBUNTU_VERSION: '22.04'
