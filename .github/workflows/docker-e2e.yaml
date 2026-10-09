@@ -22,16 +22,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout node repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: scripts/distribution/docker-image/builder.Dockerfile
@@ -43,7 +43,7 @@ jobs:
           tags: ${{ env.IMAGE_REF }}
 
       - name: Checkout E2E test suite
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Concordium/e2e-testing
           ref: ${{ inputs.e2e_ref }}
