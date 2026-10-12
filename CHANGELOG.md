@@ -6,6 +6,8 @@
 
 ## Unreleased changes (Devnet)
 
+## 11.2.3 (Devnet)
+
 - Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.
   Expired requests are rejected with `LockExpired`; requests beyond the inclusive deadline are rejected with `LockDurationTooLong`.
 
