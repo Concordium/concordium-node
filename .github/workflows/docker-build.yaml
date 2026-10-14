@@ -1,0 +1,169 @@
+name: Docker node image build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*.*.*-*-rc'
+      - '*.*.*-*-alpha'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-node-image-build
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Derive build metadata
+        id: metadata
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read the package version before selecting the staging tag.
+          cargo_version=$(awk -F '"' '/^version = "/ { print $2; exit }' concordium-node/Cargo.toml)
+          if [[ ! "$cargo_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::Could not read a valid node version.'
+            exit 1
+          fi
+          # Keep RC and alpha tags distinct. Manual builds use the commit suffix.
+          if [[ "$EVENT_NAME" == 'push' ]]; then
+            if [[ ! "$REF_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-[0-9]+-(rc|alpha)$ ]]; then
+              echo '::error::Invalid build tag.'
+              exit 1
+            fi
+            if [[ "${BASH_REMATCH[1]}" != "$cargo_version" ]]; then
+              echo '::error::Cargo version does not match the build tag.'
+              exit 1
+            fi
+            image_version="$REF_NAME"
+          else
+            image_version="$cargo_version-${GITHUB_SHA:0:7}"
+          fi
+          # Require a full private ECR URI before AWS authentication.
+          if [[ ! "$ECR_REPOSITORY" =~ ^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9][a-z0-9._/-]*$ || -z "$AWS_REGION" ]]; then
+            echo '::error::Configure AWS_REGION and the full ECR_REPOSITORY URI.'
+            exit 1
+          fi
+          # Share the image tag and ECR repository name with later steps.
+          {
+            echo "version=$image_version"
+            echo "image_ref=$ECR_REPOSITORY:$image_version"
+            echo "repository_name=${ECR_REPOSITORY#*/}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Check staging version
+        id: existing
+        env:
+          REPOSITORY_NAME: ${{ steps.metadata.outputs.repository_name }}
+          IMAGE_VERSION: ${{ steps.metadata.outputs.version }}
+          IMAGE_REF: ${{ steps.metadata.outputs.image_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep registry errors separate from the digest and remove the temporary file.
+          manifest_error=$(mktemp)
+          trap 'rm -f "$manifest_error"' EXIT
+          if image_digest=$(aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=$IMAGE_VERSION" --query 'imageDetails[0].imageDigest' --output text 2>"$manifest_error"); then
+            # Only a rerun can reuse a version that is already in ECR.
+            if (( GITHUB_RUN_ATTEMPT <= 1 )); then
+              echo '::error::The staging version already exists.'
+              exit 1
+            fi
+            if [[ ! "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo '::error::Invalid staging digest.'
+              exit 1
+            fi
+            # Inspect the exact digest. Reuse it only if both build labels match.
+            docker pull "$ECR_REPOSITORY@$image_digest"
+            image_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$ECR_REPOSITORY@$image_digest")
+            image_version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$ECR_REPOSITORY@$image_digest")
+            if [[ "$image_revision" != "$GITHUB_SHA" || "$image_version" != "$IMAGE_VERSION" ]]; then
+              echo '::error::Existing staging image does not match this build.'
+              exit 1
+            fi
+            echo 'resume=true' >> "$GITHUB_OUTPUT"
+            echo "digest=$image_digest" >> "$GITHUB_OUTPUT"
+          # Only a missing image permits a build. Authentication and service errors fail.
+          elif grep --fixed-strings --quiet '(ImageNotFoundException)' "$manifest_error"; then
+            echo 'resume=false' >> "$GITHUB_OUTPUT"
+          else
+            cat "$manifest_error" >&2
+            echo '::error::Could not check the staging version.'
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.resume != 'true'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push staging image
+        if: steps.existing.outputs.resume != 'true'
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: scripts/distribution/docker-image/builder.Dockerfile
+          platforms: linux/amd64
+          pull: true
+          no-cache: true
+          push: true
+          provenance: false
+          tags: ${{ steps.metadata.outputs.image_ref }}
+          labels: |
+            org.opencontainers.image.title=Concordium Node
+            org.opencontainers.image.description=Concordium node and collector
+            org.opencontainers.image.source=https://github.com/Concordium/concordium-node
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.metadata.outputs.version }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.8.2
+        with:
+          cosign-release: v2.5.0
+
+      - name: Sign staging image
+        env:
+          IMAGE_DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Sign the new or resumed digest, not the mutable tag reference.
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::Could not resolve the staging digest.'
+            exit 1
+          fi
+          cosign sign --yes "$ECR_REPOSITORY@$IMAGE_DIGEST"
+          # Record the signed image for staging checks and release selection.
+          {
+            echo '## Docker node staging build'
+            printf '\n- Image: `%s@%s`\n' "$ECR_REPOSITORY" "$IMAGE_DIGEST"
+            printf -- '- Version: `%s`\n' '${{ steps.metadata.outputs.version }}'
+          } >> "$GITHUB_STEP_SUMMARY"
