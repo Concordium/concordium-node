@@ -3,6 +3,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -217,6 +218,7 @@ instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
 
 instance (Monad m) => MonadLogger (FixedTimeT m) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 instance (Monad m) => TimeMonad (FixedTimeT m) where
     currentTime = FixedTime return
@@ -238,6 +240,7 @@ newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 -- | Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runTestSkovQueryMonad' :: TestSkovQueryMonad a -> UTCTime -> GenesisData PV -> IO (a, TestSkovState)
@@ -280,7 +283,7 @@ maxBlockEnergy = 3_000_000
 -- | Construct a genesis state with hardcoded values for parameters that should not affect this test.
 --  Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
-testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP5 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection dummyChainParameters
+testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP5 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection (dummyChainParameters @PV)
 
 -- | Run the doReceiveTransaction function and obtain the results
 testDoReceiveTransaction :: [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]

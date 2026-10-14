@@ -282,6 +282,27 @@ type family RSAccountRef pv where
     RSAccountRef 'P4 = AccountAddress
     RSAccountRef _ = AccountIndex
 
+-- | A GADT that witnesses the type of account reference used in the release schedule for a given
+--  protocol version.
+data RSAccountRefType (pv :: ProtocolVersion) where
+    RSAccountRefTypeAccountAddress :: (RSAccountRef pv ~ AccountAddress) => RSAccountRefType pv
+    RSAccountRefTypeAccountIndex :: (RSAccountRef pv ~ AccountIndex) => RSAccountRefType pv
+
+-- | Get the 'RSAccountRefType' for a given protocol version.
+releaseScheduleAccountRefType :: forall pv. (IsProtocolVersion pv) => RSAccountRefType pv
+releaseScheduleAccountRefType = case protocolVersion @pv of
+    SP1 -> RSAccountRefTypeAccountAddress
+    SP2 -> RSAccountRefTypeAccountAddress
+    SP3 -> RSAccountRefTypeAccountAddress
+    SP4 -> RSAccountRefTypeAccountAddress
+    SP5 -> RSAccountRefTypeAccountIndex
+    SP6 -> RSAccountRefTypeAccountIndex
+    SP7 -> RSAccountRefTypeAccountIndex
+    SP8 -> RSAccountRefTypeAccountIndex
+    SP9 -> RSAccountRefTypeAccountIndex
+    SP10 -> RSAccountRefTypeAccountIndex
+    SP11 -> RSAccountRefTypeAccountIndex
+
 -- | A top-level release schedule used for a particular protocol version.
 data ReleaseSchedule (pv :: ProtocolVersion) where
     -- | A release schedule for protocol versions 'P1' to 'P4'.
@@ -300,17 +321,9 @@ deriving instance (IsProtocolVersion pv) => Show (ReleaseSchedule pv)
 instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSchedule pv) where
     storeUpdate (ReleaseScheduleP0 rs) = second ReleaseScheduleP0 <$> storeUpdate rs
     storeUpdate (ReleaseScheduleP5 rs) = second ReleaseScheduleP5 <$> storeUpdate rs
-    load = case protocolVersion @pv of
-        SP1 -> fmap ReleaseScheduleP0 <$> load
-        SP2 -> fmap ReleaseScheduleP0 <$> load
-        SP3 -> fmap ReleaseScheduleP0 <$> load
-        SP4 -> fmap ReleaseScheduleP0 <$> load
-        SP5 -> fmap ReleaseScheduleP5 <$> load
-        SP6 -> fmap ReleaseScheduleP5 <$> load
-        SP7 -> fmap ReleaseScheduleP5 <$> load
-        SP8 -> fmap ReleaseScheduleP5 <$> load
-        SP9 -> fmap ReleaseScheduleP5 <$> load
-        SP10 -> fmap ReleaseScheduleP5 <$> load
+    load = case releaseScheduleAccountRefType @pv of
+        RSAccountRefTypeAccountAddress -> fmap ReleaseScheduleP0 <$> load
+        RSAccountRefTypeAccountIndex -> fmap ReleaseScheduleP5 <$> load
 
 instance (MonadBlobStore m) => Cacheable m (ReleaseSchedule pv) where
     cache (ReleaseScheduleP0 rs) = ReleaseScheduleP0 <$> cache rs
@@ -333,17 +346,9 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (ReleaseSchedule pv) 
 
 -- | Construct an empty release schedule.
 emptyReleaseSchedule :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => m (ReleaseSchedule pv)
-emptyReleaseSchedule = case protocolVersion @pv of
-    SP1 -> rsP0
-    SP2 -> rsP0
-    SP3 -> rsP0
-    SP4 -> rsP0
-    SP5 -> rsP1
-    SP6 -> rsP1
-    SP7 -> rsP1
-    SP8 -> rsP1
-    SP9 -> rsP1
-    SP10 -> rsP1
+emptyReleaseSchedule = case releaseScheduleAccountRefType @pv of
+    RSAccountRefTypeAccountAddress -> rsP0
+    RSAccountRefTypeAccountIndex -> rsP1
   where
     rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule pv)
     rsP0 = do
@@ -383,17 +388,9 @@ trivialReleaseScheduleMigration ::
     forall m pv.
     (IsProtocolVersion pv) =>
     ReleaseScheduleMigration m pv pv
-trivialReleaseScheduleMigration = case protocolVersion @pv of
-    SP1 -> RSMLegacyToLegacy
-    SP2 -> RSMLegacyToLegacy
-    SP3 -> RSMLegacyToLegacy
-    SP4 -> RSMLegacyToLegacy
-    SP5 -> RSMNewToNew
-    SP6 -> RSMNewToNew
-    SP7 -> RSMNewToNew
-    SP8 -> RSMNewToNew
-    SP9 -> RSMNewToNew
-    SP10 -> RSMNewToNew
+trivialReleaseScheduleMigration = case releaseScheduleAccountRefType @pv of
+    RSAccountRefTypeAccountAddress -> RSMLegacyToLegacy
+    RSAccountRefTypeAccountIndex -> RSMNewToNew
 
 -- | Migrate a release schedule from one protocol version to another, given by a
 --  'ReleaseScheduleMigration'.

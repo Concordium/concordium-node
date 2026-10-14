@@ -137,7 +137,13 @@ transactionHelper t =
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
         (TJSON meta TokenUpdate{..} keys) ->
-            return $ signTx keys meta (Types.encodePayload Types.TokenUpdate{..})
+            return $
+                signTx keys meta . Types.encodePayload . Types.TokenUpdate $
+                    Types.ScopedTokenUpdate tuTokenId (Types.EncodedTokenOperations tuOperations)
+        (TJSON meta UnscopedTokenUpdate{..} keys) ->
+            return $
+                signTx keys meta . Types.encodePayload . Types.TokenUpdate $
+                    Types.UnscopedTokenUpdate (Types.EncodedOperations utuOperations)
 
 -- | Process account transactions.
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
@@ -302,7 +308,11 @@ data PayloadJSON
         { -- | Identifier of the token type to which the transaction refers.
           tuTokenId :: !Types.TokenId,
           -- | The CBOR-encoded operations to perform.
-          tuOperations :: !Types.TokenParameter
+          tuOperations :: !Types.RawCbor
+        }
+    | UnscopedTokenUpdate
+        { -- | The CBOR-encoded token-specific and token-independent operations to perform.
+          utuOperations :: !Types.RawCbor
         }
     deriving (Show, Generic)
 

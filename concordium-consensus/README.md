@@ -25,7 +25,7 @@ This might happen if Rust is installed with the MSVC [ABI](https://en.wikipedia.
 You can check this by running `rustup show`.
 If Rust is using the MSVC toolchain you can switch to GNU instead by running
 ```
-rustup default stable-x86_64-pc-windows-gnu
+rustup override set 1.94-x86_64-pc-windows-gnu
 ```
 
 ### `user specified .o/.so/.DLL could not be loaded (addDLL: pthread or dependencies not loaded. (Win32 error 5)) whilst trying to load:  (dynamic) pthread`

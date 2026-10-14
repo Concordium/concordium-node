@@ -24,6 +24,9 @@ EXPORTS
 
  getAccountInfoV2
  getTokenInfoV2
+ getTokenAuthorizationsV2
+ getLockListV2
+ getLockInfoV2
  getAccountListV2
  getTokenListV2
  getModuleListV2

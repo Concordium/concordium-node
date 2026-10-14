@@ -1,13 +1,13 @@
-param ([string] $rustVersion = "1.73", [string] $nodeVersion)
+param ([string] $rustVersion, [string] $nodeVersion)
 
 Write-Output "stack version: $(stack --version)"
 Write-Output "cargo version: $(cargo --version)"
 Write-Output "flatc version: $(flatc --version)"
 Write-Output "protoc version: $(protoc --version)"
 
-# Set the default Rust toolchain so that consensus Rust dependencies use it.
+# Override the repository toolchain so that consensus Rust dependencies use GNU Rust.
 $gnuToolchain = "$rustVersion-x86_64-pc-windows-gnu"
-rustup default $gnuToolchain
+rustup override set $gnuToolchain
 if ($LASTEXITCODE -ne 0) { throw "Failed selecting the GNU Rust toolchain" }
 
 # Resolve GNU dlltool before Stack puts GHC's LLVM tools first on PATH.
@@ -96,8 +96,8 @@ try {
     $filesToSign = @(
         "$StackInstallRoot\lib\concordium-consensus.dll",
         "..\..\..\concordium-base\lib\concordium_base.dll",
-        "..\..\..\concordium-base\smart-contracts\lib\concordium_smart_contract_engine.dll",
         "..\..\..\concordium-base\lib\sha_2.dll",
+        "..\..\..\concordium-consensus\lib\node_rust_library.dll",
         "..\..\..\service\windows\target\x86_64-pc-windows-msvc\release\node-runner-service.exe",
         "..\..\..\collector\target\release\node-collector.exe",
         "..\..\..\concordium-node\target\release\concordium-node.exe"

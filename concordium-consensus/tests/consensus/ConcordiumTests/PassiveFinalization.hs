@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 
@@ -32,7 +33,7 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
-import Concordium.GlobalState.DummyData (dummyChainParameters, dummyKeyCollection)
+import Concordium.GlobalState.DummyData (dummyChainParameters', dummyKeyCollection)
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
@@ -344,7 +345,7 @@ createInitStates additionalFinMembers = do
                 _ -> error "bis should be a list with four elements"
     let
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-        cps = dummyChainParameters & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
+        cps = dummyChainParameters' @'ChainParametersV0 & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen =
             GDP1
                 GDP1Initial

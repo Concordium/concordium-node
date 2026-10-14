@@ -46,10 +46,12 @@ import Concordium.Types.Execution (
  )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import qualified Concordium.Types.Locks as Locks
 import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
+import qualified Concordium.Types.Queries.Locks as Locks
 import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
@@ -89,7 +91,17 @@ import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryAccountTokens, queryTokenInfo)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (
+    QueryLockError,
+    QueryTokenModuleError,
+    SerializedLockId,
+    queryAccountTokens,
+    queryLockInfo,
+    queryLockList,
+    queryPLTList,
+    queryTokenAuthorizations,
+    queryTokenInfo,
+ )
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
@@ -904,6 +916,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                             SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion2 -> queueMapper PUELevel2KeysV2 _pLevel2KeysUpdateQueue
+                            SAuthorizationsVersion3 -> queueMapper PUELevel2KeysV3 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
                 `merge` queueMapperOptional PUEElectionDifficulty _pElectionDifficultyQueue
@@ -936,6 +949,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
                 `merge` queueMapperOptional PUEFinalizationCommitteeParameters _pFinalizationCommitteeParametersQueue
                 `merge` queueMapperOptional PUEValidatorScoreParameters _pValidatorScoreParametersQueue
+                `merge` queueMapperConditional PUEMaxLockDuration _pMaxLockDurationQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion
@@ -945,6 +959,10 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
             queueMapperOptional :: (a -> PendingUpdateEffect) -> UQ.OUpdateQueue pt cpv a -> [(TransactionTime, PendingUpdateEffect)]
             queueMapperOptional _ NoParam = []
             queueMapperOptional constructor (SomeParam queue) = queueMapper constructor queue
+
+            queueMapperConditional :: (a -> PendingUpdateEffect) -> Conditionally b (UQ.UpdateQueue a) -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapperConditional _ CFalse = []
+            queueMapperConditional constructor (CTrue queue) = queueMapper constructor queue
 
         -- Merge two ascending lists into an ascending list.
         merge ::
@@ -1018,6 +1036,9 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
     mNextSequenceNumber :: UQ.OUpdateQueue pt cpv e -> U.UpdateSequenceNumber
     mNextSequenceNumber NoParam = minUpdateSequenceNumber
     mNextSequenceNumber (SomeParam q) = UQ._uqNextSequenceNumber q
+    cNextSequenceNumber :: Conditionally b (UQ.UpdateQueue e) -> U.UpdateSequenceNumber
+    cNextSequenceNumber CFalse = minUpdateSequenceNumber
+    cNextSequenceNumber (CTrue q) = UQ._uqNextSequenceNumber q
     query bs = do
         updates <- BS.getUpdates bs
         let UQ.PendingUpdates{..} = UQ._pendingUpdates updates
@@ -1044,7 +1065,8 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
                   _nusnBlockEnergyLimit = mNextSequenceNumber _pBlockEnergyLimitQueue,
                   _nusnFinalizationCommitteeParameters = mNextSequenceNumber _pFinalizationCommitteeParametersQueue,
                   _nusnValidatorScoreParameters = mNextSequenceNumber _pValidatorScoreParametersQueue,
-                  _nusnProtocolLevelTokensParameters = maybeConditionally minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates)
+                  _nusnProtocolLevelTokensParameters = maybeConditionally minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates),
+                  _nusnMaxLockDuration = cNextSequenceNumber _pMaxLockDurationQueue
                 }
 
 -- | Get the index of accounts with scheduled releases.
@@ -1181,7 +1203,7 @@ getAccountList = liftSkovQueryStateBHI BS.getAccountList
 
 -- | Get a list of protocol level tokens that exist in the block state.
 getTokenList :: BlockHashInput -> MVR finconf (BHIQueryResponse [TokenId])
-getTokenList = liftSkovQueryStateBHI BS.getPLTList
+getTokenList = liftSkovQueryStateBHI queryPLTList
 
 -- | Get a list of all smart contract instances in the block state.
 getInstanceList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ContractAddress])
@@ -1192,8 +1214,20 @@ getModuleList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ModuleRef])
 getModuleList = liftSkovQueryStateBHI BS.getModuleList
 
 -- | Get the details of a token in the block state.
-getTokenInfo :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Either QueryTokenInfoError Tokens.TokenInfo))
+getTokenInfo :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Either QueryTokenModuleError Tokens.TokenInfo))
 getTokenInfo blockHashInput tokenId = liftSkovQueryStateBHI (queryTokenInfo tokenId) blockHashInput
+
+-- | Get the details of token authorizations in the block state.
+getTokenAuthorizations :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Either QueryTokenModuleError Tokens.TokenAuthorizations))
+getTokenAuthorizations blockHashInput tokenId = liftSkovQueryStateBHI (queryTokenAuthorizations tokenId) blockHashInput
+
+-- | Get a list of all PLT lock ids that exist in the block state.
+getLockList :: BlockHashInput -> MVR finconf (BHIQueryResponse [Locks.LockId])
+getLockList = liftSkovQueryStateBHI queryLockList
+
+-- | Get the CBOR-encoded `lock-info` payload for a given lock id.
+getLockInfo :: BlockHashInput -> SerializedLockId -> MVR finconf (BHIQueryResponse (Either QueryLockError Locks.LockInfo))
+getLockInfo blockHashInput lockId = liftSkovQueryStateBHI (queryLockInfo lockId) blockHashInput
 
 -- | Get the details of an account in the block state.
 --  The account can be given via an address, an account index or a credential registration id.

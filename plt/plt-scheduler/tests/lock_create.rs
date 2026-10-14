@@ -1,0 +1,485 @@
+//! Tests for creating a PLT lock.
+
+use crate::utils::BlockStateLatest;
+use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use assert_matches::assert_matches;
+use concordium_base::{
+    base::Energy,
+    common::{cbor, cbor::value::Value, types::TransactionTime},
+    contracts_common::Duration,
+    protocol_level_locks::{
+        LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability,
+        LockControllerSimpleV0Grant, LockId, LockMetadata, LockRecipients,
+    },
+    protocol_level_tokens::{
+        MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
+        TokenModuleInitializationParameters, operations,
+    },
+    transactions::{Payload, TokenUpdatePayload},
+    updates::{CreatePlt, UpdatePayload},
+};
+use plt_block_state::entity::accounts::Account;
+use plt_block_state::entity::entity_test_stub;
+use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
+use plt_scheduler::TOKEN_MODULE_REF;
+use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
+use std::collections::HashMap;
+
+mod utils;
+
+fn execute_lock_create_with_duration(
+    expiry_seconds: u64,
+    block_timestamp: u64,
+    max_lock_duration: u64,
+) -> (
+    Result<
+        plt_scheduler_types::types::execution::TransactionExecutionSummary,
+        plt_scheduler::scheduler::TransactionExecutionError,
+    >,
+    bool,
+) {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let account_index = context.external.create_account().account_index();
+    let account = context.external.account_canonical_address(account_index);
+    let lock_id = LockId::new(account_index, 1, 0);
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(expiry_seconds),
+        grants: vec![],
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
+        metadata: None,
+    });
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
+    };
+    let result = plt_scheduler::scheduler::p11::execute_transaction(
+        &mut context,
+        &mut block_state,
+        plt_scheduler::TransactionContext {
+            energy_limit: Energy::from(u64::MAX),
+            sender_account_address: account,
+            transaction_sequence_number: 1.into(),
+            block_timestamp: block_timestamp.into(),
+        },
+        Account::from_existing_account(account_index),
+        Payload::TokenUpdate {
+            payload: TokenUpdatePayload::Unscoped(payload),
+        },
+        &PersistentChainParametersP11 {
+            max_lock_duration: Duration::from_millis(max_lock_duration),
+        },
+    );
+    let lock_exists = matches!(block_state.lock_by_id(&context, &lock_id), Ok(Ok(_)));
+    (result, lock_exists)
+}
+
+#[test]
+fn test_create_simple_lock() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let account_index_1 = context.external.create_account().account_index();
+    let account_1 = context.external.account_canonical_address(account_index_1);
+
+    let plt_x: TokenId = "pltX".parse().unwrap();
+    let parameters = TokenModuleInitializationParameters {
+        name: Some("Test PLT 1".to_owned()),
+        metadata: Some(MetadataUrl::from("https://pltX.token".to_string())),
+        governance_account: Some(account_1.into()),
+        allow_list: None,
+        deny_list: None,
+        initial_supply: Some(TokenAmount::from_raw(10000, 2)),
+        mintable: Some(true),
+        burnable: Some(true),
+    };
+    let initialization_parameters = cbor::cbor_encode(&parameters).into();
+    let payload = UpdatePayload::CreatePlt(CreatePlt {
+        token_id: plt_x.clone(),
+        token_module: TOKEN_MODULE_REF,
+        decimals: 2,
+        initialization_parameters,
+    });
+    block_state
+        .execute_chain_update(&mut context, payload)
+        .expect("create pltX");
+
+    let metadata = LockMetadata {
+        name: Some("Test lock".to_string()),
+        description: Some("Lock created in scheduler test".to_string()),
+        additional: HashMap::from([("issuer".to_string(), Value::Text("Concordium".to_string()))]),
+    };
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Limited(vec![account_1.into()]),
+        expiry: TransactionTime::from_seconds(1000),
+        grants: vec![LockControllerSimpleV0Grant {
+            account: account_1.into(),
+            roles: vec![
+                LockControllerSimpleV0Capability::Cancel,
+                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Cancel,
+                LockControllerSimpleV0Capability::Send,
+                LockControllerSimpleV0Capability::Release,
+                LockControllerSimpleV0Capability::Fund,
+            ],
+        }],
+        tokens: vec!["PLTx".parse().unwrap()],
+        keep_alive: false,
+        memo: None,
+        metadata: Some(metadata.encode_raw_cbor()),
+    });
+    let mut canonical_config = config.clone();
+    let LockConfig::SimpleV0(controller) = &mut canonical_config;
+    controller.tokens = vec![plt_x.clone()];
+    controller.grants[0].roles = vec![
+        LockControllerSimpleV0Capability::Fund,
+        LockControllerSimpleV0Capability::Release,
+        LockControllerSimpleV0Capability::Send,
+        LockControllerSimpleV0Capability::Cancel,
+    ];
+
+    let operations = vec![operations::create_lock(config)];
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account_1,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
+            account_index_1,
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(payload),
+            },
+        )
+        .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    assert_eq!(events.len(), 1);
+    let BlockItemEvent::LockCreated(event) = &events[0] else {
+        panic!("expected lock-created event")
+    };
+    assert_eq!(
+        hex::encode(&event.lock_config),
+        "a16873696d706c655630a566657870697279c11903e8666772616e747381a265726f6c6573846466756e646772656c656173656473656e646663616e63656c676163636f756e74d99d73a201d99d71a101190397035820000000000000000000000000000000000000000000000000000000000000000066746f6b656e738164706c7458686d65746164617461584ea3646e616d656954657374206c6f636b666973737565726a436f6e636f726469756d6b6465736372697074696f6e781e4c6f636b206372656174656420696e207363686564756c657220746573746a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
+    );
+    let lock_id = LockId::new(account_index_1, 1, 0);
+    assert_eq!(
+        events[0],
+        BlockItemEvent::LockCreated(LockCreateEvent {
+            lock_id: lock_id.clone(),
+            lock_config: RawCbor::from(cbor::cbor_encode(&canonical_config))
+        })
+    );
+
+    let stored_lock = block_state.lock_by_id(&context, &lock_id).unwrap().unwrap();
+    let stored_configuration = stored_lock.lock_configuration(&context).unwrap();
+    assert_eq!(
+        match stored_configuration.as_ref() {
+            plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(
+                config,
+            ) => config.metadata.clone(),
+        },
+        Some(metadata.encode_raw_cbor())
+    );
+    let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
+        stored_configuration.as_ref();
+    assert_eq!(
+        controller.grants()[0].roles(),
+        [
+            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Release,
+            LockControllerSimpleV0Capability::Send,
+            LockControllerSimpleV0Capability::Cancel,
+        ]
+    );
+    assert_eq!(controller.tokens(), &[plt_x]);
+}
+
+#[test]
+fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let account_index = context.external.create_account().account_index();
+    let account = context.external.account_canonical_address(account_index);
+    let other_index = context.external.create_account().account_index();
+    let other = context.external.account_canonical_address(other_index);
+    let lock_id = LockId::new(account_index, 1, 0);
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(1_000),
+        grants: vec![
+            LockControllerSimpleV0Grant {
+                account: other.into(),
+                roles: vec![],
+            },
+            LockControllerSimpleV0Grant {
+                account: account.into(),
+                roles: vec![LockControllerSimpleV0Capability::Send],
+            },
+            LockControllerSimpleV0Grant {
+                account: account.into(),
+                roles: vec![LockControllerSimpleV0Capability::Fund; 256],
+            },
+        ],
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
+        metadata: None,
+    });
+    let expected = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        grants: vec![
+            LockControllerSimpleV0Grant {
+                account: account.into(),
+                roles: vec![
+                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Send,
+                ],
+            },
+            LockControllerSimpleV0Grant {
+                account: other.into(),
+                roles: vec![],
+            },
+        ],
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(1_000),
+        tokens: vec![],
+        keep_alive: false,
+        memo: None,
+        metadata: None,
+    });
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
+    };
+
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
+            account_index,
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(payload),
+            },
+        )
+        .expect("lock creation must succeed");
+    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    assert_eq!(
+        events,
+        vec![BlockItemEvent::LockCreated(LockCreateEvent {
+            lock_id: lock_id.clone(),
+            lock_config: RawCbor::from(cbor::cbor_encode(&expected))
+        })]
+    );
+    let info: concordium_base::protocol_level_locks::LockInfo =
+        cbor::cbor_decode(block_state.query_lock_info(&context, &lock_id).unwrap()).unwrap();
+    assert_eq!(info.config, expected);
+
+    let stored_lock = block_state
+        .lock_by_id(&context, &lock_id)
+        .expect("lock lookup must succeed")
+        .expect("lock must exist");
+    let stored_configuration = stored_lock
+        .lock_configuration(&context)
+        .expect("lock configuration must load");
+    let bytes = concordium_base::common::to_bytes(stored_configuration.as_ref());
+    let reloaded: plt_block_state::persistent::protocol_level_locks::p11::LockConfig =
+        concordium_base::common::from_bytes_complete(&bytes)
+            .expect("canonical lock configuration must reload completely");
+
+    assert_eq!(reloaded, *stored_configuration);
+    let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(controller) =
+        reloaded;
+    assert_eq!(
+        controller.grants()[0].roles(),
+        [
+            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Send
+        ]
+    );
+}
+
+#[test]
+fn test_create_any_recipient_lock() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+
+    let account_index_1 = context.external.create_account().account_index();
+    let account_1 = context.external.account_canonical_address(account_index_1);
+
+    let plt_x: TokenId = "pltX".parse().unwrap();
+    let parameters = TokenModuleInitializationParameters {
+        name: Some("Test PLT 1".to_owned()),
+        metadata: Some(MetadataUrl::from("https://pltX.token".to_string())),
+        governance_account: Some(account_1.into()),
+        allow_list: None,
+        deny_list: None,
+        initial_supply: Some(TokenAmount::from_raw(10000, 2)),
+        mintable: Some(true),
+        burnable: Some(true),
+    };
+    let initialization_parameters = cbor::cbor_encode(&parameters).into();
+    let payload = UpdatePayload::CreatePlt(CreatePlt {
+        token_id: plt_x.clone(),
+        token_module: TOKEN_MODULE_REF,
+        decimals: 2,
+        initialization_parameters,
+    });
+    block_state
+        .execute_chain_update(&mut context, payload)
+        .expect("create pltX");
+
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(1000),
+        grants: vec![LockControllerSimpleV0Grant {
+            account: account_1.into(),
+            roles: vec![LockControllerSimpleV0Capability::Fund],
+        }],
+        tokens: vec![plt_x],
+        keep_alive: false,
+        memo: None,
+        metadata: None,
+    });
+    let operations = vec![operations::create_lock(config.clone())];
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: account_1,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 0.into(),
+            },
+            account_index_1,
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(payload),
+            },
+        )
+        .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0],
+        BlockItemEvent::LockCreated(LockCreateEvent {
+            lock_id: LockId::new(account_index_1, 1, 0),
+            lock_config: RawCbor::from(cbor::cbor_encode(&config))
+        })
+    );
+
+    let lock = block_state
+        .lock_by_id(&context, &LockId::new(account_index_1, 1, 0))
+        .expect("lock lookup must succeed")
+        .expect("lock must exist");
+    let configuration = lock
+        .lock_configuration(&context)
+        .expect("lock configuration must load");
+    assert!(
+        matches!(configuration.as_ref(), plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
+    );
+}
+
+#[test]
+fn lock_creation_enforces_expiry_and_maximum_duration() {
+    let lock_id = LockId::new(0, 1, 0);
+
+    let (result, lock_exists) = execute_lock_create_with_duration(0, 1, u64::MAX);
+    let outcome = result.expect("expired lock creation must execute").outcome;
+    assert_matches!(outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
+        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockExpired(id)
+    ) if id == lock_id);
+    assert!(!lock_exists);
+
+    let (result, lock_exists) = execute_lock_create_with_duration(1, 1_000, 0);
+    let outcome = result.expect("boundary lock creation must execute").outcome;
+    assert_matches!(
+        outcome,
+        plt_scheduler_types::types::execution::TransactionOutcome::Success(_)
+    );
+    assert!(lock_exists);
+
+    let (result, lock_exists) = execute_lock_create_with_duration(2, 1_000, 999);
+    let outcome = result.expect("overlong lock creation must execute").outcome;
+    assert_matches!(outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
+        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockDurationTooLong(id)
+    ) if id == lock_id);
+    assert!(!lock_exists);
+}
+
+#[test]
+fn lock_creation_maximum_deadline_inclusive() {
+    let (result, lock_exists) = execute_lock_create_with_duration(2, 1_500, 500);
+    let outcome = result.expect("deadline lock creation must execute").outcome;
+    assert_matches!(
+        outcome,
+        plt_scheduler_types::types::execution::TransactionOutcome::Success(_)
+    );
+    assert!(lock_exists);
+
+    let (result, lock_exists) = execute_lock_create_with_duration(2, 1_500, 499);
+    let outcome = result.expect("overlong lock creation must execute").outcome;
+    assert_matches!(outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
+        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockDurationTooLong(_)
+    ));
+    assert!(!lock_exists);
+}
+
+#[test]
+fn lock_creation_duration_reject_reports_its_creation_order() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let account_index = context.external.create_account().account_index();
+    let account = context.external.account_canonical_address(account_index);
+    let config = |expiry| {
+        LockConfig::SimpleV0(LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from_seconds(expiry),
+            grants: vec![],
+            tokens: vec![],
+            keep_alive: false,
+            memo: None,
+            metadata: None,
+        })
+    };
+    let payload = OperationsPayload {
+        operations: RawCbor::from(cbor::cbor_encode(&vec![
+            operations::create_lock(config(1)),
+            operations::create_lock(config(2)),
+        ])),
+    };
+    let result = plt_scheduler::scheduler::p11::execute_transaction(
+        &mut context,
+        &mut block_state,
+        plt_scheduler::TransactionContext {
+            energy_limit: Energy::from(u64::MAX),
+            sender_account_address: account,
+            transaction_sequence_number: 1.into(),
+            block_timestamp: 0.into(),
+        },
+        Account::from_existing_account(account_index),
+        Payload::TokenUpdate {
+            payload: TokenUpdatePayload::Unscoped(payload),
+        },
+        &PersistentChainParametersP11 {
+            max_lock_duration: Duration::from_millis(1_000),
+        },
+    )
+    .expect("multi-operation lock creation must execute");
+    assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
+        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockDurationTooLong(lock_id)
+    ) if lock_id == LockId::new(account_index, 1, 1));
+}

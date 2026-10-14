@@ -477,6 +477,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad pv) where
 -- Do not log anything.
 instance MonadLogger (TestMonad pv) where
     logEvent _ _ _ = return ()
+    logEventIO = return $ \_ _ _ -> return ()
 
 instance MonadModuleMapStore (TestMonad pv) where
     insertModules mods = TestMonad $ \r _ _ ->
