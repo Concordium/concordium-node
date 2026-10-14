@@ -20,8 +20,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout released revision
-        uses: actions/checkout@v4
+      # Public releases run from the default branch. Use its reviewed description.
+      - name: Checkout release workflow revision
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 

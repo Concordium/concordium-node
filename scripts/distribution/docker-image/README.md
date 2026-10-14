@@ -115,7 +115,7 @@ The image runs as UID and GID `10001:10001`. The entrypoint requires an explicit
 
 Use these instructions to release the `concordium/node` image.
 
-### 1. Publish the image
+### 1. Build the staging image
 
 1. Check the version in `concordium-node/Cargo.toml`.
 2. Update `hub-description.md` if the configuration or operating instructions changed.
@@ -127,9 +127,24 @@ Use these instructions to release the `concordium/node` image.
    git push origin 9.0.1-0-rc
    ```
 
-5. Check that [Docker node image release](../../../.github/workflows/docker-release.yaml) completes successfully in GitHub Actions.
+5. Check that [Docker node image build](../../../.github/workflows/docker-build.yaml) completes successfully in GitHub Actions. It pushes directly to ECR and signs the digest.
 
-### 2. Check the description
+Manual builds use `<version>-<short SHA>` staging tags. Alpha and manual builds cannot be released to Docker Hub. A build rerun can reuse an existing image only when its revision and version labels match. A first attempt with an existing version fails.
+
+### 2. Publish to Docker Hub
+
+1. Open [Docker node image release](../../../.github/workflows/docker-release.yaml).
+2. Select **Run workflow** on the default branch.
+3. Enter an existing ECR RC tag, for example `9.0.1-0-rc`.
+4. Review the validation summary. It records the source revision and pinned ECR digest before approval.
+5. Approve publication through the `release` environment.
+6. Check that publication and signing complete. The public tag is `concordium/node:9.0.1-0`.
+
+The release verifies the exact RC-tag signature from `docker-build.yaml` and checks image metadata against the Git tag. It verifies the signature again after approval, copies the pinned digest without rebuilding, checks the public digest, and signs it under the release workflow identity. Builds signed by the former build workflow are not eligible; create a new RC build.
+
+A matching public digest permits a retry, including completion of signing. A different public digest fails and is never overwritten. Publication does not update `latest`.
+
+### 3. Check the description
 
 [Docker node description release](../../../.github/workflows/docker-description-release.yaml) starts automatically after the image release succeeds.
 
@@ -138,16 +153,38 @@ Use these instructions to release the `concordium/node` image.
 
 For a documentation-only release, commit the changes to `hub-description.md`. Run the description workflow manually from the branch with those changes.
 
-### 3. Test the image
+### 4. Test the image
 
 1. Pull `concordium/node:<version>`.
 2. Do the checks in [Validate](#validate). Replace `concordium/node:latest` with the versioned image in each command.
 3. Run the end-to-end tests with the same image.
 
-### 4. Update latest
+### 5. Update latest
 
 1. Open [Promote Docker node image to latest](../../../.github/workflows/docker-promote-latest.yaml) in GitHub Actions.
 2. Select **Run workflow** and select the repository's default branch.
 3. Enter the image version tag, for example `9.0.1-0`. Do not enter `9.0.1-0-rc`, `latest`, or a full image reference.
 4. Start the workflow.
 5. Check that the workflow completes successfully.
+
+## AWS and GitHub setup
+
+How to set the repository-level GitHub Actions variables. Do not override them in the `release` environment:
+
+| Variable | Value |
+| --- | --- |
+| `AWS_REGION` | ECR region, for example `eu-west-1` |
+| `ECR_REPOSITORY` | Full URI, for example `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node` |
+| `AWS_ECR_PUSH_ROLE_ARN` | OIDC role for staging builds |
+| `AWS_ECR_PULL_ROLE_ARN` | Read-only OIDC role for release validation and publication |
+
+Configure ECR tag immutability as `IMMUTABLE_WITH_EXCLUSION`, with a wildcard exclusion of `sha256-*.sig`. Version tags must be immutable. Cosign v2 signature tags must remain writable so signing can complete on retries.
+
+Both roles need `ecr:GetAuthorizationToken` on `*`. Scope the remaining permissions to the staging repository:
+
+- Pull role: `ecr:DescribeImages`, `ecr:BatchGetImage`, and `ecr:GetDownloadUrlForLayer`.
+- Push role: all pull permissions, plus `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, and `ecr:PutImage`.
+
+Use GitHub's OIDC provider with audience `sts.amazonaws.com`. Restrict role trust to this repository. The push role must allow the RC/alpha tag subjects and approved manual-build branch subjects. The pull role must allow the default-branch subject for validation and `repo:Concordium/concordium-node:environment:release` for publication. Configure the `release` environment with required reviewers and restrict it to the default branch.
+
+Set `DOCKER_USERNAME` and `DOCKER_TOKEN` in the `release` environment. The token must permit image, signature, and description publication to `concordium/node`. These workflows do not provision AWS resources.
