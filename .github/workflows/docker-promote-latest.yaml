@@ -114,6 +114,6 @@ jobs:
           if [[ "$previous_digest" == "$source_digest" ]]; then
             echo '- Promotion: already matching; no change.' >> "$GITHUB_STEP_SUMMARY"
           else
-            # Preserve the digest. Do not wrap a single-platform manifest in a new index.
+            # Preserve the digest. Do not wrap the source image in a new index.
             docker buildx imagetools create --prefer-index=false --tag "$latest_ref" "$pinned_source"
           fi

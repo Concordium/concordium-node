@@ -7,7 +7,9 @@ ARG UBUNTU_VERSION=26.04
 # Compile the Haskell and Rust components in a disposable build stage.
 FROM ubuntu:${UBUNTU_VERSION} AS builder
 
-# Pin tools that are not selected by the repository toolchain files.
+# Pin tools that are not selected by the repository toolchain files. BuildKit
+# sets TARGETARCH to the platform being built (amd64 or arm64).
+ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 ARG STACK_VERSION=3.7.1
 ARG PROTOC_VERSION=28.3
@@ -22,6 +24,7 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         build-essential \
         ca-certificates \
+        cmake \
         curl \
         git \
         libffi-dev \
@@ -38,27 +41,38 @@ RUN apt-get update \
 
 # Install Stack directly because Ubuntu does not provide the required version.
 # Stack will download the GHC version selected by the repository resolver.
-RUN curl --fail --location --show-error --silent \
-        "https://github.com/commercialhaskell/stack/releases/download/v${STACK_VERSION}/stack-${STACK_VERSION}-linux-x86_64.tar.gz" \
+# Stack and protoc name the ARM64 archives differently, so map both names.
+RUN case "${TARGETARCH}" in \
+        amd64) stack_arch=x86_64; protoc_arch=x86_64 ;; \
+        arm64) stack_arch=aarch64; protoc_arch=aarch_64 ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --show-error --silent \
+        "https://github.com/commercialhaskell/stack/releases/download/v${STACK_VERSION}/stack-${STACK_VERSION}-linux-${stack_arch}.tar.gz" \
         --output /tmp/stack.tar.gz \
     && tar --extract --gzip --file /tmp/stack.tar.gz --directory /tmp \
-    && install "/tmp/stack-${STACK_VERSION}-linux-x86_64/stack" /usr/local/bin/stack \
-    && rm --recursive --force /tmp/stack.tar.gz "/tmp/stack-${STACK_VERSION}-linux-x86_64"
-
-# Install the code generators used by the node and collector build scripts.
-# These archives contain Linux AMD64 executables, so the image currently
-# supports only that architecture.
-RUN curl --fail --location --show-error --silent \
-        "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" \
+    && install "/tmp/stack-${STACK_VERSION}-linux-${stack_arch}/stack" /usr/local/bin/stack \
+    && rm --recursive --force /tmp/stack.tar.gz "/tmp/stack-${STACK_VERSION}-linux-${stack_arch}" \
+    && curl --fail --location --show-error --silent \
+        "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${protoc_arch}.zip" \
         --output /tmp/protoc.zip \
     && unzip -q /tmp/protoc.zip -d /usr/local bin/protoc 'include/*' \
-    && rm /tmp/protoc.zip \
-    && curl --fail --location --show-error --silent \
-        "https://github.com/google/flatbuffers/releases/download/v${FLATBUFFERS_VERSION}/Linux.flatc.binary.g++-10.zip" \
-        --output /tmp/flatc.zip \
-    && unzip -q /tmp/flatc.zip -d /tmp/flatc \
-    && install /tmp/flatc/flatc /usr/local/bin/flatc \
-    && rm --recursive --force /tmp/flatc /tmp/flatc.zip
+    && rm /tmp/protoc.zip
+
+# Build flatc from the pinned source release. Upstream publishes no Linux ARM64
+# binary, so build it on every architecture to keep the generated code identical.
+RUN curl --fail --location --show-error --silent \
+        "https://github.com/google/flatbuffers/archive/refs/tags/v${FLATBUFFERS_VERSION}.tar.gz" \
+        --output /tmp/flatbuffers.tar.gz \
+    && tar --extract --gzip --file /tmp/flatbuffers.tar.gz --directory /tmp \
+    && cmake -S "/tmp/flatbuffers-${FLATBUFFERS_VERSION}" -B /tmp/flatbuffers-build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DFLATBUFFERS_BUILD_TESTS=OFF \
+        -DFLATBUFFERS_BUILD_FLATLIB=OFF \
+        -DFLATBUFFERS_BUILD_FLATHASH=OFF \
+    && cmake --build /tmp/flatbuffers-build --target flatc --parallel "$(nproc)" \
+    && install /tmp/flatbuffers-build/flatc /usr/local/bin/flatc \
+    && rm --recursive --force /tmp/flatbuffers.tar.gz "/tmp/flatbuffers-${FLATBUFFERS_VERSION}" /tmp/flatbuffers-build
 
 # Install rustup with a minimal profile. Cargo reads rust-toolchain.toml after
 # the source tree is copied and installs the repository's Rust toolchain.
