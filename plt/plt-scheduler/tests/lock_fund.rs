@@ -11,6 +11,7 @@ use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, oper
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState, TokenModuleRejectReason,
 };
+use concordium_base::transactions::cost;
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
@@ -25,15 +26,15 @@ mod utils;
 macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
+        let operations = $operations;
+        let operation_count = operations.len() as u64;
         let payload = Payload::TokenUpdate {
             payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                operations: RawCbor::from(cbor::cbor_encode(&Operations {
-                    operations: $operations,
-                })),
+                operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
             }),
         };
 
-        $block_state
+        let summary = $block_state
             .execute_transaction(
                 $context,
                 plt_scheduler::TransactionContext {
@@ -45,8 +46,15 @@ macro_rules! execute_unscoped_update {
                 $sender,
                 payload,
             )
-            .expect("unscoped Token Update transaction must execute")
-            .outcome
+            .expect("unscoped Token Update transaction must execute");
+        if matches!(&summary.outcome, TransactionOutcome::Success(_)) {
+            // Assert operation energy separately from the unscoped transaction overhead.
+            assert_eq!(
+                summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+                Energy::from(250 * operation_count),
+            );
+        }
+        summary.outcome
     }};
 }
 

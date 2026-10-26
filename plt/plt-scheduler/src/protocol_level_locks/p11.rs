@@ -166,13 +166,15 @@ pub fn execute_lock_operation<C: EntityContextTypes>(
 
 fn execute_lock_fund<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
-    transaction_execution: &TransactionExecution,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
     mut details: LockFundDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    // TODO: (COR-2306) charge.
+    transaction_execution
+        .tick_energy(transactions::cost::PLT_LOCK_FUND)
+        .map_err(|_| TransactionRejectReason::OutOfEnergy)?;
     let mut lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
@@ -228,13 +230,15 @@ fn execute_lock_fund<C: EntityContextTypes>(
 
 fn execute_lock_send<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
-    transaction_execution: &TransactionExecution,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
     mut details: LockSendDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    // TODO: (COR-2306) charge.
+    transaction_execution
+        .tick_energy(transactions::cost::PLT_LOCK_SEND)
+        .map_err(|_| TransactionRejectReason::OutOfEnergy)?;
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
@@ -327,13 +331,15 @@ fn execute_lock_send<C: EntityContextTypes>(
 
 fn execute_lock_release<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
-    transaction_execution: &TransactionExecution,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     operation_index: usize,
     mut details: LockReleaseDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    // TODO: (COR-2306) charge.
+    transaction_execution
+        .tick_energy(transactions::cost::PLT_LOCK_RELEASE)
+        .map_err(|_| TransactionRejectReason::OutOfEnergy)?;
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
@@ -405,6 +411,9 @@ fn execute_lock_create<C: EntityContextTypes>(
     details: LockCreateDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
+    transaction_execution
+        .tick_energy(transactions::cost::plt_lock_create(&details.config))
+        .map_err(|_| TransactionRejectReason::OutOfEnergy)?;
     let account_index = transaction_execution.sender_account().account_index();
     let sequence_number = transaction_execution.transaction_sequence_number();
     let creation_order = transaction_execution.next_lock_creation_order();
@@ -445,15 +454,20 @@ fn execute_lock_create<C: EntityContextTypes>(
 
 fn execute_lock_cancel<C: EntityContextTypes>(
     context: &mut EntityContext<C>,
-    transaction_execution: &TransactionExecution,
+    transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     details: LockCancelDetails,
     events: &mut Vec<BlockItemEvent>,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
-    // TODO: (COR-2306) charge.
     let lock = block_state
         .lock_by_id(context, &details.lock)?
         .map_err(|err| TransactionRejectReason::NonExistentLockId(err.0))?;
+
+    transaction_execution
+        .tick_energy(transactions::cost::plt_lock_cancel(
+            lock.lock_balance_ref_count(),
+        ))
+        .map_err(|_| TransactionRejectReason::OutOfEnergy)?;
 
     let lock_configuration = lock.lock_configuration(context)?;
     let LockConfig::SimpleV0(config) = &*lock_configuration;
@@ -525,3 +539,6 @@ fn lock_configuration_keeps_alive(configuration: &LockConfig) -> bool {
         LockConfig::SimpleV0(config) => config.keep_alive,
     }
 }
+
+#[cfg(test)]
+mod tests;

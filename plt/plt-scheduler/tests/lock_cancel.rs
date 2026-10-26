@@ -84,6 +84,10 @@ fn test_cancel_by_canceller() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    assert_eq!(
+        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(0), // Existing lock without references.
+    );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 1);
         assert_matches!(&events[0], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {
@@ -316,6 +320,10 @@ fn test_cancel_with_balances() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    assert_eq!(
+        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(1000), // Two current account/token references.
+    );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 3);
         assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {

@@ -5,7 +5,10 @@ use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
-    common::{cbor, cbor::value::Value, types::TransactionTime},
+    common::{
+        cbor::{self, value::Value},
+        types::TransactionTime,
+    },
     contracts_common::Duration,
     protocol_level_locks::{
         LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability,
@@ -15,14 +18,18 @@ use concordium_base::{
         MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
         TokenModuleInitializationParameters, operations,
     },
-    transactions::{Payload, TokenUpdatePayload},
+    transactions::{Payload, TokenUpdatePayload, cost},
     updates::{CreatePlt, UpdatePayload},
 };
 use plt_block_state::entity::accounts::Account;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::chain_parameters::p11::PersistentChainParametersP11;
-use plt_scheduler::TOKEN_MODULE_REF;
-use plt_scheduler_types::types::events::{BlockItemEvent, LockCreateEvent};
+use plt_scheduler::{TOKEN_MODULE_REF, scheduler::TransactionExecutionError};
+use plt_scheduler_types::types::{
+    events::{BlockItemEvent, LockCreateEvent},
+    execution::{TransactionExecutionSummary, TransactionOutcome},
+    reject_reasons::TransactionRejectReason,
+};
 use std::collections::HashMap;
 
 mod utils;
@@ -32,10 +39,7 @@ fn execute_lock_create_with_duration(
     block_timestamp: u64,
     max_lock_duration: u64,
 ) -> (
-    Result<
-        plt_scheduler_types::types::execution::TransactionExecutionSummary,
-        plt_scheduler::scheduler::TransactionExecutionError,
-    >,
+    Result<TransactionExecutionSummary, TransactionExecutionError>,
     bool,
 ) {
     let mut context = entity_test_stub::new_stubbed_context();
@@ -160,7 +164,12 @@ fn test_create_simple_lock() {
             },
         )
         .expect("transaction internal error");
-    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    // Operation charge, excluding transaction overhead.
+    assert_eq!(
+        result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(610),
+    );
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
     assert_eq!(events.len(), 1);
     let BlockItemEvent::LockCreated(event) = &events[0] else {
         panic!("expected lock-created event")
@@ -273,7 +282,12 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
         )
         .expect("lock creation must succeed");
-    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    // Operation charge, excluding transaction overhead.
+    assert_eq!(
+        result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(120),
+    );
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
     assert_eq!(
         events,
         vec![BlockItemEvent::LockCreated(LockCreateEvent {
@@ -371,7 +385,7 @@ fn test_create_any_recipient_lock() {
             },
         )
         .expect("transaction internal error");
-    let events = assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Success(events) => events);
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
     assert_eq!(events.len(), 1);
     assert_eq!(
         events[0],
@@ -399,23 +413,20 @@ fn lock_creation_enforces_expiry_and_maximum_duration() {
 
     let (result, lock_exists) = execute_lock_create_with_duration(0, 1, u64::MAX);
     let outcome = result.expect("expired lock creation must execute").outcome;
-    assert_matches!(outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
-        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockExpired(id)
+    assert_matches!(outcome, TransactionOutcome::Rejected(
+        TransactionRejectReason::LockExpired(id)
     ) if id == lock_id);
     assert!(!lock_exists);
 
     let (result, lock_exists) = execute_lock_create_with_duration(1, 1_000, 0);
     let outcome = result.expect("boundary lock creation must execute").outcome;
-    assert_matches!(
-        outcome,
-        plt_scheduler_types::types::execution::TransactionOutcome::Success(_)
-    );
+    assert_matches!(outcome, TransactionOutcome::Success(_));
     assert!(lock_exists);
 
     let (result, lock_exists) = execute_lock_create_with_duration(2, 1_000, 999);
     let outcome = result.expect("overlong lock creation must execute").outcome;
-    assert_matches!(outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
-        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockDurationTooLong(id)
+    assert_matches!(outcome, TransactionOutcome::Rejected(
+        TransactionRejectReason::LockDurationTooLong(id)
     ) if id == lock_id);
     assert!(!lock_exists);
 }
@@ -424,17 +435,15 @@ fn lock_creation_enforces_expiry_and_maximum_duration() {
 fn lock_creation_maximum_deadline_inclusive() {
     let (result, lock_exists) = execute_lock_create_with_duration(2, 1_500, 500);
     let outcome = result.expect("deadline lock creation must execute").outcome;
-    assert_matches!(
-        outcome,
-        plt_scheduler_types::types::execution::TransactionOutcome::Success(_)
-    );
+    assert_matches!(outcome, TransactionOutcome::Success(_));
     assert!(lock_exists);
 
     let (result, lock_exists) = execute_lock_create_with_duration(2, 1_500, 499);
     let outcome = result.expect("overlong lock creation must execute").outcome;
-    assert_matches!(outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
-        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockDurationTooLong(_)
-    ));
+    assert_matches!(
+        outcome,
+        TransactionOutcome::Rejected(TransactionRejectReason::LockDurationTooLong(_))
+    );
     assert!(!lock_exists);
 }
 
@@ -479,7 +488,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         },
     )
     .expect("multi-operation lock creation must execute");
-    assert_matches!(result.outcome, plt_scheduler_types::types::execution::TransactionOutcome::Rejected(
-        plt_scheduler_types::types::reject_reasons::TransactionRejectReason::LockDurationTooLong(lock_id)
+    assert_matches!(result.outcome, TransactionOutcome::Rejected(
+        TransactionRejectReason::LockDurationTooLong(lock_id)
     ) if lock_id == LockId::new(account_index, 1, 1));
 }
