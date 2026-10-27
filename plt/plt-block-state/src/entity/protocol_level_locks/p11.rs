@@ -80,6 +80,20 @@ pub(crate) fn lock_list<C: EntityContextTypes>(
         .collect()
 }
 
+/// Visit configurations once in the same trie order as `lock_list`.
+pub(crate) fn visit_lock_configurations<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    locks: &PersistentLocksP11,
+    mut visit: impl FnMut(LockId, &LockConfig) -> BlockStateResult<()>,
+) -> BlockStateResult<()> {
+    for entry in locks.iter(&context.store) {
+        let (id, lock) = entry?;
+        let configuration = lock.configuration.value(&context.store)?;
+        visit(id, &configuration.0)?;
+    }
+    Ok(())
+}
+
 /// Representation of protocol-level lock on P11 and later protocols with compatible model.
 #[derive(Debug)]
 pub struct LockP11 {

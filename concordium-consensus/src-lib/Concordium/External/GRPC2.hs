@@ -233,6 +233,34 @@ getLockListV2 ::
     IO Int64
 getLockListV2 = blockStreamHelper Q.getLockList
 
+-- | Stream grant-matching lock IDs and configurations from the selected block.
+-- Unresolved accounts return NOT_FOUND; existing accounts may yield an empty stream.
+getLocksByAccountV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    Word8 ->
+    Ptr Word8 ->
+    -- | Identifier type: address (0), credential (1), or index (2).
+    Word8 ->
+    -- | Serialized identifier, with length determined by its type.
+    Ptr Word8 ->
+    -- | Output selected block hash.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getLocksByAccountV2 cptr channel blockType blockHashPtr accIdType accIdBytesPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    account <- decodeAccountIdentifierInput accIdType accIdBytesPtr
+    response <- runMVR (Q.getLocksByAccount bhi account) mvr
+    case response of
+        Q.BQRBlock _ Nothing -> do
+            copyHashTo outHash response
+            return $ queryResultCode QRNotFound
+        Q.BQRBlock _ (Just matches) ->
+            returnStreamWithBlock (callChannelSendCallback cbk channel) outHash (response $> matches)
+        Q.BQRNoBlock -> return $ queryResultCode QRNotFound
+
 -- | Foreign-exported FFI entry point for the unary `GetLockInfo` gRPC v2 endpoint.
 getLockInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -1431,6 +1459,18 @@ foreign export ccall
         Ptr ReceiverVec ->
         -- | Callback to output data.
         FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getLocksByAccountV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        Word8 ->
+        Ptr Word8 ->
+        Word8 ->
+        Ptr Word8 ->
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
         IO Int64
 
 foreign export ccall

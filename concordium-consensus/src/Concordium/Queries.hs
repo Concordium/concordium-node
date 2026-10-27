@@ -98,6 +98,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Queries (
     queryAccountTokens,
     queryLockInfo,
     queryLockList,
+    queryLocksByAccount,
     queryPLTList,
     queryTokenAuthorizations,
     queryTokenInfo,
@@ -1224,6 +1225,20 @@ getTokenAuthorizations blockHashInput tokenId = liftSkovQueryStateBHI (queryToke
 -- | Get a list of all PLT lock ids that exist in the block state.
 getLockList :: BlockHashInput -> MVR finconf (BHIQueryResponse [Locks.LockId])
 getLockList = liftSkovQueryStateBHI queryLockList
+
+-- | Resolve an account once in the selected block and return its grant-matching
+-- lock IDs and configurations. An unresolved account is distinct from no matches.
+getLocksByAccount :: BlockHashInput -> AccountIdentifier -> MVR finconf (BHIQueryResponse (Maybe [(Locks.LockId, RawCbor)]))
+getLocksByAccount blockHashInput accountIdentifier =
+    liftSkovQueryStateBHI
+        ( \bs -> do
+            account <- case accountIdentifier of
+                AccAddress address -> BS.getAccount bs address
+                AccIndex index -> BS.getAccountByIndex bs index
+                CredRegID credential -> BS.getAccountByCredId bs credential
+            forM account $ \(index, _) -> queryLocksByAccount index bs
+        )
+        blockHashInput
 
 -- | Get the CBOR-encoded `lock-info` payload for a given lock id.
 getLockInfo :: BlockHashInput -> SerializedLockId -> MVR finconf (BHIQueryResponse (Either QueryLockError Locks.LockInfo))
