@@ -932,6 +932,8 @@ struct ServiceConfig {
     #[serde(default)]
     get_lock_list: bool,
     #[serde(default)]
+    get_locks_by_account: bool,
+    #[serde(default)]
     get_account_info: bool,
     #[serde(default)]
     get_token_info: bool,
@@ -1066,6 +1068,7 @@ impl ServiceConfig {
             get_account_list: true,
             get_token_list: true,
             get_lock_list: true,
+            get_locks_by_account: true,
             get_account_info: true,
             get_token_info: true,
             get_token_authorizations: true,
@@ -1752,6 +1755,9 @@ pub mod server {
         type GetTokenListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetLockList' method.
         type GetLockListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the `GetLocksByAccount` method.
+        type GetLocksByAccountStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -1924,6 +1930,31 @@ pub mod server {
             let hash = self
                 .run_blocking(move |consensus| {
                     consensus.get_lock_list_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_locks_by_account(
+            &self,
+            request: tonic::Request<grpc2::types::GetLocksByAccountRequest>,
+        ) -> Result<tonic::Response<Self::GetLocksByAccountStream>, tonic::Status> {
+            if !self.service_config.get_locks_by_account {
+                return Err(tonic::Status::unimplemented(
+                    "`GetLocksByAccount` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    consensus.get_locks_by_account_v2(
+                        request.block_hash.as_ref().require()?,
+                        request.account_identifier.as_ref().require()?,
+                        sender,
+                    )
                 })
                 .await?;
             let mut response = tonic::Response::new(receiver);

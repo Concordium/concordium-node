@@ -223,3 +223,103 @@ fn test_query_lock_info_unknown_lock() {
     let result = block_state.query_lock_info(&context, &unknown);
     assert_matches!(result, Err(LockNotFoundByIdError(_)));
 }
+
+/// Membership is independent of authorization and all other account relationships.
+#[test]
+fn test_discovery_grant_membership_exclusions_and_no_matches() {
+    use LockControllerSimpleV0Capability::{Cancel, Fund, Release, Send};
+    use plt_block_state::persistent::protocol_level_locks::p11 as persistent;
+    use plt_scheduler::protocol_level_locks::p11::query_locks_by_account;
+
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut state = BlockStateLatest::default();
+    let target = context.external.create_account().account_index();
+    let other = context.external.create_account().account_index();
+    let absent = context.external.create_account().account_index();
+    let balance_holder = context.external.create_account().account_index();
+    let roles = [
+        vec![Fund],       // A Fund grant matches.
+        vec![Release],    // A Release grant matches.
+        vec![Send],       // A Send grant matches.
+        vec![Cancel],     // A Cancel grant matches.
+        vec![],           // A grant with no capabilities still matches.
+        vec![Fund, Send], // Multiple capabilities still yield one match.
+    ];
+    let mut matching = Vec::new();
+    // Odd locks have target as creator and recipient, but not in their grants.
+    for sequence_number in 0..12 {
+        let id = LockId {
+            account_index: target.into(),
+            sequence_number,
+            creation_order: 0,
+        };
+        let grants = if sequence_number % 2 == 0 {
+            matching.push(id.clone());
+            vec![
+                LockControllerSimpleV0Grant::new(
+                    target,
+                    roles[sequence_number as usize / 2].clone(),
+                ),
+                LockControllerSimpleV0Grant::new(other, vec![]),
+                // A duplicate account grant must not duplicate the returned lock.
+                LockControllerSimpleV0Grant::new(target, vec![]),
+            ]
+        } else {
+            vec![LockControllerSimpleV0Grant::new(other, vec![Fund])]
+        };
+        let config = persistent::LockConfig::SimpleV0(
+            persistent::LockConfigSimpleV0::new(
+                vec![target].try_into().unwrap(),
+                TransactionTime::from(1_804_806_000),
+                grants,
+                vec![],
+                true,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        state.create_lock(&context, &id, config).unwrap();
+    }
+    let token_id: TokenId = "DiscoveryToken".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        Some(RawTokenAmount::from(0)),
+    );
+    utils::lock_balance(
+        &mut context,
+        &mut state,
+        &LockId {
+            account_index: target.into(),
+            sequence_number: 1,
+            creation_order: 0,
+        },
+        balance_holder,
+        &token_id,
+        RawTokenAmount::from(100),
+    );
+
+    let mut actual: Vec<_> = query_locks_by_account(&context, &state, target)
+        .unwrap()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    actual.sort();
+    matching.sort();
+    // Include grant matches exactly once; exclude creator/recipient-only locks.
+    assert_eq!(actual, matching);
+    for account in [
+        absent,         // An account with no grants or other relationships has no matches.
+        balance_holder, // Holding locked funds alone does not match.
+    ] {
+        assert!(
+            query_locks_by_account(&context, &state, account)
+                .unwrap()
+                .is_empty()
+        );
+    }
+}

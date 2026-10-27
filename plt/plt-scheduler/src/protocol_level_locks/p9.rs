@@ -15,6 +15,18 @@ pub fn query_lock_list<C: EntityContextTypes>(
     Ok(vec![])
 }
 
+/// Get ID/configuration CBOR pairs for membership in any grant, including empty grants.
+///
+/// For this protocol version, this always returns an empty list, as there are no locks
+/// in protocol version 9.
+pub fn query_locks_by_account<C: EntityContextTypes>(
+    _context: &EntityContext<C>,
+    _block_state: &BlockStateP9,
+    _account_index: concordium_base::base::AccountIndex,
+) -> BlockStateResult<Vec<(LockId, RawCbor)>> {
+    Ok(vec![])
+}
+
 /// Assemble the [`LockInfo`] CBOR payload for a lock.
 pub fn query_lock_info<C: EntityContextTypes>(
     _context: &EntityContext<C>,

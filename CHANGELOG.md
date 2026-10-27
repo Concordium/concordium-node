@@ -6,6 +6,8 @@
 
 ## Unreleased changes (Devnet)
 
+- Add the `GetLocksByAccount` gRPC endpoint to stream lock IDs and CBOR-encoded configurations for locks whose grants include an account at the selected block.
+
 ## 11.2.3 (Devnet)
 
 - Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.

@@ -610,6 +610,24 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Stream protobuf `LockConfiguration` messages for grants of an account.
+    /// Block and account identifiers use the same encoding as `getAccountInfoV2`.
+    /// On success Haskell owns `stream`; on failure the caller must reclaim it.
+    pub fn getLocksByAccountV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        account_id_type: u8,
+        account_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
     /// Get the proto-encoded `LockInfo` message for a single lock in a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -2734,6 +2752,46 @@ impl ConsensusContainer {
         } else {
             Ok(buf)
         }
+    }
+
+    /// Stream lock configurations containing a grant for the account at the
+    /// selected block. Missing accounts or blocks return `NOT_FOUND`.
+    pub fn get_locks_by_account_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        account_identifier: &crate::grpc2::types::AccountIdentifierInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        // Validate before transferring ownership of the channel to Haskell.
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let (acc_type, acc_id) =
+            crate::grpc2::types::account_identifier_to_ffi(account_identifier).require()?;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_hash = [0u8; 32];
+        let sender_ptr = Box::into_raw(Box::new(sender));
+        let result = unsafe {
+            getLocksByAccountV2(
+                consensus,
+                sender_ptr,
+                block_id_type,
+                block_hash.as_ptr(),
+                acc_type,
+                acc_id,
+                out_hash.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        };
+        let response = ConsensusQueryResponse::try_from(result)
+            .map_err(tonic::Status::from)
+            .and_then(|response| response.ensure_ok("account or block"));
+        if let Err(e) = response {
+            // Haskell only takes ownership on success.
+            let _ = unsafe { Box::from_raw(sender_ptr) };
+            return Err(e);
+        }
+        Ok(out_hash)
     }
 
     /// Get the `plt.LockInfo` proto-encoded payload for a single lock in a given
