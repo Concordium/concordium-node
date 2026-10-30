@@ -40,6 +40,7 @@ use utils::{BlockStateLatest, TokenInitTestParams};
 
 const COUNTS: &[usize] = &[1, 3, 5, 10, 100, 1000];
 const EMPTY_COUNTS: &[usize] = &[0];
+const RECIPIENT_COUNTS: &[usize] = &[0, 1, 8, 64, 256, 1024];
 
 fn main() {
     divan::main();
@@ -457,6 +458,83 @@ fn prepare_lock_create(count: usize) -> Fixture {
                 .collect(),
         ),
     }
+}
+
+/// Prepare one lock with a fixed population of 1025 accounts.
+///
+/// `count` selects the limited recipient prefix; `shuffled` shuffles the accounts.
+/// `None` selects unrestricted recipients.
+fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
+    let mut fixture = prepare_lock_create(1);
+    let mut recipients: Vec<_> = (0..1024)
+        .map(|_| {
+            let account = fixture.context.external.create_account().account_index();
+            fixture.context.external.account_canonical_address(account)
+        })
+        .collect();
+    recipients.truncate(count.unwrap_or(0));
+    if shuffled {
+        let mut seed = 42_u64;
+        for i in (1..recipients.len()).rev() {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            recipients.swap(i, (seed % (i as u64 + 1)) as usize);
+        }
+    }
+    fixture.payload = unscoped_payload(vec![operations::create_lock(LockConfig::SimpleV0(
+        LockConfigSimpleV0 {
+            recipients: match count {
+                None => LockRecipients::Any,
+                Some(_) => {
+                    LockRecipients::Limited(recipients.into_iter().map(Into::into).collect())
+                }
+            },
+            expiry: 1_804_806_000.into(),
+            grants: vec![],
+            tokens: vec![],
+            keep_alive: false,
+            memo: None,
+            metadata: None,
+        },
+    ))]);
+    fixture
+}
+
+/// Measure the existing single-transfer path with 1025 accounts, matching recipient cases.
+#[divan::bench]
+fn recipient_transfer_reference(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            let mut fixture = prepare_transfer(1, false);
+            for _ in 0..1023 {
+                fixture.context.external.create_account();
+            }
+            fixture
+        })
+        .bench_local_values(execute);
+}
+
+/// Measure unrestricted one-lock creation with the same account population.
+#[divan::bench]
+fn create_lock_recipients_any(bencher: Bencher) {
+    bencher
+        .with_inputs(|| prepare_lock_recipients(None, false))
+        .bench_local_values(execute);
+}
+
+/// Measure one-lock creation with account-index-ordered recipient inputs.
+#[divan::bench(args = RECIPIENT_COUNTS)]
+fn create_lock_recipients_ordered(bencher: Bencher, count: usize) {
+    bencher
+        .with_inputs(|| prepare_lock_recipients(Some(count), false))
+        .bench_local_values(execute);
+}
+
+/// Measure one-lock creation with deterministically shuffled recipient inputs.
+#[divan::bench(args = RECIPIENT_COUNTS)]
+fn create_lock_recipients_shuffled(bencher: Bencher, count: usize) {
+    bencher
+        .with_inputs(|| prepare_lock_recipients(Some(count), true))
+        .bench_local_values(execute);
 }
 
 /// Prepare a lock-fund operation with optional existing balance reference.
