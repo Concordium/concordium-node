@@ -324,7 +324,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
 }
 
 #[test]
-fn test_create_any_recipient_lock() {
+fn test_create_any_recipient_lock_normalizes_tokens() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut block_state = BlockStateLatest::default();
 
@@ -353,6 +353,17 @@ fn test_create_any_recipient_lock() {
         .execute_chain_update(&mut context, payload)
         .expect("create pltX");
 
+    let plt_a: TokenId = "pltA".parse().unwrap();
+    let payload = UpdatePayload::CreatePlt(CreatePlt {
+        token_id: plt_a.clone(),
+        token_module: TOKEN_MODULE_REF,
+        decimals: 2,
+        initialization_parameters: cbor::cbor_encode(&parameters).into(),
+    });
+    block_state
+        .execute_chain_update(&mut context, payload)
+        .expect("create pltA");
+
     let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(1000),
@@ -360,51 +371,82 @@ fn test_create_any_recipient_lock() {
             account: account_1.into(),
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
-        tokens: vec![plt_x],
+        tokens: vec![plt_a.clone(), plt_x.clone()],
         keep_alive: false,
         memo: None,
         metadata: None,
     });
-    let operations = vec![operations::create_lock(config.clone())];
-    let payload = OperationsPayload {
-        operations: RawCbor::from(cbor::cbor_encode(&operations)),
-    };
+    for (index, references) in [
+        vec!["PLTx", "plta", "pltx", "PLTA"],
+        vec!["PLTA", "pltX", "pltA", "PLTX"],
+        vec!["pltx", "PLTX", "missing"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let sequence = index as u64 + 1;
+        let mut input = config.clone();
+        let LockConfig::SimpleV0(controller) = &mut input;
+        controller.tokens = references
+            .into_iter()
+            .map(|id| id.parse().unwrap())
+            .collect();
+        let operations = vec![operations::create_lock(input)];
+        let payload = OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
 
-    let result = block_state
-        .execute_transaction(
-            &mut context,
-            plt_scheduler::TransactionContext {
-                energy_limit: Energy::from(u64::MAX),
-                sender_account_address: account_1,
-                transaction_sequence_number: 1.into(),
-                block_timestamp: 0.into(),
-            },
-            account_index_1,
-            Payload::TokenUpdate {
-                payload: TokenUpdatePayload::Unscoped(payload),
-            },
-        )
-        .expect("transaction internal error");
-    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
-    assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0],
-        BlockItemEvent::LockCreated(LockCreateEvent {
-            lock_id: LockId::new(account_index_1, 1, 0),
-            lock_config: RawCbor::from(cbor::cbor_encode(&config))
-        })
-    );
+        let result = block_state
+            .execute_transaction(
+                &mut context,
+                plt_scheduler::TransactionContext {
+                    energy_limit: Energy::from(u64::MAX),
+                    sender_account_address: account_1,
+                    transaction_sequence_number: sequence.into(),
+                    block_timestamp: 0.into(),
+                },
+                account_index_1,
+                Payload::TokenUpdate {
+                    payload: TokenUpdatePayload::Unscoped(payload),
+                },
+            )
+            .expect("transaction internal error");
+        let lock_id = LockId::new(account_index_1, sequence, 0);
+        if index == 2 {
+            assert_matches!(result.outcome, TransactionOutcome::Rejected(
+                TransactionRejectReason::NonExistentTokenId(id)
+            ) if id == "missing".parse::<TokenId>().unwrap());
+            assert!(block_state.lock_by_id(&context, &lock_id).unwrap().is_err());
+            continue;
+        }
+        let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0],
+            BlockItemEvent::LockCreated(LockCreateEvent {
+                lock_id: lock_id.clone(),
+                lock_config: RawCbor::from(cbor::cbor_encode(&config))
+            })
+        );
 
-    let lock = block_state
-        .lock_by_id(&context, &LockId::new(account_index_1, 1, 0))
-        .expect("lock lookup must succeed")
-        .expect("lock must exist");
-    let configuration = lock
-        .lock_configuration(&context)
-        .expect("lock configuration must load");
-    assert!(
-        matches!(configuration.as_ref(), plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
-    );
+        let lock = block_state
+            .lock_by_id(&context, &lock_id)
+            .expect("lock lookup must succeed")
+            .expect("lock must exist");
+        let configuration = lock
+            .lock_configuration(&context)
+            .expect("lock configuration must load");
+        assert!(
+            matches!(configuration.as_ref(), plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(config) if config.recipients.is_any())
+        );
+        let plt_block_state::persistent::protocol_level_locks::p11::LockConfig::SimpleV0(
+            controller,
+        ) = configuration.as_ref();
+        assert_eq!(controller.tokens(), &[plt_a.clone(), plt_x.clone()]);
+        let info: concordium_base::protocol_level_locks::LockInfo =
+            cbor::cbor_decode(block_state.query_lock_info(&context, &lock_id).unwrap()).unwrap();
+        assert_eq!(info.config, config);
+    }
 }
 
 #[test]

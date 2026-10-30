@@ -252,7 +252,7 @@ impl LockConfigSimpleV0 {
     /// * `recipients` - Accounts eligible to receive locked funds.
     /// * `expiry` - Time at which the lock expires.
     /// * `grants` - Capability grants controlling lock operations.
-    /// * `tokens` - Tokens that may be funded into the lock.
+    /// * `tokens` - Resolved tokens in registered spelling, sorted and deduplicated before storage.
     /// * `keep_alive` - Whether to retain an empty lock.
     /// * `memo` - Optional lock memo.
     /// * `metadata` - Optional opaque CBOR metadata.
@@ -265,7 +265,7 @@ impl LockConfigSimpleV0 {
         recipients: LockRecipients,
         expiry: TransactionTime,
         mut grants: Vec<LockControllerSimpleV0Grant>,
-        tokens: Vec<TokenId>,
+        mut tokens: Vec<TokenId>,
         keep_alive: bool,
         memo: Option<CborMemo>,
         metadata: Option<RawCbor>,
@@ -280,6 +280,8 @@ impl LockConfigSimpleV0 {
             }
         });
         check_u16_length("LockConfigSimpleV0.grants", grants.len())?;
+        tokens.sort_unstable();
+        tokens.dedup();
         check_u16_length("LockConfigSimpleV0.tokens", tokens.len())?;
         Ok(Self {
             recipients,
@@ -531,6 +533,47 @@ mod test {
         let grant = LockControllerSimpleV0Grant::new(AccountIndex::from(1), vec![]);
         let config = config_with_grants(vec![grant; U16_MAX_LENGTH + 1]);
         assert_eq!(config.grants().len(), 1);
+    }
+
+    #[test]
+    fn tokens_normalize_duplicates_and_order() {
+        let config = |tokens| {
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                TransactionTime::from(0),
+                vec![],
+                tokens,
+                false,
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let alpha: TokenId = "Alpha".parse().unwrap();
+        let beta: TokenId = "Beta".parse().unwrap();
+        let first = config(vec![beta.clone(), alpha.clone(), beta.clone()]);
+        let second = config(vec![alpha.clone(), beta.clone(), alpha.clone()]);
+        assert_eq!(first.tokens(), &[alpha, beta]);
+        assert_eq!(first, second);
+        assert_eq!(to_bytes(&first), to_bytes(&second));
+    }
+
+    #[test]
+    fn token_capacity_is_checked_after_removing_duplicates() {
+        let config = LockConfigSimpleV0::new(
+            LockRecipients::Any,
+            TransactionTime::from(0),
+            vec![],
+            vec!["ExampleToken".parse().unwrap(); U16_MAX_LENGTH + 1],
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            config.tokens(),
+            &["ExampleToken".parse::<TokenId>().unwrap()]
+        );
     }
 
     #[test]
@@ -929,7 +972,9 @@ mod test {
                 LockRecipients::Any,
                 TransactionTime::from(0u64),
                 Vec::new(),
-                vec!["token".parse().unwrap(); U16_MAX_LENGTH],
+                (0..U16_MAX_LENGTH)
+                    .map(|i| format!("token{i}").parse().unwrap())
+                    .collect(),
                 false,
                 None,
                 None,
@@ -941,7 +986,9 @@ mod test {
                 LockRecipients::Any,
                 TransactionTime::from(0u64),
                 Vec::new(),
-                vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
+                (0..=U16_MAX_LENGTH)
+                    .map(|i| format!("token{i}").parse().unwrap())
+                    .collect(),
                 false,
                 None,
                 None,
