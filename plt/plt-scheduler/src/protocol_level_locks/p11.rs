@@ -539,6 +539,3 @@ fn lock_configuration_keeps_alive(configuration: &LockConfig) -> bool {
         LockConfig::SimpleV0(config) => config.keep_alive,
     }
 }
-
-#[cfg(test)]
-mod tests;

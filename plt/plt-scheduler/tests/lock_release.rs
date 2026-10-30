@@ -55,7 +55,7 @@ macro_rules! execute_unscoped_update {
                 Energy::from(250 * operation_count),
             );
         }
-        summary.outcome
+        summary
     }};
 }
 
@@ -138,7 +138,7 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
     let sender_addr = context
         .external
         .account_canonical_address(sender.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -151,7 +151,7 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
             None,
         )],
     );
-    let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
+    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
@@ -240,7 +240,7 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     let sender_addr = context
         .external
         .account_canonical_address(sender.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -253,7 +253,7 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
             None,
         )],
     );
-    let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
+    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::UnlockAmount(..));
@@ -319,7 +319,7 @@ fn test_lock_release_rejects_unauthorized_sender() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -332,7 +332,11 @@ fn test_lock_release_rejects_unauthorized_sender() {
             None,
         )],
     );
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockReleaseNotAuthorized(lock_id, owner_addr));
     });
 }
@@ -392,7 +396,7 @@ fn test_lock_release_rejects_after_expiry() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -405,7 +409,11 @@ fn test_lock_release_rejects_after_expiry() {
             None,
         )],
     );
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockExpired(lock_id));
     });
 }

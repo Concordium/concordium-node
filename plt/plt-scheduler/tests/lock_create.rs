@@ -1,7 +1,7 @@
 //! Tests for creating a PLT lock.
 
-use crate::utils::BlockStateLatest;
 use crate::utils::entity_traits::scheduler::SchedulerOperations;
+use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::{
     base::Energy,
@@ -408,12 +408,76 @@ fn test_create_any_recipient_lock() {
 }
 
 #[test]
+fn test_expired_creation_charges_configuration_complexity() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let sender = context.external.create_account().account_index();
+    let address = context.external.account_canonical_address(sender);
+    let token_id: TokenId = "pltX".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut block_state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(0),
+        grants: vec![LockControllerSimpleV0Grant {
+            account: address.into(),
+            roles: vec![LockControllerSimpleV0Capability::Fund],
+        }],
+        tokens: vec![token_id],
+        keep_alive: false,
+        memo: None,
+        metadata: None,
+    });
+    let summary = block_state
+        .execute_transaction(
+            &mut context,
+            plt_scheduler::TransactionContext {
+                energy_limit: Energy::from(u64::MAX),
+                sender_account_address: address,
+                transaction_sequence_number: 1.into(),
+                block_timestamp: 1.into(),
+            },
+            sender,
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(
+                        config,
+                    )])),
+                }),
+            },
+        )
+        .expect("expired lock creation must execute");
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(610), // 100 + 500 × one funder × one token + 10 × one grant.
+    );
+    let lock_id = LockId::new(sender, 1, 0);
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(
+        TransactionRejectReason::LockExpired(id)
+    ) if id == lock_id);
+    assert!(matches!(
+        block_state.lock_by_id(&context, &lock_id),
+        Ok(Err(_))
+    ));
+}
+
+#[test]
 fn lock_creation_enforces_expiry_and_maximum_duration() {
     let lock_id = LockId::new(0, 1, 0);
 
     let (result, lock_exists) = execute_lock_create_with_duration(0, 1, u64::MAX);
-    let outcome = result.expect("expired lock creation must execute").outcome;
-    assert_matches!(outcome, TransactionOutcome::Rejected(
+    let summary = result.expect("expired lock creation must execute");
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(100),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(
         TransactionRejectReason::LockExpired(id)
     ) if id == lock_id);
     assert!(!lock_exists);
@@ -424,8 +488,12 @@ fn lock_creation_enforces_expiry_and_maximum_duration() {
     assert!(lock_exists);
 
     let (result, lock_exists) = execute_lock_create_with_duration(2, 1_000, 999);
-    let outcome = result.expect("overlong lock creation must execute").outcome;
-    assert_matches!(outcome, TransactionOutcome::Rejected(
+    let summary = result.expect("overlong lock creation must execute");
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(100),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(
         TransactionRejectReason::LockDurationTooLong(id)
     ) if id == lock_id);
     assert!(!lock_exists);
@@ -439,9 +507,13 @@ fn lock_creation_maximum_deadline_inclusive() {
     assert!(lock_exists);
 
     let (result, lock_exists) = execute_lock_create_with_duration(2, 1_500, 499);
-    let outcome = result.expect("overlong lock creation must execute").outcome;
+    let summary = result.expect("overlong lock creation must execute");
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(100),
+    );
     assert_matches!(
-        outcome,
+        summary.outcome,
         TransactionOutcome::Rejected(TransactionRejectReason::LockDurationTooLong(_))
     );
     assert!(!lock_exists);
@@ -488,6 +560,10 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         },
     )
     .expect("multi-operation lock creation must execute");
+    assert_eq!(
+        result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(200), // two locks with "zero" configuration complexity
+    );
     assert_matches!(result.outcome, TransactionOutcome::Rejected(
         TransactionRejectReason::LockDurationTooLong(lock_id)
     ) if lock_id == LockId::new(account_index, 1, 1));
