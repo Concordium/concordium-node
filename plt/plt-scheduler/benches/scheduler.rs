@@ -43,16 +43,6 @@ const EMPTY_COUNTS: &[usize] = &[0];
 const RECIPIENT_COUNTS: &[usize] = &[0, 1, 8, 64, 256, 1024];
 
 fn main() {
-    if std::env::args().any(|arg| arg == "--test") {
-        for count in [None]
-            .into_iter()
-            .chain(RECIPIENT_COUNTS.iter().copied().map(Some))
-        {
-            let fixture = prepare_lock_recipients(count, false);
-            let bytes = concordium_base::common::to_bytes(&fixture.payload).len();
-            println!("Recipient payload {count:?}: {bytes} bytes; {bytes} payload-byte NRG");
-        }
-    }
     divan::main();
 }
 
@@ -472,8 +462,8 @@ fn prepare_lock_create(count: usize) -> Fixture {
 
 /// Prepare one lock with a fixed population of 1025 accounts.
 ///
-/// `count` selects the limited recipient prefix; `shuffled` permutes that prefix
-/// with a fixed-seed Fisher–Yates shuffle. `None` selects unrestricted recipients.
+/// `count` selects the limited recipient prefix; `shuffled` shuffles the accounts.
+/// `None` selects unrestricted recipients.
 fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
     let mut fixture = prepare_lock_create(1);
     let mut recipients: Vec<_> = (0..1024)

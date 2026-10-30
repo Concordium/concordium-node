@@ -128,7 +128,8 @@ pub trait ExternalBlockStateOperations: ExternalBlockStateQuery {
 pub mod test_stub {
     use super::*;
     use crate::entity::accounts::Account;
-    use std::collections::BTreeMap;
+    use concordium_base::base::AccountAddressEq;
+    use std::collections::{BTreeMap, HashMap};
 
     /// Non-accessible block state representing the Haskell maintained part of the block state.
     #[derive(Debug, Default, Clone)]
@@ -189,6 +190,8 @@ pub mod test_stub {
     pub struct ExternalBlockStateStub {
         /// List of accounts in the stub.
         accounts: Vec<AccountStub>,
+        /// Account indices keyed by alias equivalence class.
+        account_indices: HashMap<AccountAddressEq, AccountIndex>,
         /// PLT update instruction sequence number
         plt_update_instruction_sequence_number: u64,
     }
@@ -205,6 +208,7 @@ pub mod test_stub {
             };
             let stub_index = AccountIndex::from(index as u64);
             self.accounts.push(account);
+            self.account_indices.insert(address.into(), stub_index);
 
             Account::from_existing_account(stub_index)
         }
@@ -217,6 +221,45 @@ pub mod test_stub {
         /// Get next PLT update sequence number
         pub fn plt_update_instruction_sequence_number(&self) -> u64 {
             self.plt_update_instruction_sequence_number
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn account_lookup_preserves_aliases_and_clone() {
+            let mut state = ExternalBlockStateStub::default();
+            state.create_account();
+            state.create_account();
+            let index = AccountIndex::from(1);
+            let canonical = state.account_canonical_address(index);
+            let mut alias = canonical;
+            alias.0[29..].copy_from_slice(&[1, 2, 3]);
+            let unknown = AccountAddress([255; 32]);
+
+            for state in [&state, &state.clone()] {
+                for address in [canonical, alias] {
+                    assert_eq!(
+                        state.account_index_by_account_address(&address).unwrap(),
+                        index
+                    );
+                }
+                assert_eq!(
+                    state
+                        .account_index_by_account_address(&unknown)
+                        .unwrap_err()
+                        .0,
+                    unknown
+                );
+                assert_eq!(
+                    state
+                        .account_canonical_address_by_account_index(index)
+                        .unwrap(),
+                    canonical
+                );
+            }
         }
     }
 
@@ -264,16 +307,9 @@ pub mod test_stub {
             &self,
             account_address: &AccountAddress,
         ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
-            self.accounts
-                .iter()
-                .enumerate()
-                .find_map(|(i, account)| {
-                    if account.address.is_alias(account_address) {
-                        Some(AccountIndex::from(i as u64))
-                    } else {
-                        None
-                    }
-                })
+            self.account_indices
+                .get(account_address.as_ref())
+                .copied()
                 .ok_or(AccountNotFoundByAddressError(*account_address))
         }
 
