@@ -15,6 +15,7 @@ use concordium_base::protocol_level_tokens::{
     TokenAmount, TokenId, TokenListUpdateDetails, TokenModuleAccountState, TokenModuleRejectReason,
     TokenOperation, operations,
 };
+use concordium_base::transactions::cost;
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
@@ -29,15 +30,27 @@ mod utils;
 macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
+        let operations = $operations;
+        let operation_energy: Energy = operations
+            .iter()
+            .map(|operation| match operation {
+                concordium_base::protocol_level_tokens::Operation::LockCreate(details) => {
+                    cost::plt_lock_create(&details.config)
+                }
+                concordium_base::protocol_level_tokens::Operation::LockFund(_)
+                | concordium_base::protocol_level_tokens::Operation::LockSend(_) => {
+                    Energy::from(250)
+                }
+                _ => panic!("unexpected operation in lock-send test"),
+            })
+            .fold(Energy::from(0), |total, cost| total + cost);
         let payload = Payload::TokenUpdate {
             payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                operations: RawCbor::from(cbor::cbor_encode(&Operations {
-                    operations: $operations,
-                })),
+                operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
             }),
         };
 
-        $block_state
+        let summary = $block_state
             .execute_transaction(
                 $context,
                 plt_scheduler::TransactionContext {
@@ -49,8 +62,15 @@ macro_rules! execute_unscoped_update {
                 $sender,
                 payload,
             )
-            .expect("unscoped Token Update transaction must execute")
-            .outcome
+            .expect("unscoped Token Update transaction must execute");
+        if matches!(&summary.outcome, TransactionOutcome::Success(_)) {
+            // Assert operation energy separately from the unscoped transaction overhead.
+            assert_eq!(
+                summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+                operation_energy,
+            );
+        }
+        summary
     }};
 }
 
@@ -124,7 +144,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -146,7 +166,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
             )
         ],
     );
-    let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
+    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 3);
     assert_matches!(&events[1], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
@@ -269,14 +289,14 @@ fn test_lock_send_allows_any_recipient() {
         ),
     ];
 
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
         0,
         operations,
     );
-    assert_matches!(outcome, TransactionOutcome::Success(_));
+    assert_matches!(summary.outcome, TransactionOutcome::Success(_));
 
     let lock_info: LockInfo = cbor::cbor_decode(
         block_state
@@ -363,7 +383,7 @@ fn test_lock_send_rejects_non_recipient() {
     let non_recipient_addr = context
         .external
         .account_canonical_address(non_recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -378,7 +398,11 @@ fn test_lock_send_rejects_non_recipient() {
         )],
     );
 
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockRecipientNotPermitted(lock_id, non_recipient_addr));
     });
 }
@@ -459,7 +483,8 @@ fn test_lock_send_sender_not_in_allow_list() {
                 TokenAmount::from_raw(250, 4),
                 None,
             )],
-        ),
+        )
+        .outcome,
         TransactionOutcome::Success(_)
     );
     utils::execute_token_operations(
@@ -472,7 +497,7 @@ fn test_lock_send_sender_not_in_allow_list() {
         })],
     );
 
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -487,7 +512,12 @@ fn test_lock_send_sender_not_in_allow_list() {
         )],
     );
 
-    let reject_reason = assert_matches!(outcome, TransactionOutcome::Rejected(reason) => reason);
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    let reject_reason =
+        assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
@@ -572,14 +602,15 @@ fn test_lock_send_recipient_not_in_allow_list() {
                 TokenAmount::from_raw(250, 4),
                 None,
             )],
-        ),
+        )
+        .outcome,
         TransactionOutcome::Success(_)
     );
 
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -594,7 +625,12 @@ fn test_lock_send_recipient_not_in_allow_list() {
         )],
     );
 
-    let reject_reason = assert_matches!(outcome, TransactionOutcome::Rejected(reason) => reason);
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    let reject_reason =
+        assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
@@ -662,7 +698,8 @@ fn test_lock_send_sender_in_deny_list() {
                 TokenAmount::from_raw(250, 4),
                 None,
             )],
-        ),
+        )
+        .outcome,
         TransactionOutcome::Success(_)
     );
     utils::execute_token_operations(
@@ -678,7 +715,7 @@ fn test_lock_send_sender_in_deny_list() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -693,7 +730,12 @@ fn test_lock_send_sender_in_deny_list() {
         )],
     );
 
-    let reject_reason = assert_matches!(outcome, TransactionOutcome::Rejected(reason) => reason);
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    let reject_reason =
+        assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
@@ -764,7 +806,8 @@ fn test_lock_send_recipient_in_deny_list() {
                 TokenAmount::from_raw(250, 4),
                 None,
             )],
-        ),
+        )
+        .outcome,
         TransactionOutcome::Success(_)
     );
     utils::execute_token_operations(
@@ -777,7 +820,7 @@ fn test_lock_send_recipient_in_deny_list() {
         })],
     );
 
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -792,7 +835,12 @@ fn test_lock_send_recipient_in_deny_list() {
         )],
     );
 
-    let reject_reason = assert_matches!(outcome, TransactionOutcome::Rejected(reason) => reason);
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    let reject_reason =
+        assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
@@ -860,7 +908,8 @@ fn test_lock_send_rejects_when_token_paused() {
                 TokenAmount::from_raw(250, 4),
                 None,
             )],
-        ),
+        )
+        .outcome,
         TransactionOutcome::Success(_)
     );
     utils::pause_token(
@@ -873,7 +922,7 @@ fn test_lock_send_rejects_when_token_paused() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -888,7 +937,12 @@ fn test_lock_send_rejects_when_token_paused() {
         )],
     );
 
-    let reject_reason = assert_matches!(outcome, TransactionOutcome::Rejected(reason) => reason);
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    let reject_reason =
+        assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => reason);
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
@@ -955,7 +1009,7 @@ fn test_lock_send_rejects_unauthorized_sender() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -969,7 +1023,11 @@ fn test_lock_send_rejects_unauthorized_sender() {
             None,
         )],
     );
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockSendNotAuthorized(lock_id, owner_addr));
     });
 }
@@ -1032,7 +1090,7 @@ fn test_lock_send_rejects_after_expiry() {
     let recipient_addr = context
         .external
         .account_canonical_address(recipient.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -1046,7 +1104,11 @@ fn test_lock_send_rejects_after_expiry() {
             None,
         )],
     );
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockExpired(lock_id));
     });
 }

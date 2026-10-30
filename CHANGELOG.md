@@ -6,6 +6,11 @@
 
 ## Unreleased changes (Devnet)
 
+- Implemented P11 lock operation execution costs: create `100 + 500 × H × T + 10 × G` NRG,
+  fund/send/release 250 NRG each, and cancel `500 × B` NRG.
+  H counts distinct Fund-authorized accounts, T case-insensitively distinct configured tokens,
+  G canonical account grants, and B current balance references controlled by the lock.
+
 ## 11.2.3 (Devnet)
 
 - Add P11 `tokenParameters` authorization and queued `maxLockDuration` chain update support for governing the maximum relative PLT lock duration.

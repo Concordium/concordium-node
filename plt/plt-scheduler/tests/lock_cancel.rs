@@ -84,6 +84,10 @@ fn test_cancel_by_canceller() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    assert_eq!(
+        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(0), // Existing lock without references.
+    );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 1);
         assert_matches!(&events[0], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {
@@ -103,7 +107,7 @@ fn test_cancel_unauthorized() {
 
     let plt_x: TokenId = "pltX".parse().unwrap();
     let parameters = TokenInitTestParams::default().mintable().burnable();
-    let (_gov_acct, _token_index) = utils::create_and_init_token_p11(
+    let (gov_acct, _token_index) = utils::create_and_init_token_p11(
         &mut context,
         &mut block_state,
         plt_x.clone(),
@@ -128,6 +132,14 @@ fn test_cancel_unauthorized() {
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        gov_acct.account_index(),
+        &plt_x,
+        RawTokenAmount::from(500),
+    );
 
     let sender_addr = context.external.account_canonical_address(account_index_2);
     let transaction_context = plt_scheduler::TransactionContext {
@@ -147,6 +159,10 @@ fn test_cancel_unauthorized() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    assert_eq!(
+        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(500), // One balance reference, even though cancellation is rejected.
+    );
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockCancelNotAuthorized(lock_id.clone(), sender_addr));
     });
@@ -316,6 +332,10 @@ fn test_cancel_with_balances() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    assert_eq!(
+        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(1000), // Two current account/token references.
+    );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 3);
         assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
@@ -380,6 +400,10 @@ fn test_cancel_nonexistent() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_1, payload)
         .unwrap();
+    assert_eq!(
+        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(0), // The lock must exist before its cancellation cost can be calculated.
+    );
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(TransactionRejectReason::NonExistentLockId(rejected_lock_id)) => {
         assert_eq!(rejected_lock_id, lock_id);
     });

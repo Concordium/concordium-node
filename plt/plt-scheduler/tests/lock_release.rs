@@ -11,6 +11,7 @@ use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, oper
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
 };
+use concordium_base::transactions::cost;
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
@@ -26,15 +27,15 @@ mod utils;
 macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
+        let operations = $operations;
+        let operation_count = operations.len() as u64;
         let payload = Payload::TokenUpdate {
             payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                operations: RawCbor::from(cbor::cbor_encode(&Operations {
-                    operations: $operations,
-                })),
+                operations: RawCbor::from(cbor::cbor_encode(&Operations { operations })),
             }),
         };
 
-        $block_state
+        let summary = $block_state
             .execute_transaction(
                 $context,
                 plt_scheduler::TransactionContext {
@@ -46,8 +47,15 @@ macro_rules! execute_unscoped_update {
                 $sender,
                 payload,
             )
-            .expect("unscoped Token Update transaction must execute")
-            .outcome
+            .expect("unscoped Token Update transaction must execute");
+        if matches!(&summary.outcome, TransactionOutcome::Success(_)) {
+            // Assert operation energy separately from the unscoped transaction overhead.
+            assert_eq!(
+                summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+                Energy::from(250 * operation_count),
+            );
+        }
+        summary
     }};
 }
 
@@ -130,7 +138,7 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
     let sender_addr = context
         .external
         .account_canonical_address(sender.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -143,7 +151,7 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
             None,
         )],
     );
-    let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
+    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
@@ -232,7 +240,7 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     let sender_addr = context
         .external
         .account_canonical_address(sender.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         sender.account_index(),
@@ -245,7 +253,7 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
             None,
         )],
     );
-    let events = assert_matches!(outcome, TransactionOutcome::Success(events) => events);
+    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
 
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::UnlockAmount(..));
@@ -311,7 +319,7 @@ fn test_lock_release_rejects_unauthorized_sender() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -324,7 +332,11 @@ fn test_lock_release_rejects_unauthorized_sender() {
             None,
         )],
     );
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockReleaseNotAuthorized(lock_id, owner_addr));
     });
 }
@@ -384,7 +396,7 @@ fn test_lock_release_rejects_after_expiry() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let outcome = execute_unscoped_update!(
+    let summary = execute_unscoped_update!(
         &mut context,
         &mut block_state,
         owner.account_index(),
@@ -397,7 +409,11 @@ fn test_lock_release_rejects_after_expiry() {
             None,
         )],
     );
-    assert_matches!(outcome, TransactionOutcome::Rejected(reason) => {
+    assert_eq!(
+        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+        Energy::from(250),
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockExpired(lock_id));
     });
 }

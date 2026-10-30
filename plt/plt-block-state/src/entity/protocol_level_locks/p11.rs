@@ -168,6 +168,13 @@ impl LockP11 {
         Ok(true)
     }
 
+    /// Number of account/token balance references currently tracked by the lock.
+    ///
+    /// Reads the stored collection size without loading its entries.
+    pub fn lock_balance_ref_count(&self) -> u64 {
+        self.persistent.locked_balances.size()
+    }
+
     /// Returns whether the lock tracks no balance references.
     pub fn has_no_balance_refs(&self) -> bool {
         self.persistent.locked_balances.size() == 0
