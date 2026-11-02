@@ -162,8 +162,8 @@ fn test_query_lock_info_any_recipient() {
         additional: HashMap::from([("purpose".to_string(), Value::Text("query test".to_string()))]),
     };
     let operations = Operations {
-        operations: vec![operations::create_lock(
-            concordium_base::protocol_level_locks::LockConfig::SimpleV0(
+        operations: vec![
+            operations::create_lock(concordium_base::protocol_level_locks::LockConfig::SimpleV0(
                 concordium_base::protocol_level_locks::LockConfigSimpleV0 {
                     recipients: LockRecipients::Any,
                     expiry: TransactionTime::from(1_804_806_000u64),
@@ -178,8 +178,9 @@ fn test_query_lock_info_any_recipient() {
                     memo: None,
                     metadata: Some(metadata.encode_raw_cbor()),
                 },
-            ),
-        )],
+            ))
+            .into(),
+        ],
     };
     block_state
         .execute_transaction(

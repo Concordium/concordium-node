@@ -11,9 +11,9 @@ use concordium_base::protocol_level_locks::{
     LockControllerSimpleV0Grant as CborLockControllerSimpleV0Grant, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, OperationNotPermittedRejectReason, Operations, OperationsPayload, RawCbor,
-    TokenAmount, TokenId, TokenListUpdateDetails, TokenModuleAccountState, TokenModuleRejectReason,
-    TokenOperation, operations,
+    CborHolderAccount, Operation, OperationNotPermittedRejectReason, Operations, OperationsPayload,
+    RawCbor, TokenAmount, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
+    TokenModuleRejectReason, TokenOperation, operations,
 };
 use concordium_base::transactions::cost;
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
@@ -30,7 +30,7 @@ mod utils;
 macro_rules! execute_unscoped_update {
     ($context:expr, $block_state:expr, $sender:expr, $timestamp:expr, $operations:expr $(,)?) => {{
         let sender_addr = $context.external.account_canonical_address($sender);
-        let operations = $operations;
+        let operations: Vec<Operation> = $operations.into_iter().map(Into::into).collect();
         let operation_energy: Energy = operations
             .iter()
             .map(|operation| match operation {

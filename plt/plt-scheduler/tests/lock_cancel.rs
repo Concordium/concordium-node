@@ -10,8 +10,8 @@ use concordium_base::{
     common::cbor,
     protocol_level_locks::{LockControllerSimpleV0Capability, LockId},
     protocol_level_tokens::{
-        CborHolderAccount, OperationsPayload, RawCbor, TokenId, TokenListUpdateDetails,
-        TokenOperation,
+        CborHolderAccount, LockCancelDetails, Operation, OperationsPayload, RawCbor, TokenId,
+        TokenListUpdateDetails, TokenOperation,
     },
     transactions::{Payload, TokenUpdatePayload},
 };
@@ -75,9 +75,11 @@ fn test_cancel_by_canceller() {
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
-                lock_id.clone(),
-                None,
+            operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::LockCancel(
+                LockCancelDetails {
+                    lock: lock_id.clone(),
+                    memo: None,
+                },
             )])),
         }),
     };
@@ -150,9 +152,11 @@ fn test_cancel_unauthorized() {
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
-                lock_id.clone(),
-                None,
+            operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::LockCancel(
+                LockCancelDetails {
+                    lock: lock_id.clone(),
+                    memo: None,
+                },
             )])),
         }),
     };
@@ -214,9 +218,11 @@ fn test_cancel_after_expiry() {
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
-                lock_id.clone(),
-                None,
+            operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::LockCancel(
+                LockCancelDetails {
+                    lock: lock_id.clone(),
+                    memo: None,
+                },
             )])),
         }),
     };
@@ -323,9 +329,11 @@ fn test_cancel_with_balances() {
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
-                lock_id.clone(),
-                Some(memo.clone()),
+            operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::LockCancel(
+                LockCancelDetails {
+                    lock: lock_id.clone(),
+                    memo: Some(memo.clone()),
+                },
             )])),
         }),
     };
@@ -391,9 +399,11 @@ fn test_cancel_nonexistent() {
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-            operations: RawCbor::from(cbor::cbor_encode(&vec![operations::cancel_lock(
-                lock_id.clone(),
-                Some(memo.clone()),
+            operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::LockCancel(
+                LockCancelDetails {
+                    lock: lock_id.clone(),
+                    memo: Some(memo.clone()),
+                },
             )])),
         }),
     };
@@ -469,12 +479,15 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
         &mut context,
         &mut block_state,
         owner.account_index(),
-        vec![operations::fund_lock(
-            token_id.clone(),
-            lock_id.clone(),
-            concordium_base::protocol_level_tokens::TokenAmount::from_raw(500, 2),
-            None,
-        )],
+        vec![
+            operations::fund_lock(
+                token_id.clone(),
+                lock_id.clone(),
+                concordium_base::protocol_level_tokens::TokenAmount::from_raw(500, 2),
+                None,
+            )
+            .into(),
+        ],
     );
     assert_eq!(fund_events.len(), 1);
 
@@ -498,7 +511,10 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
         &mut context,
         &mut block_state,
         canceller.account_index(),
-        vec![operations::cancel_lock(lock_id.clone(), None)],
+        vec![Operation::LockCancel(LockCancelDetails {
+            lock: lock_id.clone(),
+            memo: None,
+        })],
     );
     assert_eq!(events.len(), 2);
     assert_matches!(&events[1], BlockItemEvent::LockDestroyed(LockDestroyEvent{lock_id: event_lock_id}) => {

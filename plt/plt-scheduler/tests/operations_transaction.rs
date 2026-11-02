@@ -6,7 +6,7 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborMemo, MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
+    CborMemo, MetadataUrl, Operation, OperationsPayload, RawCbor, TokenAmount, TokenId,
     TokenListUpdateEventDetails, TokenModuleInitializationParameters, TokenPauseDetails,
     TokenPauseEventDetails, operations,
 };
@@ -122,7 +122,10 @@ fn test_unscoped_transaction() {
         operations::unpause_token(plt_x.clone()),
         operations::burn_tokens(plt_x.clone(), TokenAmount::from_raw(10, 2)),
         operations::remove_token_allow_list(plt_y.clone(), account_1_addr),
-    ];
+    ]
+    .into_iter()
+    .map(Operation::from)
+    .collect::<Vec<_>>();
 
     let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),

@@ -15,7 +15,7 @@ use concordium_base::{
         LockControllerSimpleV0Grant, LockId, LockMetadata, LockRecipients,
     },
     protocol_level_tokens::{
-        MetadataUrl, OperationsPayload, RawCbor, TokenAmount, TokenId,
+        MetadataUrl, Operation, OperationsPayload, RawCbor, TokenAmount, TokenId,
         TokenModuleInitializationParameters, operations,
     },
     transactions::{Payload, TokenUpdatePayload, cost},
@@ -57,7 +57,9 @@ fn execute_lock_create_with_duration(
         metadata: None,
     });
     let payload = OperationsPayload {
-        operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
+            operations::create_lock(config),
+        )])),
     };
     let result = plt_scheduler::scheduler::p11::execute_transaction(
         &mut context,
@@ -144,7 +146,7 @@ fn test_create_simple_lock() {
         LockControllerSimpleV0Capability::Cancel,
     ];
 
-    let operations = vec![operations::create_lock(config)];
+    let operations = vec![Operation::from(operations::create_lock(config))];
     let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
@@ -264,7 +266,9 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         metadata: None,
     });
     let payload = OperationsPayload {
-        operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(config)])),
+        operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
+            operations::create_lock(config),
+        )])),
     };
 
     let result = block_state
@@ -365,7 +369,7 @@ fn test_create_any_recipient_lock() {
         memo: None,
         metadata: None,
     });
-    let operations = vec![operations::create_lock(config.clone())];
+    let operations = vec![Operation::from(operations::create_lock(config.clone()))];
     let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
@@ -446,8 +450,8 @@ fn test_expired_creation_charges_configuration_complexity() {
             sender,
             Payload::TokenUpdate {
                 payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&vec![operations::create_lock(
-                        config,
+                    operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
+                        operations::create_lock(config),
                     )])),
                 }),
             },
@@ -538,8 +542,8 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
     };
     let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![
-            operations::create_lock(config(1)),
-            operations::create_lock(config(2)),
+            Operation::from(operations::create_lock(config(1))),
+            Operation::from(operations::create_lock(config(2))),
         ])),
     };
     let result = plt_scheduler::scheduler::p11::execute_transaction(
