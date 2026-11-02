@@ -86,9 +86,10 @@ fn test_cancel_by_canceller() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    // Existing lock without references incurs no cancellation cost.
     assert_eq!(
-        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(0), // Existing lock without references.
+        summary.energy_used,
+        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 1);
@@ -410,9 +411,10 @@ fn test_cancel_nonexistent() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_1, payload)
         .unwrap();
+    // The lock must exist before its cancellation cost can be calculated.
     assert_eq!(
-        summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(0), // The lock must exist before its cancellation cost can be calculated.
+        summary.energy_used,
+        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
     );
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(TransactionRejectReason::NonExistentLockId(rejected_lock_id)) => {
         assert_eq!(rejected_lock_id, lock_id);
