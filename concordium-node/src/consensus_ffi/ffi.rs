@@ -2305,7 +2305,7 @@ impl ConsensusContainer {
             ret.extend_from_slice(&(PacketType::CatchUpStatus as u8).to_be_bytes());
             ret.extend_from_slice(&genesis_index.to_be_bytes());
             ret.extend_from_slice(slice);
-            freeCStr(message_bytes as *const i8);
+            freeCStr(message_bytes as *const c_char);
             Arc::from(ret)
         }
     }

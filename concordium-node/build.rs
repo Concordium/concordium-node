@@ -2,8 +2,10 @@ use std::{env, path::Path};
 #[cfg(any(all(unix, not(feature = "static")), windows))]
 use std::{process::Command, str};
 
-#[cfg(all(not(feature = "static"), target_os = "linux"))]
+#[cfg(all(not(feature = "static"), target_os = "linux", target_arch = "x86_64"))]
 const GHC_VARIANT: &str = "x86_64-linux";
+#[cfg(all(not(feature = "static"), target_os = "linux", target_arch = "aarch64"))]
+const GHC_VARIANT: &str = "aarch64-linux";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
 const GHC_VARIANT: &str = "x86_64-osx";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
