@@ -559,6 +559,125 @@ extern "C" fn ffi_query_lock_list(
     return_status
 }
 
+/// C-binding for calling [`protocol_level_locks::p11::query_locks_by_account`].
+///
+/// Scans configurations in lock-list order, matching any grant (even zero capabilities).
+/// Only matching configurations are converted and buffered; balances are not read.
+/// Pre-lock protocols return an empty list.
+///
+/// Returns a byte representing the result:
+///
+/// - [`status::FfiStatusCode::Success`]: Query succeeded
+/// - [`status::FfiStatusCode::Panic`]: Execution of the query resulted in an unrecoverable error or panic.
+///
+/// # Arguments
+///
+/// - `load_callback` External function to call for loading bytes a reference from the blob store.
+/// - `read_token_account_balance_callback` External function to call reading the token balance of an account.
+/// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
+/// - `get_account_index_by_address_callback` External function for getting account index by account address.
+/// - `get_token_account_states_callback` External function for getting token account states.
+/// - `block_state` Shared pointer to a block state to use for queries.
+/// - `account_index` Account index already resolved in this block; this query does not check existence.
+/// - `return_data_out` Location for writing pointer to array containing return data, which is the
+///   serialized list of `(LockId, RawCbor)` pairs (u64 big-endian list length, then
+///   each 24-byte ID and u32 big-endian CBOR byte length followed by configuration bytes).
+///   On `Panic`, the bytes contain the error message instead.
+///   The pointer written is to a uniquely owned array. The caller must
+///   free the written array using `free_array_len_2` when it is no longer used.
+/// - `return_data_len_out` Location for writing the length of the array whose pointer was written
+///   to `return_data_out`.
+///
+/// # Safety
+///
+/// - All callback arguments must be valid function pointers to functions with a signature matching
+///   the signature of the Rust type of the function pointer.
+/// - Argument `block_state` must be a non-null pointer to a well-formed [`PersistentBlockState`].
+///   The pointer is to a shared instance, hence only valid for reading (writing only allowed through
+///   interior mutability).
+/// - Argument `return_data_out` must be a non-null and valid pointer for writing.
+/// - Argument `return_data_len_out` must be a non-null and valid pointer for writing.
+#[unsafe(no_mangle)]
+extern "C" fn ffi_query_locks_by_account(
+    load_callback: LoadCallback,
+    read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
+    get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
+    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
+    get_token_account_states_callback: GetTokenAccountStatesCallback,
+    block_state: *const PersistentBlockState,
+    account_index: u64,
+    return_data_out: *mut *mut u8,
+    return_data_len_out: *mut size_t,
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        let external = ExternalBlockStateQueryCallbacks {
+            read_token_account_balance_ptr: read_token_account_balance_callback,
+            get_account_address_by_index_ptr: get_account_address_by_index_callback,
+            get_account_index_by_address_ptr: get_account_index_by_address_callback,
+            get_token_account_states_ptr: get_token_account_states_callback,
+        };
+        let context = FfiQueryEntityContext {
+            external,
+            store: load_callback,
+        };
+        let configurations_res = match unsafe { &*block_state } {
+            PersistentBlockState::P9(persistent) => {
+                let block_state = BlockStateP9 {
+                    persistent: persistent.clone(),
+                };
+                protocol_level_locks::p9::query_locks_by_account(
+                    &context,
+                    &block_state,
+                    AccountIndex::from(account_index),
+                )
+            }
+            PersistentBlockState::P10(persistent) => {
+                let block_state = BlockStateP10 {
+                    persistent: persistent.clone(),
+                };
+                protocol_level_locks::p9::query_locks_by_account(
+                    &context,
+                    &block_state,
+                    AccountIndex::from(account_index),
+                )
+            }
+            PersistentBlockState::P11(persistent) => {
+                let block_state = BlockStateP11 {
+                    persistent: persistent.clone(),
+                };
+                protocol_level_locks::p11::query_locks_by_account(
+                    &context,
+                    &block_state,
+                    AccountIndex::from(account_index),
+                )
+            }
+        };
+
+        match configurations_res {
+            Ok(configurations) => (
+                status::FfiStatusCode::Success,
+                common::to_bytes(&configurations),
+            ),
+            Err(err) => (status::FfiStatusCode::Panic, err.to_string().into_bytes()),
+        }
+    });
+    let array = memory::alloc_array_from_vec(return_data);
+    unsafe {
+        *return_data_len_out = array.length;
+        *return_data_out = array.array;
+    }
+    return_status
+}
+
 /// C-binding for calling [`queries::query_lock_info`].
 ///
 /// Returns a byte representing the result:

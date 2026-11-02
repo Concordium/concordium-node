@@ -2,8 +2,10 @@ use std::{env, path::Path};
 #[cfg(any(all(unix, not(feature = "static")), windows))]
 use std::{process::Command, str};
 
-#[cfg(all(not(feature = "static"), target_os = "linux"))]
+#[cfg(all(not(feature = "static"), target_os = "linux", target_arch = "x86_64"))]
 const GHC_VARIANT: &str = "x86_64-linux";
+#[cfg(all(not(feature = "static"), target_os = "linux", target_arch = "aarch64"))]
+const GHC_VARIANT: &str = "aarch64-linux";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
 const GHC_VARIANT: &str = "x86_64-osx";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
@@ -261,6 +263,16 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .name("get_lock_list")
                 .route_name("GetLockList")
                 .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_locks_by_grant_account")
+                .route_name("GetLocksByGrantAccount")
+                .input_type("crate::grpc2::types::GetLocksByGrantAccountRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
                 .server_streaming()
