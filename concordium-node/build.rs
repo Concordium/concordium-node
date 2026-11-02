@@ -268,9 +268,9 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
-                .name("get_locks_by_account")
-                .route_name("GetLocksByAccount")
-                .input_type("crate::grpc2::types::GetLocksByAccountRequest")
+                .name("get_locks_by_grant_account")
+                .route_name("GetLocksByGrantAccount")
+                .input_type("crate::grpc2::types::GetLocksByGrantAccountRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
                 .server_streaming()

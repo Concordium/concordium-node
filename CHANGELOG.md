@@ -6,7 +6,7 @@
 
 ## Unreleased changes (Devnet)
 
-- Add the `GetLocksByAccount` gRPC endpoint to stream lock IDs and CBOR-encoded configurations for locks whose grants include an account at the selected block.
+- Add the `GetLocksByGrantAccount` gRPC endpoint to stream lock IDs and CBOR-encoded configurations for locks whose grants include an account at the selected block.
 
 ## 11.2.3 (Devnet)
 

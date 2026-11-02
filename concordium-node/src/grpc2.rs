@@ -932,7 +932,7 @@ struct ServiceConfig {
     #[serde(default)]
     get_lock_list: bool,
     #[serde(default)]
-    get_locks_by_account: bool,
+    get_locks_by_grant_account: bool,
     #[serde(default)]
     get_account_info: bool,
     #[serde(default)]
@@ -1068,7 +1068,7 @@ impl ServiceConfig {
             get_account_list: true,
             get_token_list: true,
             get_lock_list: true,
-            get_locks_by_account: true,
+            get_locks_by_grant_account: true,
             get_account_info: true,
             get_token_info: true,
             get_token_authorizations: true,
@@ -1755,8 +1755,8 @@ pub mod server {
         type GetTokenListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetLockList' method.
         type GetLockListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the `GetLocksByAccount` method.
-        type GetLocksByAccountStream =
+        /// Return type for the `GetLocksByGrantAccount` method.
+        type GetLocksByGrantAccountStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
@@ -1937,13 +1937,13 @@ pub mod server {
             Ok(response)
         }
 
-        async fn get_locks_by_account(
+        async fn get_locks_by_grant_account(
             &self,
-            request: tonic::Request<grpc2::types::GetLocksByAccountRequest>,
-        ) -> Result<tonic::Response<Self::GetLocksByAccountStream>, tonic::Status> {
-            if !self.service_config.get_locks_by_account {
+            request: tonic::Request<grpc2::types::GetLocksByGrantAccountRequest>,
+        ) -> Result<tonic::Response<Self::GetLocksByGrantAccountStream>, tonic::Status> {
+            if !self.service_config.get_locks_by_grant_account {
                 return Err(tonic::Status::unimplemented(
-                    "`GetLocksByAccount` is not enabled.",
+                    "`GetLocksByGrantAccount` is not enabled.",
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
