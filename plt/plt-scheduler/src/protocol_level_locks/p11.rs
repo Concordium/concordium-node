@@ -40,6 +40,34 @@ pub fn query_lock_list<C: EntityContextTypes>(
     block_state.lock_list(context)
 }
 
+/// Get ID/configuration CBOR pairs for membership in any grant, including empty grants.
+///
+/// `account_index` must be resolved by the caller in the selected block. Results follow
+/// lock-list order and contain no balances. This scans all configurations and buffers only
+/// matches.
+///
+/// NOTE: this is a naive implementation, and could be optimized similar to `query_lock_list`.
+pub fn query_locks_by_account<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    block_state: &BlockStateP11,
+    account_index: concordium_base::base::AccountIndex,
+) -> BlockStateResult<Vec<(LockId, RawCbor)>> {
+    let mut matches = Vec::new();
+    block_state.visit_lock_configurations(context, |id, configuration| {
+        let LockConfig::SimpleV0(simple) = configuration;
+        if simple
+            .grants()
+            .binary_search_by_key(&account_index, |grant| grant.account())
+            .is_ok()
+        {
+            let config = lock_configuration::to_cbor_config(context, configuration)?;
+            matches.push((id, RawCbor::from(cbor::cbor_encode(&config))));
+        }
+        Ok(())
+    })?;
+    Ok(matches)
+}
+
 /// Query [`LockInfo`] a lock.
 ///
 /// The function builds the [`LockInfo`] from the locks static [`LockConfig`] and

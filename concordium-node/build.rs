@@ -270,6 +270,16 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_locks_by_grant_account")
+                .route_name("GetLocksByGrantAccount")
+                .input_type("crate::grpc2::types::GetLocksByGrantAccountRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_module_list")
                 .route_name("GetModuleList")
                 .input_type("crate::grpc2::types::BlockHashInput")
