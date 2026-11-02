@@ -167,7 +167,8 @@ jobs:
           # Only an absent manifest permits publication. Other registry errors fail.
           elif grep --extended-regexp --ignore-case --quiet 'manifest unknown|no such manifest' "$manifest_error" ||
                grep --fixed-strings --line-regexp --quiet "ERROR: docker.io/$destination_ref: not found" "$manifest_error"; then
-            # Copy the manifest and layers. Do not create an image index.
+            # Copy the multi-platform index, platform manifests and layers unchanged.
+            # Do not wrap the source in a new image index.
             docker buildx imagetools create --prefer-index=false --tag "$destination_ref" "$ECR_REPOSITORY@$SOURCE_DIGEST"
           else
             cat "$manifest_error" >&2
@@ -195,5 +196,6 @@ jobs:
         run: |
           set -euo pipefail
           # Create a public signature with this release workflow's identity.
-          # A retry can complete signing without copying the image again.
-          cosign sign --yes "$IMAGE_REPOSITORY@$SOURCE_DIGEST"
+          # Sign the index and each platform image. A retry can complete signing
+          # without copying the image again.
+          cosign sign --yes --recursive "$IMAGE_REPOSITORY@$SOURCE_DIGEST"
