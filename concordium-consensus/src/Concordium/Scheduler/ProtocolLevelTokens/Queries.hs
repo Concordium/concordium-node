@@ -13,6 +13,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.Queries (
     queryPLTList,
     queryTokenAuthorizations,
     queryLockList,
+    queryLocksByAccount,
     queryLockInfo,
 ) where
 
@@ -232,6 +233,20 @@ queryLockList bs =
         SPLTStateNone -> return []
         SPLTStateV0 -> return []
         SPLTStateV1 -> RustQ.queryLockList bs
+
+-- | Get lock IDs and CBOR configurations with any grant to the resolved account.
+-- Protocol versions without locks return no matches.
+queryLocksByAccount ::
+    forall m.
+    (BS.BlockStateQuery m) =>
+    AccountIndex ->
+    BlockState m ->
+    m [(Locks.LockId, RawCbor)]
+queryLocksByAccount accountIndex bs =
+    case sPltStateVersionFor (protocolVersion @(MPV m)) of
+        SPLTStateNone -> return []
+        SPLTStateV0 -> return []
+        SPLTStateV1 -> RustQ.queryLocksByAccount bs accountIndex
 
 type SerializedLockId = RustQ.SerializedLockId
 

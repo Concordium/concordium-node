@@ -17,18 +17,28 @@ concurrency:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  # Every staging image index must contain exactly these platforms.
+  IMAGE_PLATFORMS: linux/amd64 linux/arm64
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  prepare:
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      image_ref: ${{ steps.metadata.outputs.image_ref }}
+      repository_name: ${{ steps.metadata.outputs.repository_name }}
+      resume: ${{ steps.existing.outputs.resume }}
+      digest: ${{ steps.existing.outputs.digest }}
     steps:
+      # Fetch only the manifest that provides the node version.
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          submodules: recursive
+          sparse-checkout: concordium-node/Cargo.toml
+          sparse-checkout-cone-mode: false
 
       - name: Derive build metadata
         id: metadata
@@ -63,7 +73,7 @@ jobs:
             echo '::error::Configure AWS_REGION and the full ECR_REPOSITORY URI.'
             exit 1
           fi
-          # Share the image tag and ECR repository name with later steps.
+          # Share the image tag and ECR repository name with later jobs.
           {
             echo "version=$image_version"
             echo "image_ref=$ECR_REPOSITORY:$image_version"
@@ -79,12 +89,14 @@ jobs:
       - name: Log in to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Check staging version
         id: existing
         env:
           REPOSITORY_NAME: ${{ steps.metadata.outputs.repository_name }}
           IMAGE_VERSION: ${{ steps.metadata.outputs.version }}
-          IMAGE_REF: ${{ steps.metadata.outputs.image_ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -101,14 +113,29 @@ jobs:
               echo '::error::Invalid staging digest.'
               exit 1
             fi
-            # Inspect the exact digest. Reuse it only if both build labels match.
-            docker pull "$ECR_REPOSITORY@$image_digest"
-            image_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$ECR_REPOSITORY@$image_digest")
-            image_version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$ECR_REPOSITORY@$image_digest")
-            if [[ "$image_revision" != "$GITHUB_SHA" || "$image_version" != "$IMAGE_VERSION" ]]; then
-              echo '::error::Existing staging image does not match this build.'
+            # Reuse the index only if it holds exactly the expected platforms.
+            index=$(docker buildx imagetools inspect --raw "$ECR_REPOSITORY@$image_digest")
+            index_platforms=$(jq -r '.manifests[]?.platform | "\(.os)/\(.architecture)"' <<<"$index" | sort | xargs)
+            expected_platforms=$(tr ' ' '\n' <<<"$IMAGE_PLATFORMS" | sort | xargs)
+            if [[ "$index_platforms" != "$expected_platforms" ]]; then
+              echo '::error::Existing staging image does not contain the expected platforms.'
               exit 1
             fi
+            # Inspect each platform image by digest. Reuse the index only if both build labels match.
+            for platform_digest in $(jq -r '.manifests[].digest' <<<"$index"); do
+              if [[ ! "$platform_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+                echo '::error::Invalid platform digest in the staging index.'
+                exit 1
+              fi
+              platform_ref="$ECR_REPOSITORY@$platform_digest"
+              docker pull --quiet "$platform_ref"
+              image_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_ref")
+              image_version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$platform_ref")
+              if [[ "$image_revision" != "$GITHUB_SHA" || "$image_version" != "$IMAGE_VERSION" ]]; then
+                echo '::error::Existing staging image does not match this build.'
+                exit 1
+              fi
+            done
             echo 'resume=true' >> "$GITHUB_OUTPUT"
             echo "digest=$image_digest" >> "$GITHUB_OUTPUT"
           # Only a missing image permits a build. Authentication and service errors fail.
@@ -120,29 +147,205 @@ jobs:
             exit 1
           fi
 
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.resume != 'true'
+    # Build each platform natively. Emulating the Haskell and Rust build is too slow.
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Set up Docker Buildx
-        if: steps.existing.outputs.resume != 'true'
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push staging image
-        if: steps.existing.outputs.resume != 'true'
+      # Push the platform image by digest only. The merge job tags the image index.
+      - name: Build and push platform image
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: scripts/distribution/docker-image/builder.Dockerfile
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           pull: true
           no-cache: true
-          push: true
           provenance: false
-          tags: ${{ steps.metadata.outputs.image_ref }}
+          outputs: type=image,name=${{ env.ECR_REPOSITORY }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.title=Concordium Node
             org.opencontainers.image.description=Concordium node and collector
             org.opencontainers.image.source=https://github.com/Concordium/concordium-node
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.metadata.outputs.version }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+
+      - name: Record platform digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::Could not resolve the platform digest.'
+            exit 1
+          fi
+          # Matrix jobs cannot set separate outputs, so pass the digest as an artifact.
+          mkdir -p "$RUNNER_TEMP/digests"
+          echo "$IMAGE_DIGEST" > "$RUNNER_TEMP/digests/${PLATFORM//\//-}"
+
+      - name: Upload platform digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  merge:
+    needs: [prepare, build]
+    # Run after a build, or alone when the prepare job resumes an existing index.
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.build.result == 'success' || needs.prepare.outputs.resume == 'true')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE_REF: ${{ needs.prepare.outputs.image_ref }}
+      IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      REPOSITORY_NAME: ${{ needs.prepare.outputs.repository_name }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Download platform digests
+        if: needs.prepare.outputs.resume != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Create staging image index
+        if: needs.prepare.outputs.resume != 'true'
+        id: index
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Require one valid digest for each expected platform.
+          platform_refs=()
+          for platform in $IMAGE_PLATFORMS; do
+            digest_file="$RUNNER_TEMP/digests/${platform//\//-}"
+            platform_digest=$(cat "$digest_file")
+            if [[ ! "$platform_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "::error::Missing or invalid digest for $platform."
+              exit 1
+            fi
+            platform_refs+=("$ECR_REPOSITORY@$platform_digest")
+          done
+          expected_digests=$(printf '%s\n' "${platform_refs[@]#*@}" | sort | xargs)
+          # A retry can find an index created by an earlier attempt. Reuse it only if it
+          # references exactly these platform images. Authentication and service errors fail.
+          manifest_error=$(mktemp)
+          trap 'rm -f "$manifest_error"' EXIT
+          if aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=$IMAGE_VERSION" >/dev/null 2>"$manifest_error"; then
+            echo 'The staging tag already exists; checking that it matches this build.'
+          elif grep --fixed-strings --quiet '(ImageNotFoundException)' "$manifest_error"; then
+            docker buildx imagetools create --tag "$IMAGE_REF" "${platform_refs[@]}"
+          else
+            cat "$manifest_error" >&2
+            echo '::error::Could not check the staging version.'
+            exit 1
+          fi
+          # Confirm that the tag identifies an index of exactly the built platform images.
+          index_digest=$(aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=$IMAGE_VERSION" --query 'imageDetails[0].imageDigest' --output text)
+          if [[ ! "$index_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::Could not resolve the staging digest.'
+            exit 1
+          fi
+          index_digests=$(docker buildx imagetools inspect --raw "$ECR_REPOSITORY@$index_digest" | jq -r '.manifests[]?.digest' | sort | xargs)
+          if [[ "$index_digests" != "$expected_digests" ]]; then
+            echo '::error::The staging tag does not identify the images built by this run.'
+            exit 1
+          fi
+          echo "digest=$index_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Tag platform images
+        env:
+          IMAGE_DIGEST: ${{ needs.prepare.outputs.digest || steps.index.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::Could not resolve the staging digest.'
+            exit 1
+          fi
+          # Tag each platform image in the verified index, for example 1.2.3-4-rc-arm64.
+          # Read the digests from the index so a resumed run also completes missing tags.
+          # Release tags must end in -rc, so these tags cannot be released.
+          manifest_error=$(mktemp)
+          trap 'rm -f "$manifest_error"' EXIT
+          docker buildx imagetools inspect --raw "$ECR_REPOSITORY@$IMAGE_DIGEST" |
+            jq -r '.manifests[] | "\(.platform.architecture) \(.digest)"' |
+            while read -r architecture platform_digest; do
+              if [[ ! "$architecture" =~ ^[a-z0-9]+$ || ! "$platform_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+                echo '::error::Invalid platform entry in the staging index.'
+                exit 1
+              fi
+              platform_tag="$IMAGE_VERSION-$architecture"
+              # ECR tags are immutable. Skip a matching tag and fail on a different digest.
+              if existing_digest=$(aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=$platform_tag" --query 'imageDetails[0].imageDigest' --output text 2>"$manifest_error"); then
+                if [[ "$existing_digest" != "$platform_digest" ]]; then
+                  echo "::error::The tag $platform_tag already identifies a different image."
+                  exit 1
+                fi
+              elif grep --fixed-strings --quiet '(ImageNotFoundException)' "$manifest_error"; then
+                # Add the tag without wrapping the platform manifest in a new index.
+                docker buildx imagetools create --prefer-index=false --tag "$ECR_REPOSITORY:$platform_tag" "$ECR_REPOSITORY@$platform_digest"
+                tagged_digest=$(aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=$platform_tag" --query 'imageDetails[0].imageDigest' --output text)
+                if [[ "$tagged_digest" != "$platform_digest" ]]; then
+                  echo "::error::The tag $platform_tag does not preserve the platform digest."
+                  exit 1
+                fi
+              else
+                cat "$manifest_error" >&2
+                echo "::error::Could not check the tag $platform_tag."
+                exit 1
+              fi
+            done
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.8.2
@@ -151,7 +354,7 @@ jobs:
 
       - name: Sign staging image
         env:
-          IMAGE_DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ needs.prepare.outputs.digest || steps.index.outputs.digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -160,10 +363,13 @@ jobs:
             echo '::error::Could not resolve the staging digest.'
             exit 1
           fi
-          cosign sign --yes "$ECR_REPOSITORY@$IMAGE_DIGEST"
+          # Sign the index and each platform image, so platform digests also verify.
+          cosign sign --yes --recursive "$ECR_REPOSITORY@$IMAGE_DIGEST"
           # Record the signed image for staging checks and release selection.
           {
             echo '## Docker node staging build'
             printf '\n- Image: `%s@%s`\n' "$ECR_REPOSITORY" "$IMAGE_DIGEST"
-            printf -- '- Version: `%s`\n' '${{ steps.metadata.outputs.version }}'
+            printf -- '- Version: `%s`\n' "$IMAGE_VERSION"
+            docker buildx imagetools inspect --raw "$ECR_REPOSITORY@$IMAGE_DIGEST" |
+              jq -r '.manifests[] | "- \(.platform.os)/\(.platform.architecture): `\(.digest)`"'
           } >> "$GITHUB_STEP_SUMMARY"

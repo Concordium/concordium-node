@@ -332,12 +332,12 @@ mod test {
             memo: memo.clone(),
         });
         assert_eq!(
-            operations::transfer_tokens_with_memo(
+            Operation::from(operations::transfer_tokens_with_memo(
                 token_id.clone(),
                 ADDRESS,
                 amount,
                 cbor_memo.clone()
-            ),
+            )),
             unscoped_transfer
         );
         assert_eq!(
@@ -355,7 +355,7 @@ mod test {
             amount,
         });
         assert_eq!(
-            operations::mint_tokens(token_id.clone(), amount),
+            Operation::from(operations::mint_tokens(token_id.clone(), amount)),
             unscoped_mint
         );
         assert_eq!(
@@ -373,7 +373,7 @@ mod test {
             amount,
         });
         assert_eq!(
-            operations::burn_tokens(token_id.clone(), amount),
+            Operation::from(operations::burn_tokens(token_id.clone(), amount)),
             unscoped_burn
         );
         assert_eq!(
@@ -393,7 +393,7 @@ mod test {
             target: account.clone(),
         });
         assert_eq!(
-            operations::add_token_allow_list(token_id.clone(), ADDRESS),
+            Operation::from(operations::add_token_allow_list(token_id.clone(), ADDRESS)),
             unscoped_add_allow_list
         );
         assert_eq!(
@@ -414,7 +414,10 @@ mod test {
                 target: account.clone(),
             });
         assert_eq!(
-            operations::remove_token_allow_list(token_id.clone(), ADDRESS),
+            Operation::from(operations::remove_token_allow_list(
+                token_id.clone(),
+                ADDRESS
+            )),
             unscoped_remove_allow_list
         );
         assert_eq!(
@@ -434,7 +437,7 @@ mod test {
             target: account.clone(),
         });
         assert_eq!(
-            operations::add_token_deny_list(token_id.clone(), ADDRESS),
+            Operation::from(operations::add_token_deny_list(token_id.clone(), ADDRESS)),
             unscoped_add_deny_list
         );
         assert_eq!(
@@ -455,7 +458,10 @@ mod test {
                 target: account.clone(),
             });
         assert_eq!(
-            operations::remove_token_deny_list(token_id.clone(), ADDRESS),
+            Operation::from(operations::remove_token_deny_list(
+                token_id.clone(),
+                ADDRESS
+            )),
             unscoped_remove_deny_list
         );
         assert_eq!(
@@ -471,7 +477,10 @@ mod test {
         let unscoped_pause = Operation::TokenPause(TokenPauseDetailsWithId {
             token: token_id.clone(),
         });
-        assert_eq!(operations::pause_token(token_id.clone()), unscoped_pause);
+        assert_eq!(
+            Operation::from(operations::pause_token(token_id.clone())),
+            unscoped_pause
+        );
         assert_eq!(
             Operation::from((token_id.clone(), token_pause.clone())),
             unscoped_pause
@@ -486,7 +495,7 @@ mod test {
             token: token_id.clone(),
         });
         assert_eq!(
-            operations::unpause_token(token_id.clone()),
+            Operation::from(operations::unpause_token(token_id.clone())),
             unscoped_unpause
         );
         assert_eq!(
@@ -511,7 +520,11 @@ mod test {
                 account: account.clone(),
             });
         assert_eq!(
-            operations::assign_token_admin_roles(token_id.clone(), ADDRESS, assign_roles.clone()),
+            Operation::from(operations::assign_token_admin_roles(
+                token_id.clone(),
+                ADDRESS,
+                assign_roles.clone()
+            )),
             unscoped_assign_admin_roles
         );
         assert_eq!(
@@ -540,7 +553,11 @@ mod test {
                 account: account.clone(),
             });
         assert_eq!(
-            operations::revoke_token_admin_roles(token_id.clone(), ADDRESS, revoke_roles.clone()),
+            Operation::from(operations::revoke_token_admin_roles(
+                token_id.clone(),
+                ADDRESS,
+                revoke_roles.clone()
+            )),
             unscoped_revoke_admin_roles
         );
         assert_eq!(
@@ -564,7 +581,10 @@ mod test {
                 checksum_sha_256: metadata_url.checksum_sha_256,
             });
         assert_eq!(
-            operations::update_token_metadata(token_id.clone(), metadata_url.clone()),
+            Operation::from(operations::update_token_metadata(
+                token_id.clone(),
+                metadata_url.clone()
+            )),
             unscoped_update_metadata
         );
         assert_eq!(

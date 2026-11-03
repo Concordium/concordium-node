@@ -176,6 +176,21 @@ impl BlockStateP11 {
         )
     }
 
+    /// Visit each lock ID and configuration in [`Self::lock_list`] order.
+    ///
+    /// `visit` is called once per lock.
+    pub fn visit_lock_configurations<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+        visit: impl FnMut(LockId, &LockConfig) -> BlockStateResult<()>,
+    ) -> BlockStateResult<()> {
+        protocol_level_locks::p11::visit_lock_configurations(
+            context,
+            self.persistent.locks.value(&context.store)?.as_ref(),
+            visit,
+        )
+    }
+
     /// Get the lock associated with a [`LockId`] (if it exists).
     ///
     /// # Arguments
