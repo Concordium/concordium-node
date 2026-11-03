@@ -3,6 +3,7 @@
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
@@ -290,7 +291,7 @@ initialState numAccts = do
     return SimState{..}
   where
     chainParams =
-        Dummy.dummyChainParameters
+        (Dummy.dummyChainParameters' @ChainParametersV1)
             { _cpConsensusParameters = ConsensusParametersV0{_cpElectionDifficulty = makeElectionDifficulty 50000},
               _cpExchangeRates = makeExchangeRates 1 1,
               _cpFoundationAccount = maxBakerId + 1

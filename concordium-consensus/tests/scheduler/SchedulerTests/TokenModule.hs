@@ -46,7 +46,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.Scheduler.DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
@@ -336,7 +336,7 @@ testInitializeToken = describe "initializeToken" $ do
                 abortPLTError $
                     ITEDeserializationFailure "DeserialiseFailure 0 \"end of input\""
         assertTrace
-            (initializeToken (TokenParameter mempty))
+            (initializeToken (rawCborFromBytes mempty))
             trace
     -- In this example, a parameter is missing from the required initialization parameters
     it "invalid parameters: missing parameter" $ do
@@ -358,7 +358,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just True,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
@@ -386,7 +386,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Nothing,
                       tipAdditional = Map.fromList [("_param1", CBOR.TString "extravalue1")]
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
@@ -414,7 +414,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Nothing,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token") :-> Just False)
@@ -444,7 +444,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just True,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token") :-> Just False)
@@ -477,7 +477,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -510,7 +510,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -543,7 +543,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -575,7 +575,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = Just False,
                       tipAdditional = Map.empty
                     }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            tokenParam = rawCborFromBytes $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (setModuleStateCall "name" $ Just "Protocol-level token2") :-> Just False)
@@ -598,10 +598,10 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
-            (executeTokenUpdateTransaction (sender 0) (TokenParameter mempty))
+            (executeTokenUpdateTransaction (sender 0) (rawCborFromBytes mempty))
             trace
     it "empty operations" $ do
-        let transaction = TokenUpdateTransaction Seq.empty
+        let transaction = TokenOperations Seq.empty
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 2)
@@ -609,7 +609,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer: paused operation" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -626,7 +626,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -641,7 +641,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK: long memo, max amount" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo longMemo))]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -656,7 +656,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "invalid memo" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo badMemo))]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -667,7 +667,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
     -- the number of decimals in the token representation.
     it "amount too large" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo longMemo))]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -678,7 +678,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
@@ -701,7 +701,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - first fails (insufficient funds)" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
@@ -725,7 +725,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - second fails (insufficient funds)" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
@@ -755,7 +755,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - second fails (invalid recipient)" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
@@ -780,7 +780,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow list: allowed" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -799,7 +799,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow list: sender not allowed" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -821,7 +821,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow list: recipient not allowed" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -837,14 +837,14 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted = Just receiver1,
+                                  trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount receiver1,
                                   trrReason = Just "recipient not in allow list"
                                 }
                          )
         assertTrace (executeTokenUpdateTransaction (sender 23) (encodeTransaction transaction)) trace
     it "deny list: allowed" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -863,7 +863,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "deny list: sender denied" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -886,7 +886,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "deny list: recipient denied" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -903,14 +903,14 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted = Just receiver1,
+                                  trrAddressNotPermitted = Just $ accountTokenHolder $ chaAccount receiver1,
                                   trrReason = Just "recipient in deny list"
                                 }
                          )
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow & deny list: allowed" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -933,7 +933,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "5000 transfers" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [ mkTransferOp
                         amt10'000
                         (CborAccountAddress (dummyAccountAddress i) Nothing)
@@ -965,7 +965,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
     longMemo = Memo $ SBS.replicate maxMemoSize 60
     badMemo = Memo $ SBS.replicate (maxMemoSize + 1) 60
     mkTransferOp ttAmount ttRecipient ttMemo = TokenTransfer TokenTransferBody{..}
-    encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+    encodeTransaction = rawCborFromBytes . tokenOperationsToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 testExecuteTokenUpdateTransactionMintBurnPause :: Spec
@@ -976,10 +976,10 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
-            (executeTokenUpdateTransaction (sender 0) (TokenParameter mempty))
+            (executeTokenUpdateTransaction (sender 0) (rawCborFromBytes mempty))
             trace
     it "empty operations" $ do
-        let transaction = TokenUpdateTransaction Seq.empty
+        let transaction = TokenOperations Seq.empty
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 2)
@@ -987,7 +987,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "unauthorized operation" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1010,7 +1010,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 1) (encodeTransaction transaction)) trace
     it "mint: paused operation" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1029,7 +1029,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: OK" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1044,7 +1044,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: not mintable" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1064,7 +1064,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: overflow" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1087,7 +1087,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: OK" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1102,7 +1102,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: paused operation" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1121,7 +1121,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: not burnable" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1141,7 +1141,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: balance insufficient" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1163,7 +1163,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint & burn: OK" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [ TokenMint (TokenAmount 10_000_000 6),
                       TokenBurn (TokenAmount 5_000_000 6)
                     ]
@@ -1187,7 +1187,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
     -- testLists
     it "pause: OK" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenPause]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1201,7 +1201,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "unpause: OK" $ do
         let transaction =
-                TokenUpdateTransaction . Seq.fromList $
+                TokenOperations . Seq.fromList $
                     [TokenUnpause]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1214,7 +1214,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
-    encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+    encodeTransaction = rawCborFromBytes . tokenOperationsToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 data AddRemove = Add | Remove
@@ -1228,7 +1228,7 @@ testLists = do
         describe (Text.unpack (ltcOperation listConf)) $ do
             it "OK" $ do
                 let transaction =
-                        TokenUpdateTransaction . Seq.fromList $
+                        TokenOperations . Seq.fromList $
                             [ltcMakeOperation listConf receiver1]
                     trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
                     trace =
@@ -1252,7 +1252,7 @@ testLists = do
                 assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
             it "feature not enabled" $ do
                 let transaction =
-                        TokenUpdateTransaction . Seq.fromList $
+                        TokenOperations . Seq.fromList $
                             [ltcMakeOperation listConf receiver1]
                     trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
                     trace =
@@ -1271,7 +1271,7 @@ testLists = do
                 assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
             it "account not found" $ do
                 let transaction =
-                        TokenUpdateTransaction . Seq.fromList $
+                        TokenOperations . Seq.fromList $
                             [ltcMakeOperation listConf receiver2]
                     trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
                     trace =
@@ -1289,7 +1289,7 @@ testLists = do
                                  )
                 assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
-    encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+    encodeTransaction = rawCborFromBytes . tokenOperationsToBytes
     receiver1 = CborAccountAddress (dummyAccountAddress 1) Nothing
     receiver2 = CborAccountAddress (dummyAccountAddress 2) (Just CoinInfoConcordium)
     ltcFeature :: ListTestConf -> TokenStateKey
@@ -1333,11 +1333,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
 
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
-            governanceAccount =
-                CborAccountAddress
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
+            governanceAccount = accountTokenHolder $ dummyAccountAddress 1
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (getModuleStateCall "name") :-> Just "My protocol-level token")
@@ -1367,11 +1363,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
         assertTrace queryTokenModuleState trace
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
-            governanceAccount =
-                CborAccountAddress
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
+            governanceAccount = accountTokenHolder $ dummyAccountAddress 1
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (getModuleStateCall "name") :-> Just "Another PLT")
@@ -1618,18 +1610,18 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
 
     tokenId = TokenId "dummyToken"
-    mintTx = TokenUpdateTransaction . Seq.fromList $ [mkMintOp amt10'000]
-    burnTx = TokenUpdateTransaction . Seq.fromList $ [mkBurnOp amt10'000]
+    mintTx = TokenOperations . Seq.fromList $ [mkMintOp amt10'000]
+    burnTx = TokenOperations . Seq.fromList $ [mkBurnOp amt10'000]
     transferTx =
-        TokenUpdateTransaction . Seq.fromList $
+        TokenOperations . Seq.fromList $
             [mkTransferOp amt10'000 receiver1 Nothing]
     transferTx2 =
-        TokenUpdateTransaction . Seq.fromList $
+        TokenOperations . Seq.fromList $
             [mkTransferOp amt10'000 receiver1 Nothing, mkTransferOp amt10'000 receiver1 Nothing]
     encodeTxTH =
-        TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+        rawCborFromBytes . tokenOperationsToBytes
     encodeTxGV =
-        TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
+        rawCborFromBytes . tokenOperationsToBytes
     receiver1 = CborAccountAddress (dummyAccountAddress 0) Nothing
     amt10'000 = TokenAmount 10_000 3
     mkMintOp toMintAmount = TokenMint{..}
@@ -1637,20 +1629,14 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
     mkTransferOp ttAmount ttRecipient ttMemo = TokenTransfer TokenTransferBody{..}
 
     mintPayload =
-        Types.TokenUpdate
-            { tuTokenId = tokenId,
-              tuOperations = encodeTxGV mintTx
-            }
+        Types.TokenUpdate $
+            Types.ScopedTokenUpdate tokenId (Types.EncodedTokenOperations (encodeTxGV mintTx))
     burnPayload =
-        Types.TokenUpdate
-            { tuTokenId = tokenId,
-              tuOperations = encodeTxGV burnTx
-            }
+        Types.TokenUpdate $
+            Types.ScopedTokenUpdate tokenId (Types.EncodedTokenOperations (encodeTxGV burnTx))
     transferPayload =
-        Types.TokenUpdate
-            { tuTokenId = tokenId,
-              tuOperations = encodeTxTH transferTx
-            }
+        Types.TokenUpdate $
+            Types.ScopedTokenUpdate tokenId (Types.EncodedTokenOperations (encodeTxTH transferTx))
     headerSize = fromIntegral Types.transactionHeaderSize
     mintSize =
         Energy $
@@ -1695,7 +1681,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
                 }
 
     initialBlockState ::
-        (Types.IsProtocolVersion pv, PVSupportsPLT pv) =>
+        (Types.IsProtocolVersion pv, PVSupportsHaskellManagedPLT pv) =>
         Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
     initialBlockState = do
         bs0 <-

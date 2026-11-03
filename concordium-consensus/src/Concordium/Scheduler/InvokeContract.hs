@@ -39,7 +39,6 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.Scheduler
 import Concordium.Scheduler.Environment
-import Concordium.Scheduler.EnvironmentImplementation (ContextState (..), accountCreationLimit, chainMetadata, maxBlockEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 

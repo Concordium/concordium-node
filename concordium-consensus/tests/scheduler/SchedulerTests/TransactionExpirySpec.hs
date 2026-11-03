@@ -18,7 +18,7 @@ import Concordium.GlobalState.DummyData
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.Environment as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Types.Accounts (

@@ -88,7 +88,8 @@ library:
       - -O2
       - -fno-ignore-asserts
 
-  extra-libraries: concordium_smart_contract_engine
+  extra-libraries:
+      - node_rust_library
 
   when:
     - condition: "!(os(windows)) && !(flag(dynamic))"

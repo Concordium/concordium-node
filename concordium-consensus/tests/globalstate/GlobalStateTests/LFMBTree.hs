@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -21,8 +22,11 @@ import Concordium.Types.ProtocolVersion
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16.Lazy as B16
+import Data.Either
 import Data.IORef
 import qualified Data.Serialize as S
+import Data.String
 import Data.Word
 import Test.Hspec
 import Test.QuickCheck
@@ -126,6 +130,66 @@ testTraverseWhileDescRef ws = forAll (chooseBoundedIntegral (0, length ws)) $ \n
                     else liftIO $ expect' `shouldBe` Nothing
             )
 
+newtype StringValue = StringValue String
+    deriving newtype (S.Serialize, Show, IsString, Eq)
+
+instance (MonadBlobStore m) => BlobStorable m StringValue
+
+instance (Monad m) => MHashableTo m H.Hash StringValue
+
+instance HashableTo H.Hash StringValue where
+    getHash val = H.hashLazy $ S.runPutLazy $ do
+        S.put val
+
+-- | Asserts "shapshots" of hashes to make sure they don't change.
+snapshotTestHash :: IO ()
+snapshotTestHash = do
+    mbs <- newMemBlobStore
+    flip
+        runMemBlobStoreT
+        mbs
+        ( do
+            -- Empty tree
+            let emptyTree = empty :: LFMBTree Word64 HashedBufferedRef StringValue
+            (h1 :: LFMBTreeHashV1) <- getHashM emptyTree
+            liftIO $ show h1 `shouldBe` "c423f9e91ee218b2b5303485dd87a3093a653ddb9bdb839d30aa1924de1dbf05"
+
+            -- Tree with values A, B, C
+            simpleTree <- foldM (\acc v -> snd <$> append v acc) (empty :: LFMBTree Word64 HashedBufferedRef StringValue) ["A", "B", "C"]
+            (h2 :: LFMBTreeHashV1) <- getHashM simpleTree
+            liftIO $ show h2 `shouldBe` "b9cac19f6048ef301f586e7e0faa6c08b6012d4b100703eef5dc1fcb26c1ecd5"
+        )
+
+-- | Load trees from storage fixtures, to make sure we stay compatible.
+fixtureTestLoad :: IO ()
+fixtureTestLoad = do
+    mbs1 <- newMemBlobStoreWithBytes $ fromRight undefined $ B16.decode "00000000000000080000000000000000"
+    flip
+        runMemBlobStoreT
+        mbs1
+        ( do
+            -- Empty tree
+            (emptyTree :: LFMBTree Word64 HashedBufferedRef StringValue) <-
+                loadDirect $ BlobRef 0
+            liftIO $ size emptyTree `shouldBe` 0
+        )
+    mbs2 <- newMemBlobStoreWithBytes $ fromRight undefined $ B16.decode "0000000000000009000000000000000141000000000000000900000000000000000000000000000000090000000000000001420000000000000009000000000000000022000000000000001901000000000000000000000000000000110000000000000033000000000000000900000000000000014300000000000000090000000000000000650000000000000021000000000000000301000000000000000100000000000000440000000000000076"
+    flip
+        runMemBlobStoreT
+        mbs2
+        ( do
+            -- Tree with values A, B, C
+            (simpleTree :: LFMBTree Word64 HashedBufferedRef StringValue) <-
+                loadDirect $ BlobRef 135
+            liftIO $ size simpleTree `shouldBe` 3
+            val0 <- lookup 0 simpleTree
+            liftIO $ val0 `shouldBe` Just "A"
+            val1 <- lookup 1 simpleTree
+            liftIO $ val1 `shouldBe` Just "B"
+            val2 <- lookup 2 simpleTree
+            liftIO $ val2 `shouldBe` Just "C"
+        )
+
 tests :: Spec
 tests =
     describe "GlobalStateTests.LFMBTree" $ do
@@ -141,4 +205,10 @@ tests =
         it
             "testHashAsLFMBTV1"
             testHashAsLFMBTV1
+        it
+            "snapshotTestHash"
+            snapshotTestHash
+        it
+            "fixtureTestLoad"
+            fixtureTestLoad
         it "testTraverseWhileDescRef" $ property testTraverseWhileDescRef
