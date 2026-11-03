@@ -480,8 +480,8 @@ fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
             recipients.swap(i, (seed % (i as u64 + 1)) as usize);
         }
     }
-    fixture.payload = unscoped_payload(vec![operations::create_lock(LockConfig::SimpleV0(
-        LockConfigSimpleV0 {
+    fixture.payload = unscoped_payload(vec![
+        operations::create_lock(LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: match count {
                 None => LockRecipients::Any,
                 Some(_) => {
@@ -494,8 +494,9 @@ fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
             keep_alive: false,
             memo: None,
             metadata: None,
-        },
-    ))]);
+        }))
+        .into(),
+    ]);
     fixture
 }
 
