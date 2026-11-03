@@ -7,6 +7,10 @@
 ## Unreleased changes (Devnet)
 
 - Add the `GetLocksByGrantAccount` gRPC endpoint to stream lock IDs and CBOR-encoded configurations for locks whose grants include an account at the selected block.
+- Implemented P11 lock operation execution costs: create `100 + 500 × H × T + 10 × G` NRG,
+  fund/send/release 250 NRG each, and cancel `500 × B` NRG.
+  H counts distinct Fund-authorized accounts, T case-insensitively distinct configured tokens,
+  G canonical account grants, and B current balance references controlled by the lock.
 
 ## 11.2.3 (Devnet)
 

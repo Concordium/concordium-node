@@ -390,6 +390,7 @@ fn lock_balance_references_are_unique_ordered_and_removable() {
         .expect("lock should exist");
 
     // Assert no initial balance refs
+    assert_eq!(lock.lock_balance_ref_count(), 0);
     assert_eq!(lock.lock_balance_refs(&context).unwrap(), vec![]);
 
     // Add balance refs
@@ -409,6 +410,7 @@ fn lock_balance_references_are_unique_ordered_and_removable() {
         .lock_by_id(&context, &lock_id)
         .unwrap()
         .expect("lock should exist");
+    assert_eq!(lock.lock_balance_ref_count(), 2);
     assert_eq!(
         lock.lock_balance_refs(&context).unwrap(),
         vec![

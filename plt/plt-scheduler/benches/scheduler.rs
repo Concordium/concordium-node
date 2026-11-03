@@ -453,7 +453,7 @@ fn prepare_lock_create(count: usize) -> Fixture {
         transaction_context: utils::simple_transaction_context(sender_address),
         payload: unscoped_payload(
             (0..count)
-                .map(|_| operations::create_lock(config.clone()))
+                .map(|_| operations::create_lock(config.clone()).into())
                 .collect(),
         ),
     }
@@ -469,12 +469,15 @@ fn prepare_lock_fund(existing_reference: bool) -> Fixture {
         lock_fixture(vec![LockControllerSimpleV0Capability::Fund], true);
     if existing_reference {
         let sender_address = context.external.account_canonical_address(sender);
-        let payload = unscoped_payload(vec![operations::fund_lock(
-            token_id.clone(),
-            lock_id.clone(),
-            TokenAmount::from_raw(100, 0),
-            None,
-        )]);
+        let payload = unscoped_payload(vec![
+            operations::fund_lock(
+                token_id.clone(),
+                lock_id.clone(),
+                TokenAmount::from_raw(100, 0),
+                None,
+            )
+            .into(),
+        ]);
         let result = state.execute_transaction(
             &mut context,
             utils::simple_transaction_context(sender_address),
@@ -489,12 +492,9 @@ fn prepare_lock_fund(existing_reference: bool) -> Fixture {
         transaction_context: utils::simple_transaction_context(
             context.external.account_canonical_address(sender),
         ),
-        payload: unscoped_payload(vec![operations::fund_lock(
-            token_id,
-            lock_id,
-            TokenAmount::from_raw(100, 0),
-            None,
-        )]),
+        payload: unscoped_payload(vec![
+            operations::fund_lock(token_id, lock_id, TokenAmount::from_raw(100, 0), None).into(),
+        ]),
         context,
         state,
         sender,
@@ -522,12 +522,15 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
         &mut context,
         utils::simple_transaction_context(sender_address),
         sender,
-        unscoped_payload(vec![operations::fund_lock(
-            token_id.clone(),
-            lock_id.clone(),
-            TokenAmount::from_raw(200, 0),
-            None,
-        )]),
+        unscoped_payload(vec![
+            operations::fund_lock(
+                token_id.clone(),
+                lock_id.clone(),
+                TokenAmount::from_raw(200, 0),
+                None,
+            )
+            .into(),
+        ]),
     );
     assert!(
         matches!(result, Ok(ref result) if matches!(result.outcome, TransactionOutcome::Success(_)))
@@ -553,7 +556,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
     };
     Fixture {
         transaction_context: utils::simple_transaction_context(sender_address),
-        payload: unscoped_payload(vec![operation]),
+        payload: unscoped_payload(vec![operation.into()]),
         context,
         state,
         sender,

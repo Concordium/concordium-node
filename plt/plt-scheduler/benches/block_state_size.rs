@@ -206,7 +206,7 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
         payload: Payload::TokenUpdate {
             payload: TokenUpdatePayload::Unscoped(OperationsPayload {
                 operations: RawCbor::from(cbor::cbor_encode(&Operations {
-                    operations: vec![operations::create_lock(config)],
+                    operations: vec![operations::create_lock(config).into()],
                 })),
             }),
         },
@@ -321,13 +321,13 @@ fn prepare_lock_balance_operation(
             None,
         )
     } else {
-        operations::cancel_lock(lock_id, None)
+        operations::cancel_lock(lock_id, reference_count as u64, None)
     };
     PreparedOperation {
         transaction_context: utils::simple_transaction_context(
             context.external.account_canonical_address(sender),
         ),
-        payload: unscoped_payload(vec![operation]),
+        payload: unscoped_payload(vec![operation.into()]),
         context,
         state,
         sender,
@@ -545,7 +545,7 @@ fn prepare_lock_grants(
     };
     PreparedOperation {
         transaction_context: utils::simple_transaction_context(sender_address),
-        payload: unscoped_payload(vec![operation]),
+        payload: unscoped_payload(vec![operation.into()]),
         context,
         state,
         sender,
