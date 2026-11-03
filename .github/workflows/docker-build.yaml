@@ -30,8 +30,10 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       image_ref: ${{ steps.metadata.outputs.image_ref }}
       repository_name: ${{ steps.metadata.outputs.repository_name }}
+      exporter_repository: ${{ steps.metadata.outputs.exporter_repository }}
       resume: ${{ steps.existing.outputs.resume }}
       digest: ${{ steps.existing.outputs.digest }}
+      exporter_resume: ${{ steps.exporter.outputs.resume }}
     steps:
       # Fetch only the manifest that provides the node version.
       - name: Checkout repository
@@ -73,11 +75,13 @@ jobs:
             echo '::error::Configure AWS_REGION and the full ECR_REPOSITORY URI.'
             exit 1
           fi
-          # Share the image tag and ECR repository name with later jobs.
+          # Share the image tag and repositories with later jobs.
+          # The exporter repository is in the registry of the node repository.
           {
             echo "version=$image_version"
             echo "image_ref=$ECR_REPOSITORY:$image_version"
             echo "repository_name=${ECR_REPOSITORY#*/}"
+            echo "exporter_repository=${ECR_REPOSITORY%%/*}/concordium-database-exporter"
           } >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials
@@ -92,7 +96,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Check staging version
+      - name: Check staging node version
         id: existing
         env:
           REPOSITORY_NAME: ${{ steps.metadata.outputs.repository_name }}
@@ -147,17 +151,107 @@ jobs:
             exit 1
           fi
 
-  build:
+      - name: Check staging exporter version
+        id: exporter
+        env:
+          EXPORTER_REPOSITORY: ${{ steps.metadata.outputs.exporter_repository }}
+          IMAGE_VERSION: ${{ steps.metadata.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep registry errors separate from the digest and remove the temporary file.
+          manifest_error=$(mktemp)
+          trap 'rm -f "$manifest_error"' EXIT
+          if image_digest=$(aws ecr describe-images --repository-name "${EXPORTER_REPOSITORY#*/}" --image-ids "imageTag=$IMAGE_VERSION" --query 'imageDetails[0].imageDigest' --output text 2>"$manifest_error"); then
+            # Only a rerun can reuse a version that is already in ECR.
+            if (( GITHUB_RUN_ATTEMPT <= 1 )); then
+              echo '::error::The staging version already exists in the exporter repository.'
+              exit 1
+            fi
+            if [[ ! "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo '::error::Invalid staging digest in the exporter repository.'
+              exit 1
+            fi
+            # Inspect the exact digest. Reuse it only if both build labels match.
+            exporter_ref="$EXPORTER_REPOSITORY@$image_digest"
+            docker pull --quiet "$exporter_ref"
+            image_revision=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$exporter_ref")
+            image_version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$exporter_ref")
+            if [[ "$image_revision" != "$GITHUB_SHA" || "$image_version" != "$IMAGE_VERSION" ]]; then
+              echo '::error::Existing staging exporter image does not match this build.'
+              exit 1
+            fi
+            echo 'resume=true' >> "$GITHUB_OUTPUT"
+          # Only a missing image permits a build. Authentication and service errors fail.
+          elif grep --fixed-strings --quiet '(ImageNotFoundException)' "$manifest_error"; then
+            echo 'resume=false' >> "$GITHUB_OUTPUT"
+          else
+            cat "$manifest_error" >&2
+            echo '::error::Could not check the staging exporter version.'
+            exit 1
+          fi
+
+  # Compile each platform once. The image jobs use the result.
+  compile:
     needs: prepare
-    if: needs.prepare.outputs.resume != 'true'
+    if: needs.prepare.outputs.resume != 'true' || needs.prepare.outputs.exporter_resume != 'true'
     # Build each platform natively. Emulating the Haskell and Rust build is too slow.
     strategy:
       fail-fast: true
       matrix:
         include:
           - platform: linux/amd64
+            arch: amd64
             runner: ubuntu-24.04
           - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Compile executables
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: scripts/distribution/docker-image/builder.Dockerfile
+          target: artifacts
+          platforms: ${{ matrix.platform }}
+          pull: true
+          no-cache: true
+          provenance: false
+          outputs: type=tar,dest=${{ runner.temp }}/artifacts.tar
+
+      # A rerun of a failed image job downloads this file and does not compile again.
+      # A rerun of all jobs compiles again and replaces it.
+      - name: Upload compiled executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-executables-${{ matrix.arch }}
+          path: ${{ runner.temp }}/artifacts.tar
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  node-image:
+    needs: [prepare, compile]
+    if: needs.prepare.outputs.resume != 'true'
+    # Run the runtime stage commands natively on each platform.
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -166,8 +260,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Download compiled executables
+        uses: actions/download-artifact@v4
         with:
-          submodules: recursive
+          name: compiled-executables-${{ matrix.arch }}
+          path: ${{ runner.temp }}
+
+      - name: Unpack compiled executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/artifacts"
+          tar --extract --file "$RUNNER_TEMP/artifacts.tar" --directory "$RUNNER_TEMP/artifacts"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -181,21 +286,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # The artifacts build context replaces the stage of the same name, so this build does not compile.
       # Push the platform image by digest only. The merge job tags the image index.
-      - name: Build and push platform image
+      - name: Build and push staging node image
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: scripts/distribution/docker-image/builder.Dockerfile
+          build-contexts: artifacts=${{ runner.temp }}/artifacts
           platforms: ${{ matrix.platform }}
           pull: true
-          no-cache: true
           provenance: false
           outputs: type=image,name=${{ env.ECR_REPOSITORY }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.title=Concordium Node
-            org.opencontainers.image.description=Concordium node and collector
+            org.opencontainers.image.description=Concordium node, collector and bootstrapper
             org.opencontainers.image.source=https://github.com/Concordium/concordium-node
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
@@ -221,15 +327,91 @@ jobs:
           name: digests-${{ strategy.job-index }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
           overwrite: true
 
+  # The exporter image runs on the reporter hosts, which are amd64.
+  exporter-image:
+    needs: [prepare, compile]
+    if: needs.prepare.outputs.exporter_resume != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download compiled executables
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-executables-amd64
+          path: ${{ runner.temp }}
+
+      - name: Unpack compiled executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/artifacts"
+          tar --extract --file "$RUNNER_TEMP/artifacts.tar" --directory "$RUNNER_TEMP/artifacts"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # The artifacts build context provides database-exporter and the shared libraries.
+      - name: Build and push staging database exporter image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: scripts/distribution/docker-image/database-exporter.Dockerfile
+          build-contexts: artifacts=${{ runner.temp }}/artifacts
+          platforms: linux/amd64
+          pull: true
+          push: true
+          provenance: false
+          tags: ${{ needs.prepare.outputs.exporter_repository }}:${{ needs.prepare.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=Concordium Database Exporter
+            org.opencontainers.image.description=Concordium database exporter for out-of-band catch-up
+            org.opencontainers.image.source=https://github.com/Concordium/concordium-node
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+
+      # The internal exporter image is not signed. Nothing verifies a signature on it.
+      - name: Record exporter image
+        env:
+          IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+          EXPORTER_IMAGE: ${{ needs.prepare.outputs.exporter_repository }}@${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPORTER_IMAGE##*@}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::Could not resolve the staging exporter digest.'
+            exit 1
+          fi
+          # Record the pushed image for staging checks.
+          {
+            echo '## Docker exporter staging build'
+            printf '\n- Image: `%s`\n' "$EXPORTER_IMAGE"
+            printf -- '- Version: `%s`\n' "$IMAGE_VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   merge:
-    needs: [prepare, build]
-    # Run after a build, or alone when the prepare job resumes an existing index.
+    needs: [prepare, node-image]
+    # Run after the node build, or alone when the prepare job resumes an existing index.
     if: >-
       always() && needs.prepare.result == 'success' &&
-      (needs.build.result == 'success' || needs.prepare.outputs.resume == 'true')
+      (needs.node-image.result == 'success' || needs.prepare.outputs.resume == 'true')
     runs-on: ubuntu-24.04
     permissions:
       contents: read

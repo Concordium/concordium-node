@@ -100,24 +100,30 @@ RUN stack setup \
 COPY . .
 
 # Build the project packages. Dependencies remain cached from the prior layer.
-# The dynamic flag builds the shared Consensus foreign library used by the node.
+# The dynamic flag builds the shared Consensus library used by the node.
+# It also links the database exporter to the shared Haskell libraries.
 RUN stack build --flag concordium-consensus:dynamic
 
-# Build release versions of both Rust executables. The node omits the static
-# feature, so its build script links it to the shared Haskell libraries.
+# Build release versions of the Rust executables.
+# The node package also builds the bootstrapper.
+# Without the static feature, its build script links both to the shared Haskell libraries.
 RUN cargo build --locked --release --manifest-path concordium-node/Cargo.toml \
     && cargo build --locked --release --manifest-path collector/Cargo.toml
 
-# Assemble the files that the runtime stage needs under /runtime. Copy all
-# project, snapshot, and GHC shared libraries, including Concordium's symlinked
-# Rust libraries. Use Ubuntu's libffi at runtime instead of GHC's bundled copy.
-# Remove debugging information from staged ELF libraries, validate that both
-# executables can resolve their libraries, and then strip the executables.
+# Assemble the files that the later stages need.
+# /runtime holds the node image executables and the shared libraries.
+# /exporter holds the database exporter executable.
+# Copy all project, snapshot, and GHC shared libraries, including Concordium's symlinked Rust libraries.
+# Use Ubuntu's libffi at runtime instead of GHC's bundled copy.
+# Remove debugging information from the staged ELF libraries.
+# Check that every executable can resolve its libraries, then strip the executables.
 RUN set -eux; \
-    install -d /runtime/usr/local/bin /runtime/usr/local/lib; \
-    install concordium-node/target/release/concordium-node /runtime/usr/local/bin/concordium-node; \
-    install collector/target/release/node-collector /runtime/usr/local/bin/node-collector; \
+    install -d /runtime/usr/local/bin /runtime/usr/local/lib /exporter; \
     local_install_root="$(stack path --local-install-root)"; \
+    install concordium-node/target/release/concordium-node /runtime/usr/local/bin/concordium-node; \
+    install concordium-node/target/release/p2p_bootstrapper-cli /runtime/usr/local/bin/p2p-bootstrapper; \
+    install collector/target/release/node-collector /runtime/usr/local/bin/node-collector; \
+    install "${local_install_root}/bin/database-exporter" /exporter/database-exporter; \
     snapshot_install_root="$(stack path --snapshot-install-root)"; \
     ghc_lib_dir="$(stack ghc -- --print-libdir)"; \
     project_library_dirs=(/build/concordium-base/lib); \
@@ -143,15 +149,32 @@ RUN set -eux; \
                 strip --strip-debug "$library"; \
             fi; \
         done; \
-    LD_LIBRARY_PATH=/runtime/usr/local/lib ldd /runtime/usr/local/bin/concordium-node \
-        | tee /tmp/concordium-node.ldd; \
-    ! grep --quiet 'not found' /tmp/concordium-node.ldd; \
-    LD_LIBRARY_PATH=/runtime/usr/local/lib ldd /runtime/usr/local/bin/node-collector \
-        | tee /tmp/node-collector.ldd; \
-    ! grep --quiet 'not found' /tmp/node-collector.ldd; \
-    strip /runtime/usr/local/bin/concordium-node /runtime/usr/local/bin/node-collector
+    executables=( \
+        /runtime/usr/local/bin/concordium-node \
+        /runtime/usr/local/bin/node-collector \
+        /runtime/usr/local/bin/p2p-bootstrapper \
+        /exporter/database-exporter \
+    ); \
+    for executable in "${executables[@]}"; do \
+        LD_LIBRARY_PATH=/runtime/usr/local/lib ldd "${executable}" | tee /tmp/executable.ldd; \
+        if grep --quiet 'not found' /tmp/executable.ldd; then \
+            echo "Unresolved shared library in ${executable}" >&2; \
+            exit 1; \
+        fi; \
+    done; \
+    rm /tmp/executable.ldd; \
+    strip "${executables[@]}"
 
-# Start the production image without compilers, source files, or build caches.
+# Hold only the compiled executables and shared libraries.
+# CI builds this stage once and passes its output to the image builds as the artifacts build context.
+# That context replaces this stage, so the image builds do not compile again.
+FROM scratch AS artifacts
+
+COPY --from=builder /runtime/ /runtime/
+COPY --from=builder /exporter/ /exporter/
+
+# Start the node image without compilers, source files, or build caches.
+# Keep this stage last so that it stays the default target.
 FROM ubuntu:${UBUNTU_VERSION} AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -174,8 +197,8 @@ RUN apt-get update \
     && useradd --uid 10001 --gid concordium --no-create-home --shell /usr/sbin/nologin concordium \
     && install --directory --owner concordium --group concordium /mnt/data
 
-# Copy the compiled executables and shared Haskell libraries from the builder.
-COPY --from=builder /runtime/ /
+# Copy the compiled executables and shared Haskell libraries.
+COPY --from=artifacts /runtime/ /
 
 # Install the process manager script that starts the node and optional collector.
 COPY scripts/distribution/docker-image/entrypoint.sh /usr/local/bin/concordium-entrypoint
@@ -183,7 +206,7 @@ COPY scripts/distribution/docker-image/entrypoint.sh /usr/local/bin/concordium-e
 # Include every tracked genesis file. Add future networks to this source directory.
 COPY scripts/distribution/docker-image/genesis/ /genesis/
 
-# Register the copied libraries and fail the build if either executable has an
+# Register the copied libraries and fail the build if an executable has an
 # unresolved dependency or cannot start far enough to print its version.
 RUN chmod 0755 /usr/local/bin/concordium-entrypoint \
     && ldconfig \
@@ -191,9 +214,12 @@ RUN chmod 0755 /usr/local/bin/concordium-entrypoint \
     && ! grep --quiet 'not found' /tmp/concordium-node.ldd \
     && ldd /usr/local/bin/node-collector | tee /tmp/node-collector.ldd \
     && ! grep --quiet 'not found' /tmp/node-collector.ldd \
+    && ldd /usr/local/bin/p2p-bootstrapper | tee /tmp/p2p-bootstrapper.ldd \
+    && ! grep --quiet 'not found' /tmp/p2p-bootstrapper.ldd \
     && /usr/local/bin/concordium-node --version \
     && /usr/local/bin/node-collector --version \
-    && rm /tmp/concordium-node.ldd /tmp/node-collector.ldd
+    && /usr/local/bin/p2p-bootstrapper --version \
+    && rm /tmp/concordium-node.ldd /tmp/node-collector.ldd /tmp/p2p-bootstrapper.ldd
 
 # Store mutable node state outside the application directories. Enable gRPC on
 # the documented container port, but keep the collector disabled until the
