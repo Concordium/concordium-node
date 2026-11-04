@@ -6,6 +6,7 @@ use crate::persistent::protocol_level_locks::p11::{
 };
 use crate::utils;
 use concordium_base::base::AccountIndex;
+use concordium_base::contracts_common::Timestamp;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 
@@ -14,6 +15,7 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     persistent_locks: &mut PersistentLocksP11,
     lock_id: &LockId,
     configuration: LockConfig,
+    created_at: Timestamp,
 ) -> BlockStateResult<()> {
     if persistent_locks.contains_key(&context.store, lock_id)? {
         return Err(BlockStateFailure::Invariant(format!(
@@ -23,7 +25,7 @@ pub(crate) fn create_lock<C: EntityContextTypes>(
     *persistent_locks = persistent_locks.insert_or_update_entry(
         &context.store,
         lock_id,
-        PersistentLockP11::new(configuration),
+        PersistentLockP11::new(configuration, created_at),
     )?;
     Ok(())
 }

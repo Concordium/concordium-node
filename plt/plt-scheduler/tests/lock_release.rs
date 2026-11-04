@@ -184,6 +184,7 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
         block_state.query_lock_info(&context, &lock_id),
         Err(LockNotFoundByIdError(_))
     );
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 #[test]
 fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
@@ -265,6 +266,7 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     )
     .expect("lock info must decode");
     assert!(lock_info.funds.is_empty());
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 1);
 }
 
 #[test]

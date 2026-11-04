@@ -280,7 +280,7 @@ fn test_discovery_grant_membership_exclusions_and_no_matches() {
             )
             .unwrap(),
         );
-        state.create_lock(&context, &id, config).unwrap();
+        state.create_lock(&context, &id, config, 0.into()).unwrap();
     }
     let token_id: TokenId = "DiscoveryToken".parse().unwrap();
     utils::create_and_init_token_p11(

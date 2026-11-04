@@ -97,6 +97,8 @@ fn test_cancel_by_canceller() {
             assert_eq!(event_lock_id, &lock_id);
         })
     });
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
+    assert!(block_state.lock_by_id(&context, &lock_id).unwrap().is_err());
 }
 
 /// Test cancelling a lock by an unauthorized account before the lock's expiry time.
@@ -171,6 +173,7 @@ fn test_cancel_unauthorized() {
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockCancelNotAuthorized(lock_id.clone(), sender_addr));
     });
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 1);
 }
 
 /// Test cancelling a lock after the lock's expiry time, by an account with no
@@ -236,6 +239,7 @@ fn test_cancel_after_expiry() {
             assert_eq!(event_lock_id, &lock_id);
         })
     });
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 
 /// Test cancelling a lock with balances.

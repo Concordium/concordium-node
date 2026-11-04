@@ -5,11 +5,16 @@ use crate::entity::{
     EntityContext, EntityContextTypes, protocol_level_locks, protocol_level_tokens,
 };
 use crate::external::ExternalBlockStateOperations;
-use crate::failure::BlockStateResult;
+use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
+use crate::persistent::blob_store::StoreSerialized;
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
-use crate::persistent::protocol_level_locks::p11::LockConfig;
+use crate::persistent::protocol_level_locks::p11::{
+    LockConfig, LockExpiryKey, PersistentLockExpiryIndexP11,
+};
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
+use crate::utils::Cow;
+use concordium_base::contracts_common::Timestamp;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 
@@ -134,15 +139,35 @@ impl BlockStateP11 {
     ///
     /// - `lock_id` The ID of the PLT lock.
     /// - `configuration` The configuration for the PLT lock.
+    /// - `created_at` The consensus timestamp of the creation block.
     pub fn create_lock<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         lock_id: &LockId,
         configuration: LockConfig,
+        created_at: Timestamp,
     ) -> BlockStateResult<()> {
+        let LockConfig::SimpleV0(config) = &configuration;
+        let key = LockExpiryKey {
+            expiry: config.expiry,
+            created_at,
+            lock_id: lock_id.clone(),
+        };
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
-        protocol_level_locks::p11::create_lock(context, &mut new_locks, lock_id, configuration)?;
+        protocol_level_locks::p11::create_lock(
+            context,
+            &mut new_locks,
+            lock_id,
+            configuration,
+            created_at,
+        )?;
+        let new_index = self
+            .persistent
+            .lock_expiry_index
+            .value(&context.store)?
+            .insert_or_update_entry(&context.store, &key, StoreSerialized(()))?;
         self.persistent.locks = HashedCacheableRef::new(new_locks);
+        self.persistent.lock_expiry_index = HashedCacheableRef::new(new_index);
         Ok(())
     }
 
@@ -157,11 +182,36 @@ impl BlockStateP11 {
         lock_id: &LockId,
     ) -> BlockStateResult<bool> {
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
-        let existing = protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
-        if existing {
-            self.persistent.locks = HashedCacheableRef::new(new_locks);
-        }
-        Ok(existing)
+        let Some(lock) = new_locks.lookup_value(&context.store, lock_id)? else {
+            return Ok(false);
+        };
+        let configuration = lock.configuration.value(&context.store)?;
+        let LockConfig::SimpleV0(config) = &configuration.0;
+        let key = LockExpiryKey {
+            expiry: config.expiry,
+            created_at: lock.created_at,
+            lock_id: lock_id.clone(),
+        };
+        protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
+        let new_index = self
+            .persistent
+            .lock_expiry_index
+            .value(&context.store)?
+            .delete_entry(&context.store, &key)?
+            .ok_or_else(|| {
+                BlockStateFailure::Invariant(format!("Missing expiry entry for lock {lock_id:?}"))
+            })?;
+        self.persistent.locks = HashedCacheableRef::new(new_locks);
+        self.persistent.lock_expiry_index = HashedCacheableRef::new(new_index);
+        Ok(true)
+    }
+
+    /// Return an immutable snapshot of the internal lock-expiry schedule.
+    pub fn lock_expiry_index<C: EntityContextTypes>(
+        &self,
+        context: &EntityContext<C>,
+    ) -> BlockStateResult<Cow<'_, PersistentLockExpiryIndexP11>> {
+        self.persistent.lock_expiry_index.value(&context.store)
     }
 
     /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the

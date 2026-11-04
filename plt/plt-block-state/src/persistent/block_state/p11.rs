@@ -4,7 +4,9 @@ use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore, Loadable, Sto
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
-use crate::persistent::protocol_level_locks::p11::PersistentLocksP11;
+use crate::persistent::protocol_level_locks::p11::{
+    PersistentLockExpiryIndexP11, PersistentLocksP11,
+};
 use crate::persistent::protocol_level_tokens::p9::PersistentTokensP9;
 use concordium_base::common::Buffer;
 use concordium_base::hashes::Hash;
@@ -17,6 +19,8 @@ pub struct PersistentBlockStateP11 {
     pub(crate) tokens: HashedCacheableRef<PersistentTokensP9>,
     /// Protocol-level locks
     pub(crate) locks: HashedCacheableRef<PersistentLocksP11>,
+    /// Locks ordered by expiry, creation timestamp, and lock ID.
+    pub(crate) lock_expiry_index: HashedCacheableRef<PersistentLockExpiryIndexP11>,
 }
 
 impl Loadable for PersistentBlockStateP11 {
@@ -27,7 +31,12 @@ impl Loadable for PersistentBlockStateP11 {
         let tokens = Loadable::load_from_buffer(&mut buffer, loader)?;
         let locks = Loadable::load_from_buffer(&mut buffer, loader)?;
 
-        Ok(Self { tokens, locks })
+        let lock_expiry_index = Loadable::load_from_buffer(&mut buffer, loader)?;
+        Ok(Self {
+            tokens,
+            locks,
+            lock_expiry_index,
+        })
     }
 }
 
@@ -35,6 +44,7 @@ impl Storable for PersistentBlockStateP11 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
         self.locks.store_to_buffer(&mut buffer, storer);
+        self.lock_expiry_index.store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -42,6 +52,7 @@ impl Cacheable for PersistentBlockStateP11 {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.tokens.cache_reference_values(loader)?;
         self.locks.cache_reference_values(loader)?;
+        self.lock_expiry_index.cache_reference_values(loader)?;
         Ok(())
     }
 }
@@ -51,7 +62,12 @@ impl Hashable for PersistentBlockStateP11 {
         let tokens = self.tokens.hash(loader)?;
         let locks = self.locks.hash(loader)?;
 
-        Ok(hash::hash_of_hashes(tokens, locks))
+        let lock_expiry_index = self.lock_expiry_index.hash(loader)?;
+        Ok(hash::hash_of_serialization((
+            tokens,
+            locks,
+            lock_expiry_index,
+        )))
     }
 }
 
@@ -59,19 +75,180 @@ impl Hashable for PersistentBlockStateP11 {
 mod test {
     use crate::entity::block_state::p11::BlockStateP11;
     use crate::entity::entity_test_stub;
+    use crate::failure::BlockStateFailure;
+    use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
     use crate::persistent::blob_store;
+    use crate::persistent::blob_store::{BlobStoreStore, Loadable};
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
     use crate::persistent::hash::Hashable;
     use crate::persistent::protocol_level_locks::p11::{
-        LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
+        LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockExpiryKey, LockRecipients,
+        PersistentLockExpiryIndexP11,
     };
     use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::base::AccountIndex;
+    use concordium_base::common::to_bytes;
     use concordium_base::common::types::TransactionTime;
     use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
     use concordium_base::protocol_level_tokens::{CborMemo, TokenId, TokenModuleRef};
     use concordium_base::transactions::Memo;
     use plt_scheduler_types::types::tokens::RawTokenAmount;
+
+    /// The expiry schedule tracks lock lifecycle changes.
+    #[test]
+    fn expiry_schedule_tracks_lock_lifecycle() {
+        let context = entity_test_stub::new_no_external_context();
+        let mut state = BlockStateP11::default();
+        let empty_hash = state.persistent.hash(&context.store).unwrap();
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
+        let configuration = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                100.into(),
+                vec![],
+                vec![],
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        let id = LockId::new(1, 2, 3);
+        let key = LockExpiryKey {
+            expiry: 100.into(),
+            created_at: 1234.into(),
+            lock_id: id.clone(),
+        };
+        // Creation records the schedule; a duplicate must preserve the original lock and timestamp.
+        state
+            .create_lock(&context, &id, configuration.clone(), key.created_at)
+            .unwrap();
+        let created_hash = state.persistent.hash(&context.store).unwrap();
+        assert_ne!(created_hash, empty_hash);
+        assert!(
+            state
+                .create_lock(&context, &id, configuration.clone(), 9999.into())
+                .is_err()
+        );
+        assert_eq!(state.persistent.hash(&context.store).unwrap(), created_hash);
+        let lock_hash = state.persistent.locks.hash(&context.store).unwrap();
+        let schedule_hash = state
+            .persistent
+            .lock_expiry_index
+            .hash(&context.store)
+            .unwrap();
+        // Balance updates must preserve the immutable creation timestamp and schedule.
+        let mut lock = state.lock_by_id(&context, &id).unwrap().unwrap();
+        let token: TokenId = "Token1".parse().unwrap();
+        lock.add_lock_balance_ref(&context, 1.into(), token.clone())
+            .unwrap();
+        state.update_lock(&context, lock).unwrap();
+        let mut lock = state.lock_by_id(&context, &id).unwrap().unwrap();
+        assert_eq!(lock.persistent.created_at, key.created_at);
+        assert!(
+            lock.remove_lock_balance_ref(&context, 1.into(), token)
+                .unwrap()
+        );
+        state.update_lock(&context, lock).unwrap();
+        assert_eq!(
+            state
+                .persistent
+                .lock_expiry_index
+                .hash(&context.store)
+                .unwrap(),
+            schedule_hash
+        );
+        assert_eq!(state.persistent.hash(&context.store).unwrap(), created_hash);
+        // Deletion removes both entries and restores the empty state.
+        assert!(state.delete_lock(&context, &id).unwrap());
+        assert!(!state.delete_lock(&context, &id).unwrap());
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
+        assert_eq!(state.persistent.hash(&context.store).unwrap(), empty_hash);
+        assert!(state.lock_by_id(&context, &id).unwrap().is_err());
+
+        // The creation timestamp affects both lock and schedule hashes, hence the block-state hash.
+        state
+            .create_lock(&context, &id, configuration, 1235.into())
+            .unwrap();
+        assert_ne!(state.persistent.hash(&context.store).unwrap(), created_hash);
+        assert_ne!(
+            state.persistent.locks.hash(&context.store).unwrap(),
+            lock_hash
+        );
+        assert_ne!(
+            state
+                .persistent
+                .lock_expiry_index
+                .hash(&context.store)
+                .unwrap(),
+            schedule_hash
+        );
+        // The expiry index contributes independently to the block-state hash.
+        let hash = state.persistent.hash(&context.store).unwrap();
+        state.persistent.lock_expiry_index =
+            HashedCacheableRef::new(PersistentLockExpiryIndexP11::empty());
+        assert_ne!(state.persistent.hash(&context.store).unwrap(), hash);
+    }
+
+    /// Failed lifecycle operations leave the published lock and expiry-index roots unchanged.
+    #[test]
+    fn lifecycle_failures_do_not_publish_partial_roots() {
+        let mut context = entity_test_stub::new_no_external_context();
+        let mut state = BlockStateP11::default();
+        let configuration = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                100.into(),
+                vec![],
+                vec![],
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        let id = LockId::new(1, 1, 0);
+        state
+            .create_lock(&context, &id, configuration.clone(), 1234.into())
+            .unwrap();
+        let lock_hash = state.persistent.locks.hash(&context.store).unwrap();
+        // A malformed index makes create and delete fail after preparing, but not publishing, locks.
+        let location = context.store.store_raw([]);
+        state.persistent.lock_expiry_index =
+            HashedCacheableRef::load_from_buffer(to_bytes(&location).as_slice(), &context.store)
+                .unwrap();
+        assert!(matches!(
+            state.create_lock(&context, &LockId::new(2, 1, 0), configuration, 1234.into()),
+            Err(BlockStateFailure::BlobStoreDecode(_))
+        ));
+        assert_eq!(
+            state.persistent.locks.hash(&context.store).unwrap(),
+            lock_hash
+        );
+        assert!(matches!(
+            state.delete_lock(&context, &id),
+            Err(BlockStateFailure::BlobStoreDecode(_))
+        ));
+        assert_eq!(
+            state.persistent.locks.hash(&context.store).unwrap(),
+            lock_hash
+        );
+        assert!(state.lock_expiry_index(&context).is_err());
+        // An absent lock returns false without consulting the malformed index.
+        assert!(!state.delete_lock(&context, &LockId::new(3, 1, 0)).unwrap());
+        // A missing schedule entry is an invariant failure and must not delete the existing lock.
+        state.persistent.lock_expiry_index =
+            HashedCacheableRef::new(PersistentLockExpiryIndexP11::empty());
+        assert!(matches!(
+            state.delete_lock(&context, &id),
+            Err(BlockStateFailure::Invariant(_))
+        ));
+        assert_eq!(
+            state.persistent.locks.hash(&context.store).unwrap(),
+            lock_hash
+        );
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
+    }
 
     // Store state with PLLs to blob store and load it again.
     #[test]
@@ -108,7 +285,7 @@ mod test {
         );
 
         block_state
-            .create_lock(&context, &lock_id1, configuration1.clone())
+            .create_lock(&context, &lock_id1, configuration1.clone(), 1234.into())
             .unwrap();
         let mut lock1 = block_state
             .lock_by_id(&context, &lock_id1)
@@ -139,7 +316,7 @@ mod test {
             .unwrap(),
         );
         block_state
-            .create_lock(&context, &lock_id2, configuration2.clone())
+            .create_lock(&context, &lock_id2, configuration2.clone(), 1234.into())
             .unwrap();
 
         // Create a third lock and then delete it
@@ -161,7 +338,7 @@ mod test {
             .unwrap(),
         );
         block_state
-            .create_lock(&context, &lock_id3, configuration3)
+            .create_lock(&context, &lock_id3, configuration3, 1234.into())
             .unwrap();
         let was_deleted = block_state.delete_lock(&context, &lock_id3).unwrap();
         assert!(was_deleted, "lock3 should be deleted");
@@ -172,6 +349,15 @@ mod test {
 
         // Assert loaded state
         assert_eq!(block_state.lock_list(&context).unwrap().len(), 2);
+        assert_eq!(
+            block_state
+                .lock_expiry_index(&context)
+                .unwrap()
+                .iter(&context.store)
+                .map(|entry| entry.unwrap().0.lock_id)
+                .collect::<Vec<_>>(),
+            vec![lock_id2.clone(), lock_id1.clone()]
+        );
 
         // Assert the deleted lock is absent
         block_state
@@ -223,7 +409,7 @@ mod test {
         );
 
         block_state
-            .create_lock(&context, &lock_id, configuration)
+            .create_lock(&context, &lock_id, configuration, 1234.into())
             .unwrap();
         let mut lock = block_state.lock_by_id(&context, &lock_id).unwrap().unwrap();
         let configuration_ptr = lock
@@ -283,14 +469,14 @@ mod test {
         let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "56885fb4a622ab251473c851455ae4bb4ad0c52038f306d77cf61dfad44635b2"
+            "4555169dbba733458b29db5abc264c017bf90dea2587fbb7ce01857949b5ee05"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &persistent_block_state);
         assert_eq!(
             hex::encode(context.store.0),
-            "00000000000000080000000000000000000000000000000d00000000000000000000000000000000000000001000000000000000000000000000000010"
+            "00000000000000080000000000000000000000000000000d00000000000000000000000000000000000000000d000000000000000000000000000000000000000018000000000000000000000000000000100000000000000025"
         );
     }
 
@@ -361,7 +547,7 @@ mod test {
             .unwrap(),
         );
         block_state
-            .create_lock(&context, &lock_id1, configuration1)
+            .create_lock(&context, &lock_id1, configuration1, 1234.into())
             .unwrap();
         let mut lock1 = block_state
             .lock_by_id(&context, &lock_id1)
@@ -392,21 +578,21 @@ mod test {
             .unwrap(),
         );
         block_state
-            .create_lock(&context, &lock_id2, configuration2)
+            .create_lock(&context, &lock_id2, configuration2, 1234.into())
             .unwrap();
 
         // Assert hash
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "890b18eda8ae71a4f2e73e3f5dfb864599a2479b63532d2e337d82be21d5f4b5"
+            "ff12cc7922ac29b71d0aac6b6b4c48c912702a8506bd216da44974f6e18f2da1"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806546f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806546f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000000c01000706546f6b656e310000000000000000000c01000706546f6b656e320000000000000000001d000006000000000000000200000000000000018f0100000000000001a3000000000000003f000100020000000000000001000000000000000200000000000000640001000000000000000109000206546f6b656e3106546f6b656e320101000002000100000000000000003301000000000000000200000000010000000000000001b700000000000001dc0010000000000000000100000000000000000000000000000000001300010000000000000000000000000000000000000000000000002a0100000000000000000000000000000000000000025e0010000000000000000700000000000000000000000000000000001d00000600000000000000020100000000000002230200000000000002790000000000000016000000000000000200000000010000000000000002ab0000000000000010000000000000016600000000000002d0"
+            "000000000000002806546f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806546f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000000c01000706546f6b656e310000000000000000000c01000706546f6b656e320000000000000000001d000006000000000000000200000000000000018f0100000000000001a3000000000000003f000100020000000000000001000000000000000200000000000000640001000000000000000109000206546f6b656e3106546f6b656e320101000002000100000000000000003b01000000000000000200000000010000000000000001b700000000000001dc00000000000004d2001000000000000000010000000000000000000000000000000000130001000000000000000000000000000000000000000000000000320100000000000000000000000000000000000000026600000000000004d20010000000000000000700000000000000000000000000000000001d00000600000000000000020100000000000002230200000000000002810000000000000016000000000000000200000000010000000000000002bb000000000000002501002000000000000004d20000000000000002000000000000000700000000000000000000000000000000002501002000000000000004d20000000000000001000000000000000100000000000000000000000000000000001d00000600000000000000020000000000000002fe64000000000000032b0000000000000016000000000000000200000000010000000000000003580000000000000018000000000000016600000000000002e0000000000000037d"
         );
     }
 }

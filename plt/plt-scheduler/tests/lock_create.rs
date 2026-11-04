@@ -158,7 +158,7 @@ fn test_create_simple_lock() {
                 energy_limit: Energy::from(u64::MAX),
                 sender_account_address: account_1,
                 transaction_sequence_number: 1.into(),
-                block_timestamp: 0.into(),
+                block_timestamp: 1234.into(),
             },
             account_index_1,
             Payload::TokenUpdate {
@@ -211,6 +211,15 @@ fn test_create_simple_lock() {
         ]
     );
     assert_eq!(controller.tokens(), &[plt_x]);
+    let index = block_state.lock_expiry_index(&context).unwrap();
+    let keys = index
+        .iter(&context.store)
+        .map(|entry| entry.unwrap().0)
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].expiry, TransactionTime::from_seconds(1000));
+    assert_eq!(keys[0].created_at, 1234.into());
+    assert_eq!(keys[0].lock_id, lock_id);
 }
 
 #[test]

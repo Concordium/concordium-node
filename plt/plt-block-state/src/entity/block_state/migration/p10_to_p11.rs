@@ -5,7 +5,9 @@ use crate::failure::BlockStateResult;
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{BlobStoreLoad, BlobStoreStore};
 use crate::persistent::block_state::p11::PersistentBlockStateP11;
-use crate::persistent::protocol_level_locks::p11::PersistentLocksP11;
+use crate::persistent::protocol_level_locks::p11::{
+    PersistentLockExpiryIndexP11, PersistentLocksP11,
+};
 
 /// Migrate the P10 block state to P11.
 pub fn migrate_from_p10_to_p11(
@@ -22,6 +24,7 @@ pub fn migrate_from_p10_to_p11(
     let new_persistent = PersistentBlockStateP11 {
         tokens: HashedCacheableRef::new(new_tokens),
         locks: HashedCacheableRef::new(PersistentLocksP11::empty()),
+        lock_expiry_index: HashedCacheableRef::new(PersistentLockExpiryIndexP11::empty()),
     };
 
     Ok(BlockStateP11 {
@@ -97,6 +100,14 @@ mod test {
         // Migrate the block state
         let (migrated_context, migrated_block_state) =
             migration::test_utils::migrate_p10_to_p11(&mut context, block_state);
+
+        assert_eq!(
+            migrated_block_state
+                .lock_expiry_index(&migrated_context)
+                .unwrap()
+                .size(),
+            0
+        );
 
         // Assert on migrated block state
         assert_eq!(
