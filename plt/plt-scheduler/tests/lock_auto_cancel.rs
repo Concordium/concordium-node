@@ -1,0 +1,220 @@
+//! Automatic cancellation uses consensus time, schedule order, and spare block energy.
+
+use assert_matches::assert_matches;
+use concordium_base::base::Energy;
+use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, operations};
+use plt_block_state::entity::entity_test_stub;
+use plt_block_state::persistent::protocol_level_locks::p11::{
+    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
+};
+use plt_scheduler::protocol_level_locks::p11::cancel_expired_locks;
+use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent};
+use plt_scheduler_types::types::tokens::RawTokenAmount;
+use utils::entity_traits::scheduler::SchedulerOperations;
+use utils::{BlockStateLatest, TokenInitTestParams};
+
+mod utils;
+
+#[test]
+fn order_skip_exact_fit_and_retry() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut state = BlockStateLatest::default();
+    let holders: Vec<_> = (0..4)
+        .map(|_| context.external.create_account().account_index())
+        .collect();
+    let token_id: TokenId = "Token".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        2,
+        None,
+    );
+    for holder in &holders {
+        utils::increment_account_balance_p11(
+            &mut context,
+            &mut state,
+            *holder,
+            &token_id,
+            1000.into(),
+        );
+    }
+
+    // IDs/insertion order deliberately disagree with expiry and creation-time order.
+    // Equal-expiry, equal-creation locks 3 and 4 must be ordered by ID.
+    let mut ids = Vec::new();
+    for (sequence, expiry, created_at, references) in [
+        (1, 11, 0, 1),
+        (2, 10, 2001, 1),
+        (4, 10, 2000, 1),
+        (3, 10, 2000, 1),
+        (5, 10, 1000, 1),
+        (6, 9, 9000, 4),
+        (7, 11, 1000, 0),
+    ] {
+        let id = LockId::new(holders[0], sequence, 0);
+        let config = LockConfig::SimpleV0(
+            LockConfigSimpleV0::new(
+                LockRecipients::Any,
+                expiry.into(),
+                holders
+                    .iter()
+                    .map(|holder| {
+                        LockControllerSimpleV0Grant::new(
+                            *holder,
+                            vec![LockControllerSimpleV0Capability::Fund],
+                        )
+                    })
+                    .collect(),
+                vec![token_id.clone()],
+                false,
+                None,
+                None,
+            )
+            .unwrap(),
+        );
+        state
+            .create_lock(&context, &id, config, created_at.into())
+            .unwrap();
+        for holder in holders.iter().take(references) {
+            utils::execute_operations(
+                &mut context,
+                &mut state,
+                *holder,
+                vec![
+                    operations::fund_lock(
+                        token_id.clone(),
+                        id.clone(),
+                        TokenAmount::from_raw(10, 2),
+                        None,
+                    )
+                    .into(),
+                ],
+            );
+        }
+        ids.push(id);
+    }
+    let expensive = ids[5].clone();
+    let expensive_info = state.query_lock_info(&context, &expensive).unwrap();
+    // Four permitted funders do not make one-reference cancellations cost 2000 NRG.
+    let (energy, events) =
+        cancel_expired_locks(&context, &mut state, 11_001.into(), 1500.into()).unwrap();
+    assert_eq!(energy, Energy::from(1500));
+    assert_eq!(events.len(), 7);
+    // Reaching zero capacity must not stop traversal before a later empty lock.
+    assert_eq!(
+        events[6],
+        BlockItemEvent::LockDestroyed(LockDestroyEvent {
+            lock_id: ids[6].clone()
+        })
+    );
+    assert!(state.query_lock_info(&context, &ids[6]).is_err());
+    let expected = [ids[4].clone(), ids[3].clone(), ids[2].clone()];
+    for (pair, id) in events.chunks_exact(2).zip(&expected) {
+        assert_matches!(&pair[0], BlockItemEvent::UnlockAmount(event) => {
+            assert_eq!(&event.lock_id, id);
+            assert_eq!(event.token_id, token_id);
+            assert_eq!(event.amount.amount, RawTokenAmount::from(10));
+        });
+        assert_eq!(
+            pair[1],
+            BlockItemEvent::LockDestroyed(LockDestroyEvent {
+                lock_id: id.clone()
+            })
+        );
+        assert!(state.query_lock_info(&context, id).is_err());
+    }
+    assert_eq!(
+        state.query_lock_info(&context, &expensive).unwrap(),
+        expensive_info
+    );
+    assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
+
+    // Skips consume no scan energy; the later two one-reference locks fit exactly.
+    let (energy, events) =
+        cancel_expired_locks(&context, &mut state, 12_000.into(), 1000.into()).unwrap();
+    assert_eq!(energy, Energy::from(1000));
+    assert_eq!(events.len(), 4);
+    for (event, id) in [(&events[1], &ids[1]), (&events[3], &ids[0])] {
+        assert_eq!(
+            event,
+            &BlockItemEvent::LockDestroyed(LockDestroyEvent {
+                lock_id: id.clone()
+            })
+        );
+    }
+    assert_eq!(
+        state.query_lock_info(&context, &expensive).unwrap(),
+        expensive_info
+    );
+    assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 1);
+
+    let (energy, events) =
+        cancel_expired_locks(&context, &mut state, 13_000.into(), 2000.into()).unwrap();
+    assert_eq!(energy, Energy::from(2000));
+    assert_eq!(events.len(), 5);
+    assert_eq!(
+        events[4],
+        BlockItemEvent::LockDestroyed(LockDestroyEvent { lock_id: expensive })
+    );
+    assert!(state.query_lock_list(&context).is_empty());
+    assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
+}
+
+#[test]
+fn empty_locks_ignore_keep_alive_but_not_expiry_at_zero_energy() {
+    // Empty cancellation needs neither a sender nor any external account mutations/queries.
+    let context = entity_test_stub::new_no_external_context();
+    let mut state = BlockStateLatest::default();
+    let mut ids = Vec::new();
+    for (sequence, expiry, keep_alive) in [(1, 10, false), (2, 10, true), (3, 11, true)] {
+        let id = LockId::new(0, sequence, 0);
+        state
+            .create_lock(
+                &context,
+                &id,
+                LockConfig::SimpleV0(
+                    LockConfigSimpleV0::new(
+                        LockRecipients::Any,
+                        expiry.into(),
+                        vec![],
+                        vec![],
+                        keep_alive,
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+                0.into(),
+            )
+            .unwrap();
+        ids.push(id);
+    }
+    for timestamp in [9999, 10_000] {
+        assert_eq!(
+            cancel_expired_locks(&context, &mut state, timestamp.into(), 0.into()).unwrap(),
+            (Energy::from(0), vec![])
+        );
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
+    }
+    let (energy, events) =
+        cancel_expired_locks(&context, &mut state, 10_001.into(), 0.into()).unwrap();
+    assert_eq!(energy, Energy::from(0));
+    assert_eq!(
+        events,
+        ids[..2]
+            .iter()
+            .map(|id| BlockItemEvent::LockDestroyed(LockDestroyEvent {
+                lock_id: id.clone()
+            }))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(state.lock_list(&context).unwrap(), vec![ids[2].clone()]);
+    assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 1);
+    assert_eq!(
+        cancel_expired_locks(&context, &mut state, 10_001.into(), 0.into()).unwrap(),
+        (Energy::from(0), vec![])
+    );
+}
