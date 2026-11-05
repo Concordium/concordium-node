@@ -6,8 +6,7 @@ The same build also creates an internal database exporter image, which publishes
 
 ## Files
 
-- `builder.Dockerfile` builds Consensus, `concordium-node`, `node-collector`, `p2p-bootstrapper`, and `database-exporter`, then creates the node image.
-- `database-exporter.Dockerfile` builds the internal database exporter image from the compiled output of `builder.Dockerfile`. It does not depend on the node image.
+- `builder.Dockerfile` builds Consensus, `concordium-node`, `node-collector`, `p2p-bootstrapper`, and `database-exporter`, then creates the node image and the internal exporter image.
 - `entrypoint.sh` starts the node and optionally manages the collector.
 - `genesis/` contains the genesis files included in the image.
 - `hub-description.md` is the user-facing Docker Hub description.
@@ -18,9 +17,8 @@ The Dockerfile uses these stages:
 
 1. `builder` installs Stack, lets the resolver in `stack.yaml` select GHC, builds the shared Consensus library and `database-exporter`, and builds the Rust executables.
 2. `artifacts` holds only the compiled executables and shared libraries. `/runtime` has the node image files and `/exporter` has `database-exporter`.
-3. `runtime` contains the node, the collector, the bootstrapper, their shared-library dependencies, genesis files, CA certificates, and `tini`. It is the last stage, so it is the default target.
-
-`database-exporter.Dockerfile` starts from the same Ubuntu release and installs the same native libraries as the node image. Change the Ubuntu release and the native library list in both Dockerfiles together.
+3. `exporter` is the internal exporter image, built with `--target exporter`. It installs the same native libraries as `runtime` plus `jq` and a pinned AWS CLI. Change the package lists of the two stages together.
+4. `runtime` contains the node, the collector, the bootstrapper, their shared-library dependencies, genesis files, CA certificates, and `tini`. It is the last stage, so it is the default target and a plain build produces the node image.
 
 CI compiles once per platform, natively for AMD64 and ARM64. It builds the `artifacts` stage, then builds the images with that output as the `artifacts` build context. A named build context replaces the stage of the same name, so the image builds do not compile again. The node platform images are combined into one image index under the version tag, with `<version>-amd64` and `<version>-arm64` platform tags.
 
@@ -47,6 +45,8 @@ docker build \
 ```
 
 Stack and Cargo compilation take most of the initial build time. The build caches the compiler and external Haskell dependencies in a layer that source-only changes do not invalidate. Cargo compilation still follows the complete source copy.
+
+Build the exporter image from the same file by adding `--target exporter` and `--platform linux/amd64`. It shares the compile with a node build through the layer cache.
 
 ## Validate
 

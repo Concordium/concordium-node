@@ -373,7 +373,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: scripts/distribution/docker-image/database-exporter.Dockerfile
+          file: scripts/distribution/docker-image/builder.Dockerfile
+          target: exporter
           build-contexts: artifacts=${{ runner.temp }}/artifacts
           platforms: linux/amd64
           pull: true
