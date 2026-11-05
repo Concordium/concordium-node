@@ -33,6 +33,7 @@ import Concordium.KonsensusV1.LeaderElection
 import Concordium.Kontrol.Bakers
 import Concordium.Scheduler
 import qualified Concordium.Scheduler.Environment as Env
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler as RustPLT
 import Concordium.Scheduler.TreeStateEnvironment (FreeTransactionCounts (countAccountCreation), countFreeTransactions, distributeRewards, doBlockRewardP4, doCalculatePaydayMintAmounts)
 import Concordium.Scheduler.Types
 import qualified Concordium.TransactionVerification as TVer
@@ -109,6 +110,8 @@ data TransactionExecutionResult m = TransactionExecutionResult
       terTransactionRewardParameters :: TransactionRewardParameters,
       -- | The total energy used in executing the block.
       terEnergyUsed :: Energy,
+      -- | Effective limit used to execute the transactions and subsequent cleanup.
+      terEnergyLimit :: Energy,
       -- | The block state after executing the transactions.
       terBlockState :: UpdatableBlockState m
     }
@@ -586,6 +589,7 @@ constructBlockTransactions runtimeParams startTime transTable pendingTable block
                             finState ^. Env.ssExecutionCosts
                         },
                   terEnergyUsed = finState ^. Env.ssEnergyUsed,
+                  terEnergyLimit = context ^. Env.maxBlockEnergy,
                   terBlockState = theState2
                 }
     return (ft, result)
@@ -644,9 +648,32 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
                                           trpTransactionFees = finState ^. Env.ssExecutionCosts
                                         },
                                   terEnergyUsed = finState ^. Env.ssEnergyUsed,
+                                  terEnergyLimit = context ^. Env.maxBlockEnergy,
                                   terBlockState = theState2
                                 }
                     return $ Right result
+
+-- | Run P11 automatic cancellation after transactions, without changing fee accounting.
+executeBlockCleanup ::
+    forall m.
+    (BlockStateStorage m) =>
+    Timestamp ->
+    TransactionExecutionResult m ->
+    m (TransactionExecutionResult m)
+executeBlockCleanup timestamp result@TransactionExecutionResult{..} =
+    case protocolVersion @(MPV m) of
+        SP11 -> do
+            when (terEnergyUsed > terEnergyLimit) $ error "Transactions exceeded block energy limit"
+            (state, used, events) <- RustPLT.cancelExpiredLocks timestamp (terEnergyLimit - terEnergyUsed) terBlockState
+            when (used > terEnergyLimit - terEnergyUsed) $ error "Automatic cancellation exceeded remaining block energy"
+            updated <- foldM addOutcome state events
+            return result{terBlockState = updated, terEnergyUsed = terEnergyUsed + used}
+        _ -> return result
+  where
+    addOutcome state = \case
+        UnlockAmount{..} -> bsoAddSpecialTransactionOutcome state $ SpecialUnlockAmount euaTokenHolder euaLockId euaTokenId euaAmount
+        LockDestroyed{..} -> bsoAddSpecialTransactionOutcome state $ SpecialLockDestroyed eldLockId
+        event -> error $ "Unexpected automatic cancellation event: " ++ show event
 
 -- * Blocks
 
@@ -692,7 +719,8 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
         else do
             PrologueResult{..} <- executeBlockPrologue execData
             tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
-            forM tRes $ \TransactionExecutionResult{..} -> do
+            forM tRes $ \transactionsResult -> do
+                TransactionExecutionResult{..} <- executeBlockCleanup bedTimestamp transactionsResult
                 endState <-
                     executeBlockEpilogue
                         bedParticipatingBakers
@@ -740,7 +768,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
         else do
             startTime <- currentTime
             PrologueResult{..} <- executeBlockPrologue execData
-            (filteredTrs, TransactionExecutionResult{..}) <-
+            (filteredTrs, transactionsResult) <-
                 constructBlockTransactions
                     runtimeParams
                     startTime
@@ -748,6 +776,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                     pendingTable
                     bedTimestamp
                     prologueBlockState
+            TransactionExecutionResult{..} <- executeBlockCleanup bedTimestamp transactionsResult
             finalState <-
                 executeBlockEpilogue
                     bedParticipatingBakers
