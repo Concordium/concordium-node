@@ -65,6 +65,8 @@ import Data.Proxy
 data ContextState = ContextState
     { -- | Chain metadata
       _chainMetadata :: !ChainMetadata,
+      -- | Absolute height of the block whose transactions are being executed.
+      _absoluteBlockHeight :: !AbsoluteBlockHeight,
       -- | Maximum allowed block energy.
       _maxBlockEnergy :: !Energy,
       -- | Maximum number of accounts to be created in the same block.

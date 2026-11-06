@@ -190,6 +190,7 @@ fn test_query_lock_info_any_recipient() {
                 sender_account_address: sender_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             owner.account_index(),
             Payload::TokenUpdate {

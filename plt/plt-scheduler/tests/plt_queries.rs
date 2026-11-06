@@ -431,6 +431,7 @@ fn test_query_token_account_info_allow_list_no_balance() {
                 sender_account_address: gov_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             gov_account.account_index(),
             Payload::TokenUpdate {

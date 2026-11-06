@@ -72,6 +72,7 @@ fn test_cancel_by_canceller() {
         sender_account_address: context.external.account_canonical_address(account_index_2),
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
@@ -152,6 +153,7 @@ fn test_cancel_unauthorized() {
         sender_account_address: sender_addr,
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
@@ -219,6 +221,7 @@ fn test_cancel_after_expiry() {
         sender_account_address: context.external.account_canonical_address(account_index_1),
         transaction_sequence_number: 1.into(),
         block_timestamp: 1000001.into(),
+        block_height: 0.into(),
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
@@ -330,6 +333,7 @@ fn test_cancel_with_balances() {
         sender_account_address: context.external.account_canonical_address(account_index_2),
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let payload = Payload::TokenUpdate {
@@ -395,6 +399,7 @@ fn test_cancel_nonexistent() {
         sender_account_address: context.external.account_canonical_address(account_index_1),
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let lock_id = LockId {

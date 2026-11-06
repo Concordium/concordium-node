@@ -138,6 +138,7 @@ fn test_unscoped_transaction() {
                 sender_account_address: account_1_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             account_1.account_index(),
             Payload::TokenUpdate {
@@ -280,6 +281,7 @@ fn test_unscoped_transaction_cbor_extra_fields() {
                 sender_account_address: account_1_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             account_1.account_index(),
             Payload::TokenUpdate {

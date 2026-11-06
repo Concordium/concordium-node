@@ -37,6 +37,7 @@ import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.GRPC2
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Block (localToAbsoluteBlockHeight)
 import Concordium.Types.Execution
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.Types.Parameters
@@ -182,7 +183,9 @@ data DryRunState (pv :: ProtocolVersion) = DryRunState
     { -- | The current block state.
       drsBlockState :: !(PersistentBlockState pv),
       -- | The current timestamp.
-      drsTimestamp :: !Timestamp
+      drsTimestamp :: !Timestamp,
+      -- | Absolute height of the selected block, retained across session operations.
+      drsAbsoluteBlockHeight :: !AbsoluteBlockHeight
     }
 
 -- | The block state context.
@@ -318,12 +321,14 @@ dryRunLoadBlockState dryRunPtr bhiTag hashPtr outVec =
                     ( liftSkovQueryBHIAndVersion
                         ( \vc0 bp -> do
                             drsTimestamp <- SkovV0.getSlotTimestamp $ SkovV0.blockSlot bp
+                            let drsAbsoluteBlockHeight = localToAbsoluteBlockHeight (vc0GenesisHeight vc0) (SkovV0.bpHeight bp)
                             drsBlockState <- thawBlockState =<< blockState bp
                             drs <- liftIO . newIORef $ DryRunState{..}
                             return (drsTimestamp, EBlockStateContextV0 vc0 drs)
                         )
                         ( \vc1 bp _ -> do
                             let drsTimestamp = SkovV1.blockTimestamp bp
+                            let drsAbsoluteBlockHeight = localToAbsoluteBlockHeight (vc1GenesisHeight vc1) (SkovV1.blockHeight bp)
                             drsBlockState <- thawBlockState =<< blockState bp
                             drs <- liftIO . newIORef $ DryRunState{..}
                             return (drsTimestamp, EBlockStateContextV1 vc1 drs)
@@ -700,7 +705,8 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
             drs@DryRunState{..} <- liftIO $ readIORef drsRef
             let context =
                     Scheduler.ContextState
-                        { _chainMetadata = ChainMetadata drsTimestamp,
+                        { _absoluteBlockHeight = drsAbsoluteBlockHeight,
+                          _chainMetadata = ChainMetadata drsTimestamp,
                           _maxBlockEnergy = shiQuotaRem,
                           _accountCreationLimit = 0
                         }
