@@ -22,6 +22,7 @@ pub fn migrate_from_p10_to_p11(
     let new_persistent = PersistentBlockStateP11 {
         tokens: HashedCacheableRef::new(new_tokens),
         locks: HashedCacheableRef::new(PersistentLocksP11::empty()),
+        indexes: Default::default(),
     };
 
     Ok(BlockStateP11 {
@@ -97,6 +98,14 @@ mod test {
         // Migrate the block state
         let (migrated_context, migrated_block_state) =
             migration::test_utils::migrate_p10_to_p11(&mut context, block_state);
+
+        assert_eq!(
+            migrated_block_state
+                .lock_expiry_index(&migrated_context)
+                .unwrap()
+                .size(),
+            0
+        );
 
         // Assert on migrated block state
         assert_eq!(

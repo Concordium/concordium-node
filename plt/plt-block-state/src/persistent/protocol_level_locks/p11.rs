@@ -1,13 +1,14 @@
 use crate::failure::{BlockStateFailure, BlockStateResult};
 use crate::persistent::blob_reference::hashed_cacheable_reference::HashedCacheableRef;
 use crate::persistent::blob_store::{
-    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, Storable, StoreSerialized,
+    BlobStoreLoad, BlobStoreMovable, BlobStoreStore, Loadable, ParseResultExt, Storable,
+    StoreSerialized,
 };
 use crate::persistent::cacheable::Cacheable;
 use crate::persistent::hash;
 use crate::persistent::hash::Hashable;
 use crate::persistent::trie::{Trie, TrieKey};
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AbsoluteBlockHeight, AccountIndex};
 use concordium_base::common::types::TransactionTime;
 use concordium_base::common::{
     Buffer, Deserial, Get, ParseResult, ReadBytesExt, Serial, Serialize, deserial_vector_no_length,
@@ -16,11 +17,43 @@ use concordium_base::common::{
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
+use std::borrow::Borrow;
 use std::io::Read;
 
 /// Persistent collection of protocol-level locks on P11 and later protocols.
 // Trie inline key length 24 matches the size of `LockId`
 pub type PersistentLocksP11 = Trie<24, LockId, PersistentLockP11>;
+
+const LOCK_EXPIRY_KEY_SIZE: usize = 40;
+
+/// Expiry-ordered set of scheduled P11 locks.
+pub type PersistentLockExpiryIndexP11 =
+    Trie<LOCK_EXPIRY_KEY_SIZE, LockExpiryKey, StoreSerialized<()>>;
+
+/// Internal scheduling key ordered by expiry, absolute creation block height, and lock ID.
+/// Expiry ties process earlier creation blocks first for scheduling fairness;
+/// locks created at the same height are ordered by lock ID.
+#[derive(Debug, Clone, Eq, PartialEq, Deserial)]
+pub struct LockExpiryKey {
+    pub expiry: TransactionTime,
+    pub created_at_height: AbsoluteBlockHeight,
+    pub lock_id: LockId,
+}
+
+impl TrieKey for LockExpiryKey {
+    fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
+        // Field order and encoding must match the derived Deserial implementation.
+        let mut bytes = [0; LOCK_EXPIRY_KEY_SIZE];
+        bytes[..8].copy_from_slice(&self.expiry.seconds.to_be_bytes());
+        bytes[8..16].copy_from_slice(&self.created_at_height.height.to_be_bytes());
+        bytes[16..].copy_from_slice(self.lock_id.to_bytes().borrow());
+        bytes
+    }
+
+    fn try_from_bytes(key: &[u8]) -> BlockStateResult<Self> {
+        from_bytes_complete(key).map_parse_err_to_block_state_err()
+    }
+}
 
 /// Trie key for a locked account/token balance reference.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize)]
@@ -63,6 +96,8 @@ type BalanceReferences = Trie<24, BalanceReferenceKey, StoreSerialized<()>>;
 /// The block state for a single protocol-level lock.
 #[derive(Debug, Clone)]
 pub struct PersistentLockP11 {
+    /// Immutable absolute height of the creation block, needed to retrieve its expiry index entry.
+    pub(crate) created_at_height: AbsoluteBlockHeight,
     /// References to the account/token balances locked within this lock.
     pub(crate) locked_balances: BalanceReferences,
     /// Immutable configuration parameters for the lock.
@@ -71,8 +106,9 @@ pub struct PersistentLockP11 {
 
 impl PersistentLockP11 {
     /// Construct an empty lock with the supplied immutable configuration.
-    pub(crate) fn new(configuration: LockConfig) -> Self {
+    pub(crate) fn new(configuration: LockConfig, created_at_height: AbsoluteBlockHeight) -> Self {
         Self {
+            created_at_height,
             locked_balances: Trie::empty(),
             configuration: HashedCacheableRef::new(StoreSerialized(configuration)),
         }
@@ -83,6 +119,7 @@ impl Storable for PersistentLockP11 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.locked_balances.store_to_buffer(&mut buffer, storer);
         self.configuration.store_to_buffer(&mut buffer, storer);
+        self.created_at_height.serial(&mut buffer);
     }
 }
 
@@ -94,6 +131,7 @@ impl Loadable for PersistentLockP11 {
         Ok(Self {
             locked_balances: Loadable::load_from_buffer(&mut buffer, loader)?,
             configuration: Loadable::load_from_buffer(&mut buffer, loader)?,
+            created_at_height: buffer.get().map_parse_err_to_block_state_err()?,
         })
     }
 }
@@ -107,10 +145,11 @@ impl Cacheable for PersistentLockP11 {
 
 impl Hashable for PersistentLockP11 {
     fn hash(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<Hash> {
-        Ok(hash::hash_of_hashes(
+        Ok(hash::hash_of_serialization((
             self.locked_balances.hash(loader)?,
             self.configuration.hash(loader)?,
-        ))
+            self.created_at_height,
+        )))
     }
 }
 
@@ -123,6 +162,7 @@ impl BlobStoreMovable for PersistentLockP11 {
         Ok(Self {
             locked_balances: self.locked_balances.move_blob_store(from_store, to_store)?,
             configuration: self.configuration.move_blob_store(from_store, to_store)?,
+            created_at_height: self.created_at_height,
         })
     }
 }
@@ -514,8 +554,8 @@ mod test {
         assert!(!config_with_grants(vec![]).has_role(AccountIndex::from(1), Fund));
         // Equivalent normalized configurations must produce identical lock hashes.
         let mut store = BlobStoreStub::default();
-        let lock = PersistentLockP11::new(LockConfig::SimpleV0(first.clone()));
-        let other = PersistentLockP11::new(LockConfig::SimpleV0(second));
+        let lock = PersistentLockP11::new(LockConfig::SimpleV0(first.clone()), 1234.into());
+        let other = PersistentLockP11::new(LockConfig::SimpleV0(second), 1234.into());
         assert_eq!(lock.hash(&store).unwrap(), other.hash(&store).unwrap());
         // Persistence must preserve both the canonical configuration and its hash.
         let location = blob_store::store_to_store(&mut store, &lock);
@@ -748,19 +788,86 @@ mod test {
     }
 
     #[test]
+    fn expiry_keys_use_fixed_width_ordered_encoding() {
+        let store = BlobStoreStub::default();
+        let keys = [
+            LockExpiryKey {
+                expiry: 255.into(),
+                created_at_height: 9999.into(),
+                lock_id: LockId::new(9, 9, 9),
+            },
+            LockExpiryKey {
+                expiry: 256.into(),
+                created_at_height: 255.into(),
+                lock_id: LockId::new(9, 9, 9),
+            },
+            LockExpiryKey {
+                expiry: 256.into(),
+                created_at_height: 256.into(),
+                lock_id: LockId::new(1, 1, 255),
+            },
+            LockExpiryKey {
+                expiry: 256.into(),
+                created_at_height: 256.into(),
+                lock_id: LockId::new(1, 1, 256),
+            },
+            LockExpiryKey {
+                expiry: 256.into(),
+                created_at_height: 256.into(),
+                lock_id: LockId::new(1, 2, 0),
+            },
+            LockExpiryKey {
+                expiry: 256.into(),
+                created_at_height: 256.into(),
+                lock_id: LockId::new(2, 0, 0),
+            },
+        ];
+        let mut index = PersistentLockExpiryIndexP11::empty();
+        for key in keys.iter().rev() {
+            let bytes = key.to_bytes();
+            let bytes = bytes.borrow();
+            assert_eq!(bytes.len(), LOCK_EXPIRY_KEY_SIZE);
+            assert_eq!(&bytes[..8], &key.expiry.seconds.to_be_bytes());
+            assert_eq!(&bytes[8..16], &key.created_at_height.height.to_be_bytes());
+            assert_eq!(&bytes[16..], key.lock_id.to_bytes().borrow());
+            assert_eq!(LockExpiryKey::try_from_bytes(bytes).unwrap(), *key);
+            index = index
+                .insert_or_update_entry(&store, key, StoreSerialized(()))
+                .unwrap();
+        }
+        assert_eq!(
+            index
+                .iter(&store)
+                .map(|entry| entry.unwrap().0)
+                .collect::<Vec<_>>(),
+            keys
+        );
+        for length in [0, 39, 41] {
+            assert!(matches!(
+                LockExpiryKey::try_from_bytes(&vec![0; length]),
+                Err(BlockStateFailure::BlobStoreDecode(_))
+            ));
+        }
+    }
+
+    #[test]
     fn persistent_lock_store_load_preserves_values_and_hash() {
         let mut store = BlobStoreStub::default();
         let balance_ref = BalanceReferenceKey(AccountIndex::from(1), "Token2".parse().unwrap());
-        let mut lock = PersistentLockP11::new(lock_configuration());
+        let mut lock = PersistentLockP11::new(lock_configuration(), 1234.into());
         lock.locked_balances = lock
             .locked_balances
             .insert_or_update_entry(&store, &balance_ref, StoreSerialized(()))
             .unwrap();
         let hash = lock.hash(&store).unwrap();
+        let mut later_lock = lock.clone();
+        later_lock.created_at_height = 1235.into();
+        assert_ne!(later_lock.hash(&store).unwrap(), hash);
 
         let location = blob_store::store_to_store(&mut store, &lock);
         let loaded: PersistentLockP11 = blob_store::load_from_store(&store, location).unwrap();
         assert_eq!(loaded.hash(&store).unwrap(), hash);
+        assert_eq!(loaded.created_at_height, 1234.into());
         assert!(
             loaded
                 .locked_balances
@@ -776,6 +883,7 @@ mod test {
         let mut moved_store = BlobStoreStub::default();
         let moved = loaded.move_blob_store(&store, &mut moved_store).unwrap();
         assert_eq!(moved.hash(&moved_store).unwrap(), hash);
+        assert_eq!(moved.created_at_height, 1234.into());
         assert!(
             moved
                 .locked_balances

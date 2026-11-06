@@ -5,7 +5,7 @@
 use crate::ffi::status;
 use crate::scheduler;
 use crate::transaction_execution::TransactionContext;
-use concordium_base::base::{AccountIndex, Energy, Nonce};
+use concordium_base::base::{AbsoluteBlockHeight, AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -61,6 +61,7 @@ pub type FfiSchedulerEntityContext =
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `transaction_sequence_number` The account sequence number (nonce) of the transaction to execute.
 /// - `block_timestamp` Timestamp of the block in which the transaction is executed.
+/// - `block_height` Absolute height of the block in which the transaction is executed.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 ///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
@@ -106,6 +107,7 @@ extern "C" fn ffi_execute_transaction(
     sender_account_address: *const u8,
     transaction_sequence_number: Nonce,
     block_timestamp: Timestamp,
+    block_height: AbsoluteBlockHeight,
     remaining_energy: u64,
     block_state_out: *mut *mut PersistentBlockState,
     used_energy_out: *mut u64,
@@ -171,6 +173,7 @@ extern "C" fn ffi_execute_transaction(
             sender_account_address,
             transaction_sequence_number,
             block_timestamp,
+            block_height,
             energy_limit: remaining_energy,
         };
         let (result, new_block_state) = match unsafe { &*block_state } {
@@ -487,6 +490,7 @@ mod tests {
             ptr::null(),
             Nonce::from(1),
             Timestamp::from_timestamp_millis(0),
+            0.into(),
             0,
             ptr::null_mut(),
             ptr::null_mut(),
@@ -536,6 +540,7 @@ mod tests {
             sender_address.as_ptr(),
             Nonce::from(1),
             Timestamp::from_timestamp_millis(0),
+            0.into(),
             0,
             block_state_out,
             used_energy_out,

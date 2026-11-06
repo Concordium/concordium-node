@@ -19,6 +19,7 @@ import Lens.Micro.Platform
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import Concordium.Types.Conditionally
 import Concordium.Types.SeedState
 
@@ -78,6 +79,8 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       bedEpochDuration :: Duration,
       -- | The block timestamp.
       bedTimestamp :: Timestamp,
+      -- | Absolute height of the executing block.
+      bedAbsoluteBlockHeight :: AbsoluteBlockHeight,
       -- | The block nonce. Used to update the seed state.
       bedBlockNonce :: BlockNonce,
       -- | The block baker and QC signatories.
@@ -555,15 +558,18 @@ constructBlockTransactions ::
     PendingTransactionTable ->
     -- | Block timestamp.
     Timestamp ->
+    -- | Absolute height of the executing block.
+    AbsoluteBlockHeight ->
     -- | Block state.
     UpdatableBlockState m ->
     m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), TransactionExecutionResult m)
-constructBlockTransactions runtimeParams startTime transTable pendingTable blockTimestamp theState0 = do
+constructBlockTransactions runtimeParams startTime transTable pendingTable blockTimestamp blockHeight theState0 = do
     -- The block energy limit and account creation limit are taken from the current chain parameters.
     chainParams <- bsoGetChainParameters theState0
     let context =
             Env.ContextState
-                { _chainMetadata = ChainMetadata blockTimestamp,
+                { _absoluteBlockHeight = blockHeight,
+                  _chainMetadata = ChainMetadata blockTimestamp,
                   _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
                   _accountCreationLimit = chainParams ^. cpAccountCreationLimit
                 }
@@ -602,10 +608,11 @@ constructBlockTransactions runtimeParams startTime transTable pendingTable block
 executeBlockTransactions ::
     (BlockStateStorage m, IsConsensusV1 (MPV m), MonadLogger m) =>
     Timestamp ->
+    AbsoluteBlockHeight ->
     [(BlockItem, TVer.VerificationResult)] ->
     UpdatableBlockState m ->
     m (Either (Maybe FailureKind) (TransactionExecutionResult m))
-executeBlockTransactions blockTimestamp transactions theState0 = do
+executeBlockTransactions blockTimestamp blockHeight transactions theState0 = do
     -- The account creation limit and max block energy are determined by the current chain parameters.
     chainParams <- bsoGetChainParameters theState0
     let accountCreationLim = chainParams ^. cpAccountCreationLimit
@@ -619,7 +626,8 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
         else do
             let context =
                     Env.ContextState
-                        { _chainMetadata = ChainMetadata blockTimestamp,
+                        { _absoluteBlockHeight = blockHeight,
+                          _chainMetadata = ChainMetadata blockTimestamp,
                           _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
                           _accountCreationLimit = accountCreationLim
                         }
@@ -691,7 +699,7 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
                     return $ Left Nothing
         else do
             PrologueResult{..} <- executeBlockPrologue execData
-            tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
+            tRes <- executeBlockTransactions bedTimestamp bedAbsoluteBlockHeight transactions prologueBlockState
             forM tRes $ \TransactionExecutionResult{..} -> do
                 endState <-
                     executeBlockEpilogue
@@ -747,6 +755,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                     transactionTable
                     pendingTable
                     bedTimestamp
+                    bedAbsoluteBlockHeight
                     prologueBlockState
             finalState <-
                 executeBlockEpilogue

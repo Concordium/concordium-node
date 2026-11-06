@@ -21,7 +21,7 @@ pub type BlockStateLatest = BlockStateP11;
 
 /// Creates a [`TransactionContext`] with the given sender account address and
 /// transaction sequence number. The energy limit is set to the maximum value,
-/// and the block timestamp is set to 0.
+/// and the block timestamp and height are set to 0.
 pub fn simple_transaction_context_with_nonce(
     sender_account_address: AccountAddress,
     transaction_sequence_number: u64,
@@ -31,12 +31,13 @@ pub fn simple_transaction_context_with_nonce(
         sender_account_address,
         transaction_sequence_number: transaction_sequence_number.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     }
 }
 
 /// Creates a [`TransactionContext`] with the given sender account address.
-/// The energy limit is set to the maximum value, and the block timestamp is set
-/// to 0. The transaction sequence number is set to 1.
+/// The energy limit is set to the maximum value, and the block timestamp and height
+/// are set to 0. The transaction sequence number is set to 1.
 pub fn simple_transaction_context(
     sender_account_address: AccountAddress,
 ) -> plt_scheduler::TransactionContext {

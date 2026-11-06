@@ -325,6 +325,7 @@ fn test_energy_charge() {
                 sender_account_address: sender_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             sender.account_index(),
             Payload::TokenUpdate {
@@ -387,6 +388,7 @@ fn test_out_of_energy_error() {
                 sender_account_address: sender_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             sender.account_index(),
             Payload::TokenUpdate {
