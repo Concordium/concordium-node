@@ -44,9 +44,22 @@ docker build \
   .
 ```
 
+The node image supports `linux/amd64` and `linux/arm64`. Set `--platform` to the host architecture to compile natively, for example `linux/arm64` on Apple Silicon.
+
 Stack and Cargo compilation take most of the initial build time. The build caches the compiler and external Haskell dependencies in a layer that source-only changes do not invalidate. Cargo compilation still follows the complete source copy.
 
-Build the exporter image from the same file by adding `--target exporter` and `--platform linux/amd64`. It shares the compile with a node build through the layer cache.
+Build the exporter image from the same file:
+
+```shell
+docker build \
+  --platform linux/amd64 \
+  --file scripts/distribution/docker-image/builder.Dockerfile \
+  --target exporter \
+  --tag concordium/database-exporter:latest \
+  .
+```
+
+The exporter image is AMD64 only, so this build runs under emulation on other hosts. It shares the compile with an AMD64 node build through the layer cache.
 
 ## Validate
 
