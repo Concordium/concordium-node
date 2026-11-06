@@ -595,7 +595,11 @@ impl Drop for CheckedEmptyLockCancellation {
             .iter()
             .zip(fixture.lock_ids.chunks(EMPTY_LOCK_BATCH_SIZE))
         {
-            assert_eq!(summary.energy_used, cost::PLT_OPERATIONS_TRANSACTIONS);
+            assert_eq!(
+                summary.energy_used,
+                cost::PLT_OPERATIONS_TRANSACTIONS
+                    + Energy::from(cost::plt_lock_cancel(0).energy * batch.len() as u64),
+            );
             let TransactionOutcome::Success(events) = &summary.outcome else {
                 panic!("empty lock cancellation rejected");
             };

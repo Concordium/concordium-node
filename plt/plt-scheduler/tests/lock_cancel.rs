@@ -87,10 +87,10 @@ fn test_cancel_by_canceller() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
-    // Existing lock without references incurs no cancellation cost.
     assert_eq!(
         summary.energy_used,
-        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS
+            + concordium_base::transactions::cost::plt_lock_cancel(0),
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 1);
@@ -169,7 +169,7 @@ fn test_cancel_unauthorized() {
         .unwrap();
     assert_eq!(
         summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(500), // One balance reference, even though cancellation is rejected.
+        Energy::from(600), // One balance reference, even though cancellation is rejected.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockCancelNotAuthorized(lock_id.clone(), sender_addr));
@@ -335,7 +335,7 @@ fn test_cancel_with_balances() {
             &context,
             &mut automatic_state,
             timestamp.into(),
-            1000.into(),
+            1100.into(),
         )
         .unwrap();
         assert_eq!(energy, Energy::from(0));
@@ -349,10 +349,10 @@ fn test_cancel_with_balances() {
         &context,
         &mut automatic_state,
         1_000_001.into(),
-        1000.into(),
+        1100.into(),
     )
     .unwrap();
-    assert_eq!(automatic_energy, Energy::from(1000));
+    assert_eq!(automatic_energy, Energy::from(1100));
 
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
@@ -376,7 +376,7 @@ fn test_cancel_with_balances() {
         .unwrap();
     assert_eq!(
         summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(1000), // Two current account/token references.
+        Energy::from(1100), // Two current account/token references.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(automatic_events, events);

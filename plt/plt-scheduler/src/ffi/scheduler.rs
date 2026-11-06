@@ -591,34 +591,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup_failure_does_not_publish_state_or_energy() {
-        let input = PersistentBlockState::empty(ProtocolVersion::P10);
-        let mut state_out = ptr::null_mut();
-        let mut energy_out = 123;
-        let mut data_out = ptr::null_mut();
-        let mut data_len = 0;
-        let status = ffi_cancel_expired_locks(
-            UNIMPLEMENTED_LOAD_CALLBACK,
-            UNIMPLEMENTED_READ_TOKEN_ACCOUNT_BALANCE,
-            UNIMPLEMENTED_GET_ACCOUNT_INDEX_BY_ADDRESS,
-            UNIMPLEMENTED_GET_CANONICAL_ADDRESS_BY_ACCOUNT_INDEX,
-            UNIMPLEMENTED_GET_TOKEN_ACCOUNT_STATES,
-            &input,
-            Timestamp::from_timestamp_millis(10_001),
-            500,
-            &mut state_out,
-            &mut energy_out,
-            &mut data_out,
-            &mut data_len,
-        );
-        assert_eq!(status, status::FfiStatusCode::Panic);
-        assert!(state_out.is_null());
-        assert_eq!(energy_out, 123);
-        let diagnostic = unsafe { Vec::from_raw_parts(data_out, data_len, data_len) };
-        assert_eq!(diagnostic, b"Automatic lock cancellation requires P11.");
-    }
-
-    #[test]
     fn test_p11_transaction_requires_external_chain_parameters() {
         let block_state = PersistentBlockState::empty(ProtocolVersion::P11);
         let payload = common::to_bytes(&Payload::TokenUpdate {

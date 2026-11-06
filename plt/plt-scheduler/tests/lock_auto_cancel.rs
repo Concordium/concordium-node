@@ -98,12 +98,12 @@ fn order_skip_exact_fit_and_retry() {
     }
     let expensive = ids[5].clone();
     let expensive_info = state.query_lock_info(&context, &expensive).unwrap();
-    // Four permitted funders do not make one-reference cancellations cost 2000 NRG.
+    // Four permitted funders do not make one-reference cancellations cost 2100 NRG.
     let (energy, events) =
-        cancel_expired_locks(&context, &mut state, 11_001.into(), 1500.into()).unwrap();
-    assert_eq!(energy, Energy::from(1500));
+        cancel_expired_locks(&context, &mut state, 11_001.into(), 1900.into()).unwrap();
+    assert_eq!(energy, Energy::from(1900));
     assert_eq!(events.len(), 7);
-    // Reaching zero capacity must not stop traversal before a later empty lock.
+    // The final 100 NRG fits the later empty lock after the funded cancellations.
     assert_eq!(
         events[6],
         BlockItemEvent::LockDestroyed(LockDestroyEvent {
@@ -134,8 +134,8 @@ fn order_skip_exact_fit_and_retry() {
 
     // Skips consume no scan energy; the later two one-reference locks fit exactly.
     let (energy, events) =
-        cancel_expired_locks(&context, &mut state, 12_000.into(), 1000.into()).unwrap();
-    assert_eq!(energy, Energy::from(1000));
+        cancel_expired_locks(&context, &mut state, 12_000.into(), 1200.into()).unwrap();
+    assert_eq!(energy, Energy::from(1200));
     assert_eq!(events.len(), 4);
     for (event, id) in [(&events[1], &ids[1]), (&events[3], &ids[0])] {
         assert_eq!(
@@ -152,8 +152,8 @@ fn order_skip_exact_fit_and_retry() {
     assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 1);
 
     let (energy, events) =
-        cancel_expired_locks(&context, &mut state, 13_000.into(), 2000.into()).unwrap();
-    assert_eq!(energy, Energy::from(2000));
+        cancel_expired_locks(&context, &mut state, 13_000.into(), 2100.into()).unwrap();
+    assert_eq!(energy, Energy::from(2100));
     assert_eq!(events.len(), 5);
     assert_eq!(
         events[4],
@@ -164,7 +164,7 @@ fn order_skip_exact_fit_and_retry() {
 }
 
 #[test]
-fn empty_locks_ignore_keep_alive_but_not_expiry_at_zero_energy() {
+fn empty_locks_require_capacity_and_ignore_keep_alive_but_not_expiry() {
     // Empty cancellation needs neither a sender nor any external account mutations/queries.
     let context = entity_test_stub::new_no_external_context();
     let mut state = BlockStateLatest::default();
@@ -194,23 +194,29 @@ fn empty_locks_ignore_keep_alive_but_not_expiry_at_zero_energy() {
     }
     for timestamp in [9999, 10_000] {
         assert_eq!(
-            cancel_expired_locks(&context, &mut state, timestamp.into(), 0.into()).unwrap(),
+            cancel_expired_locks(&context, &mut state, timestamp.into(), 300.into()).unwrap(),
             (Energy::from(0), vec![])
         );
         assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
     }
-    let (energy, events) =
-        cancel_expired_locks(&context, &mut state, 10_001.into(), 0.into()).unwrap();
-    assert_eq!(energy, Energy::from(0));
-    assert_eq!(
-        events,
-        ids[..2]
-            .iter()
-            .map(|id| BlockItemEvent::LockDestroyed(LockDestroyEvent {
+    for capacity in [0, 99] {
+        assert_eq!(
+            cancel_expired_locks(&context, &mut state, 10_001.into(), capacity.into()).unwrap(),
+            (Energy::from(0), vec![])
+        );
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
+    }
+    for id in &ids[..2] {
+        let (energy, events) =
+            cancel_expired_locks(&context, &mut state, 10_001.into(), 100.into()).unwrap();
+        assert_eq!(energy, Energy::from(100));
+        assert_eq!(
+            events,
+            vec![BlockItemEvent::LockDestroyed(LockDestroyEvent {
                 lock_id: id.clone()
-            }))
-            .collect::<Vec<_>>()
-    );
+            })]
+        );
+    }
     assert_eq!(state.lock_list(&context).unwrap(), vec![ids[2].clone()]);
     assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 1);
     assert_eq!(

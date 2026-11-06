@@ -292,10 +292,10 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
         &context,
         &mut block_state,
         1_804_806_000_001.into(),
-        0.into(),
+        100.into(),
     )
     .unwrap();
-    assert_eq!(energy, Energy::from(0));
+    assert_eq!(energy, Energy::from(100));
     assert_eq!(
         events,
         vec![BlockItemEvent::LockDestroyed(LockDestroyEvent {
