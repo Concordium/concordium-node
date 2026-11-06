@@ -526,7 +526,11 @@ pub fn cancel_expired_locks<C: EntityContextTypes>(
     let mut events = Vec::new();
     // Own the copy-on-write root so deleting from the working state cannot invalidate iteration.
     let schedule = block_state.lock_expiry_index(context)?.into_owned();
-    for entry in schedule.iter(&context.store) {
+    let mut entries = schedule.iter(&context.store);
+    while remaining_energy >= transactions::cost::PLT_LOCK_CANCEL_BASE {
+        let Some(entry) = entries.next() else {
+            break;
+        };
         let (key, _) = entry?;
         if !key.expiry.is_expired(timestamp) {
             break;

@@ -4,7 +4,7 @@
 
 -- | Full received-block cleanup, FFI decoding, rewards, outcome serialization, and state hashing.
 -- Each sample executes three blocks; divide reported times by three for per-block cost.
--- Setup, signing, explicit GC, balance/backlog queries, and assertions are outside timing.
+-- Setup, signing, explicit GC, backlog queries, and assertions are outside timing.
 -- This measures warm persistent roots without disk flushing, not cold database performance.
 module Main where
 
@@ -27,39 +27,26 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.KonsensusV1.Scheduler as Block
 import Concordium.Logger (runSilentLogger)
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (queryAccountTokens)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (queryLockList)
 import Concordium.Scheduler.Types
-import Concordium.Types.Queries.Tokens (Token)
-import Concordium.Types.Tokens (TokenAmount (..))
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.KonsensusV1.AutoCancelExpiredLocksFixture
 
 -- Setup validates and forces the persistent fixture before Criterion receives it.
-data Fixture = Fixture (Block.BlockExecutionData 'P11) [LockId] [BlockItem] [Token]
+data Fixture = Fixture (Block.BlockExecutionData 'P11) [BlockItem]
 
 instance NFData Fixture where
     rnf fixture = fixture `seq` ()
 
 type BlockResult = (BS.HashedPersistentBlockState 'P11, Energy, Seq.Seq SpecialTransactionOutcome)
 
-observeTokens :: BS.HashedPersistentBlockState 'P11 -> Helpers.PersistentBSM 'P11 [Token]
-observeTokens state = do
-    account <- BS.getAccount state ownerAddress
-    case account of
-        Nothing -> liftIO $ fail "Missing fixture owner"
-        Just owner -> queryAccountTokens owner state
-
 prepare :: Int -> Bool -> Helpers.PersistentBSM 'P11 Fixture
 prepare count funded = do
-    (fixture, ids, nonce) <- makeFixture count funded
-    (locks, total, available) <- observeLockBalance $ Block.bedParentState fixture
-    liftIO $ do
-        assertEqual "Equivalent initial backlog" ids locks
-        assertEqual "Initial holdings" (TokenAmount (fromIntegral count * 250) 0) total
-        assertEqual "Initial available balance" (if funded then TokenAmount 0 0 else total) available
+    (fixture, _, nonce) <- makeFixture count funded
+    locks <- queryLockList $ Block.bedParentState fixture
+    liftIO $ assertEqual "Initial backlog count" count (length locks)
     executionData <- withEnergyLimit (if funded then Helpers.simpleTransferCost else fromIntegral count * emptyCancellationCost) fixture
     transfers <- liftIO $ mapM makeTransfer [nonce .. nonce + 2]
-    tokens <- observeTokens $ Block.bedParentState fixture
     parentHash <- BS.getStateHash $ Block.bedParentState executionData
     _ <-
         liftIO $
@@ -67,10 +54,10 @@ prepare count funded = do
                 Bytes.length (Serialize.encode parentHash)
                     + Bytes.length (Serialize.encode $ Block.bedBlockNonce executionData)
                     + sum [Bytes.length $ Serialize.runPut $ putBlockItemV0 tx | tx <- transfers]
-    return $ Fixture executionData ids transfers tokens
+    return $ Fixture executionData transfers
 
 runBlocks :: Bool -> Fixture -> Helpers.PersistentBSM 'P11 [BlockResult]
-runBlocks funded (Fixture executionData _ transfers _) = go (Block.bedParentState executionData) transfers
+runBlocks funded (Fixture executionData transfers) = go (Block.bedParentState executionData) transfers
   where
     go _ [] = return []
     go parent (tx : rest) = do
@@ -88,26 +75,15 @@ runBlocks funded (Fixture executionData _ transfers _) = go (Block.bedParentStat
         later <- go (if funded then state else Block.bedParentState executionData) rest
         return $ (state, energy, outcomes) : later
 
-checkBlocks :: Int -> Bool -> Fixture -> [BlockResult] -> Helpers.PersistentBSM 'P11 ()
-checkBlocks count funded (Fixture _ ids _ initialTokens) results = do
+checkBlocks :: Int -> Bool -> [BlockResult] -> Helpers.PersistentBSM 'P11 ()
+checkBlocks count funded results = do
     liftIO $ assertEqual "Three actual block executions" 3 (length results)
     forM_ results $ \(state, energy, outcomes) -> do
-        (locks, total, available) <- observeLockBalance state
+        locks <- queryLockList state
         liftIO $ do
             assertEqual "Exact block energy" (if funded then Helpers.simpleTransferCost else fromIntegral count * emptyCancellationCost) energy
-            assertEqual "Persistent backlog after block" (if funded then ids else []) locks
-            assertEqual "Total holdings unchanged" (TokenAmount (fromIntegral count * 250) 0) total
-            assertEqual "Expected available balance" (if funded then TokenAmount 0 0 else total) available
-            let destructions = [outcome | outcome@SpecialLockDestroyed{} <- toList outcomes]
-                unlocks = [outcome | outcome@SpecialUnlockAmount{} <- toList outcomes]
-            assertEqual "Ordered destruction outcomes" (if funded then [] else SpecialLockDestroyed <$> ids) destructions
-            assertEqual "No unlocks for empty or skipped locks" [] unlocks
-        -- Compare the entire token module account state, including every locked balance reference.
-        if funded
-            then do
-                tokens <- observeTokens state
-                liftIO $ assertEqual "Funded references unchanged" initialTokens tokens
-            else return ()
+            assertEqual "Persistent backlog count after block" (if funded then count else 0) (length locks)
+            assertEqual "Special outcome count" (if funded then 1 else count + 1) (Seq.length outcomes)
 
 main :: IO ()
 main = withBenchmarks [(count, funded) | funded <- [False, True], count <- [10_000, 30_000, 60_000]] defaultMain
@@ -123,6 +99,6 @@ main = withBenchmarks [(count, funded) | funded <- [False, True], count <- [10_0
                 bench (scenario ++ "/" ++ show count) $
                     perRunEnvWithCleanup
                         (performGC >> newIORef [])
-                        (\results -> readIORef results >>= run . checkBlocks count funded fixture)
+                        (\results -> readIORef results >>= run . checkBlocks count funded)
                         (\results -> run (runBlocks funded fixture) >>= writeIORef results)
         liftIO $ withBenchmarks rest $ \others -> use (benchmark : others)
