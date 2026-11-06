@@ -18,6 +18,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
 
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Reader (asks)
 import Control.Monad.Trans
 import Data.Bool.Singletons (SBool (..))
 import qualified Data.ByteString as BS
@@ -33,6 +34,7 @@ import qualified Foreign.C.Types as FFI
 import Lens.Micro
 
 import qualified Concordium.Types as Types
+import qualified Concordium.Types.Block as Types
 import qualified Concordium.Types.Execution as Types
 import qualified Concordium.Types.Updates as Types
 import qualified Concordium.Utils.Serialization as CS
@@ -61,7 +63,8 @@ executeTransaction ::
     EI.SchedulerT m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
 executeTransaction depositContext payload = do
     Types.ChainMetadata{..} <- EI.getChainMetadata
-    executeTransactionWithTimestamp slotTime depositContext payload
+    blockHeight <- asks EI._absoluteBlockHeight
+    executeTransactionWithTimestamp slotTime blockHeight depositContext payload
 
 -- | Execute a transaction payload in the 'SchedulerMonad' modifying the block state accordingly. The transaction
 -- is executed via the Rust PLT Scheduler library. Only 'TokenUpdate' transaction payloads are currently supported.
@@ -70,12 +73,14 @@ executeTransactionWithTimestamp ::
     (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     -- | Timestamp of the block in which the transaction occurs.
     Types.Timestamp ->
+    -- | Absolute height of the block in which the transaction occurs.
+    Types.AbsoluteBlockHeight ->
     EI.WithDepositContext m ->
     -- | Transaction payload.
     Types.Payload ->
     -- | Transaction summary
     EI.SchedulerT m (Maybe (Types.TransactionSummary (Types.TransactionOutcomesVersionFor (Types.MPV m))))
-executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
+executeTransactionWithTimestamp blockTimestamp blockHeight depositContext tokenUpdate = do
     EI.withDeposit depositContext executeTransactionInLocalT EI.defaultSuccess
   where
     executeTransactionInLocalT :: EI.LocalT [Types.Event] (EI.SchedulerT m) [Types.Event]
@@ -233,6 +238,7 @@ executeTransactionWithTimestamp blockTimestamp depositContext tokenUpdate = do
                                                     senderAccountAddressPtr
                                                     (EI._wtcTransactionSequenceNumber depositContext)
                                                     blockTimestamp
+                                                    (fromIntegral blockHeight)
                                                     (fromIntegral remainingEnergy)
                                                     resultingBlockStateOutPtr
                                                     usedEnergyOutPtr
@@ -340,6 +346,8 @@ foreign import ccall "ffi_execute_transaction"
         Types.Nonce ->
         -- | Block timestamp at which the transaction is executed.
         Types.Timestamp ->
+        -- | Absolute height of the block in which the transaction is executed.
+        Word.Word64 ->
         -- | Remaining energy
         Word.Word64 ->
         -- | Output location for the resulting PLT block state.

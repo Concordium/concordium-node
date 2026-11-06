@@ -19,7 +19,14 @@ pub struct PersistentBlockStateP11 {
     pub(crate) tokens: HashedCacheableRef<PersistentTokensP9>,
     /// Protocol-level locks
     pub(crate) locks: HashedCacheableRef<PersistentLocksP11>,
-    /// Locks ordered by expiry, creation timestamp, and lock ID.
+    /// Persisted derived indexes, excluded from the block-state hash.
+    pub(crate) indexes: BlockStateIndexes,
+}
+
+/// Derived indexes persisted with the block state but excluded from its hash.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BlockStateIndexes {
+    /// Locks ordered by expiry, absolute creation height, and lock ID.
     pub(crate) lock_expiry_index: HashedCacheableRef<PersistentLockExpiryIndexP11>,
 }
 
@@ -35,7 +42,7 @@ impl Loadable for PersistentBlockStateP11 {
         Ok(Self {
             tokens,
             locks,
-            lock_expiry_index,
+            indexes: BlockStateIndexes { lock_expiry_index },
         })
     }
 }
@@ -44,7 +51,9 @@ impl Storable for PersistentBlockStateP11 {
     fn store_to_buffer(&self, mut buffer: impl Buffer, storer: &mut impl BlobStoreStore) {
         self.tokens.store_to_buffer(&mut buffer, storer);
         self.locks.store_to_buffer(&mut buffer, storer);
-        self.lock_expiry_index.store_to_buffer(&mut buffer, storer);
+        self.indexes
+            .lock_expiry_index
+            .store_to_buffer(&mut buffer, storer);
     }
 }
 
@@ -52,7 +61,9 @@ impl Cacheable for PersistentBlockStateP11 {
     fn cache_reference_values(&self, loader: &impl BlobStoreLoad) -> BlockStateResult<()> {
         self.tokens.cache_reference_values(loader)?;
         self.locks.cache_reference_values(loader)?;
-        self.lock_expiry_index.cache_reference_values(loader)?;
+        self.indexes
+            .lock_expiry_index
+            .cache_reference_values(loader)?;
         Ok(())
     }
 }
@@ -62,12 +73,7 @@ impl Hashable for PersistentBlockStateP11 {
         let tokens = self.tokens.hash(loader)?;
         let locks = self.locks.hash(loader)?;
 
-        let lock_expiry_index = self.lock_expiry_index.hash(loader)?;
-        Ok(hash::hash_of_serialization((
-            tokens,
-            locks,
-            lock_expiry_index,
-        )))
+        Ok(hash::hash_of_hashes(tokens, locks))
     }
 }
 
@@ -116,12 +122,12 @@ mod test {
         let id = LockId::new(1, 2, 3);
         let key = LockExpiryKey {
             expiry: 100.into(),
-            created_at: 1234.into(),
+            created_at_height: 1234.into(),
             lock_id: id.clone(),
         };
-        // Creation records the schedule; a duplicate must preserve the original lock and timestamp.
+        // Creation records the schedule; a duplicate must preserve the original lock and height.
         state
-            .create_lock(&context, &id, configuration.clone(), key.created_at)
+            .create_lock(&context, &id, configuration.clone(), key.created_at_height)
             .unwrap();
         let created_hash = state.persistent.hash(&context.store).unwrap();
         assert_ne!(created_hash, empty_hash);
@@ -134,17 +140,18 @@ mod test {
         let lock_hash = state.persistent.locks.hash(&context.store).unwrap();
         let schedule_hash = state
             .persistent
+            .indexes
             .lock_expiry_index
             .hash(&context.store)
             .unwrap();
-        // Balance updates must preserve the immutable creation timestamp and schedule.
+        // Balance updates must preserve the immutable creation height and schedule.
         let mut lock = state.lock_by_id(&context, &id).unwrap().unwrap();
         let token: TokenId = "Token1".parse().unwrap();
         lock.add_lock_balance_ref(&context, 1.into(), token.clone())
             .unwrap();
         state.update_lock(&context, lock).unwrap();
         let mut lock = state.lock_by_id(&context, &id).unwrap().unwrap();
-        assert_eq!(lock.persistent.created_at, key.created_at);
+        assert_eq!(lock.persistent.created_at_height, key.created_at_height);
         assert!(
             lock.remove_lock_balance_ref(&context, 1.into(), token)
                 .unwrap()
@@ -153,6 +160,7 @@ mod test {
         assert_eq!(
             state
                 .persistent
+                .indexes
                 .lock_expiry_index
                 .hash(&context.store)
                 .unwrap(),
@@ -166,7 +174,7 @@ mod test {
         assert_eq!(state.persistent.hash(&context.store).unwrap(), empty_hash);
         assert!(state.lock_by_id(&context, &id).unwrap().is_err());
 
-        // The creation timestamp affects both lock and schedule hashes, hence the block-state hash.
+        // Creation height is committed through the lock hash, independently of the index.
         state
             .create_lock(&context, &id, configuration, 1235.into())
             .unwrap();
@@ -178,16 +186,17 @@ mod test {
         assert_ne!(
             state
                 .persistent
+                .indexes
                 .lock_expiry_index
                 .hash(&context.store)
                 .unwrap(),
             schedule_hash
         );
-        // The expiry index contributes independently to the block-state hash.
+        // Derived index contents do not affect the committed block-state hash.
         let hash = state.persistent.hash(&context.store).unwrap();
-        state.persistent.lock_expiry_index =
+        state.persistent.indexes.lock_expiry_index =
             HashedCacheableRef::new(PersistentLockExpiryIndexP11::empty());
-        assert_ne!(state.persistent.hash(&context.store).unwrap(), hash);
+        assert_eq!(state.persistent.hash(&context.store).unwrap(), hash);
     }
 
     /// Failed lifecycle operations leave the published lock and expiry-index roots unchanged.
@@ -214,7 +223,7 @@ mod test {
         let lock_hash = state.persistent.locks.hash(&context.store).unwrap();
         // A malformed index makes create and delete fail after preparing, but not publishing, locks.
         let location = context.store.store_raw([]);
-        state.persistent.lock_expiry_index =
+        state.persistent.indexes.lock_expiry_index =
             HashedCacheableRef::load_from_buffer(to_bytes(&location).as_slice(), &context.store)
                 .unwrap();
         assert!(matches!(
@@ -237,7 +246,7 @@ mod test {
         // An absent lock returns false without consulting the malformed index.
         assert!(!state.delete_lock(&context, &LockId::new(3, 1, 0)).unwrap());
         // A missing schedule entry is an invariant failure and must not delete the existing lock.
-        state.persistent.lock_expiry_index =
+        state.persistent.indexes.lock_expiry_index =
             HashedCacheableRef::new(PersistentLockExpiryIndexP11::empty());
         assert!(matches!(
             state.delete_lock(&context, &id),
@@ -469,7 +478,7 @@ mod test {
         let hash = persistent_block_state.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "4555169dbba733458b29db5abc264c017bf90dea2587fbb7ce01857949b5ee05"
+            "56885fb4a622ab251473c851455ae4bb4ad0c52038f306d77cf61dfad44635b2"
         );
 
         // Assert storage
@@ -585,7 +594,7 @@ mod test {
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "ff12cc7922ac29b71d0aac6b6b4c48c912702a8506bd216da44974f6e18f2da1"
+            "ec55d2d4e9f79bc2cf5bd72c6488f72ba10555f092ad668d86d081ef9772a93a"
         );
 
         // Assert storage

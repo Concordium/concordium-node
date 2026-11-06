@@ -58,6 +58,7 @@ macro_rules! execute_unscoped_update {
                     sender_account_address: sender_addr,
                     transaction_sequence_number: 1.into(),
                     block_timestamp: $timestamp.into(),
+                    block_height: 0.into(),
                 },
                 $sender,
                 payload,

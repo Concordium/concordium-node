@@ -14,7 +14,7 @@ use crate::persistent::protocol_level_locks::p11::{
 };
 use crate::persistent::protocol_level_tokens::p9::{TokenConfiguration, TokenIndex};
 use crate::utils::Cow;
-use concordium_base::contracts_common::Timestamp;
+use concordium_base::base::AbsoluteBlockHeight;
 use concordium_base::protocol_level_locks::LockId;
 use concordium_base::protocol_level_tokens::TokenId;
 
@@ -139,18 +139,18 @@ impl BlockStateP11 {
     ///
     /// - `lock_id` The ID of the PLT lock.
     /// - `configuration` The configuration for the PLT lock.
-    /// - `created_at` The consensus timestamp of the creation block.
+    /// - `created_at_height` The absolute height of the creation block.
     pub fn create_lock<C: EntityContextTypes>(
         &mut self,
         context: &EntityContext<C>,
         lock_id: &LockId,
         configuration: LockConfig,
-        created_at: Timestamp,
+        created_at_height: AbsoluteBlockHeight,
     ) -> BlockStateResult<()> {
         let LockConfig::SimpleV0(config) = &configuration;
         let key = LockExpiryKey {
             expiry: config.expiry,
-            created_at,
+            created_at_height,
             lock_id: lock_id.clone(),
         };
         let mut new_locks = self.persistent.locks.value(&context.store)?.into_owned();
@@ -159,15 +159,16 @@ impl BlockStateP11 {
             &mut new_locks,
             lock_id,
             configuration,
-            created_at,
+            created_at_height,
         )?;
         let new_index = self
             .persistent
+            .indexes
             .lock_expiry_index
             .value(&context.store)?
             .insert_or_update_entry(&context.store, &key, StoreSerialized(()))?;
         self.persistent.locks = HashedCacheableRef::new(new_locks);
-        self.persistent.lock_expiry_index = HashedCacheableRef::new(new_index);
+        self.persistent.indexes.lock_expiry_index = HashedCacheableRef::new(new_index);
         Ok(())
     }
 
@@ -189,12 +190,13 @@ impl BlockStateP11 {
         let LockConfig::SimpleV0(config) = &configuration.0;
         let key = LockExpiryKey {
             expiry: config.expiry,
-            created_at: lock.created_at,
+            created_at_height: lock.created_at_height,
             lock_id: lock_id.clone(),
         };
         protocol_level_locks::p11::delete_lock(context, &mut new_locks, lock_id)?;
         let new_index = self
             .persistent
+            .indexes
             .lock_expiry_index
             .value(&context.store)?
             .delete_entry(&context.store, &key)?
@@ -202,7 +204,7 @@ impl BlockStateP11 {
                 BlockStateFailure::Invariant(format!("Missing expiry entry for lock {lock_id:?}"))
             })?;
         self.persistent.locks = HashedCacheableRef::new(new_locks);
-        self.persistent.lock_expiry_index = HashedCacheableRef::new(new_index);
+        self.persistent.indexes.lock_expiry_index = HashedCacheableRef::new(new_index);
         Ok(true)
     }
 
@@ -211,7 +213,10 @@ impl BlockStateP11 {
         &self,
         context: &EntityContext<C>,
     ) -> BlockStateResult<Cow<'_, PersistentLockExpiryIndexP11>> {
-        self.persistent.lock_expiry_index.value(&context.store)
+        self.persistent
+            .indexes
+            .lock_expiry_index
+            .value(&context.store)
     }
 
     /// Get the [`LockId`]s of all protocol-level locks registered on the chain at the

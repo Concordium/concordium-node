@@ -183,7 +183,9 @@ invokeContract ContractContext{..} cm bs
                         return (r, _energyLeft cs)
             contextState =
                 ContextState
-                    { _maxBlockEnergy = ccEnergy,
+                    { -- Contract invocation does not execute transactions, so this height is unused.
+                      _absoluteBlockHeight = 0,
+                      _maxBlockEnergy = ccEnergy,
                       _accountCreationLimit = 0,
                       _chainMetadata = cm
                     }

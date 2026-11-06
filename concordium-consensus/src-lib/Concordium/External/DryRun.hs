@@ -37,6 +37,7 @@ import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.GRPC2
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Block (AbsoluteBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.Execution
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.Types.Parameters
@@ -49,12 +50,14 @@ import qualified Concordium.Cost as Cost
 import qualified Concordium.External as Ext
 import Concordium.External.Helpers
 import Concordium.GlobalState.BlockMonads
+import qualified Concordium.GlobalState.BlockPointer as SkovV0 (bpHeight)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.TreeState as SkovV0
 import Concordium.GlobalState.Types (BlockStateTypes (..))
 import Concordium.ID.Types
 import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
+import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1 (blockHeight)
 import qualified Concordium.KonsensusV1.Types as SkovV1
 import qualified Concordium.Kontrol as SkovV0
 import Concordium.MultiVersion
@@ -182,7 +185,9 @@ data DryRunState (pv :: ProtocolVersion) = DryRunState
     { -- | The current block state.
       drsBlockState :: !(PersistentBlockState pv),
       -- | The current timestamp.
-      drsTimestamp :: !Timestamp
+      drsTimestamp :: !Timestamp,
+      -- | Absolute height of the selected block, retained across session operations.
+      drsAbsoluteBlockHeight :: !AbsoluteBlockHeight
     }
 
 -- | The block state context.
@@ -318,12 +323,14 @@ dryRunLoadBlockState dryRunPtr bhiTag hashPtr outVec =
                     ( liftSkovQueryBHIAndVersion
                         ( \vc0 bp -> do
                             drsTimestamp <- SkovV0.getSlotTimestamp $ SkovV0.blockSlot bp
+                            let drsAbsoluteBlockHeight = localToAbsoluteBlockHeight (vc0GenesisHeight vc0) (SkovV0.bpHeight bp)
                             drsBlockState <- thawBlockState =<< blockState bp
                             drs <- liftIO . newIORef $ DryRunState{..}
                             return (drsTimestamp, EBlockStateContextV0 vc0 drs)
                         )
                         ( \vc1 bp _ -> do
                             let drsTimestamp = SkovV1.blockTimestamp bp
+                            let drsAbsoluteBlockHeight = localToAbsoluteBlockHeight (vc1GenesisHeight vc1) (SkovV1.blockHeight bp)
                             drsBlockState <- thawBlockState =<< blockState bp
                             drs <- liftIO . newIORef $ DryRunState{..}
                             return (drsTimestamp, EBlockStateContextV1 vc1 drs)
@@ -700,7 +707,8 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
             drs@DryRunState{..} <- liftIO $ readIORef drsRef
             let context =
                     Scheduler.ContextState
-                        { _chainMetadata = ChainMetadata drsTimestamp,
+                        { _absoluteBlockHeight = drsAbsoluteBlockHeight,
+                          _chainMetadata = ChainMetadata drsTimestamp,
                           _maxBlockEnergy = shiQuotaRem,
                           _accountCreationLimit = 0
                         }

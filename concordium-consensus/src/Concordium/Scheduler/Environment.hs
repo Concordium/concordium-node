@@ -42,6 +42,7 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Logger
 import Concordium.Scheduler.Types
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 
@@ -65,6 +66,8 @@ import Data.Proxy
 data ContextState = ContextState
     { -- | Chain metadata
       _chainMetadata :: !ChainMetadata,
+      -- | Absolute height of the block whose transactions are being executed.
+      _absoluteBlockHeight :: !AbsoluteBlockHeight,
       -- | Maximum allowed block energy.
       _maxBlockEnergy :: !Energy,
       -- | Maximum number of accounts to be created in the same block.
