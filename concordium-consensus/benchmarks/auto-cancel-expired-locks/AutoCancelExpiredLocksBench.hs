@@ -45,7 +45,8 @@ prepare count funded = do
     (fixture, _, nonce) <- makeFixture count funded
     locks <- queryLockList $ Block.bedParentState fixture
     liftIO $ assertEqual "Initial backlog count" count (length locks)
-    executionData <- withEnergyLimit (if funded then Helpers.simpleTransferCost else fromIntegral count * emptyCancellationCost) fixture
+    -- Leave enough energy to scan funded locks, but not to cancel their single reference.
+    executionData <- withEnergyLimit (if funded then Helpers.simpleTransferCost + emptyCancellationCost else fromIntegral count * emptyCancellationCost) fixture
     transfers <- liftIO $ mapM makeTransfer [nonce .. nonce + 2]
     parentHash <- BS.getStateHash $ Block.bedParentState executionData
     _ <-

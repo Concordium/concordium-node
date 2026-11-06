@@ -112,7 +112,7 @@ fn order_skip_exact_fit_and_retry() {
     );
     assert!(state.query_lock_info(&context, &ids[6]).is_err());
     let expected = [ids[4].clone(), ids[3].clone(), ids[2].clone()];
-    for (pair, id) in events.chunks_exact(2).zip(&expected) {
+    for (pair, id) in events.as_chunks::<2>().0.iter().zip(&expected) {
         assert_matches!(&pair[0], BlockItemEvent::UnlockAmount(event) => {
             assert_eq!(&event.lock_id, id);
             assert_eq!(event.token_id, token_id);
