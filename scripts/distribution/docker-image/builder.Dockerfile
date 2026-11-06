@@ -100,24 +100,30 @@ RUN stack setup \
 COPY . .
 
 # Build the project packages. Dependencies remain cached from the prior layer.
-# The dynamic flag builds the shared Consensus foreign library used by the node.
+# The dynamic flag builds the shared Consensus library used by the node.
+# It also links the database exporter to the shared Haskell libraries.
 RUN stack build --flag concordium-consensus:dynamic
 
-# Build release versions of both Rust executables. The node omits the static
-# feature, so its build script links it to the shared Haskell libraries.
+# Build release versions of the Rust executables.
+# The node package also builds the bootstrapper.
+# Without the static feature, its build script links both to the shared Haskell libraries.
 RUN cargo build --locked --release --manifest-path concordium-node/Cargo.toml \
     && cargo build --locked --release --manifest-path collector/Cargo.toml
 
-# Assemble the files that the runtime stage needs under /runtime. Copy all
-# project, snapshot, and GHC shared libraries, including Concordium's symlinked
-# Rust libraries. Use Ubuntu's libffi at runtime instead of GHC's bundled copy.
-# Remove debugging information from staged ELF libraries, validate that both
-# executables can resolve their libraries, and then strip the executables.
+# Assemble the files that the later stages need.
+# /runtime holds the node image executables and the shared libraries.
+# /exporter holds the database exporter executable.
+# Copy all project, snapshot, and GHC shared libraries, including Concordium's symlinked Rust libraries.
+# Use Ubuntu's libffi at runtime instead of GHC's bundled copy.
+# Remove debugging information from the staged ELF libraries.
+# Check that every executable can resolve its libraries, then strip the executables.
 RUN set -eux; \
-    install -d /runtime/usr/local/bin /runtime/usr/local/lib; \
-    install concordium-node/target/release/concordium-node /runtime/usr/local/bin/concordium-node; \
-    install collector/target/release/node-collector /runtime/usr/local/bin/node-collector; \
+    install -d /runtime/usr/local/bin /runtime/usr/local/lib /exporter; \
     local_install_root="$(stack path --local-install-root)"; \
+    install concordium-node/target/release/concordium-node /runtime/usr/local/bin/concordium-node; \
+    install concordium-node/target/release/p2p_bootstrapper-cli /runtime/usr/local/bin/p2p-bootstrapper; \
+    install collector/target/release/node-collector /runtime/usr/local/bin/node-collector; \
+    install "${local_install_root}/bin/database-exporter" /exporter/database-exporter; \
     snapshot_install_root="$(stack path --snapshot-install-root)"; \
     ghc_lib_dir="$(stack ghc -- --print-libdir)"; \
     project_library_dirs=(/build/concordium-base/lib); \
@@ -143,15 +149,102 @@ RUN set -eux; \
                 strip --strip-debug "$library"; \
             fi; \
         done; \
-    LD_LIBRARY_PATH=/runtime/usr/local/lib ldd /runtime/usr/local/bin/concordium-node \
-        | tee /tmp/concordium-node.ldd; \
-    ! grep --quiet 'not found' /tmp/concordium-node.ldd; \
-    LD_LIBRARY_PATH=/runtime/usr/local/lib ldd /runtime/usr/local/bin/node-collector \
-        | tee /tmp/node-collector.ldd; \
-    ! grep --quiet 'not found' /tmp/node-collector.ldd; \
-    strip /runtime/usr/local/bin/concordium-node /runtime/usr/local/bin/node-collector
+    executables=( \
+        /runtime/usr/local/bin/concordium-node \
+        /runtime/usr/local/bin/node-collector \
+        /runtime/usr/local/bin/p2p-bootstrapper \
+        /exporter/database-exporter \
+    ); \
+    for executable in "${executables[@]}"; do \
+        LD_LIBRARY_PATH=/runtime/usr/local/lib ldd "${executable}" | tee /tmp/executable.ldd; \
+        if grep --quiet 'not found' /tmp/executable.ldd; then \
+            echo "Unresolved shared library in ${executable}" >&2; \
+            exit 1; \
+        fi; \
+    done; \
+    rm /tmp/executable.ldd; \
+    strip "${executables[@]}"
 
-# Start the production image without compilers, source files, or build caches.
+# Hold only the compiled executables and shared libraries.
+# CI builds this stage once and passes its output to the image builds as the artifacts build context.
+# That context replaces this stage, so the image builds do not compile again.
+FROM scratch AS artifacts
+
+COPY --from=builder /runtime/ /runtime/
+COPY --from=builder /exporter/ /exporter/
+
+# Install the AWS CLI for the exporter image.
+# Change the version and the archive checksum together.
+FROM ubuntu:${UBUNTU_VERSION} AS aws-cli
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG AWS_CLI_VERSION=2.37.5
+ARG AWS_CLI_SHA256=850ba65f1342a1f725f4868de3c4621ea729af31dac96e54b574cbb0ef309029
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --fail --location --show-error --silent \
+        "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" \
+        --output /tmp/awscli.zip \
+    && echo "${AWS_CLI_SHA256}  /tmp/awscli.zip" | sha256sum --check --strict \
+    && unzip -q /tmp/awscli.zip -d /tmp \
+    && /tmp/aws/install --install-dir /usr/local/aws-cli --bin-dir /usr/local/bin \
+    && rm --recursive --force /tmp/aws /tmp/awscli.zip
+
+# Build the internal database exporter image with --target exporter.
+# The image is amd64 only, like the reporter hosts.
+FROM ubuntu:${UBUNTU_VERSION} AS exporter
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install the same native libraries as the runtime stage, plus jq.
+# Change this package list and the runtime stage list together.
+# Use the same unprivileged identity as the node image.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        jq \
+        libffi8 \
+        libgmp10 \
+        liblmdb0 \
+        libnuma1 \
+        libssl3 \
+        libtinfo6 \
+        tini \
+        zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 concordium \
+    && useradd --uid 10001 --gid concordium --no-create-home --shell /usr/sbin/nologin concordium
+
+COPY --from=aws-cli /usr/local/aws-cli/ /usr/local/aws-cli/
+COPY --from=artifacts /runtime/usr/local/lib/ /usr/local/lib/
+COPY --from=artifacts /exporter/database-exporter /usr/local/bin/database-exporter
+COPY scripts/db-exporter/database-exporter-publish.sh /usr/local/bin/database-exporter-publish.sh
+
+# Use the reporter host layout, with the data disk mounted at /var/lib/concordium.
+# The export directory is on that disk.
+# Register the copied libraries and fail the build if a tool cannot resolve its libraries or start.
+RUN chmod 0755 /usr/local/bin/database-exporter-publish.sh \
+    && ln --symbolic /usr/local/aws-cli/v2/current/bin/aws /usr/local/bin/aws \
+    && ln --symbolic /var/lib/concordium/data/database_exporter /var/lib/database_exporter \
+    && ldconfig \
+    && ldd /usr/local/bin/database-exporter | tee /tmp/database-exporter.ldd \
+    && ! grep --quiet 'not found' /tmp/database-exporter.ldd \
+    && /usr/local/bin/database-exporter --help \
+    && aws --version \
+    && jq --version \
+    && rm /tmp/database-exporter.ldd
+
+USER concordium:concordium
+
+# Run the publish script once, then exit.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/database-exporter-publish.sh"]
+
+# Start the node image without compilers, source files, or build caches.
+# Keep this stage last so that it stays the default target.
 FROM ubuntu:${UBUNTU_VERSION} AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -174,8 +267,8 @@ RUN apt-get update \
     && useradd --uid 10001 --gid concordium --no-create-home --shell /usr/sbin/nologin concordium \
     && install --directory --owner concordium --group concordium /mnt/data
 
-# Copy the compiled executables and shared Haskell libraries from the builder.
-COPY --from=builder /runtime/ /
+# Copy the compiled executables and shared Haskell libraries.
+COPY --from=artifacts /runtime/ /
 
 # Install the process manager script that starts the node and optional collector.
 COPY scripts/distribution/docker-image/entrypoint.sh /usr/local/bin/concordium-entrypoint
@@ -183,7 +276,7 @@ COPY scripts/distribution/docker-image/entrypoint.sh /usr/local/bin/concordium-e
 # Include every tracked genesis file. Add future networks to this source directory.
 COPY scripts/distribution/docker-image/genesis/ /genesis/
 
-# Register the copied libraries and fail the build if either executable has an
+# Register the copied libraries and fail the build if an executable has an
 # unresolved dependency or cannot start far enough to print its version.
 RUN chmod 0755 /usr/local/bin/concordium-entrypoint \
     && ldconfig \
@@ -191,9 +284,12 @@ RUN chmod 0755 /usr/local/bin/concordium-entrypoint \
     && ! grep --quiet 'not found' /tmp/concordium-node.ldd \
     && ldd /usr/local/bin/node-collector | tee /tmp/node-collector.ldd \
     && ! grep --quiet 'not found' /tmp/node-collector.ldd \
+    && ldd /usr/local/bin/p2p-bootstrapper | tee /tmp/p2p-bootstrapper.ldd \
+    && ! grep --quiet 'not found' /tmp/p2p-bootstrapper.ldd \
     && /usr/local/bin/concordium-node --version \
     && /usr/local/bin/node-collector --version \
-    && rm /tmp/concordium-node.ldd /tmp/node-collector.ldd
+    && /usr/local/bin/p2p-bootstrapper --version \
+    && rm /tmp/concordium-node.ldd /tmp/node-collector.ldd /tmp/p2p-bootstrapper.ldd
 
 # Store mutable node state outside the application directories. Enable gRPC on
 # the documented container port, but keep the collector disabled until the

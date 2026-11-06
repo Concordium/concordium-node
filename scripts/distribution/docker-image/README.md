@@ -2,21 +2,25 @@
 
 This directory contains the combined Concordium node image. User-facing configuration and run instructions are in [`hub-description.md`](./hub-description.md).
 
+The same build also creates an internal database exporter image, which publishes the out-of-band catch-up files.
+
 ## Files
 
-- `builder.Dockerfile` builds Consensus, `concordium-node`, and `node-collector`, then creates the runtime image.
+- `builder.Dockerfile` builds Consensus, `concordium-node`, `node-collector`, `p2p-bootstrapper`, and `database-exporter`, then creates the node image and the internal exporter image.
 - `entrypoint.sh` starts the node and optionally manages the collector.
 - `genesis/` contains the genesis files included in the image.
 - `hub-description.md` is the user-facing Docker Hub description.
 
 ## Build design
 
-The Dockerfile uses two stages:
+The Dockerfile uses these stages:
 
-1. The builder installs Stack, lets the resolver in `stack.yaml` select GHC, builds the shared Consensus library, and builds both Rust executables.
-2. The runtime stage contains the executables, their shared-library dependencies, genesis files, CA certificates, and `tini`.
+1. `builder` installs Stack, lets the resolver in `stack.yaml` select GHC, builds the shared Consensus library and `database-exporter`, and builds the Rust executables.
+2. `artifacts` holds only the compiled executables and shared libraries. `/runtime` has the node image files and `/exporter` has `database-exporter`.
+3. `exporter` is the internal exporter image, built with `--target exporter`. It installs the same native libraries as `runtime` plus `jq` and a pinned AWS CLI. Change the package lists of the two stages together.
+4. `runtime` contains the node, the collector, the bootstrapper, their shared-library dependencies, genesis files, CA certificates, and `tini`. It is the last stage, so it is the default target and a plain build produces the node image.
 
-The runtime supports Linux AMD64 only. The builder and runtime use the same Ubuntu release to keep their native library ABIs compatible.
+CI compiles once per platform, natively for AMD64 and ARM64. It builds the `artifacts` stage, then builds the images with that output as the `artifacts` build context. A named build context replaces the stage of the same name, so the image builds do not compile again. The node platform images are combined into one image index under the version tag, with `<version>-amd64` and `<version>-arm64` platform tags.
 
 ## Prerequisites
 
@@ -40,11 +44,26 @@ docker build \
   .
 ```
 
+The node image supports `linux/amd64` and `linux/arm64`. Set `--platform` to the host architecture to compile natively, for example `linux/arm64` on Apple Silicon.
+
 Stack and Cargo compilation take most of the initial build time. The build caches the compiler and external Haskell dependencies in a layer that source-only changes do not invalidate. Cargo compilation still follows the complete source copy.
+
+Build the exporter image from the same file:
+
+```shell
+docker build \
+  --platform linux/amd64 \
+  --file scripts/distribution/docker-image/builder.Dockerfile \
+  --target exporter \
+  --tag concordium/database-exporter:latest \
+  .
+```
+
+The exporter image is AMD64 only, so this build runs under emulation on other hosts. It shares the compile with an AMD64 node build through the layer cache.
 
 ## Validate
 
-Confirm that both executables start and that the expected genesis files exist:
+Confirm that the executables start and that the expected genesis files exist:
 
 ```shell
 docker run --rm \
@@ -54,6 +73,11 @@ docker run --rm \
 
 docker run --rm \
   --entrypoint /usr/local/bin/node-collector \
+  concordium/node:latest \
+  --version
+
+docker run --rm \
+  --entrypoint /usr/local/bin/p2p-bootstrapper \
   concordium/node:latest \
   --version
 
@@ -69,6 +93,24 @@ Run the external end-to-end suite against the image when it is available in the 
 CONCORDIUM_NODE_IMAGE=concordium/node:latest \
   cargo run --release --manifest-path ../e2e-testing/Cargo.toml
 ```
+
+## Run the bootstrapper
+
+Run `p2p-bootstrapper` from the node image as the container command:
+
+```shell
+docker run --rm \
+  --ulimit nofile=500000 \
+  --publish 8888:8888 \
+  --volume /path/to/genesis_hash:/mnt/data/genesis_hash:ro \
+  concordium/node:latest \
+  p2p-bootstrapper
+```
+
+- Mount the network's `genesis_hash` file at `/mnt/data/genesis_hash`. The bootstrapper does not start without it.
+- The bootstrapper listens for P2P connections on port 8888. Set `CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESS` and `CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT` to serve Prometheus metrics.
+- Raise the open file limit, as in the example.
+- The bootstrapper writes its peer and ban database and `main.config.json` to `/mnt/data`. These do not need to survive a restart. Only the mounted `genesis_hash` file is required.
 
 ## Update build tools
 
@@ -127,9 +169,11 @@ Use these instructions to release the `concordium/node` image.
    git push origin 9.0.1-0-rc
    ```
 
-5. Check that [Docker node image build](../../../.github/workflows/docker-build.yaml) completes successfully in GitHub Actions. It pushes directly to ECR and signs the digest.
+5. Check that [Docker node image build](../../../.github/workflows/docker-build.yaml) completes successfully in GitHub Actions. It pushes the node image index for AMD64 and ARM64, its platform tags, and the internal exporter image directly to ECR under the same version, and signs the node digests.
 
 Manual builds use `<version>-<short SHA>` staging tags. Alpha and manual builds cannot be released to Docker Hub. A build rerun can reuse an existing image only when its revision and version labels match. A first attempt with an existing version fails.
+
+If an image job fails, use **Re-run failed jobs**. The rerun downloads the compiled output of the first attempt and does not compile again. **Re-run all jobs** compiles again.
 
 ### 2. Publish to Docker Hub
 
