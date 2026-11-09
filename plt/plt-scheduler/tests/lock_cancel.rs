@@ -20,7 +20,6 @@ use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_scheduler::protocol_level_locks::p11::cancel_expired_locks;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
 use plt_scheduler_types::types::tokens::TokenHolder;
 use plt_scheduler_types::types::{
@@ -243,7 +242,7 @@ fn test_cancel_after_expiry() {
     assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 
-/// Strict expiry boundaries and manual/automatic cancellation have matching effects and payloads.
+/// Manual cancellation unlocks each balance for its owner and removes the scheduled lock.
 #[test]
 fn test_cancel_with_balances() {
     let mut context = entity_test_stub::new_stubbed_context();
@@ -329,31 +328,6 @@ fn test_cancel_with_balances() {
         );
     }
 
-    let mut automatic_state = block_state.clone();
-    for timestamp in [999_999, 1_000_000] {
-        let (energy, events) = cancel_expired_locks(
-            &context,
-            &mut automatic_state,
-            timestamp.into(),
-            1100.into(),
-        )
-        .unwrap();
-        assert_eq!(energy, Energy::from(0));
-        assert!(events.is_empty());
-        assert_eq!(
-            automatic_state.query_lock_info(&context, &lock_id).unwrap(),
-            block_state.query_lock_info(&context, &lock_id).unwrap()
-        );
-    }
-    let (automatic_energy, automatic_events) = cancel_expired_locks(
-        &context,
-        &mut automatic_state,
-        1_000_001.into(),
-        1100.into(),
-    )
-    .unwrap();
-    assert_eq!(automatic_energy, Energy::from(1100));
-
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
         sender_account_address: context.external.account_canonical_address(account_index_2),
@@ -379,7 +353,6 @@ fn test_cancel_with_balances() {
         Energy::from(1100), // Two current account/token references.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
-        assert_eq!(automatic_events, events);
         assert_eq!(events.len(), 3);
         assert_matches!(&events[0], BlockItemEvent::UnlockAmount(UnlockAmountEvent {
             token_id,
@@ -410,35 +383,26 @@ fn test_cancel_with_balances() {
     assert_matches!(block_state.lock_by_id(&context, &lock_id), Ok(Err(LockNotFoundByIdError(absent_id))) => {
         assert_eq!(absent_id, lock_id);
     });
-    for state in [&block_state, &automatic_state] {
-        assert!(state.query_lock_info(&context, &lock_id).is_err());
-        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
-        for (account, token, total) in [
-            (plt_x_gov_acct.account_index(), &plt_x, 10000),
-            (plt_y_gov_acct.account_index(), &plt_y, 10000000),
-        ] {
-            let info = state
-                .query_token_account_infos(&context, account)
-                .unwrap()
-                .into_iter()
-                .find(|info| &info.token_id == token)
-                .unwrap();
-            assert_eq!(
-                info.account_state.balance.amount,
-                RawTokenAmount::from(total)
-            );
-            let module: concordium_base::protocol_level_tokens::TokenModuleAccountState =
-                cbor::cbor_decode(info.account_state.module_state.unwrap()).unwrap();
-            assert!(module.locks.is_empty());
-            assert!(module.available.is_none());
-        }
-    }
-    // Neither manual nor automatic destruction may leave duplicate scheduled work.
-    for state in [&mut block_state, &mut automatic_state] {
+    assert!(block_state.query_lock_info(&context, &lock_id).is_err());
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
+    for (account, token, total) in [
+        (plt_x_gov_acct.account_index(), &plt_x, 10000),
+        (plt_y_gov_acct.account_index(), &plt_y, 10000000),
+    ] {
+        let info = block_state
+            .query_token_account_infos(&context, account)
+            .unwrap()
+            .into_iter()
+            .find(|info| &info.token_id == token)
+            .unwrap();
         assert_eq!(
-            cancel_expired_locks(&context, state, 1_000_001.into(), 0.into()).unwrap(),
-            (Energy::from(0), vec![])
+            info.account_state.balance.amount,
+            RawTokenAmount::from(total)
         );
+        let module: concordium_base::protocol_level_tokens::TokenModuleAccountState =
+            cbor::cbor_decode(info.account_state.module_state.unwrap()).unwrap();
+        assert!(module.locks.is_empty());
+        assert!(module.available.is_none());
     }
 }
 

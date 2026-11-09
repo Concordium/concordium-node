@@ -33,6 +33,8 @@ tests =
                 liftIO $ do
                     assertEqual "Expired locks are destroyed; total holdings stay unchanged" ([], TokenAmount 750 0, TokenAmount 750 0) after
                     assertEqual "Cleanup reports energy for three references" (3 * oneReferenceCancellationCost) energy
+                -- The 1200-NRG limit fits two cancellations; prioritizing the 501-NRG
+                -- transfer leaves 699 NRG, so only one 600-NRG cancellation fits.
                 let blockEnergyLimit = 2 * oneReferenceCancellationCost
                     remainingCapacity = blockEnergyLimit - Helpers.simpleTransferCost
                 executionData <- withEnergyLimit blockEnergyLimit fixture

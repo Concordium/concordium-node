@@ -95,6 +95,7 @@ runSetupTransaction state tx = do
 -- | Set up valid batches of at most 100 locks, without timing setup or signing.
 makeFixture :: Int -> Bool -> Helpers.PersistentBSM 'P11 (Block.BlockExecutionData 'P11, [LockId], Nonce)
 makeFixture count funded = do
+    -- The owner also bakes the blocks so full block execution can distribute rewards.
     owner <- Helpers.makeTestAccountFromSeed 100_000_000_000 0
     let (baker, electionKey, _, _) = DummyData.mkFullBaker 0 0
         bakerInfoEx =
@@ -105,9 +106,11 @@ makeFixture count funded = do
                 }
     bakerAccount <- Account.addAccountBakerV1 bakerInfoEx 1_000_000 True owner
     accountState <- Helpers.createTestBlockStateWithAccounts [bakerAccount]
+    -- Reward processing requires the baker's stake in the current capital distribution.
     thawed <- BS.thawBlockState accountState
     withCapital <- BS.bsoSetNextCapitalDistribution thawed (makeCapitalDistribution [(0, 1_000_000, [])] [])
     initialState <- BS.freezeBlockState =<< BS.bsoRotateCurrentCapitalDistribution withCapital
+    -- Create the token and a keep-alive lock configuration expiring at 10 seconds.
     let tokenParams =
             CBOR.TokenInitializationParameters
                 { tipName = Just "Lock token",
@@ -152,6 +155,7 @@ makeFixture count funded = do
                             <> encodeString "amount"
                             <> CBOR.encodeTokenAmount (TokenAmount 250 0)
                     else mempty
+        -- Each transaction creates at most 100 locks and optionally funds each one.
         batches = [(fromIntegral batch + 1, min 100 (count - batch * 100)) | batch <- [0 .. (count - 1) `div` 100]]
         ids = [LockId 0 nonce (fromIntegral i) | (nonce, size) <- batches, i <- [0 .. size - 1]]
         createBatch (nonce, size) =
@@ -177,6 +181,7 @@ makeFixture count funded = do
                       ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
                     }
     parent <- foldM runSetupTransaction withToken (createBatch <$> batches)
+    -- Execute just after expiry; setup transactions ran before expiry at 9,999 ms.
     return
         ( Block.BlockExecutionData
             { bedIsNewEpoch = False,
@@ -201,6 +206,8 @@ withEnergyLimit limit executionData = do
 
 makeTransfer :: Nonce -> IO BlockItem
 makeTransfer nonce = do
+    -- A real self-transfer consumes 501 NRG without changing the owner's CCD balance
+    -- beyond fees, so cleanup must use the budget left after transactions.
     [tx] <-
         Runner.processTransactions
             [ Runner.TJSON

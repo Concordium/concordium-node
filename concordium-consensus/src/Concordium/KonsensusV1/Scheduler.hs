@@ -664,8 +664,9 @@ executeBlockCleanup timestamp result@TransactionExecutionResult{..} =
     case protocolVersion @(MPV m) of
         SP11 -> do
             when (terEnergyUsed > terEnergyLimit) $ error "Transactions exceeded block energy limit"
-            (state, used, events) <- RustPLT.cancelExpiredLocks timestamp (terEnergyLimit - terEnergyUsed) terBlockState
-            when (used > terEnergyLimit - terEnergyUsed) $ error "Automatic cancellation exceeded remaining block energy"
+            let remainingEnergy = terEnergyLimit - terEnergyUsed
+            (state, used, events) <- RustPLT.cancelExpiredLocks timestamp remainingEnergy terBlockState
+            when (used > remainingEnergy) $ error "Automatic cancellation exceeded remaining block energy"
             updated <- foldM addOutcome state events
             return result{terBlockState = updated, terEnergyUsed = terEnergyUsed + used}
         _ -> return result

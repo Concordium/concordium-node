@@ -17,7 +17,6 @@ use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::{
     entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
 };
-use plt_scheduler::protocol_level_locks::p11::cancel_expired_locks;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent, UnlockAmountEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -186,16 +185,6 @@ fn test_lock_release_deletes_empty_lock_when_keep_alive_is_false() {
         Err(LockNotFoundByIdError(_))
     );
     assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
-    assert_eq!(
-        cancel_expired_locks(
-            &context,
-            &mut block_state,
-            1_804_806_000_001.into(),
-            0.into()
-        )
-        .unwrap(),
-        (Energy::from(0), vec![]),
-    );
 }
 #[test]
 fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
@@ -278,32 +267,6 @@ fn test_lock_release_keeps_empty_lock_when_keep_alive_is_true() {
     .expect("lock info must decode");
     assert!(lock_info.funds.is_empty());
     assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 1);
-    assert_eq!(
-        cancel_expired_locks(
-            &context,
-            &mut block_state,
-            1_804_806_000_000.into(),
-            0.into()
-        )
-        .unwrap(),
-        (Energy::from(0), vec![]),
-    );
-    let (energy, events) = cancel_expired_locks(
-        &context,
-        &mut block_state,
-        1_804_806_000_001.into(),
-        100.into(),
-    )
-    .unwrap();
-    assert_eq!(energy, Energy::from(100));
-    assert_eq!(
-        events,
-        vec![BlockItemEvent::LockDestroyed(LockDestroyEvent {
-            lock_id: lock_id.clone()
-        })]
-    );
-    assert!(block_state.query_lock_info(&context, &lock_id).is_err());
-    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 
 #[test]

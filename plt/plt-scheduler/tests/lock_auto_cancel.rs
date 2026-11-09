@@ -2,6 +2,7 @@
 
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
+use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, operations};
 use plt_block_state::entity::entity_test_stub;
@@ -10,12 +11,14 @@ use plt_block_state::persistent::protocol_level_locks::p11::{
 };
 use plt_scheduler::protocol_level_locks::p11::cancel_expired_locks;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent};
-use plt_scheduler_types::types::tokens::RawTokenAmount;
+use plt_scheduler_types::types::tokens::{RawTokenAmount, TokenHolder};
 use utils::entity_traits::scheduler::SchedulerOperations;
 use utils::{BlockStateLatest, TokenInitTestParams};
 
 mod utils;
 
+/// Cleanup follows expiry/creation/ID order, skips unaffordable locks, accepts exact
+/// energy fits, and retries skipped locks when a later block has enough energy.
 #[test]
 fn order_skip_exact_fit_and_retry() {
     let mut context = entity_test_stub::new_stubbed_context();
@@ -117,6 +120,10 @@ fn order_skip_exact_fit_and_retry() {
             assert_eq!(&event.lock_id, id);
             assert_eq!(event.token_id, token_id);
             assert_eq!(event.amount.amount, RawTokenAmount::from(10));
+            assert_eq!(
+                event.token_holder,
+                TokenHolder::Account(context.external.account_canonical_address(holders[0]))
+            );
         });
         assert_eq!(
             pair[1],
@@ -161,10 +168,27 @@ fn order_skip_exact_fit_and_retry() {
     );
     assert!(state.query_lock_list(&context).is_empty());
     assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
+    for holder in holders {
+        let info = state
+            .query_token_account_infos(&context, holder)
+            .unwrap()
+            .into_iter()
+            .find(|info| info.token_id == token_id)
+            .unwrap();
+        assert_eq!(
+            info.account_state.balance.amount,
+            RawTokenAmount::from(1000)
+        );
+        let module: concordium_base::protocol_level_tokens::TokenModuleAccountState =
+            cbor::cbor_decode(info.account_state.module_state.unwrap()).unwrap();
+        assert!(module.locks.is_empty());
+        assert!(module.available.is_none());
+    }
 }
 
+/// Empty locks require at least 100 NRG and strict expiry, regardless of keep-alive.
 #[test]
-fn empty_locks_require_capacity_and_ignore_keep_alive_but_not_expiry() {
+fn empty_locks_require_energy_budget_and_ignore_keep_alive_but_not_expiry() {
     // Empty cancellation needs neither a sender nor any external account mutations/queries.
     let context = entity_test_stub::new_no_external_context();
     let mut state = BlockStateLatest::default();
@@ -199,9 +223,10 @@ fn empty_locks_require_capacity_and_ignore_keep_alive_but_not_expiry() {
         );
         assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
     }
-    for capacity in [0, 99] {
+    for remaining_energy in [0, 99] {
         assert_eq!(
-            cancel_expired_locks(&context, &mut state, 10_001.into(), capacity.into()).unwrap(),
+            cancel_expired_locks(&context, &mut state, 10_001.into(), remaining_energy.into())
+                .unwrap(),
             (Energy::from(0), vec![])
         );
         assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
