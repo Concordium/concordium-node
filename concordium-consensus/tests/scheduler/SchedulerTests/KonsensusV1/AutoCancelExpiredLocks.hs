@@ -22,6 +22,7 @@ tests =
     describe "Automatic lock cancellation" $
         it "production and verification unlock expired funds using post-transaction capacity" $
             Helpers.runTestBlockState @'P11 $ do
+                let oneReferenceCancellationCost = emptyCancellationCost + perReferenceCancellationCost
                 (fixture, ids, nonce) <- makeFixture 3 True
                 (firstId, remainingIds) <- case ids of
                     first : rest -> return (first, rest)

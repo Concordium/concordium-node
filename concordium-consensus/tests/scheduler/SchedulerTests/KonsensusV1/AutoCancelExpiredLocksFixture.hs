@@ -39,9 +39,9 @@ import Concordium.Types.Queries.Tokens
 import qualified SchedulerTests.Helpers as Helpers
 
 -- Rust owns this tariff; no Haskell cost API exposes it. Assert the cross-language contract.
-emptyCancellationCost, oneReferenceCancellationCost :: Energy
+emptyCancellationCost, perReferenceCancellationCost :: Energy
 emptyCancellationCost = 100
-oneReferenceCancellationCost = 600
+perReferenceCancellationCost = 500
 
 -- | Observe lock existence and the owner's total and available token holdings.
 observeLockBalance ::

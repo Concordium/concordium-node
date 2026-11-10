@@ -514,7 +514,7 @@ fn execute_lock_cancel<C: EntityContextTypes>(
 }
 
 /// Cancel strictly expired P11 locks in schedule order, skipping those that exceed remaining energy.
-/// Returns consumed energy and ordered unlock/destruction events; empty locks cost 100 NRG.
+/// Returns consumed energy and ordered unlock/destruction events.
 /// Storage or invariant failures are fatal; the caller must discard the working state on error.
 pub fn cancel_expired_locks<C: EntityContextTypes>(
     context: &EntityContext<C>,

@@ -99,6 +99,10 @@ fn order_skip_exact_fit_and_retry() {
         }
         ids.push(id);
     }
+
+    // First run: skip ids[5] (2100 NRG), then cancel ids[4], ids[3], and ids[2]
+    // (600 NRG each) in creation-time/ID order. ids[1] and ids[0] cannot fit the
+    // remaining 100 NRG, but empty ids[6] fits exactly. ids[5], ids[1], and ids[0] remain.
     let expensive = ids[5].clone();
     let expensive_info = state.query_lock_info(&context, &expensive).unwrap();
     // Four permitted funders do not make one-reference cancellations cost 2100 NRG.
@@ -139,7 +143,9 @@ fn order_skip_exact_fit_and_retry() {
     );
     assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
 
-    // Skips consume no scan energy; the later two one-reference locks fit exactly.
+    // Second run: skip ids[5] again without charging scan energy, then cancel ids[1]
+    // before ids[0] because it expires earlier. Their combined 1200 NRG fits exactly;
+    // only ids[5] remains scheduled.
     let (energy, events) =
         cancel_expired_locks(&context, &mut state, 12_000.into(), 1200.into()).unwrap();
     assert_eq!(energy, Energy::from(1200));
@@ -158,6 +164,8 @@ fn order_skip_exact_fit_and_retry() {
     );
     assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 1);
 
+    // Third run: the 2100-NRG budget now fits ids[5]'s four balance references exactly.
+    // Canceling it emits four unlocks followed by destruction and empties the schedule.
     let (energy, events) =
         cancel_expired_locks(&context, &mut state, 13_000.into(), 2100.into()).unwrap();
     assert_eq!(energy, Energy::from(2100));
