@@ -1,6 +1,6 @@
 # Concordium Node
 
-This image runs a Concordium node and includes the `node-collector` process. It contains the mainnet and testnet genesis files. You must select a network and provide its network settings when you start the container.
+This image runs a Concordium node and includes the `node-collector` process. It also includes `p2p-bootstrapper` for operators of a network bootstrapper. It contains the mainnet and testnet genesis files. You must select a network and provide its network settings when you start the container.
 
 It runs as the unprivileged user `10001:10001` and stores mutable state in `/mnt/data`.
 
