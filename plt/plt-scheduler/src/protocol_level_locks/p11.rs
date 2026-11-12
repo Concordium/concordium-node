@@ -477,7 +477,12 @@ fn execute_lock_create<C: EntityContextTypes>(
     };
     events.push(BlockItemEvent::LockCreated(event));
 
-    block_state.create_lock(context, &lock_id, configuration, transaction_timestamp)?;
+    block_state.create_lock(
+        context,
+        &lock_id,
+        configuration,
+        transaction_execution.block_height(),
+    )?;
     Ok(())
 }
 

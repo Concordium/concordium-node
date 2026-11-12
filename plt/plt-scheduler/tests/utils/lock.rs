@@ -79,6 +79,7 @@ pub fn create_lock(
                 sender_account_address: sender.canonical_account_address,
                 transaction_sequence_number: lock_id.sequence_number(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             sender.account.account_index(),
             Payload::TokenUpdate {

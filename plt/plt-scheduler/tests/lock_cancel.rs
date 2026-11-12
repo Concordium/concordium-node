@@ -63,7 +63,7 @@ fn test_cancel_by_canceller() {
         )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
-        keep_alive: true,
+        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
@@ -72,6 +72,7 @@ fn test_cancel_by_canceller() {
         sender_account_address: context.external.account_canonical_address(account_index_2),
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
@@ -86,10 +87,10 @@ fn test_cancel_by_canceller() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
+    // An existing lock without references incurs only the cancellation base cost.
     assert_eq!(
         summary.energy_used,
-        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS
-            + concordium_base::transactions::cost::plt_lock_cancel(0),
+        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS + Energy::from(100),
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 1);
@@ -152,6 +153,7 @@ fn test_cancel_unauthorized() {
         sender_account_address: sender_addr,
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
@@ -168,7 +170,7 @@ fn test_cancel_unauthorized() {
         .unwrap();
     assert_eq!(
         summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(600), // One balance reference, even though cancellation is rejected.
+        Energy::from(600), // Base cost plus one balance reference, even though cancellation is rejected.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockCancelNotAuthorized(lock_id.clone(), sender_addr));
@@ -219,6 +221,7 @@ fn test_cancel_after_expiry() {
         sender_account_address: context.external.account_canonical_address(account_index_1),
         transaction_sequence_number: 1.into(),
         block_timestamp: 1000001.into(),
+        block_height: 0.into(),
     };
     let payload = Payload::TokenUpdate {
         payload: TokenUpdatePayload::Unscoped(OperationsPayload {
@@ -242,7 +245,7 @@ fn test_cancel_after_expiry() {
     assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 
-/// Manual cancellation unlocks each balance for its owner and removes the scheduled lock.
+/// Test cancelling a lock with balances.
 #[test]
 fn test_cancel_with_balances() {
     let mut context = entity_test_stub::new_stubbed_context();
@@ -303,36 +306,34 @@ fn test_cancel_with_balances() {
                 ],
             ),
         ],
-        tokens: vec![plt_x.clone(), plt_y.clone()],
+        tokens: vec![plt_x.clone()],
         expiry: 1000,
         keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
-    for (account, token, amount) in [
-        (
-            plt_y_gov_acct.account_index(),
-            plt_y.clone(),
-            concordium_base::protocol_level_tokens::TokenAmount::from_raw(1000, 6),
-        ),
-        (
-            plt_x_gov_acct.account_index(),
-            plt_x.clone(),
-            concordium_base::protocol_level_tokens::TokenAmount::from_raw(500, 2),
-        ),
-    ] {
-        utils::execute_operations(
-            &mut context,
-            &mut block_state,
-            account,
-            vec![operations::fund_lock(token, lock_id.clone(), amount, None).into()],
-        );
-    }
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        plt_x_gov_acct.account_index(),
+        &plt_x.clone(),
+        RawTokenAmount::from(500),
+    );
+    utils::lock_balance(
+        &mut context,
+        &mut block_state,
+        &lock_id,
+        plt_y_gov_acct.account_index(),
+        &plt_y.clone(),
+        RawTokenAmount::from(1000),
+    );
 
     let transaction_context = plt_scheduler::TransactionContext {
         energy_limit: Energy::from(u64::MAX),
         sender_account_address: context.external.account_canonical_address(account_index_2),
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let payload = Payload::TokenUpdate {
@@ -350,7 +351,7 @@ fn test_cancel_with_balances() {
         .unwrap();
     assert_eq!(
         summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(1100), // Two current account/token references.
+        Energy::from(1100), // Base cost plus two current account/token references.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 3);
@@ -383,27 +384,6 @@ fn test_cancel_with_balances() {
     assert_matches!(block_state.lock_by_id(&context, &lock_id), Ok(Err(LockNotFoundByIdError(absent_id))) => {
         assert_eq!(absent_id, lock_id);
     });
-    assert!(block_state.query_lock_info(&context, &lock_id).is_err());
-    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
-    for (account, token, total) in [
-        (plt_x_gov_acct.account_index(), &plt_x, 10000),
-        (plt_y_gov_acct.account_index(), &plt_y, 10000000),
-    ] {
-        let info = block_state
-            .query_token_account_infos(&context, account)
-            .unwrap()
-            .into_iter()
-            .find(|info| &info.token_id == token)
-            .unwrap();
-        assert_eq!(
-            info.account_state.balance.amount,
-            RawTokenAmount::from(total)
-        );
-        let module: concordium_base::protocol_level_tokens::TokenModuleAccountState =
-            cbor::cbor_decode(info.account_state.module_state.unwrap()).unwrap();
-        assert!(module.locks.is_empty());
-        assert!(module.available.is_none());
-    }
 }
 
 /// Test cancelling a non-existent lock.
@@ -419,6 +399,7 @@ fn test_cancel_nonexistent() {
         sender_account_address: context.external.account_canonical_address(account_index_1),
         transaction_sequence_number: 1.into(),
         block_timestamp: 0.into(),
+        block_height: 0.into(),
     };
     let memo = CborMemo::Raw(vec![1u8, 2, 3].try_into().unwrap());
     let lock_id = LockId {

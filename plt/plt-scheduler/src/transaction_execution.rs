@@ -1,6 +1,6 @@
 //! Context for transaction execution.
 
-use concordium_base::base::{Energy, Nonce};
+use concordium_base::base::{AbsoluteBlockHeight, Energy, Nonce};
 use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use plt_block_state::entity::accounts::Account;
 
@@ -21,6 +21,8 @@ pub struct TransactionContext {
     pub transaction_sequence_number: Nonce,
     /// Timestamp of the block in which the transaction is executed.
     pub block_timestamp: Timestamp,
+    /// Absolute height of the block in which the transaction is executed.
+    pub block_height: AbsoluteBlockHeight,
 }
 
 /// Tracks the energy remaining and some context during the execution.
@@ -39,6 +41,8 @@ pub struct TransactionExecution {
     transaction_sequence_number: Nonce,
     /// Timestamp of the block in which the transaction is executed.
     block_timestamp: Timestamp,
+    /// Absolute height of the block in which the transaction is executed.
+    block_height: AbsoluteBlockHeight,
     /// The number of locks that have been created during the execution of the transaction so far.
     /// This is used to generate unique lock IDs for locks created during execution.
     locks_created: u64,
@@ -54,6 +58,7 @@ impl TransactionExecution {
             sender_account_address: transaction_context.sender_account_address,
             transaction_sequence_number: transaction_context.transaction_sequence_number,
             block_timestamp: transaction_context.block_timestamp,
+            block_height: transaction_context.block_height,
             locks_created: 0,
         }
     }
@@ -103,6 +108,11 @@ impl TransactionExecution {
     /// The sequence number of the transaction as specified in the transaction header.
     pub fn transaction_sequence_number(&self) -> Nonce {
         self.transaction_sequence_number
+    }
+
+    /// The absolute height of the block in which the transaction is executed.
+    pub fn block_height(&self) -> AbsoluteBlockHeight {
+        self.block_height
     }
 
     /// The timestamp of the block in which the transaction is executed.

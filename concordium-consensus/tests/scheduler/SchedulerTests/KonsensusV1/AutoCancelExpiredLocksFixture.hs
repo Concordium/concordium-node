@@ -187,6 +187,7 @@ makeFixture count funded = do
             { bedIsNewEpoch = False,
               bedEpochDuration = 3_600_000,
               bedTimestamp = 10_001,
+              bedAbsoluteBlockHeight = 1,
               bedBlockNonce = VRF.prove (VRF.KeyPair electionKey (VRF.pubKey electionKey)) "",
               bedParticipatingBakers = Block.ParticipatingBakers 0 [0],
               bedParentState = parent,
