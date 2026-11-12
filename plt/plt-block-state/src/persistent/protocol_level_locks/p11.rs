@@ -11,13 +11,12 @@ use crate::persistent::trie::{Trie, TrieKey};
 use concordium_base::base::{AbsoluteBlockHeight, AccountIndex};
 use concordium_base::common::types::TransactionTime;
 use concordium_base::common::{
-    Buffer, Deserial, Get, ParseResult, ReadBytesExt, Serial, Serialize, deserial_vector_no_length,
-    from_bytes_complete, to_bytes,
+    Buffer, Deserial, Get, PanicOnOverflowSlice, ParseResult, ReadBytesExt, Serial, Serialize,
+    deserial_vector_no_length, from_bytes_complete, to_bytes,
 };
 use concordium_base::hashes::Hash;
 use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
 use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
-use std::borrow::Borrow;
 use std::io::Read;
 
 /// Persistent collection of protocol-level locks on P11 and later protocols.
@@ -33,7 +32,7 @@ pub type PersistentLockExpiryIndexP11 =
 /// Internal scheduling key ordered by expiry, absolute creation block height, and lock ID.
 /// Expiry ties process earlier creation blocks first for scheduling fairness;
 /// locks created at the same height are ordered by lock ID.
-#[derive(Debug, Clone, Eq, PartialEq, Deserial)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct LockExpiryKey {
     pub expiry: TransactionTime,
     pub created_at_height: AbsoluteBlockHeight,
@@ -42,11 +41,8 @@ pub struct LockExpiryKey {
 
 impl TrieKey for LockExpiryKey {
     fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
-        // Field order and encoding must match the derived Deserial implementation.
         let mut bytes = [0; LOCK_EXPIRY_KEY_SIZE];
-        bytes[..8].copy_from_slice(&self.expiry.seconds.to_be_bytes());
-        bytes[8..16].copy_from_slice(&self.created_at_height.height.to_be_bytes());
-        bytes[16..].copy_from_slice(self.lock_id.to_bytes().borrow());
+        self.serial(&mut PanicOnOverflowSlice(&mut bytes));
         bytes
     }
 
