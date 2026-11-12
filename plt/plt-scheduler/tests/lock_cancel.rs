@@ -87,10 +87,10 @@ fn test_cancel_by_canceller() {
     let summary = block_state
         .execute_transaction(&mut context, transaction_context, account_index_2, payload)
         .unwrap();
-    // Existing lock without references incurs no cancellation cost.
+    // An existing lock without references incurs only the cancellation base cost.
     assert_eq!(
         summary.energy_used,
-        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
+        concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS + Energy::from(100),
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 1);
@@ -170,7 +170,7 @@ fn test_cancel_unauthorized() {
         .unwrap();
     assert_eq!(
         summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(500), // One balance reference, even though cancellation is rejected.
+        Energy::from(600), // Base cost plus one balance reference, even though cancellation is rejected.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
         assert_eq!(reason, TransactionRejectReason::LockCancelNotAuthorized(lock_id.clone(), sender_addr));
@@ -351,7 +351,7 @@ fn test_cancel_with_balances() {
         .unwrap();
     assert_eq!(
         summary.energy_used - concordium_base::transactions::cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(1000), // Two current account/token references.
+        Energy::from(1100), // Base cost plus two current account/token references.
     );
     assert_matches!(summary.outcome, TransactionOutcome::Success(events) => {
         assert_eq!(events.len(), 3);
