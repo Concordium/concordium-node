@@ -86,7 +86,7 @@ getKeys ccContract ccParameter bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
+    InvokeContract.invokeContract 0 ctx (Types.ChainMetadata 123) bs
 
 -- | Invoke the entrypoint @check_signature@ on contract @contract@.
 checkSignature ::
@@ -104,7 +104,7 @@ checkSignature ccContract ccParameter bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
+    InvokeContract.invokeContract 0 ctx (Types.ChainMetadata 123) bs
 
 runGetKeysTests :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runGetKeysTests spv pvString = when (Types.demoteProtocolVersion spv >= Types.P4) $ do

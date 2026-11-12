@@ -89,7 +89,7 @@ invokeContract1 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Invoke an entrypoint that calls other entrypoints, and expects a parameter.
 --  This entrypoint does not return anything, meaning the return value is an empty byte array.
@@ -114,7 +114,7 @@ invokeContract2 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Same as 2, but a wrong parameter is passed.
 --  Expects runtime failure
@@ -133,7 +133,7 @@ invokeContract3 ccContract bs = do
                   ccParameter = emptyParameter,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Same as 2, but with an invoker that is a contract.
 invokeContract4 ::
@@ -157,7 +157,7 @@ invokeContract4 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Transfer 1 CCD from alesAccount to the contract. This amount should be the
 --  same as the total balance of the account that is invoking.
@@ -178,7 +178,7 @@ invokeContract5 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 runCounterTests :: Assertion
 runCounterTests = do

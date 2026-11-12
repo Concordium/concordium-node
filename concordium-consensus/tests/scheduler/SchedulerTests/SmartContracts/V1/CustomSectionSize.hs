@@ -92,7 +92,7 @@ invokeContract ccContract bs = do
                   ccParameter = emptyParameter,
                   ..
                 }
-    InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
+    InvokeContract.invokeContract 0 ctx (Types.ChainMetadata 123) bs
 
 -- | Deploy and initialize two contracts, then invoke entrypoint newfun in them,
 --  and return how much it cost. In the first instance the module is without

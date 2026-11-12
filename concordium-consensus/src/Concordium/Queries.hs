@@ -1713,16 +1713,18 @@ getTransactionStatus trHash =
 -- * Smart contract invocations
 invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BHIQueryResponse InvokeContract.InvokeContractResult)
 invokeContract bhi cctx =
-    liftSkovQueryBHI
-        ( \bp -> do
+    liftSkovQueryBHIAndVersion
+        ( \vc bp -> do
             bs <- blockState bp
             cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
-            InvokeContract.invokeContract cctx cm bs
+            let height = localToAbsoluteBlockHeight (vc0GenesisHeight vc) (bpHeight bp)
+            InvokeContract.invokeContract height cctx cm bs
         )
-        ( \bp -> do
+        ( \vc bp _ -> do
             bs <- blockState bp
             let cm = ChainMetadata (SkovV1.blockTimestamp bp)
-            InvokeContract.invokeContract cctx cm bs
+            let height = localToAbsoluteBlockHeight (vc1GenesisHeight vc) (SkovV1.blockHeight bp)
+            InvokeContract.invokeContract height cctx cm bs
         )
         bhi
 

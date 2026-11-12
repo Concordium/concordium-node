@@ -46,7 +46,8 @@ testExecuteTransaction = describe "executeTransaction" $ do
                         (Execution.RegisterData $ Types.RegisteredData ByteString.empty)
             let contextState =
                     EI.ContextState
-                        { _chainMetadata =
+                        { _absoluteBlockHeight = 0,
+                          _chainMetadata =
                             Types.ChainMetadata
                                 { slotTime = 500
                                 },
