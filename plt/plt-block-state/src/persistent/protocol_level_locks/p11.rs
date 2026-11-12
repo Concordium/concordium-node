@@ -11,7 +11,7 @@ use crate::persistent::trie::{Trie, TrieKey};
 use concordium_base::base::{AbsoluteBlockHeight, AccountIndex};
 use concordium_base::common::types::TransactionTime;
 use concordium_base::common::{
-    Buffer, Deserial, Get, PanicOnOverflowSlice, ParseResult, ReadBytesExt, Serial, Serialize,
+    Buffer, Deserial, Get, ParseResult, ReadBytesExt, Serial, Serialize, SliceBuffer,
     deserial_vector_no_length, from_bytes_complete, to_bytes,
 };
 use concordium_base::hashes::Hash;
@@ -42,7 +42,12 @@ pub struct LockExpiryKey {
 impl TrieKey for LockExpiryKey {
     fn to_bytes(&self) -> impl std::borrow::Borrow<[u8]> {
         let mut bytes = [0; LOCK_EXPIRY_KEY_SIZE];
-        self.serial(&mut PanicOnOverflowSlice(&mut bytes));
+        let mut buffer = SliceBuffer::Bytes(&mut bytes);
+        self.serial(&mut buffer);
+        assert!(
+            buffer.into_result().is_ok(),
+            "lock expiry key exceeds its fixed size"
+        );
         bytes
     }
 
