@@ -581,7 +581,7 @@ dryRunInvokeInstance
             DryRunState{..} <- liftIO $ readIORef drsRef
             let chainMeta = ChainMetadata drsTimestamp
             let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
-            InvokeContract.invokeContract context chainMeta fbs
+            InvokeContract.invokeContract drsAbsoluteBlockHeight context chainMeta fbs
         -- Charge the energy used to the quota.
         let newQuotaRem = shiQuotaRem - InvokeContract.rcrUsedEnergy res
         writeIORef shiQuotaRef newQuotaRem
