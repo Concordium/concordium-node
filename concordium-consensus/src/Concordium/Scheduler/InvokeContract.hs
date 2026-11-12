@@ -111,7 +111,7 @@ invokeContract ::
     -- | The block state in which to invoke the contract.
     BlockState m ->
     m InvokeContractResult
-invokeContract absoluteBlockHeight ContractContext{..} cm bs
+invokeContract blockHeight ContractContext{..} cm bs
     -- check that the parameter being used conforms to the limitations of the
     -- protocol version of the block that the query is being invoked in.
     | Wasm.parameterLen ccParameter > fromIntegral (Wasm.maxParameterLen (protocolVersion @(MPV m))) =
@@ -186,7 +186,7 @@ invokeContract absoluteBlockHeight ContractContext{..} cm bs
                         return (r, _energyLeft cs)
             contextState =
                 ContextState
-                    { _absoluteBlockHeight = absoluteBlockHeight,
+                    { _absoluteBlockHeight = blockHeight,
                       _maxBlockEnergy = ccEnergy,
                       _accountCreationLimit = 0,
                       _chainMetadata = cm
