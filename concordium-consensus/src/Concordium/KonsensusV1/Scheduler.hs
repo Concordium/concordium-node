@@ -507,7 +507,7 @@ processSuspensions snapshotSuspendedBids bs0 = do
 
 -- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next
---  payday.
+--  payday. Automatic lock cancellation runs before rewards and contributes to returned block energy.
 executeBlockEpilogue ::
     forall pv m.
     ( pv ~ MPV m,
@@ -518,20 +518,22 @@ executeBlockEpilogue ::
     ) =>
     ParticipatingBakers ->
     Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
-    TransactionRewardParameters ->
+    Timestamp ->
     Map.Map BakerId Word64 ->
     Maybe (Set.Set BakerId) ->
-    UpdatableBlockState m ->
-    m (PBS.HashedPersistentBlockState pv)
-executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds snapshotSuspendedBids theState0 = do
-    theState1 <- processPaydayRewards paydayParams theState0
-    theState2 <- processBlockRewards participants transactionRewardParams missedRounds theState1
+    TransactionExecutionResult m ->
+    m (PBS.HashedPersistentBlockState pv, Energy)
+executeBlockEpilogue participants paydayParams timestamp missedRounds snapshotSuspendedBids transactionsResult = do
+    TransactionExecutionResult{..} <- executeBlockCleanup timestamp transactionsResult
+    theState1 <- processPaydayRewards paydayParams terBlockState
+    theState2 <- processBlockRewards participants terTransactionRewardParameters missedRounds theState1
     theState3 <- case hasValidatorSuspension of
         STrue
             | Just suspendedBids <- snapshotSuspendedBids -> processSuspensions suspendedBids theState2
             | otherwise -> return theState2
         SFalse -> return theState2
-    freezeBlockState theState3
+    finalState <- freezeBlockState theState3
+    return (finalState, terEnergyUsed)
   where
     hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
@@ -653,7 +655,7 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
                                 }
                     return $ Right result
 
--- | Run P11 automatic cancellation after transactions, without changing fee accounting.
+-- | Run automatic cancellation when locks are supported, without changing fee accounting.
 executeBlockCleanup ::
     forall m.
     (BlockStateStorage m) =>
@@ -661,16 +663,25 @@ executeBlockCleanup ::
     TransactionExecutionResult m ->
     m (TransactionExecutionResult m)
 executeBlockCleanup timestamp result@TransactionExecutionResult{..} =
-    case protocolVersion @(MPV m) of
-        SP11 -> do
+    if supportsPLTLocks spv
+        then do
             when (terEnergyUsed > terEnergyLimit) $ error "Transactions exceeded block energy limit"
             let remainingEnergy = terEnergyLimit - terEnergyUsed
-            (state, used, events) <- RustPLT.cancelExpiredLocks timestamp remainingEnergy terBlockState
+            (state, used, events) <- cancelLocks remainingEnergy
             when (used > remainingEnergy) $ error "Automatic cancellation exceeded remaining block energy"
             updated <- foldM addOutcome state events
             return result{terBlockState = updated, terEnergyUsed = terEnergyUsed + used}
-        _ -> return result
+        else return result
   where
+    spv = protocolVersion @(MPV m)
+
+    cancelLocks :: Energy -> m (UpdatableBlockState m, Energy, [Event])
+    cancelLocks remainingEnergy =
+        case (sSupportsPLT (sAccountVersionFor spv), sPltStateVersionFor spv) of
+            (STrue, SPLTStateV1) -> RustPLT.cancelExpiredLocks timestamp remainingEnergy terBlockState
+            _ -> error "Lock-supporting protocol requires Rust-managed PLT state"
+
+    addOutcome :: UpdatableBlockState m -> Event -> m (UpdatableBlockState m)
     addOutcome state = \case
         UnlockAmount{..} -> bsoAddSpecialTransactionOutcome state $ SpecialUnlockAmount euaTokenHolder euaLockId euaTokenId euaAmount
         LockDestroyed{..} -> bsoAddSpecialTransactionOutcome state $ SpecialLockDestroyed eldLockId
@@ -720,17 +731,14 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
         else do
             PrologueResult{..} <- executeBlockPrologue execData
             tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
-            forM tRes $ \transactionsResult -> do
-                TransactionExecutionResult{..} <- executeBlockCleanup bedTimestamp transactionsResult
-                endState <-
-                    executeBlockEpilogue
-                        bedParticipatingBakers
-                        prologuePaydayParameters
-                        terTransactionRewardParameters
-                        bedMissedRounds
-                        prologueSuspendedBids
-                        terBlockState
-                return (endState, terEnergyUsed)
+            forM tRes $ \transactionsResult ->
+                executeBlockEpilogue
+                    bedParticipatingBakers
+                    prologuePaydayParameters
+                    bedTimestamp
+                    bedMissedRounds
+                    prologueSuspendedBids
+                    transactionsResult
 
 -- | Construct a block, computing the new block state. This draws transactions from the transaction
 --  table (that are pending according to the pending transaction table) and executes them, selecting
@@ -777,15 +785,14 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                     pendingTable
                     bedTimestamp
                     prologueBlockState
-            TransactionExecutionResult{..} <- executeBlockCleanup bedTimestamp transactionsResult
-            finalState <-
+            (finalState, energyUsed) <-
                 executeBlockEpilogue
                     bedParticipatingBakers
                     prologuePaydayParameters
-                    terTransactionRewardParameters
+                    bedTimestamp
                     bedMissedRounds
                     prologueSuspendedBids
-                    terBlockState
+                    transactionsResult
             endTime <- currentTime
             logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
-            return (filteredTrs, finalState, terEnergyUsed)
+            return (filteredTrs, finalState, energyUsed)

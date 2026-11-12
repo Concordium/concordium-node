@@ -253,7 +253,11 @@ extern "C" fn ffi_execute_transaction(
     return_status
 }
 
-/// Cancel expired P11 locks from a cloned input state using read-only external callbacks.
+/// Cancel expired locks from a cloned input state using read-only external callbacks.
+///
+/// Every protocol accepted by Haskell's `supportsPLTLocks` requires automatic cancellation;
+/// extend this state dispatch when adding a lock-supporting protocol with a new state variant.
+///
 /// On success, publishes an owned state (free with `ffi_free_plt_block_state`), consumed
 /// energy, and existing serialized events. On fatal failure, only diagnostic bytes are returned.
 /// Free the returned buffer with `free_array_len_2` in either case.

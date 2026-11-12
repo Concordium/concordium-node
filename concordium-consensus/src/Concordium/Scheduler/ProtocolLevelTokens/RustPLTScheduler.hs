@@ -575,9 +575,11 @@ foreign import ccall "ffi_execute_chain_update"
         IO Word.Word8
 
 -- | Cancel expired locks using spare block energy, returning updated state, used energy and events.
--- Storage, decoding and invariant failures are fatal; external callbacks are read-only.
+-- Requires a protocol supporting locks. Storage, decoding and invariant failures are fatal;
+-- external callbacks are read-only.
 cancelExpiredLocks ::
-    (BS.BlockStateOperations m, Types.MPV m ~ 'Types.P11) =>
+    forall m.
+    (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
     Types.Timestamp ->
     Types.Energy ->
     BS.UpdatableBlockState m ->
@@ -623,7 +625,8 @@ cancelExpiredLocks timestamp remainingEnergy blockState = do
                     Just Status.FSCSuccess -> do
                         updated <- FFI.peek stateOut >>= PLTBlockState.wrapFFIPtr
                         used <- fromIntegral <$> FFI.peek energyOut
-                        case S.runGet (S.isolate (BS.length bytes) $ CS.getListOf $ Types.getEvent Types.SP11) bytes of
+                        let getEvents = S.isolate (BS.length bytes) $ CS.getListOf $ Types.getEvent (Types.protocolVersion @(Types.MPV m))
+                        case S.runGet getEvents bytes of
                             Left message -> error $ "Automatic cancellation events could not be deserialized: " ++ message
                             Right events -> return (updated, used, events)
                     Just Status.FSCPanic ->
