@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to execute the payload of block items (currently for protocol-level tokens only).
 -- Notice that block item headers are handled outside of the Rust PLT Scheduler.
@@ -14,6 +16,7 @@
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeTransaction,
     executeChainUpdate,
+    cancelExpiredLocks,
 ) where
 
 import Control.Monad
@@ -577,6 +580,83 @@ foreign import ccall "ffi_execute_chain_update"
         -- * `0` if chain update was executed and applied successfully.
         -- * `1` if chain update failed. Block state changes applied
         --   via callbacks must be rolled back.
+        IO Word.Word8
+
+-- | Cancel expired locks using spare block energy, returning updated state, used energy and events.
+-- Requires a protocol supporting locks. Storage, decoding and invariant failures are fatal;
+-- external callbacks are read-only.
+cancelExpiredLocks ::
+    forall m.
+    (BS.BlockStateOperations m, Types.PVSupportsRustManagedPLT (Types.MPV m)) =>
+    Types.Timestamp ->
+    Types.Energy ->
+    BS.UpdatableBlockState m ->
+    m (BS.UpdatableBlockState m, Types.Energy, [Types.Event])
+cancelExpiredLocks timestamp remainingEnergy blockState = do
+    pltState <- BS.bsoGetRustPLTBlockState blockState
+    ref <- BS.liftBlobStore $ liftIO $ IORef.newIORef blockState
+    queries <- unliftBlockStateQueryCallbacks ref
+    (updated, used, events) <- BS.liftBlobStore $ do
+        loadCallbackPtr <- FFI.loadCallback <$> BlobStore.getCallbacks
+        liftIO $ FFI.alloca $ \stateOut -> FFI.alloca $ \energyOut ->
+            FFI.alloca $ \dataOut -> FFI.alloca $ \lenOut -> do
+                readBalance <- wrapReadTokenAccountBalance $ readTokenAccountBalance queries
+                getIndex <- wrapGetAccountIndexByAddress $ getAccountIndexByAddress queries
+                getAddress <- wrapGetAccountAddressByIndex $ getAccountAddressByIndex queries
+                getTokens <- wrapGetTokenAccountStates $ getTokenAccountStates queries
+                status <- PLTBlockState.withPLTBlockState pltState $ \ptr ->
+                    ffiCancelExpiredLocks
+                        loadCallbackPtr
+                        readBalance
+                        getIndex
+                        getAddress
+                        getTokens
+                        ptr
+                        timestamp
+                        (fromIntegral remainingEnergy)
+                        stateOut
+                        energyOut
+                        dataOut
+                        lenOut
+                FFI.freeHaskellFunPtr readBalance
+                FFI.freeHaskellFunPtr getIndex
+                FFI.freeHaskellFunPtr getAddress
+                FFI.freeHaskellFunPtr getTokens
+                len <- FFI.peek lenOut
+                ptr <- FFI.peek dataOut
+                bytes <-
+                    BS.unsafePackCStringFinalizer
+                        ptr
+                        (fromIntegral len)
+                        (Memory.rs_free_array_len_2 ptr (fromIntegral len))
+                case Status.parseStatusCode status of
+                    Just Status.FSCSuccess -> do
+                        updated <- FFI.peek stateOut >>= PLTBlockState.wrapFFIPtr
+                        used <- fromIntegral <$> FFI.peek energyOut
+                        let getEvents = S.isolate (BS.length bytes) $ CS.getListOf $ Types.getEvent (Types.protocolVersion @(Types.MPV m))
+                        case S.runGet getEvents bytes of
+                            Left message -> error $ "Automatic cancellation events could not be deserialized: " ++ message
+                            Right events -> return (updated, used, events)
+                    Just Status.FSCPanic ->
+                        error $ "Call to 'ffiCancelExpiredLocks' resulted in panic: " ++ show (Text.decodeUtf8' bytes)
+                    _ -> error $ "Unexpected status code from 'ffiCancelExpiredLocks': " ++ show status
+    updatedState <- BS.bsoSetRustPLTBlockState blockState updated
+    return (updatedState, used, events)
+
+foreign import ccall "ffi_cancel_expired_locks"
+    ffiCancelExpiredLocks ::
+        FFI.LoadCallback ->
+        ReadTokenAccountBalanceCallbackPtr ->
+        GetAccountIndexByAddressCallbackPtr ->
+        GetAccountAddressByIndexCallbackPtr ->
+        GetTokenAccountStatesCallbackPtr ->
+        FFI.Ptr PLTBlockState.RustPLTBlockState ->
+        Types.Timestamp ->
+        Word.Word64 ->
+        FFI.Ptr (FFI.Ptr PLTBlockState.RustPLTBlockState) ->
+        FFI.Ptr Word.Word64 ->
+        FFI.Ptr (FFI.Ptr Word.Word8) ->
+        FFI.Ptr FFI.CSize ->
         IO Word.Word8
 
 -- | Summary of executing a transaction using the PLT scheduler.

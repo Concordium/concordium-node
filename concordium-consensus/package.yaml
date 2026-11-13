@@ -388,6 +388,41 @@ tests:
     - cborg >= 0.2
     
 benchmarks:
+  auto-cancel-expired-locks:
+    main:                AutoCancelExpiredLocksBench.hs
+    source-dirs:
+    - benchmarks/auto-cancel-expired-locks
+    - tests/scheduler
+    other-modules:
+    - SchedulerTests.Helpers
+    - SchedulerTests.KonsensusV1.AutoCancelExpiredLocksFixture
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N1
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    - -Wno-deprecations
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - temporary >= 1.3
+    - criterion
+    - deepseq
+    - HUnit >= 1.6
+    - cborg >= 0.2
+
   trie:
     main:                TrieBench.hs
     source-dirs:         benchmarks/trie

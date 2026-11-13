@@ -3,9 +3,9 @@ use crate::protocol_level_locks::lock_configuration::{self, LockOperation};
 use crate::protocol_level_tokens::token_module::check_transfer_constraints;
 use crate::protocol_level_tokens::{balance_operations, reject, token_amount, token_module};
 use crate::transaction_execution::TransactionExecution;
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
-use concordium_base::contracts_common::Duration;
+use concordium_base::contracts_common::{Duration, Timestamp};
 use concordium_base::protocol_level_locks::{
     LockAccountFunds, LockId, LockInfo, LockedTokenAmount,
 };
@@ -19,6 +19,7 @@ use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
+use plt_block_state::entity::protocol_level_locks::p11::LockP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByIndexError;
 use plt_block_state::failure::{BlockStateFailure, BlockStateResult};
@@ -486,7 +487,7 @@ fn execute_lock_create<C: EntityContextTypes>(
 }
 
 fn execute_lock_cancel<C: EntityContextTypes>(
-    context: &mut EntityContext<C>,
+    context: &EntityContext<C>,
     transaction_execution: &mut TransactionExecution,
     block_state: &mut BlockStateP11,
     details: LockCancelDetails,
@@ -513,6 +514,56 @@ fn execute_lock_cancel<C: EntityContextTypes>(
             &LockOperation::Cancel(details),
         )?;
     }
+    cancel_lock(context, block_state, lock, events)?;
+    Ok(())
+}
+
+/// Cancel strictly expired P11 locks in schedule order, skipping those that exceed remaining energy.
+/// Returns consumed energy and ordered unlock/destruction events.
+/// Storage or invariant failures are fatal; the caller must discard the working state on error.
+pub fn cancel_expired_locks<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    block_state: &mut BlockStateP11,
+    timestamp: Timestamp,
+    mut remaining_energy: Energy,
+) -> BlockStateResult<(Energy, Vec<BlockItemEvent>)> {
+    let initial_energy = remaining_energy;
+    let mut events = Vec::new();
+    // Own the copy-on-write root so deleting from the working state cannot invalidate iteration.
+    let schedule = block_state.lock_expiry_index(context)?.into_owned();
+    let mut entries = schedule.iter(&context.store);
+    while remaining_energy >= transactions::cost::PLT_LOCK_CANCEL_BASE {
+        let Some(entry) = entries.next() else {
+            break;
+        };
+        let (key, _) = entry?;
+        if !key.expiry.is_expired(timestamp) {
+            break;
+        }
+        let lock = block_state
+            .lock_by_id(context, &key.lock_id)?
+            .map_err(|err| {
+                BlockStateFailure::Invariant(format!(
+                    "expiry entry points to missing lock {:?}",
+                    err.0
+                ))
+            })?;
+        let cost = transactions::cost::plt_lock_cancel(lock.lock_balance_ref_count());
+        if cost > remaining_energy {
+            continue;
+        }
+        cancel_lock(context, block_state, lock, &mut events)?;
+        remaining_energy = remaining_energy - cost;
+    }
+    Ok((initial_energy - remaining_energy, events))
+}
+
+fn cancel_lock<C: EntityContextTypes>(
+    context: &EntityContext<C>,
+    block_state: &mut BlockStateP11,
+    lock: LockP11,
+    events: &mut Vec<BlockItemEvent>,
+) -> BlockStateResult<()> {
     for balance_ref in lock.iter_lock_balance_refs(context) {
         let (account_index, token_id) = balance_ref?;
         let mut token = block_state
