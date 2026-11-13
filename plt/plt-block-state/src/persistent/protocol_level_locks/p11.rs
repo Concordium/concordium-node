@@ -277,8 +277,6 @@ pub struct LockConfigSimpleV0 {
     /// Tokens affected by this lock.
     #[size_length = 2]
     tokens: Vec<TokenId>,
-    /// Whether the lock should be kept alive after all funds are returned.
-    pub keep_alive: bool,
     /// Optional memo attached to the lock.
     pub memo: Option<CborMemo>,
     /// Optional raw CBOR-encoded user-facing lock metadata.
@@ -294,7 +292,6 @@ impl LockConfigSimpleV0 {
     /// * `expiry` - Time at which the lock expires.
     /// * `grants` - Capability grants controlling lock operations.
     /// * `tokens` - Resolved tokens in registered spelling, sorted and deduplicated before storage.
-    /// * `keep_alive` - Whether to retain an empty lock.
     /// * `memo` - Optional lock memo.
     /// * `metadata` - Optional opaque CBOR metadata.
     ///
@@ -307,7 +304,6 @@ impl LockConfigSimpleV0 {
         expiry: TransactionTime,
         mut grants: Vec<LockControllerSimpleV0Grant>,
         mut tokens: Vec<TokenId>,
-        keep_alive: bool,
         memo: Option<CborMemo>,
         metadata: Option<RawCbor>,
     ) -> Result<Self, ContainerSizeOverflow> {
@@ -329,7 +325,6 @@ impl LockConfigSimpleV0 {
             expiry,
             grants,
             tokens,
-            keep_alive,
             memo,
             metadata,
         })
@@ -372,7 +367,6 @@ impl Deserial for LockConfigSimpleV0 {
             expiry,
             grants,
             tokens: deserial_vector_no_length(source, count.into())?,
-            keep_alive: source.get()?,
             memo: source.get()?,
             metadata: source.get()?,
         })
