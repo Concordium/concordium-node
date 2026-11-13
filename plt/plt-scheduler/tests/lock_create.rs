@@ -52,7 +52,6 @@ fn execute_lock_create_with_duration(
         expiry: TransactionTime::from_seconds(expiry_seconds),
         grants: vec![],
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -81,6 +80,47 @@ fn execute_lock_create_with_duration(
     );
     let lock_exists = matches!(block_state.lock_by_id(&context, &lock_id), Ok(Ok(_)));
     (result, lock_exists)
+}
+
+#[test]
+fn test_create_lock_rejects_obsolete_keep_alive() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let sender = context.external.create_account().account_index();
+    let sender_address = context.external.account_canonical_address(sender);
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Any,
+        expiry: TransactionTime::from_seconds(1_000),
+        grants: vec![],
+        tokens: vec![],
+        memo: None,
+        metadata: None,
+    });
+    let operations = vec![Operation::from(operations::create_lock(config))];
+    let mut encoded: Value = cbor::cbor_decode(cbor::cbor_encode(&operations)).unwrap();
+    let array = assert_matches!(&mut encoded, Value::Array(array) => array);
+    let operation = assert_matches!(&mut array[0], Value::Map(map) => map);
+    let config = assert_matches!(&mut operation[0].1, Value::Map(map) => map);
+    let simple = assert_matches!(&mut config[0].1, Value::Map(map) => map);
+    simple.push((Value::Text("keepAlive".into()), Value::Bool(true)));
+
+    let result = block_state
+        .execute_transaction(
+            &mut context,
+            utils::simple_transaction_context(sender_address),
+            sender,
+            Payload::TokenUpdate {
+                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                    operations: RawCbor::from(cbor::cbor_encode(&encoded)),
+                }),
+            },
+        )
+        .expect("transaction internal error");
+    assert_matches!(
+        result.outcome,
+        TransactionOutcome::Rejected(TransactionRejectReason::SerializationFailure)
+    );
+    assert!(block_state.query_lock_list(&context).is_empty());
 }
 
 #[test]
@@ -133,7 +173,6 @@ fn test_create_simple_lock() {
             ],
         }],
         tokens: vec!["PLTx".parse().unwrap()],
-        keep_alive: false,
         memo: None,
         metadata: Some(metadata.encode_raw_cbor()),
     });
@@ -182,7 +221,29 @@ fn test_create_simple_lock() {
         hex::encode(&event.lock_config),
         "a16873696d706c655630a566657870697279c11903e8666772616e747381a265726f6c6573846466756e646772656c656173656473656e646663616e63656c676163636f756e74d99d73a201d99d71a101190397035820000000000000000000000000000000000000000000000000000000000000000066746f6b656e738164706c7458686d65746164617461584ea3646e616d656954657374206c6f636b666973737565726a436f6e636f726469756d6b6465736372697074696f6e781e4c6f636b206372656174656420696e207363686564756c657220746573746a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
     );
+    let config_value: Value = cbor::cbor_decode(&event.lock_config).unwrap();
+    let outer = assert_matches!(config_value, Value::Map(map) => map);
+    let simple = assert_matches!(&outer[0].1, Value::Map(map) => map);
+    assert!(
+        !simple
+            .iter()
+            .any(|(key, _)| key == &Value::Text("keepAlive".into()))
+    );
     let lock_id = LockId::new(account_index_1, 1, 0);
+    let queried = block_state.query_lock_info(&context, &lock_id).unwrap();
+    let info: concordium_base::protocol_level_locks::LockInfo =
+        cbor::cbor_decode(&queried).unwrap();
+    assert_eq!(info.config, canonical_config);
+    let queried_value: Value = cbor::cbor_decode(&queried).unwrap();
+    let queried_map = assert_matches!(queried_value, Value::Map(map) => map);
+    assert_eq!(
+        queried_map
+            .iter()
+            .find(|(key, _)| key == &Value::Text("config".into()))
+            .unwrap()
+            .1,
+        Value::Map(outer)
+    );
     assert_eq!(
         events[0],
         BlockItemEvent::LockCreated(LockCreateEvent {
@@ -241,7 +302,6 @@ fn test_create_locks_orders_equal_expiries_by_absolute_height() {
             expiry: TransactionTime::from_seconds(1000),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         });
@@ -309,7 +369,6 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
         ],
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -330,7 +389,6 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(1_000),
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -446,7 +504,6 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
         tokens: vec![plt_a.clone(), plt_x.clone()],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -547,7 +604,6 @@ fn test_expired_creation_charges_configuration_complexity() {
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
         tokens: vec![token_id],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -649,7 +705,6 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
             expiry: TransactionTime::from_seconds(expiry),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         })

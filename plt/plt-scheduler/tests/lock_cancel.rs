@@ -63,7 +63,6 @@ fn test_cancel_by_canceller() {
         )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
@@ -135,7 +134,6 @@ fn test_cancel_unauthorized() {
         )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
@@ -212,7 +210,6 @@ fn test_cancel_after_expiry() {
         )],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
@@ -308,7 +305,6 @@ fn test_cancel_with_balances() {
         ],
         tokens: vec![plt_x.clone()],
         expiry: 1000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
@@ -482,7 +478,6 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
         ],
         tokens: vec![token_id.clone()],
         expiry: 1000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 

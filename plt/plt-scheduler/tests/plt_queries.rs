@@ -193,7 +193,6 @@ fn test_query_token_account_info_available_with_locked_balance() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
@@ -265,7 +264,6 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id1, lock_config1);
     let lock_id2 = LockId {
@@ -281,7 +279,6 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id2, lock_config2);
     utils::lock_balance(
@@ -362,7 +359,6 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(

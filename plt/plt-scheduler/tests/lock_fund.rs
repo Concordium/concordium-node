@@ -116,7 +116,6 @@ fn test_lock_fund_updates_account_and_lock_state() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
@@ -215,7 +214,6 @@ fn test_lock_fund_persists_canonical_references_for_multiple_tokens() {
             )],
             tokens: vec![first_token_id.clone(), second_token_id.clone()],
             expiry: 1_804_806_000,
-            keep_alive: false,
         },
     );
 
@@ -284,7 +282,6 @@ fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
@@ -355,7 +352,6 @@ fn test_lock_fund_rejects_unauthorized_sender() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
@@ -416,7 +412,6 @@ fn test_lock_fund_rejects_after_expiry() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 10,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 

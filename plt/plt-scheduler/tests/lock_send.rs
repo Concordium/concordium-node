@@ -135,7 +135,6 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
@@ -226,27 +225,6 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     assert_eq!(lock_info.funds.len(), 1);
     assert_eq!(lock_info.funds[0].amounts[0].amount.value(), 150);
     assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 1);
-
-    let summary = execute_unscoped_update!(
-        &mut context,
-        &mut block_state,
-        sender.account_index(),
-        0,
-        vec![operations::send_locked_tokens(
-            token_id,
-            lock_id.clone(),
-            sender_addr,
-            recipient_addr,
-            TokenAmount::from_raw(150, 4),
-            None,
-        )],
-    );
-    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
-    assert_matches!(events.last(), Some(BlockItemEvent::LockDestroyed(event)) => {
-        assert_eq!(event.lock_id, lock_id);
-    });
-    assert!(block_state.lock_by_id(&context, &lock_id).unwrap().is_err());
-    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 #[test]
 fn test_lock_send_allows_any_recipient() {
@@ -292,7 +270,6 @@ fn test_lock_send_allows_any_recipient() {
                 ],
             }],
             tokens: vec![token_id.clone()],
-            keep_alive: false,
             memo: None,
             metadata: None,
         })),
@@ -340,7 +317,6 @@ fn test_lock_send_allows_any_recipient() {
                 ]
             }],
             tokens: vec![token_id.clone()],
-            keep_alive: false,
             memo: None,
             metadata: None
         })
@@ -384,7 +360,6 @@ fn test_lock_send_rejects_non_recipient() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     execute_unscoped_update!(
@@ -491,7 +466,6 @@ fn test_lock_send_sender_not_in_allow_list() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     assert_matches!(
@@ -610,7 +584,6 @@ fn test_lock_send_recipient_not_in_allow_list() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     assert_matches!(
@@ -706,7 +679,6 @@ fn test_lock_send_sender_in_deny_list() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     assert_matches!(
@@ -811,7 +783,6 @@ fn test_lock_send_recipient_in_deny_list() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     let sender_addr = context
@@ -913,7 +884,6 @@ fn test_lock_send_rejects_when_token_paused() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     let sender_addr = context
@@ -1010,7 +980,6 @@ fn test_lock_send_rejects_unauthorized_sender() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     execute_unscoped_update!(
@@ -1091,7 +1060,6 @@ fn test_lock_send_rejects_after_expiry() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 10,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     execute_unscoped_update!(
