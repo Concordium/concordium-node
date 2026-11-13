@@ -10,14 +10,6 @@ This may be changed, such that the Rust implementation is also used on P9 and P1
 The PLT Scheduler is compiled as a native library and is used within the Haskell implemented scheduler found as part of [`concordium-consensus`](../concordium-consensus/README.md).
 See [PLT Scheduler Component View](docs/component_view.md).
 
-## Protocol-level lock lifecycle
-
-Sending or releasing the final balance does not destroy a lock. Empty locks remain
-available for funding before expiry under the existing permissions and token restrictions.
-They remain in state until explicit cancellation or automatic cleanup after strict expiry
-(the block timestamp must be greater than the lock's expiry). Cleanup is limited by the
-available block energy, so expiry does not guarantee deletion within any maximum delay.
-
 The crates in the project are:
 * `node-rust-library`: Crate build to a library for dynamic or static linking into the `concordium-concensus` Haskell project.
 * `plt-scheduler-types`: Externally facing scheduler and query types. These types correspond to identical types on the Haskell side.
