@@ -26,7 +26,7 @@
                             <File Id="ConcordiumConsensusDLL" Name="concordium-consensus.dll" Source="!(bindpath.consensus)concordium-consensus.dll" Checksum="yes" />
                             <File Id="ConcordiumBaseDLL" Name="concordium_base.dll" Source="!(bindpath.baselib)concordium_base.dll" Checksum="yes" />
                             <File Id="Sha2DLL" Name="sha_2.dll" Source="!(bindpath.baselib)sha_2.dll" Checksum="yes" />
-                            <File Id="ConcordiumSmartContractEngineDLL" Name="concordium_smart_contract_engine.dll" Source="!(bindpath.contractlib)concordium_smart_contract_engine.dll" Checksum="yes" />
+                            <File Id="NodeRustLibraryDLL" Name="node_rust_library.dll" Source="!(bindpath.rustlib)node_rust_library.dll" />
                         </Component>
                         <Component Id="NodeCollector" Guid="95747611-1415-483c-9f0a-6f9b78fb22af">
                             <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.collector)node-collector.exe" Checksum="yes" KeyPath="yes" />

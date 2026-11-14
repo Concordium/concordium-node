@@ -78,7 +78,7 @@ createGlobalState dbDir = do
     accountMap <- LMDBAccountMap.openDatabase (dbDir </> "accountmap")
     let
         n = 3
-        genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
+        genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection (dummyChainParameters @PV)
         config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") accountMap
     (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
     return (x, y)

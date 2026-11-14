@@ -83,7 +83,7 @@ invokeContract1 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Invoke an entrypoint and transfer to another instance. The before and after
 --  self-balances are different. The key difference from invokeContract1 test is
@@ -110,7 +110,7 @@ invokeContract2 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Invoke an entrypoint and transfer to an account.
 --  The before and after balances are different.
@@ -132,7 +132,7 @@ invokeContract3 ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 checkSuccess ::
     (MonadIO m) =>
@@ -244,7 +244,7 @@ invokeNestedSelfBalanceTest ccContract bs = do
                   ccEnergy = 1_000_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- A starts with 123
 -- account transfers 10 to A
