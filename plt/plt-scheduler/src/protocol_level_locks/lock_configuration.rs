@@ -184,7 +184,6 @@ pub fn from_cbor_config<C: EntityContextTypes>(
             cbor_config.expiry,
             grants,
             tokens,
-            cbor_config.keep_alive,
             cbor_config.memo,
             cbor_config.metadata,
         )
@@ -224,7 +223,6 @@ pub fn to_cbor_config<C: EntityContextTypes>(
         expiry: config.expiry,
         grants,
         tokens: config.tokens().to_vec(),
-        keep_alive: config.keep_alive,
         memo: config.memo.clone(),
         metadata: config.metadata.clone(),
     }))

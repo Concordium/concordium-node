@@ -110,7 +110,7 @@ makeFixture count funded = do
     thawed <- BS.thawBlockState accountState
     withCapital <- BS.bsoSetNextCapitalDistribution thawed (makeCapitalDistribution [(0, 1_000_000, [])] [])
     initialState <- BS.freezeBlockState =<< BS.bsoRotateCurrentCapitalDistribution withCapital
-    -- Create the token and a keep-alive lock configuration expiring at 10 seconds.
+    -- Create the token and a lock configuration expiring at 10 seconds.
     let tokenParams =
             CBOR.TokenInitializationParameters
                 { tipName = Just "Lock token",
@@ -135,7 +135,6 @@ makeFixture count funded = do
                                 (CBOR.accountTokenHolder ownerAddress)
                                 (Seq.singleton Locks.LockControllerSimpleV0Fund),
                       lcsv0Tokens = Seq.singleton token,
-                      lcsv0KeepAlive = True,
                       lcsv0Memo = Nothing,
                       lcsv0Metadata = Nothing
                     }

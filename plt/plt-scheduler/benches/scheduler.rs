@@ -373,19 +373,16 @@ fn unscoped_payload(operations: Vec<Operation>) -> Payload {
 /// - `sender`: Account receiving the requested controller capabilities.
 /// - `token_id`: Token accepted by the lock.
 /// - `roles`: Controller capabilities granted to the sender.
-/// - `keep_alive`: Whether an empty lock remains in state.
 fn lock_config(
     sender: concordium_base::base::AccountIndex,
     token_id: TokenId,
     roles: Vec<LockControllerSimpleV0Capability>,
-    keep_alive: bool,
 ) -> utils::CreateLockSimpleConfig {
     utils::CreateLockSimpleConfig {
         recipients: vec![sender],
         grants: vec![LockControllerSimpleV0Grant::new(sender, roles)],
         tokens: vec![token_id],
         expiry: 1_804_806_000,
-        keep_alive,
     }
 }
 
@@ -394,10 +391,8 @@ fn lock_config(
 /// # Arguments
 ///
 /// - `roles`: Controller capabilities granted to the sender.
-/// - `keep_alive`: Whether the prepared lock remains after its balances are drained.
 fn lock_fixture(
     roles: Vec<LockControllerSimpleV0Capability>,
-    keep_alive: bool,
 ) -> (
     StubbedEntityContext,
     BlockStateLatest,
@@ -429,7 +424,7 @@ fn lock_fixture(
         &mut context,
         &mut state,
         &lock_id,
-        lock_config(sender, token_id.clone(), roles, keep_alive),
+        lock_config(sender, token_id.clone(), roles),
     );
     (context, state, sender, token_id, lock_id)
 }
@@ -449,7 +444,6 @@ fn prepare_lock_create(count: usize) -> Fixture {
         expiry: 1_804_806_000.into(),
         grants: vec![],
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -505,7 +499,6 @@ fn prepare_empty_lock_cancellation(count: usize) -> EmptyLockCancellationFixture
         expiry: 1.into(),
         grants: vec![],
         tokens: vec![],
-        keep_alive: true,
         memo: None,
         metadata: None,
     });
@@ -687,7 +680,6 @@ fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
             expiry: 1_804_806_000.into(),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         }))
@@ -741,7 +733,7 @@ fn create_lock_recipients_shuffled(bencher: Bencher, count: usize) {
 /// - `existing_reference`: Whether setup first funds the same `(account, token)` pair.
 fn prepare_lock_fund(existing_reference: bool) -> Fixture {
     let (mut context, mut state, sender, token_id, lock_id) =
-        lock_fixture(vec![LockControllerSimpleV0Capability::Fund], true);
+        lock_fixture(vec![LockControllerSimpleV0Capability::Fund]);
     if existing_reference {
         let sender_address = context.external.account_canonical_address(sender);
         let payload = unscoped_payload(vec![
@@ -788,10 +780,8 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
     } else {
         LockControllerSimpleV0Capability::Send
     };
-    let (mut context, mut state, sender, token_id, lock_id) = lock_fixture(
-        vec![LockControllerSimpleV0Capability::Fund, capability],
-        true,
-    );
+    let (mut context, mut state, sender, token_id, lock_id) =
+        lock_fixture(vec![LockControllerSimpleV0Capability::Fund, capability]);
     let sender_address = context.external.account_canonical_address(sender);
     let result = state.execute_transaction(
         &mut context,

@@ -69,7 +69,6 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
-        keep_alive: false,
     };
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
     utils::lock_balance(
@@ -104,7 +103,6 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
                 }
             ],
             tokens: vec![token_id.clone()],
-            keep_alive: false,
             memo: None,
             metadata: None
         })
@@ -116,7 +114,6 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         assert_eq!(simple.grants[0].account, CborHolderAccount::from(funding_addr));
         assert_eq!(simple.grants[0].roles, vec![LockControllerSimpleV0Capability::Fund]);
         assert_eq!(simple.tokens, vec![token_id.clone()]);
-        assert!(!simple.keep_alive);
         assert!(simple.memo.is_none());
     });
     assert_eq!(decoded.funds.len(), 1);
@@ -174,7 +171,6 @@ fn test_query_lock_info_any_recipient() {
                         },
                     ],
                     tokens: vec![token_id.clone()],
-                    keep_alive: false,
                     memo: None,
                     metadata: Some(metadata.encode_raw_cbor()),
                 },
@@ -275,7 +271,6 @@ fn test_discovery_grant_membership_exclusions_and_no_matches() {
                 TransactionTime::from(1_804_806_000),
                 grants,
                 vec![],
-                true,
                 None,
                 None,
             )

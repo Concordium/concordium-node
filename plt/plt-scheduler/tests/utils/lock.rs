@@ -21,7 +21,6 @@ pub struct CreateLockSimpleConfig {
     pub grants: Vec<LockControllerSimpleV0Grant>,
     pub tokens: Vec<TokenId>,
     pub expiry: u64,
-    pub keep_alive: bool,
 }
 
 /// Create a lock in the block state.
@@ -63,7 +62,6 @@ pub fn create_lock(
                 expiry: TransactionTime::from(config.expiry),
                 grants,
                 tokens: config.tokens,
-                keep_alive: config.keep_alive,
                 memo: None,
                 metadata: None,
             }))
