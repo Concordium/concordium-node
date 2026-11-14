@@ -278,7 +278,7 @@ fn test_create_lock() {
     );
 
     block_state
-        .create_lock(&context, &lock_id, configuration.clone())
+        .create_lock(&context, &lock_id, configuration.clone(), 0.into())
         .unwrap();
 
     // Read configuration
@@ -291,7 +291,7 @@ fn test_create_lock() {
         .into_owned();
     assert_eq!(read_configuration, configuration);
 
-    let duplicate = block_state.create_lock(&context, &lock_id, configuration.clone());
+    let duplicate = block_state.create_lock(&context, &lock_id, configuration.clone(), 0.into());
     assert!(duplicate.is_err(), "creating a duplicate lock ID must fail");
     assert_eq!(
         block_state
@@ -331,7 +331,7 @@ fn test_lock_by_id() {
     );
 
     block_state
-        .create_lock(&context, &lock_id, configuration)
+        .create_lock(&context, &lock_id, configuration, 0.into())
         .unwrap();
 
     // Get lock by id
@@ -382,7 +382,7 @@ fn lock_balance_references_are_unique_ordered_and_removable() {
     );
 
     block_state
-        .create_lock(&context, &lock_id, configuration)
+        .create_lock(&context, &lock_id, configuration, 0.into())
         .unwrap();
     let mut lock = block_state
         .lock_by_id(&context, &lock_id)
@@ -455,7 +455,7 @@ fn test_create_and_delete_lock() {
     );
 
     block_state
-        .create_lock(&context, &lock_id, configuration)
+        .create_lock(&context, &lock_id, configuration, 0.into())
         .unwrap();
 
     // Verify lock exists
@@ -532,10 +532,10 @@ fn test_lock_list() {
         .unwrap(),
     );
     block_state
-        .create_lock(&context, &lock_id_a, configuration_a)
+        .create_lock(&context, &lock_id_a, configuration_a, 0.into())
         .unwrap();
     block_state
-        .create_lock(&context, &lock_id_b, configuration_b)
+        .create_lock(&context, &lock_id_b, configuration_b, 0.into())
         .unwrap();
     assert_eq!(
         block_state.lock_list(&context).unwrap(),

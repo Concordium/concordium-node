@@ -69,6 +69,7 @@ fn execute_lock_create_with_duration(
             sender_account_address: account,
             transaction_sequence_number: 1.into(),
             block_timestamp: block_timestamp.into(),
+            block_height: 0.into(),
         },
         Account::from_existing_account(account_index),
         Payload::TokenUpdate {
@@ -158,7 +159,8 @@ fn test_create_simple_lock() {
                 energy_limit: Energy::from(u64::MAX),
                 sender_account_address: account_1,
                 transaction_sequence_number: 1.into(),
-                block_timestamp: 0.into(),
+                block_timestamp: 1234.into(),
+                block_height: 5678.into(),
             },
             account_index_1,
             Payload::TokenUpdate {
@@ -211,6 +213,73 @@ fn test_create_simple_lock() {
         ]
     );
     assert_eq!(controller.tokens(), &[plt_x]);
+    let index = block_state.lock_expiry_index(&context).unwrap();
+    let keys = index
+        .iter(&context.store)
+        .map(|entry| entry.unwrap().0)
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].expiry, TransactionTime::from_seconds(1000));
+    assert_eq!(keys[0].created_at_height, 5678.into());
+    assert_eq!(keys[0].lock_id, lock_id);
+}
+
+#[test]
+fn test_create_locks_orders_equal_expiries_by_absolute_height() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut block_state = BlockStateLatest::default();
+    let lower_account = context.external.create_account().account_index();
+    let higher_account = context.external.create_account().account_index();
+    let earlier_lock = LockId::new(higher_account, 1, 0);
+    let later_lock = LockId::new(lower_account, 1, 0);
+    assert!(later_lock < earlier_lock);
+
+    for (account_index, height) in [(higher_account, 1234_u64), (lower_account, 1235)] {
+        let account = context.external.account_canonical_address(account_index);
+        let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+            recipients: LockRecipients::Any,
+            expiry: TransactionTime::from_seconds(1000),
+            grants: vec![],
+            tokens: vec![],
+            keep_alive: false,
+            memo: None,
+            metadata: None,
+        });
+        let payload = OperationsPayload {
+            operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
+                operations::create_lock(config),
+            )])),
+        };
+        let result = block_state
+            .execute_transaction(
+                &mut context,
+                plt_scheduler::TransactionContext {
+                    energy_limit: Energy::from(u64::MAX),
+                    sender_account_address: account,
+                    transaction_sequence_number: 1.into(),
+                    block_timestamp: 0.into(),
+                    block_height: height.into(),
+                },
+                account_index,
+                Payload::TokenUpdate {
+                    payload: TokenUpdatePayload::Unscoped(payload),
+                },
+            )
+            .expect("lock creation must succeed");
+        assert_matches!(result.outcome, TransactionOutcome::Success(_));
+    }
+
+    let index = block_state.lock_expiry_index(&context).unwrap();
+    let keys = index
+        .iter(&context.store)
+        .map(|entry| entry.unwrap().0)
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0].expiry, keys[1].expiry);
+    assert_eq!(keys[0].created_at_height, 1234.into());
+    assert_eq!(keys[1].created_at_height, 1235.into());
+    assert_eq!(keys[0].lock_id, earlier_lock);
+    assert_eq!(keys[1].lock_id, later_lock);
 }
 
 #[test]
@@ -279,6 +348,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
                 sender_account_address: account,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             account_index,
             Payload::TokenUpdate {
@@ -408,6 +478,7 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
                     sender_account_address: account_1,
                     transaction_sequence_number: sequence.into(),
                     block_timestamp: 0.into(),
+                    block_height: 0.into(),
                 },
                 account_index_1,
                 Payload::TokenUpdate {
@@ -488,6 +559,7 @@ fn test_expired_creation_charges_configuration_complexity() {
                 sender_account_address: address,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 1.into(),
+                block_height: 0.into(),
             },
             sender,
             Payload::TokenUpdate {
@@ -596,6 +668,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
             sender_account_address: account,
             transaction_sequence_number: 1.into(),
             block_timestamp: 0.into(),
+            block_height: 0.into(),
         },
         Account::from_existing_account(account_index),
         Payload::TokenUpdate {

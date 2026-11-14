@@ -203,7 +203,8 @@ defaultTestConfig =
 defaultContextState :: EI.ContextState
 defaultContextState =
     EI.ContextState
-        { _chainMetadata = DummyData.dummyChainMeta,
+        { _absoluteBlockHeight = 0,
+          _chainMetadata = DummyData.dummyChainMeta,
           _maxBlockEnergy = maxBound,
           _accountCreationLimit = maxBound
         }

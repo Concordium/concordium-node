@@ -5,7 +5,7 @@
 use crate::ffi::status;
 use crate::scheduler;
 use crate::transaction_execution::TransactionContext;
-use concordium_base::base::{AccountIndex, Energy, Nonce};
+use concordium_base::base::{AbsoluteBlockHeight, AccountIndex, Energy, Nonce};
 use concordium_base::contracts_common::{AccountAddress, Timestamp};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -61,6 +61,7 @@ pub type FfiSchedulerEntityContext =
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `transaction_sequence_number` The account sequence number (nonce) of the transaction to execute.
 /// - `block_timestamp` Timestamp of the block in which the transaction is executed.
+/// - `block_height` Absolute height of the block in which the transaction is executed.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 ///   The block state is only written if return value is [`status::FfiStatusCode::Success`].
@@ -106,6 +107,7 @@ extern "C" fn ffi_execute_transaction(
     sender_account_address: *const u8,
     transaction_sequence_number: Nonce,
     block_timestamp: Timestamp,
+    block_height: AbsoluteBlockHeight,
     remaining_energy: u64,
     block_state_out: *mut *mut PersistentBlockState,
     used_energy_out: *mut u64,
@@ -171,6 +173,7 @@ extern "C" fn ffi_execute_transaction(
             sender_account_address,
             transaction_sequence_number,
             block_timestamp,
+            block_height,
             energy_limit: remaining_energy,
         };
         let (result, new_block_state) = match unsafe { &*block_state } {
@@ -249,6 +252,95 @@ extern "C" fn ffi_execute_transaction(
     unsafe {
         *return_data_len_out = array.length;
         *return_data_out = array.array;
+    }
+    return_status
+}
+
+/// Cancel expired locks from a cloned input state using read-only external callbacks.
+///
+/// Every protocol accepted by Haskell's `supportsPLTLocks` requires automatic cancellation;
+/// extend this state dispatch when adding a lock-supporting protocol with a new state variant.
+///
+/// On success, publishes an owned state (free with `ffi_free_plt_block_state`), consumed
+/// energy, and existing serialized events. On fatal failure, only diagnostic bytes are returned.
+/// Free the returned buffer with `free_array_len_2` in either case.
+///
+/// # Safety
+/// The input must point to a valid P11 state, callbacks must be valid, and all output
+/// pointers must be non-null and writable for the duration of the call.
+#[unsafe(no_mangle)]
+extern "C" fn ffi_cancel_expired_locks(
+    load_callback: LoadCallback,
+    read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
+    get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
+    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
+    get_token_account_states_callback: GetTokenAccountStatesCallback,
+    block_state: *const PersistentBlockState,
+    block_timestamp: Timestamp,
+    remaining_energy: u64,
+    block_state_out: *mut *mut PersistentBlockState,
+    used_energy_out: *mut u64,
+    return_data_out: *mut *mut u8,
+    return_data_len_out: *mut size_t,
+) -> status::FfiStatusCode {
+    let (return_status, return_data) = status::catch_unwind(|| {
+        assert!(!block_state.is_null(), "block_state is a null pointer.");
+        assert!(
+            !block_state_out.is_null(),
+            "block_state_out is a null pointer."
+        );
+        assert!(
+            !used_energy_out.is_null(),
+            "used_energy_out is a null pointer."
+        );
+        assert!(
+            !return_data_out.is_null(),
+            "return_data_out is a null pointer."
+        );
+        assert!(
+            !return_data_len_out.is_null(),
+            "return_data_len_out is a null pointer."
+        );
+        let context = crate::ffi::queries::FfiQueryEntityContext {
+            external: ExternalBlockStateQueryCallbacks {
+                read_token_account_balance_ptr: read_token_account_balance_callback,
+                get_account_address_by_index_ptr: get_account_address_by_index_callback,
+                get_account_index_by_address_ptr: get_account_index_by_address_callback,
+                get_token_account_states_ptr: get_token_account_states_callback,
+            },
+            store: load_callback,
+        };
+        let PersistentBlockState::P11(persistent) = (unsafe { &*block_state }) else {
+            panic!("Automatic lock cancellation requires P11.");
+        };
+        let mut working = BlockStateP11 {
+            persistent: persistent.clone(),
+        };
+        let (used_energy, events) = crate::protocol_level_locks::p11::cancel_expired_locks(
+            &context,
+            &mut working,
+            block_timestamp,
+            Energy::from(remaining_energy),
+        )
+        .unwrap_or_else(|err| panic!("Automatic lock cancellation failed: {err}"));
+        let data = common::to_bytes(&events);
+        let updated = Box::new(PersistentBlockState::P11(working.persistent));
+        // Prepare all owned outputs before publishing any result to the caller.
+        let array = memory::alloc_array_from_vec(data);
+        unsafe {
+            *block_state_out = Box::into_raw(updated);
+            *used_energy_out = used_energy.energy;
+            *return_data_len_out = array.length;
+            *return_data_out = array.array;
+        }
+        (status::FfiStatusCode::Success, Vec::new())
+    });
+    if return_status != status::FfiStatusCode::Success {
+        let array = memory::alloc_array_from_vec(return_data);
+        unsafe {
+            *return_data_len_out = array.length;
+            *return_data_out = array.array;
+        }
     }
     return_status
 }
@@ -487,6 +579,7 @@ mod tests {
             ptr::null(),
             Nonce::from(1),
             Timestamp::from_timestamp_millis(0),
+            0.into(),
             0,
             ptr::null_mut(),
             ptr::null_mut(),
@@ -536,6 +629,7 @@ mod tests {
             sender_address.as_ptr(),
             Nonce::from(1),
             Timestamp::from_timestamp_millis(0),
+            0.into(),
             0,
             block_state_out,
             used_energy_out,

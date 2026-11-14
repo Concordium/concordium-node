@@ -1282,7 +1282,9 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                     maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
                     let context =
                             Env.ContextState
-                                { _chainMetadata = cm,
+                                { -- Consensus V0 cannot execute P11, so this height is unused.
+                                  _absoluteBlockHeight = 0,
+                                  _chainMetadata = cm,
                                   _maxBlockEnergy = maxBlockEnergy,
                                   _accountCreationLimit = accountCreationLim
                                 }
@@ -1362,7 +1364,9 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
             let maxBlockEnergy = gdMaxBlockEnergy genData
             let context =
                     Env.ContextState
-                        { _chainMetadata = cm,
+                        { -- Consensus V0 cannot execute P11, so this height is unused.
+                          _absoluteBlockHeight = 0,
+                          _chainMetadata = cm,
                           _maxBlockEnergy = maxBlockEnergy,
                           _accountCreationLimit = accountCreationLim
                         }

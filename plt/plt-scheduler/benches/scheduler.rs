@@ -18,7 +18,10 @@
 #[path = "../tests/utils/mod.rs"]
 mod utils;
 
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
+use concordium_base::constants::MAX_PAYLOAD_SIZE;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::{
     LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
 };
@@ -28,11 +31,12 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenId, TokenOperation, TokenOperationsPayload,
 };
-use concordium_base::transactions::{Payload, TokenUpdatePayload};
+use concordium_base::transactions::{Payload, PayloadLike, TokenUpdatePayload, construct, cost};
 use divan::Bencher;
 use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
 use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
 use plt_scheduler::scheduler::TransactionExecutionError;
+use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{TransactionExecutionSummary, TransactionOutcome};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 use utils::entity_traits::scheduler::SchedulerOperations;
@@ -41,6 +45,8 @@ use utils::{BlockStateLatest, TokenInitTestParams};
 const COUNTS: &[usize] = &[1, 3, 5, 10, 100, 1000];
 const EMPTY_COUNTS: &[usize] = &[0];
 const RECIPIENT_COUNTS: &[usize] = &[0, 1, 8, 64, 256, 1024];
+const EMPTY_LOCK_COUNTS: &[usize] = &[10_000, 30_000, 60_000];
+const EMPTY_LOCK_BATCH_SIZE: usize = 1_000;
 
 fn main() {
     divan::main();
@@ -458,6 +464,196 @@ fn prepare_lock_create(count: usize) -> Fixture {
                 .collect(),
         ),
     }
+}
+
+struct EmptyLockCancellationFixture {
+    context: StubbedEntityContext,
+    state: BlockStateLatest,
+    sender: AccountIndex,
+    transactions: Vec<(plt_scheduler::TransactionContext, Payload)>,
+    lock_ids: Vec<LockId>,
+    summaries: Vec<TransactionExecutionSummary>,
+}
+
+/// Bound each transaction to 1,000,000 NRG including its one-signature/header base charge.
+fn empty_lock_transaction_context(
+    sender: AccountAddress,
+    nonce: u64,
+    timestamp: u64,
+    payload: &Payload,
+) -> plt_scheduler::TransactionContext {
+    let payload_size = u32::from(payload.encode().size());
+    assert!(payload_size <= MAX_PAYLOAD_SIZE);
+    let base_energy = cost::base_cost(
+        construct::TRANSACTION_HEADER_SIZE + u64::from(payload_size),
+        1,
+    );
+    let mut transaction_context = utils::simple_transaction_context_with_nonce(sender, nonce);
+    transaction_context.energy_limit = Energy::from(1_000_000).checked_sub(base_energy).unwrap();
+    transaction_context.block_timestamp = timestamp.into();
+    transaction_context
+}
+
+/// Create the full backlog through bounded transactions, then encode its manual cancellations.
+fn prepare_empty_lock_cancellation(count: usize) -> EmptyLockCancellationFixture {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut state = BlockStateLatest::default();
+    let sender = context.external.create_account().account_index();
+    let sender_address = context.external.account_canonical_address(sender);
+    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+        recipients: LockRecipients::Any,
+        expiry: 1.into(),
+        grants: vec![],
+        tokens: vec![],
+        keep_alive: true,
+        memo: None,
+        metadata: None,
+    });
+    let mut lock_ids = Vec::with_capacity(count);
+    let mut nonce = 1;
+    while lock_ids.len() < count {
+        let batch_size = EMPTY_LOCK_BATCH_SIZE.min(count - lock_ids.len());
+        let payload = unscoped_payload(vec![
+            operations::create_lock(config.clone()).into();
+            batch_size
+        ]);
+        let transaction_context =
+            empty_lock_transaction_context(sender_address, nonce, 0, &payload);
+        let summary = state
+            .execute_transaction(&mut context, transaction_context, sender, payload)
+            .unwrap();
+        assert_eq!(
+            summary.energy_used,
+            cost::PLT_OPERATIONS_TRANSACTIONS
+                + Energy::from(cost::plt_lock_create(&config).energy * batch_size as u64),
+        );
+        let TransactionOutcome::Success(events) = summary.outcome else {
+            panic!("empty lock creation rejected");
+        };
+        assert_eq!(events.len(), batch_size);
+        for (order, event) in events.into_iter().enumerate() {
+            let BlockItemEvent::LockCreated(event) = event else {
+                panic!("expected lock creation event");
+            };
+            assert_eq!(event.lock_id, LockId::new(sender, nonce, order as u64));
+            lock_ids.push(event.lock_id);
+        }
+        nonce += 1;
+    }
+    assert_eq!(
+        state.lock_expiry_index(&context).unwrap().size(),
+        count as u64
+    );
+    for lock_id in &lock_ids {
+        assert_eq!(
+            state
+                .lock_by_id(&context, lock_id)
+                .unwrap()
+                .unwrap()
+                .lock_balance_ref_count(),
+            0,
+        );
+    }
+    let transactions: Vec<_> = lock_ids
+        .chunks(EMPTY_LOCK_BATCH_SIZE)
+        .map(|batch| {
+            let payload = unscoped_payload(
+                batch
+                    .iter()
+                    .map(|id| operations::cancel_lock(id.clone(), 0, None).into())
+                    .collect(),
+            );
+            let transaction_context =
+                empty_lock_transaction_context(sender_address, nonce, 1_001, &payload);
+            nonce += 1;
+            (transaction_context, payload)
+        })
+        .collect();
+    let summaries = Vec::with_capacity(transactions.len());
+    EmptyLockCancellationFixture {
+        context,
+        state,
+        sender,
+        transactions,
+        lock_ids,
+        summaries,
+    }
+}
+
+struct CheckedEmptyLockCancellation(EmptyLockCancellationFixture);
+
+impl Drop for CheckedEmptyLockCancellation {
+    fn drop(&mut self) {
+        // Divan drops returned outputs after stopping the sample timer.
+        let fixture = &self.0;
+        assert_eq!(
+            fixture.summaries.len(),
+            fixture.lock_ids.len().div_ceil(EMPTY_LOCK_BATCH_SIZE)
+        );
+        for (summary, batch) in fixture
+            .summaries
+            .iter()
+            .zip(fixture.lock_ids.chunks(EMPTY_LOCK_BATCH_SIZE))
+        {
+            assert_eq!(
+                summary.energy_used,
+                cost::PLT_OPERATIONS_TRANSACTIONS
+                    + Energy::from(cost::plt_lock_cancel(0).energy * batch.len() as u64),
+            );
+            let TransactionOutcome::Success(events) = &summary.outcome else {
+                panic!("empty lock cancellation rejected");
+            };
+            assert_eq!(events.len(), batch.len());
+            for (event, lock_id) in events.iter().zip(batch) {
+                let BlockItemEvent::LockDestroyed(event) = event else {
+                    panic!("expected only lock destruction events");
+                };
+                assert_eq!(&event.lock_id, lock_id);
+                assert!(
+                    fixture
+                        .state
+                        .lock_by_id(&fixture.context, lock_id)
+                        .unwrap()
+                        .is_err()
+                );
+            }
+        }
+        assert_eq!(
+            fixture
+                .state
+                .lock_expiry_index(&fixture.context)
+                .unwrap()
+                .size(),
+            0
+        );
+    }
+}
+
+/// Measure manual cancellation of an expired empty backlog, including index updates and events.
+///
+/// Setup, payload encoding, result validation, and final teardown are outside timing. Execution
+/// includes CBOR decoding, transaction dispatch, state mutation, and event allocation/retention;
+/// signature/header verification, disk flushing, and Haskell special outcomes are not measured.
+#[divan::bench(args = EMPTY_LOCK_COUNTS, sample_size = 1)]
+fn cancel_empty_locks(bencher: Bencher, count: usize) {
+    bencher
+        .with_inputs(|| prepare_empty_lock_cancellation(count))
+        .bench_local_values(|mut fixture| {
+            for (transaction_context, payload) in fixture.transactions.drain(..) {
+                fixture.summaries.push(
+                    fixture
+                        .state
+                        .execute_transaction(
+                            &mut fixture.context,
+                            transaction_context,
+                            fixture.sender,
+                            payload,
+                        )
+                        .unwrap(),
+                );
+            }
+            CheckedEmptyLockCancellation(fixture)
+        });
 }
 
 /// Prepare one lock with a fixed population of 1025 accounts.

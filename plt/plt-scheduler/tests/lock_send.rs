@@ -58,6 +58,7 @@ macro_rules! execute_unscoped_update {
                     sender_account_address: sender_addr,
                     transaction_sequence_number: 1.into(),
                     block_timestamp: $timestamp.into(),
+                    block_height: 0.into(),
                 },
                 $sender,
                 payload,
@@ -224,6 +225,28 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
     .expect("lock info must decode");
     assert_eq!(lock_info.funds.len(), 1);
     assert_eq!(lock_info.funds[0].amounts[0].amount.value(), 150);
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 1);
+
+    let summary = execute_unscoped_update!(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        0,
+        vec![operations::send_locked_tokens(
+            token_id,
+            lock_id.clone(),
+            sender_addr,
+            recipient_addr,
+            TokenAmount::from_raw(150, 4),
+            None,
+        )],
+    );
+    let events = assert_matches!(summary.outcome, TransactionOutcome::Success(events) => events);
+    assert_matches!(events.last(), Some(BlockItemEvent::LockDestroyed(event)) => {
+        assert_eq!(event.lock_id, lock_id);
+    });
+    assert!(block_state.lock_by_id(&context, &lock_id).unwrap().is_err());
+    assert_eq!(block_state.lock_expiry_index(&context).unwrap().size(), 0);
 }
 #[test]
 fn test_lock_send_allows_any_recipient() {

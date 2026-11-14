@@ -190,6 +190,7 @@ fn test_query_lock_info_any_recipient() {
                 sender_account_address: sender_addr,
                 transaction_sequence_number: 1.into(),
                 block_timestamp: 0.into(),
+                block_height: 0.into(),
             },
             owner.account_index(),
             Payload::TokenUpdate {
@@ -280,7 +281,7 @@ fn test_discovery_grant_membership_exclusions_and_no_matches() {
             )
             .unwrap(),
         );
-        state.create_lock(&context, &id, config).unwrap();
+        state.create_lock(&context, &id, config, 0.into()).unwrap();
     }
     let token_id: TokenId = "DiscoveryToken".parse().unwrap();
     utils::create_and_init_token_p11(
