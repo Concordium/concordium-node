@@ -11,12 +11,12 @@ use tonic::transport::{channel::Channel, ClientTlsConfig};
 #[macro_use]
 extern crate log;
 
-//added more allow here as some generated code invoked warnings
 #[allow(
+    unused,
     clippy::large_enum_variant,
     clippy::enum_variant_names,
-    dead_code,
-    clippy::doc_overindented_list_items
+    clippy::doc_overindented_list_items,
+    clippy::result_large_err
 )]
 mod grpc {
     mod plt {
@@ -481,7 +481,7 @@ impl FromStr for NodeName {
 
 impl fmt::Display for NodeName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.0[..].join(" "))
+        write!(f, "{}", self.0[..].join(" "))
     }
 }
 

@@ -22,7 +22,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.ID.Types as ID
 import qualified Concordium.Scheduler as Scheduler
 import Concordium.Scheduler.DummyData
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
+import qualified Concordium.Scheduler.Environment as EI
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types

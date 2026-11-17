@@ -242,7 +242,7 @@ runAddDelegatorTest spv dtc@DelegatorTestConfig{..} da@DelegatorAdd{..} = runTes
   where
     flexibleCooldown = sSupportsFlexibleCooldown (sAccountVersionFor spv)
     chainParams =
-        DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
+        DummyData.dummyChainParameters @pv
             & cpPoolParameters . ppCapitalBound .~ dtcCapitalBound
             & cpPoolParameters . ppLeverageBound .~ dtcLeverageBound
     mkInitialState accounts =
@@ -435,7 +435,7 @@ runUpdateDelegatorTest spv dtc@DelegatorTestConfig{..} du@DelegatorUpdate{..} = 
   where
     flexibleCooldown = sSupportsFlexibleCooldown (sAccountVersionFor spv)
     chainParams =
-        DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
+        DummyData.dummyChainParameters @pv
             & cpPoolParameters . ppCapitalBound .~ dtcCapitalBound
             & cpPoolParameters . ppLeverageBound .~ dtcLeverageBound
     (oldCapital, oldRestake, oldTarget, oldPendingChange) =

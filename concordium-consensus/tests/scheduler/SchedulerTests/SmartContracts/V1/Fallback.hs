@@ -94,7 +94,7 @@ invokeContract1 ccContract bs = do
                   ccEnergy = 1_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 -- | Invoke "two.do" via "one.do" and the fallback.
 invokeContract2 ::
@@ -112,7 +112,7 @@ invokeContract2 ccContract bs = do
                   ccEnergy = 1_000_000,
                   ..
                 }
-    InvokeContract.invokeContract ctx cm bs
+    InvokeContract.invokeContract 0 ctx cm bs
 
 runFallbackTests :: Assertion
 runFallbackTests = do

@@ -578,7 +578,7 @@ migrateModules migration mods = do
                     StateMigrationParametersP7ToP8{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
                     StateMigrationParametersP8ToP9{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
                     StateMigrationParametersP9ToP10{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-
+                    StateMigrationParametersP10ToP11{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
         -- store the module into the new state, and remove it from memory
         makeFlushedHashedCachedRef $!
             mkModule (getWasmVersion @v) $!
