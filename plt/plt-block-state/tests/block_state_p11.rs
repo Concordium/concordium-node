@@ -270,7 +270,6 @@ fn test_create_lock() {
                 ],
             )],
             vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-            true,
             Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             Some(metadata),
         )
@@ -323,7 +322,6 @@ fn test_lock_by_id() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            false,
             None,
             None,
         )
@@ -374,7 +372,6 @@ fn lock_balance_references_are_unique_ordered_and_removable() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            false,
             None,
             None,
         )
@@ -447,7 +444,6 @@ fn test_create_and_delete_lock() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            false,
             None,
             None,
         )
@@ -507,7 +503,6 @@ fn test_lock_list() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            false,
             None,
             None,
         )
@@ -525,7 +520,6 @@ fn test_lock_list() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            false,
             None,
             None,
         )

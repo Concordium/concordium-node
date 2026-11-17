@@ -346,12 +346,9 @@ fn execute_lock_send<C: EntityContextTypes>(
         remove_lock_balance_ref(
             context,
             block_state,
-            events,
-            lock_configuration_keeps_alive(&lock_configuration),
             lock,
             source.account_index(),
             token_configuration.token_id.clone(),
-            details.lock,
         )?;
     }
 
@@ -420,12 +417,9 @@ fn execute_lock_release<C: EntityContextTypes>(
         remove_lock_balance_ref(
             context,
             block_state,
-            events,
-            lock_configuration_keeps_alive(&lock_configuration),
             lock,
             source.account_index(),
             token_configuration.token_id.clone(),
-            details.lock,
         )?;
     }
 
@@ -591,35 +585,18 @@ fn cancel_lock<C: EntityContextTypes>(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn remove_lock_balance_ref<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &mut BlockStateP11,
-    events: &mut Vec<BlockItemEvent>,
-    lock_keeps_alive: bool,
     mut lock: plt_block_state::entity::protocol_level_locks::p11::LockP11,
     account_index: AccountIndex,
     token_id: TokenId,
-    lock_id: LockId,
 ) -> ResultWithBlockStateFailure<(), TransactionRejectReason> {
     if !lock.remove_lock_balance_ref(context, account_index, token_id)? {
         // No lock state change needed: either the account still holds a non-zero balance
         // controlled by the lock, or there was no balance reference to remove.
         return Ok(());
     }
-    if lock.has_no_balance_refs() && !lock_keeps_alive {
-        block_state.delete_lock(context, &lock_id)?;
-        events.push(BlockItemEvent::LockDestroyed(events::LockDestroyEvent {
-            lock_id,
-        }));
-    } else {
-        block_state.update_lock(context, lock)?;
-    }
+    block_state.update_lock(context, lock)?;
     Ok(())
-}
-
-fn lock_configuration_keeps_alive(configuration: &LockConfig) -> bool {
-    match &configuration {
-        LockConfig::SimpleV0(config) => config.keep_alive,
-    }
 }

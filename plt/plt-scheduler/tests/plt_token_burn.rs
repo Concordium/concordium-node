@@ -230,7 +230,6 @@ fn test_burn_insufficient_available_balance() {
             )],
             tokens: vec![token_id.clone()],
             expiry: 1_804_806_000,
-            keep_alive: false,
         },
     );
     utils::lock_balance(

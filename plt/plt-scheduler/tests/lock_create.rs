@@ -52,7 +52,6 @@ fn execute_lock_create_with_duration(
         expiry: TransactionTime::from_seconds(expiry_seconds),
         grants: vec![],
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -133,7 +132,6 @@ fn test_create_simple_lock() {
             ],
         }],
         tokens: vec!["PLTx".parse().unwrap()],
-        keep_alive: false,
         memo: None,
         metadata: Some(metadata.encode_raw_cbor()),
     });
@@ -183,6 +181,10 @@ fn test_create_simple_lock() {
         "a16873696d706c655630a566657870697279c11903e8666772616e747381a265726f6c6573846466756e646772656c656173656473656e646663616e63656c676163636f756e74d99d73a201d99d71a101190397035820000000000000000000000000000000000000000000000000000000000000000066746f6b656e738164706c7458686d65746164617461584ea3646e616d656954657374206c6f636b666973737565726a436f6e636f726469756d6b6465736372697074696f6e781e4c6f636b206372656174656420696e207363686564756c657220746573746a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
     );
     let lock_id = LockId::new(account_index_1, 1, 0);
+    let queried = block_state.query_lock_info(&context, &lock_id).unwrap();
+    let info: concordium_base::protocol_level_locks::LockInfo =
+        cbor::cbor_decode(&queried).unwrap();
+    assert_eq!(info.config, canonical_config);
     assert_eq!(
         events[0],
         BlockItemEvent::LockCreated(LockCreateEvent {
@@ -241,7 +243,6 @@ fn test_create_locks_orders_equal_expiries_by_absolute_height() {
             expiry: TransactionTime::from_seconds(1000),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         });
@@ -309,7 +310,6 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
         ],
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -330,7 +330,6 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         recipients: LockRecipients::Any,
         expiry: TransactionTime::from_seconds(1_000),
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -446,7 +445,6 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
         tokens: vec![plt_a.clone(), plt_x.clone()],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -547,7 +545,6 @@ fn test_expired_creation_charges_configuration_complexity() {
             roles: vec![LockControllerSimpleV0Capability::Fund],
         }],
         tokens: vec![token_id],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -649,7 +646,6 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
             expiry: TransactionTime::from_seconds(expiry),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         })

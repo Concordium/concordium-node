@@ -184,7 +184,6 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
                 grants: vec![],
                 tokens: vec![],
                 expiry: 1_804_806_000,
-                keep_alive: false,
             },
         );
         assert!(matches!(state.lock_by_id(&context, &lock_id), Ok(Ok(_))));
@@ -194,7 +193,6 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
         expiry: 1_804_806_000.into(),
         grants: vec![],
         tokens: vec![],
-        keep_alive: false,
         memo: None,
         metadata: None,
     });
@@ -282,7 +280,6 @@ fn prepare_lock_balance_operation(
             )],
             tokens: token_ids.clone(),
             expiry: 1_804_806_000,
-            keep_alive: true,
         },
     );
     let mut first_balance = None;
@@ -506,7 +503,6 @@ fn prepare_lock_grants(
             grants,
             tokens: vec![token_id.clone()],
             expiry: 1_804_806_000,
-            keep_alive: true,
         },
     );
     utils::increment_account_balance_p11(

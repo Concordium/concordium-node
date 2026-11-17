@@ -72,7 +72,6 @@ fn order_skip_exact_fit_and_retry() {
                     })
                     .collect(),
                 vec![token_id.clone()],
-                false,
                 None,
                 None,
             )
@@ -194,14 +193,14 @@ fn order_skip_exact_fit_and_retry() {
     }
 }
 
-/// Empty locks require at least 100 NRG and strict expiry, regardless of keep-alive.
+/// Empty locks require at least 100 NRG and strict expiry.
 #[test]
-fn empty_locks_require_energy_budget_and_ignore_keep_alive_but_not_expiry() {
+fn empty_locks_require_energy_budget_and_strict_expiry() {
     // Empty cancellation needs neither a sender nor any external account mutations/queries.
     let context = entity_test_stub::new_no_external_context();
     let mut state = BlockStateLatest::default();
     let mut ids = Vec::new();
-    for (sequence, expiry, keep_alive) in [(1, 10, false), (2, 10, true), (3, 11, true)] {
+    for (sequence, expiry) in [(1, 10), (2, 11)] {
         let id = LockId::new(0, sequence, 0);
         state
             .create_lock(
@@ -213,7 +212,6 @@ fn empty_locks_require_energy_budget_and_ignore_keep_alive_but_not_expiry() {
                         expiry.into(),
                         vec![],
                         vec![],
-                        keep_alive,
                         None,
                         None,
                     )
@@ -229,7 +227,7 @@ fn empty_locks_require_energy_budget_and_ignore_keep_alive_but_not_expiry() {
             cancel_expired_locks(&context, &mut state, timestamp.into(), 300.into()).unwrap(),
             (Energy::from(0), vec![])
         );
-        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 2);
     }
     for remaining_energy in [0, 99] {
         assert_eq!(
@@ -237,20 +235,18 @@ fn empty_locks_require_energy_budget_and_ignore_keep_alive_but_not_expiry() {
                 .unwrap(),
             (Energy::from(0), vec![])
         );
-        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 3);
+        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 2);
     }
-    for id in &ids[..2] {
-        let (energy, events) =
-            cancel_expired_locks(&context, &mut state, 10_001.into(), 100.into()).unwrap();
-        assert_eq!(energy, Energy::from(100));
-        assert_eq!(
-            events,
-            vec![BlockItemEvent::LockDestroyed(LockDestroyEvent {
-                lock_id: id.clone()
-            })]
-        );
-    }
-    assert_eq!(state.lock_list(&context).unwrap(), vec![ids[2].clone()]);
+    let (energy, events) =
+        cancel_expired_locks(&context, &mut state, 10_001.into(), 100.into()).unwrap();
+    assert_eq!(energy, Energy::from(100));
+    assert_eq!(
+        events,
+        vec![BlockItemEvent::LockDestroyed(LockDestroyEvent {
+            lock_id: ids[0].clone()
+        })]
+    );
+    assert_eq!(state.lock_list(&context).unwrap(), vec![ids[1].clone()]);
     assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 1);
     assert_eq!(
         cancel_expired_locks(&context, &mut state, 10_001.into(), 0.into()).unwrap(),

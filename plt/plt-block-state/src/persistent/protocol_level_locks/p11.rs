@@ -277,8 +277,6 @@ pub struct LockConfigSimpleV0 {
     /// Tokens affected by this lock.
     #[size_length = 2]
     tokens: Vec<TokenId>,
-    /// Whether the lock should be kept alive after all funds are returned.
-    pub keep_alive: bool,
     /// Optional memo attached to the lock.
     pub memo: Option<CborMemo>,
     /// Optional raw CBOR-encoded user-facing lock metadata.
@@ -294,7 +292,6 @@ impl LockConfigSimpleV0 {
     /// * `expiry` - Time at which the lock expires.
     /// * `grants` - Capability grants controlling lock operations.
     /// * `tokens` - Resolved tokens in registered spelling, sorted and deduplicated before storage.
-    /// * `keep_alive` - Whether to retain an empty lock.
     /// * `memo` - Optional lock memo.
     /// * `metadata` - Optional opaque CBOR metadata.
     ///
@@ -307,7 +304,6 @@ impl LockConfigSimpleV0 {
         expiry: TransactionTime,
         mut grants: Vec<LockControllerSimpleV0Grant>,
         mut tokens: Vec<TokenId>,
-        keep_alive: bool,
         memo: Option<CborMemo>,
         metadata: Option<RawCbor>,
     ) -> Result<Self, ContainerSizeOverflow> {
@@ -329,7 +325,6 @@ impl LockConfigSimpleV0 {
             expiry,
             grants,
             tokens,
-            keep_alive,
             memo,
             metadata,
         })
@@ -372,7 +367,6 @@ impl Deserial for LockConfigSimpleV0 {
             expiry,
             grants,
             tokens: deserial_vector_no_length(source, count.into())?,
-            keep_alive: source.get()?,
             memo: source.get()?,
             metadata: source.get()?,
         })
@@ -491,7 +485,6 @@ mod test {
             TransactionTime::from(0),
             grants,
             vec![],
-            false,
             None,
             None,
         )
@@ -584,7 +577,6 @@ mod test {
                 TransactionTime::from(0),
                 vec![],
                 tokens,
-                false,
                 None,
                 None,
             )
@@ -606,7 +598,6 @@ mod test {
             TransactionTime::from(0),
             vec![],
             vec!["ExampleToken".parse().unwrap(); U16_MAX_LENGTH + 1],
-            false,
             None,
             None,
         )
@@ -668,7 +659,6 @@ mod test {
                 vec![LockControllerSimpleV0Capability::Fund],
             )],
             tokens: vec!["token1".parse().unwrap()],
-            keep_alive: true,
             memo: None,
             metadata: None,
         });
@@ -676,7 +666,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "000100020000000000000001000000000000000200000000000003e80001000000000000000101000106746f6b656e31010000"
+            "000100020000000000000001000000000000000200000000000003e80001000000000000000101000106746f6b656e310000"
         );
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
@@ -693,16 +683,12 @@ mod test {
 
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         });
 
         let bytes = common::to_bytes(&lock_config);
-        assert_eq!(
-            hex::encode(&bytes),
-            "0001000000000000000001f400000000000000"
-        );
+        assert_eq!(hex::encode(&bytes), "0001000000000000000001f4000000000000");
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
@@ -717,7 +703,6 @@ mod test {
             expiry: TransactionTime::from(500u64),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: Some(RawCbor::from(vec![
                 0xa1, 0x64, b'n', b'a', b'm', b'e', 0x64, b't', b'e', b's', b't',
@@ -727,7 +712,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "000000000000000001f4000000000000010000000ba1646e616d656474657374"
+            "000000000000000001f40000000000010000000ba1646e616d656474657374"
         );
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
@@ -741,7 +726,6 @@ mod test {
                 TransactionTime::from(1000),
                 Vec::new(),
                 Vec::new(),
-                false,
                 None,
                 None,
             )
@@ -929,7 +913,6 @@ mod test {
 
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         });
@@ -940,7 +923,7 @@ mod test {
         assert!(config.recipients.is_recipient(&AccountIndex::from(42u64)));
 
         let bytes = common::to_bytes(&lock_config);
-        assert_eq!(hex::encode(&bytes), "000000000000000001f400000000000000");
+        assert_eq!(hex::encode(&bytes), "000000000000000001f4000000000000");
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
@@ -976,7 +959,6 @@ mod test {
                 vec![LockControllerSimpleV0Capability::Fund],
             )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
-            keep_alive: true,
             memo: Some(CborMemo::Raw(
                 Memo::try_from(vec![0x01, 0x02, 0x03]).unwrap(),
             )),
@@ -986,7 +968,7 @@ mod test {
         let bytes = common::to_bytes(&controller);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000000000001000000000000000101000106746f6b656e31010100000301020300"
+            "0000000000000000000001000000000000000101000106746f6b656e310100000301020300"
         );
 
         let deserialized: LockConfigSimpleV0 =
@@ -1001,13 +983,12 @@ mod test {
             expiry: TransactionTime::from(0u64),
             grants: vec![],
             tokens: vec![],
-            keep_alive: false,
             memo: None,
             metadata: None,
         };
 
         let bytes = common::to_bytes(&controller);
-        assert_eq!(hex::encode(&bytes), "00000000000000000000000000000000");
+        assert_eq!(hex::encode(&bytes), "000000000000000000000000000000");
 
         let deserialized: LockConfigSimpleV0 =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
@@ -1052,7 +1033,6 @@ mod test {
                     .map(|i| LockControllerSimpleV0Grant::new(AccountIndex::from(i as u64), vec![]))
                     .collect(),
                 Vec::new(),
-                false,
                 None,
                 None,
             )
@@ -1066,7 +1046,6 @@ mod test {
                     .map(|i| LockControllerSimpleV0Grant::new(AccountIndex::from(i as u64), vec![]))
                     .collect(),
                 Vec::new(),
-                false,
                 None,
                 None,
             ),
@@ -1084,7 +1063,6 @@ mod test {
                 (0..U16_MAX_LENGTH)
                     .map(|i| format!("token{i}").parse().unwrap())
                     .collect(),
-                false,
                 None,
                 None,
             )
@@ -1098,7 +1076,6 @@ mod test {
                 (0..=U16_MAX_LENGTH)
                     .map(|i| format!("token{i}").parse().unwrap())
                     .collect(),
-                false,
                 None,
                 None,
             ),
@@ -1116,7 +1093,6 @@ mod test {
                     .map(|i| LockControllerSimpleV0Grant::new(AccountIndex::from(i as u64), vec![]))
                     .collect(),
                 vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
-                false,
                 None,
                 None,
             ),
@@ -1138,7 +1114,6 @@ mod test {
                 vec![LockControllerSimpleV0Capability::Fund],
             )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
-            keep_alive: true,
             memo: None,
             metadata: None,
         });
@@ -1146,7 +1121,7 @@ mod test {
         let bytes = common::to_bytes(&controller);
         assert_eq!(
             hex::encode(&bytes),
-            "000000000000000000000001000000000000000101000106746f6b656e31010000"
+            "000000000000000000000001000000000000000101000106746f6b656e310000"
         );
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
