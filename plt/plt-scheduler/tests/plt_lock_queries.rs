@@ -65,7 +65,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             funding_account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -85,7 +85,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         .expect("query_lock_info must succeed for an existing lock");
     assert_eq!(
         hex::encode(&bytes),
-        "a3646c6f636bd99fd8830101006566756e647381a2676163636f756e74d99d73a201d99d71a101190397035820000000000000000100000000000000000000000000000000000000000000000067616d6f756e747381a265746f6b656e6a546f6b656e4c6f636b4166616d6f756e74c48221186466636f6e666967a16873696d706c655630a466657870697279c11a6b932770666772616e747381a265726f6c6573816466756e64676163636f756e74d99d73a201d99d71a101190397035820000000000000000100000000000000000000000000000000000000000000000066746f6b656e73816a546f6b656e4c6f636b416a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
+        "a3646c6f636bd99fd8830101006566756e647381a2676163636f756e74d99d73a201d99d71a101190397035820000000000000000100000000000000000000000000000000000000000000000067616d6f756e747381a265746f6b656e6a546f6b656e4c6f636b4166616d6f756e74c48221186466636f6e666967a16873696d706c655630a466657870697279c11a6b932770666772616e747381a265726f6c65738164686f6c64676163636f756e74d99d73a201d99d71a101190397035820000000000000000100000000000000000000000000000000000000000000000066746f6b656e73816a546f6b656e4c6f636b416a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
     );
     let decoded: LockInfo =
         cbor::cbor_decode(&bytes).expect("CBOR encoding produced by query_lock_info must decode");
@@ -99,7 +99,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
             grants: vec![
                 concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                     account: CborHolderAccount::from(funding_addr),
-                    roles: vec![LockControllerSimpleV0Capability::Fund]
+                    roles: vec![LockControllerSimpleV0Capability::Hold]
                 }
             ],
             tokens: vec![token_id.clone()],
@@ -112,7 +112,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
         assert_eq!(simple.recipients, LockRecipients::Limited(vec![CborHolderAccount::from(recipient_addr)]));
         assert_eq!(simple.grants.len(), 1);
         assert_eq!(simple.grants[0].account, CborHolderAccount::from(funding_addr));
-        assert_eq!(simple.grants[0].roles, vec![LockControllerSimpleV0Capability::Fund]);
+        assert_eq!(simple.grants[0].roles, vec![LockControllerSimpleV0Capability::Hold]);
         assert_eq!(simple.tokens, vec![token_id.clone()]);
         assert!(simple.memo.is_none());
     });
@@ -167,7 +167,7 @@ fn test_query_lock_info_any_recipient() {
                     grants: vec![
                         concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
                             account: CborHolderAccount::from(sender_addr),
-                            roles: vec![LockControllerSimpleV0Capability::Fund],
+                            roles: vec![LockControllerSimpleV0Capability::Hold],
                         },
                     ],
                     tokens: vec![token_id.clone()],
@@ -225,7 +225,7 @@ fn test_query_lock_info_unknown_lock() {
 /// Membership is independent of authorization and all other account relationships.
 #[test]
 fn test_discovery_grant_membership_exclusions_and_no_matches() {
-    use LockControllerSimpleV0Capability::{Cancel, Fund, Release, Send};
+    use LockControllerSimpleV0Capability::{Cancel, Hold, Release, Send};
     use plt_block_state::persistent::protocol_level_locks::p11 as persistent;
     use plt_scheduler::protocol_level_locks::p11::query_locks_by_account;
 
@@ -236,12 +236,12 @@ fn test_discovery_grant_membership_exclusions_and_no_matches() {
     let absent = context.external.create_account().account_index();
     let balance_holder = context.external.create_account().account_index();
     let roles = [
-        vec![Fund],       // A Fund grant matches.
+        vec![Hold],       // A Hold grant matches.
         vec![Release],    // A Release grant matches.
         vec![Send],       // A Send grant matches.
         vec![Cancel],     // A Cancel grant matches.
         vec![],           // A grant with no capabilities still matches.
-        vec![Fund, Send], // Multiple capabilities still yield one match.
+        vec![Hold, Send], // Multiple capabilities still yield one match.
     ];
     let mut matching = Vec::new();
     // Odd locks have target as creator and recipient, but not in their grants.
@@ -263,7 +263,7 @@ fn test_discovery_grant_membership_exclusions_and_no_matches() {
                 LockControllerSimpleV0Grant::new(target, vec![]),
             ]
         } else {
-            vec![LockControllerSimpleV0Grant::new(other, vec![Fund])]
+            vec![LockControllerSimpleV0Grant::new(other, vec![Hold])]
         };
         let config = persistent::LockConfig::SimpleV0(
             persistent::LockConfigSimpleV0::new(

@@ -129,7 +129,7 @@ fn test_lock_send_moves_locked_funds_to_recipient() {
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -265,7 +265,7 @@ fn test_lock_send_allows_any_recipient() {
             grants: vec![CborLockControllerSimpleV0Grant {
                 account: CborHolderAccount::from(owner_addr),
                 roles: vec![
-                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Hold,
                     LockControllerSimpleV0Capability::Send,
                 ],
             }],
@@ -312,7 +312,7 @@ fn test_lock_send_allows_any_recipient() {
             grants: vec![CborLockControllerSimpleV0Grant {
                 account: CborHolderAccount::from(owner_addr),
                 roles: vec![
-                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Hold,
                     LockControllerSimpleV0Capability::Send
                 ]
             }],
@@ -354,7 +354,7 @@ fn test_lock_send_rejects_non_recipient() {
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -460,7 +460,7 @@ fn test_lock_send_sender_not_in_allow_list() {
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -578,7 +578,7 @@ fn test_lock_send_recipient_not_in_allow_list() {
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -673,7 +673,7 @@ fn test_lock_send_sender_in_deny_list() {
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -777,7 +777,7 @@ fn test_lock_send_recipient_in_deny_list() {
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -878,7 +878,7 @@ fn test_lock_send_rejects_when_token_paused() {
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],
@@ -976,7 +976,7 @@ fn test_lock_send_rejects_unauthorized_sender() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -1054,7 +1054,7 @@ fn test_lock_send_rejects_after_expiry() {
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Send,
             ],
         )],

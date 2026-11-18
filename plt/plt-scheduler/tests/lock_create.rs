@@ -124,11 +124,11 @@ fn test_create_simple_lock() {
             account: account_1.into(),
             roles: vec![
                 LockControllerSimpleV0Capability::Cancel,
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Cancel,
                 LockControllerSimpleV0Capability::Send,
                 LockControllerSimpleV0Capability::Release,
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
             ],
         }],
         tokens: vec!["PLTx".parse().unwrap()],
@@ -139,7 +139,7 @@ fn test_create_simple_lock() {
     let LockConfig::SimpleV0(controller) = &mut canonical_config;
     controller.tokens = vec![plt_x.clone()];
     controller.grants[0].roles = vec![
-        LockControllerSimpleV0Capability::Fund,
+        LockControllerSimpleV0Capability::Hold,
         LockControllerSimpleV0Capability::Release,
         LockControllerSimpleV0Capability::Send,
         LockControllerSimpleV0Capability::Cancel,
@@ -178,7 +178,7 @@ fn test_create_simple_lock() {
     };
     assert_eq!(
         hex::encode(&event.lock_config),
-        "a16873696d706c655630a566657870697279c11903e8666772616e747381a265726f6c6573846466756e646772656c656173656473656e646663616e63656c676163636f756e74d99d73a201d99d71a101190397035820000000000000000000000000000000000000000000000000000000000000000066746f6b656e738164706c7458686d65746164617461584ea3646e616d656954657374206c6f636b666973737565726a436f6e636f726469756d6b6465736372697074696f6e781e4c6f636b206372656174656420696e207363686564756c657220746573746a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
+        "a16873696d706c655630a566657870697279c11903e8666772616e747381a265726f6c65738464686f6c646772656c656173656473656e646663616e63656c676163636f756e74d99d73a201d99d71a101190397035820000000000000000000000000000000000000000000000000000000000000000066746f6b656e738164706c7458686d65746164617461584ea3646e616d656954657374206c6f636b666973737565726a436f6e636f726469756d6b6465736372697074696f6e781e4c6f636b206372656174656420696e207363686564756c657220746573746a726563697069656e747381d99d73a201d99d71a1011903970358200000000000000000000000000000000000000000000000000000000000000000"
     );
     let lock_id = LockId::new(account_index_1, 1, 0);
     let queried = block_state.query_lock_info(&context, &lock_id).unwrap();
@@ -208,7 +208,7 @@ fn test_create_simple_lock() {
     assert_eq!(
         controller.grants()[0].roles(),
         [
-            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Hold,
             LockControllerSimpleV0Capability::Release,
             LockControllerSimpleV0Capability::Send,
             LockControllerSimpleV0Capability::Cancel,
@@ -306,7 +306,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             },
             LockControllerSimpleV0Grant {
                 account: account.into(),
-                roles: vec![LockControllerSimpleV0Capability::Fund; 256],
+                roles: vec![LockControllerSimpleV0Capability::Hold; 256],
             },
         ],
         tokens: vec![],
@@ -318,7 +318,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
             LockControllerSimpleV0Grant {
                 account: account.into(),
                 roles: vec![
-                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Hold,
                     LockControllerSimpleV0Capability::Send,
                 ],
             },
@@ -390,7 +390,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
     assert_eq!(
         controller.grants()[0].roles(),
         [
-            LockControllerSimpleV0Capability::Fund,
+            LockControllerSimpleV0Capability::Hold,
             LockControllerSimpleV0Capability::Send
         ]
     );
@@ -442,7 +442,7 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
         expiry: TransactionTime::from_seconds(1000),
         grants: vec![LockControllerSimpleV0Grant {
             account: account_1.into(),
-            roles: vec![LockControllerSimpleV0Capability::Fund],
+            roles: vec![LockControllerSimpleV0Capability::Hold],
         }],
         tokens: vec![plt_a.clone(), plt_x.clone()],
         memo: None,
@@ -542,7 +542,7 @@ fn test_expired_creation_charges_configuration_complexity() {
         expiry: TransactionTime::from_seconds(0),
         grants: vec![LockControllerSimpleV0Grant {
             account: address.into(),
-            roles: vec![LockControllerSimpleV0Capability::Fund],
+            roles: vec![LockControllerSimpleV0Capability::Hold],
         }],
         tokens: vec![token_id],
         memo: None,

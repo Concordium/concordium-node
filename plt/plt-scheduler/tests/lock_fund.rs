@@ -112,7 +112,7 @@ fn test_lock_fund_updates_account_and_lock_state() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -183,7 +183,8 @@ fn test_lock_fund_persists_canonical_references_for_multiple_tokens() {
     let recipient = context.external.create_account();
     let first_token_id: TokenId = "pltX".parse().unwrap();
     let second_token_id: TokenId = "TokenY".parse().unwrap();
-    for token_id in [&first_token_id, &second_token_id] {
+    let excluded_token_id: TokenId = "TokenZ".parse().unwrap();
+    for token_id in [&first_token_id, &second_token_id, &excluded_token_id] {
         utils::create_and_init_token_p11(
             &mut context,
             &mut block_state,
@@ -210,7 +211,7 @@ fn test_lock_fund_persists_canonical_references_for_multiple_tokens() {
             recipients: vec![recipient.account_index()],
             grants: vec![LockControllerSimpleV0Grant::new(
                 sender.account_index(),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             )],
             tokens: vec![first_token_id.clone(), second_token_id.clone()],
             expiry: 1_804_806_000,
@@ -247,6 +248,36 @@ fn test_lock_fund_persists_canonical_references_for_multiple_tokens() {
     assert_eq!(balance_refs.len(), 2);
     assert!(balance_refs.contains(&(sender.account_index(), first_token_id)));
     assert!(balance_refs.contains(&(sender.account_index(), second_token_id)));
+
+    let lock_before = block_state.query_lock_info(&context, &lock_id).unwrap();
+    let accounts_before = block_state
+        .query_token_account_infos(&context, sender.account_index())
+        .unwrap();
+    let summary = execute_unscoped_update!(
+        &mut context,
+        &mut block_state,
+        sender.account_index(),
+        0,
+        vec![operations::fund_lock(
+            excluded_token_id.clone(),
+            lock_id.clone(),
+            TokenAmount::from_raw(250, 4),
+            None,
+        )],
+    );
+    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
+        assert_eq!(reason, TransactionRejectReason::LockTokenNotPermitted(lock_id.clone(), excluded_token_id));
+    });
+    assert_eq!(
+        block_state.query_lock_info(&context, &lock_id).unwrap(),
+        lock_before
+    );
+    assert_eq!(
+        block_state
+            .query_token_account_infos(&context, sender.account_index())
+            .unwrap(),
+        accounts_before
+    );
 }
 
 #[test]
@@ -278,7 +309,7 @@ fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             sender.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -348,7 +379,7 @@ fn test_lock_fund_rejects_unauthorized_sender() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -408,7 +439,7 @@ fn test_lock_fund_rejects_after_expiry() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 10,

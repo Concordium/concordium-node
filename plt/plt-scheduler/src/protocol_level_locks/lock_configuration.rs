@@ -104,7 +104,7 @@ pub fn validate_operation(
     let LockConfig::SimpleV0(config) = config;
     let (role, lock) = match operation {
         LockOperation::Create(_) => return Ok(()),
-        LockOperation::Fund(details) => (LockControllerSimpleV0Capability::Fund, &details.lock),
+        LockOperation::Fund(details) => (LockControllerSimpleV0Capability::Hold, &details.lock),
         LockOperation::Send(details) => (LockControllerSimpleV0Capability::Send, &details.lock),
         LockOperation::Release(details) => {
             (LockControllerSimpleV0Capability::Release, &details.lock)

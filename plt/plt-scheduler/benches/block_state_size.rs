@@ -462,7 +462,7 @@ fn lock_release_many_accounts_many_tokens(bencher: Bencher, reference_count: usi
 /// Prepare one successful operation.
 ///
 /// `grant_count` distinct ascending accounts all receive `capability`; the executor additionally
-/// receives Fund for send/release. Setup is untimed.
+/// receives Hold for send/release. Setup is untimed.
 fn prepare_lock_grants(
     grant_count: usize,
     capability: LockControllerSimpleV0Capability,
@@ -487,8 +487,8 @@ fn prepare_lock_grants(
         .iter()
         .map(|&account| {
             let mut roles = vec![capability.clone()];
-            if account == sender && capability != LockControllerSimpleV0Capability::Fund {
-                roles.push(LockControllerSimpleV0Capability::Fund);
+            if account == sender && capability != LockControllerSimpleV0Capability::Hold {
+                roles.push(LockControllerSimpleV0Capability::Hold);
             }
             LockControllerSimpleV0Grant::new(account, roles)
         })
@@ -523,7 +523,7 @@ fn prepare_lock_grants(
     let sender_address = context.external.account_canonical_address(sender);
     let amount = TokenAmount::from_raw(10, 0);
     let operation = match capability {
-        LockControllerSimpleV0Capability::Fund => {
+        LockControllerSimpleV0Capability::Hold => {
             operations::fund_lock(token_id, lock_id, amount, None)
         }
         LockControllerSimpleV0Capability::Send => operations::send_locked_tokens(
@@ -548,11 +548,11 @@ fn prepare_lock_grants(
     }
 }
 
-/// Measure one fund using an existing reference as Fund grant count grows.
+/// Measure one fund using an existing reference as Hold grant count grows.
 #[divan::bench(args = GRANT_COUNTS)]
 fn lock_fund_by_grant_count(bencher: Bencher, grant_count: usize) {
     bencher
-        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Fund))
+        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Hold))
         .bench_local_values(execute);
 }
 

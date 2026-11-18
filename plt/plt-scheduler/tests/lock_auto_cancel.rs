@@ -67,7 +67,7 @@ fn order_skip_exact_fit_and_retry() {
                     .map(|holder| {
                         LockControllerSimpleV0Grant::new(
                             *holder,
-                            vec![LockControllerSimpleV0Capability::Fund],
+                            vec![LockControllerSimpleV0Capability::Hold],
                         )
                     })
                     .collect(),

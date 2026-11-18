@@ -266,7 +266,7 @@ mod test {
                     AccountIndex::from(1),
                     vec![
                         LockControllerSimpleV0Capability::Cancel,
-                        LockControllerSimpleV0Capability::Fund,
+                        LockControllerSimpleV0Capability::Hold,
                     ],
                 )],
                 vec![token_id.clone(), token_id_2.clone()],
@@ -525,7 +525,7 @@ mod test {
                     AccountIndex::from(1),
                     vec![
                         LockControllerSimpleV0Capability::Cancel,
-                        LockControllerSimpleV0Capability::Fund,
+                        LockControllerSimpleV0Capability::Hold,
                     ],
                 )],
                 vec![token_id.clone(), token_id_2.clone()],

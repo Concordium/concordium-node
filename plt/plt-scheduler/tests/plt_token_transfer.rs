@@ -294,7 +294,7 @@ fn test_transfer_insufficient_available_balance() {
             recipients: vec![receiver.account_index()],
             grants: vec![LockControllerSimpleV0Grant::new(
                 sender.account_index(),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             )],
             tokens: vec![token_id.clone()],
             expiry: 1_804_806_000,

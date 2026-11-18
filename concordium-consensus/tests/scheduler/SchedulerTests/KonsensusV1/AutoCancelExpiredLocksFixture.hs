@@ -133,7 +133,7 @@ makeFixture count funded = do
                         Seq.singleton $
                             Locks.LockControllerSimpleV0Grant
                                 (CBOR.accountTokenHolder ownerAddress)
-                                (Seq.singleton Locks.LockControllerSimpleV0Fund),
+                                (Seq.singleton Locks.LockControllerSimpleV0Hold),
                       lcsv0Tokens = Seq.singleton token,
                       lcsv0Memo = Nothing,
                       lcsv0Metadata = Nothing

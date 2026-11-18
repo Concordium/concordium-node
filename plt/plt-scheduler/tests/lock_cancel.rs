@@ -293,12 +293,12 @@ fn test_cancel_with_balances() {
             ),
             LockControllerSimpleV0Grant::new(
                 plt_x_gov_acct.account_index(),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             ),
             LockControllerSimpleV0Grant::new(
                 plt_y_gov_acct.account_index(),
                 vec![
-                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Hold,
                     LockControllerSimpleV0Capability::Send,
                 ],
             ),
@@ -469,7 +469,7 @@ fn test_cancel_ignores_token_pause_and_deny_list() {
         grants: vec![
             LockControllerSimpleV0Grant::new(
                 owner.account_index(),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             ),
             LockControllerSimpleV0Grant::new(
                 canceller.account_index(),

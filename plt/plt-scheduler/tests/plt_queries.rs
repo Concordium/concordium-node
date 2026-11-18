@@ -189,7 +189,7 @@ fn test_query_token_account_info_available_with_locked_balance() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -260,7 +260,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -275,7 +275,7 @@ fn test_query_token_account_info_available_with_multiple_locks() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -355,7 +355,7 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,

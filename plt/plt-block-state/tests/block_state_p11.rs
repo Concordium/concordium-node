@@ -266,7 +266,7 @@ fn test_create_lock() {
                 AccountIndex::from(1),
                 vec![
                     LockControllerSimpleV0Capability::Cancel,
-                    LockControllerSimpleV0Capability::Fund,
+                    LockControllerSimpleV0Capability::Hold,
                 ],
             )],
             vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],

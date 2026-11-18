@@ -88,7 +88,7 @@ fn test_lock_release_updates_account_balance() {
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Release,
             ],
         )],
@@ -193,7 +193,7 @@ fn test_lock_release_rejects_unauthorized_sender() {
         recipients: vec![recipient.account_index()],
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockControllerSimpleV0Capability::Hold],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -267,7 +267,7 @@ fn test_lock_release_rejects_after_expiry() {
         grants: vec![LockControllerSimpleV0Grant::new(
             owner.account_index(),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Release,
             ],
         )],

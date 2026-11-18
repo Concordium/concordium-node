@@ -733,7 +733,7 @@ fn create_lock_recipients_shuffled(bencher: Bencher, count: usize) {
 /// - `existing_reference`: Whether setup first funds the same `(account, token)` pair.
 fn prepare_lock_fund(existing_reference: bool) -> Fixture {
     let (mut context, mut state, sender, token_id, lock_id) =
-        lock_fixture(vec![LockControllerSimpleV0Capability::Fund]);
+        lock_fixture(vec![LockControllerSimpleV0Capability::Hold]);
     if existing_reference {
         let sender_address = context.external.account_canonical_address(sender);
         let payload = unscoped_payload(vec![
@@ -781,7 +781,7 @@ fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
         LockControllerSimpleV0Capability::Send
     };
     let (mut context, mut state, sender, token_id, lock_id) =
-        lock_fixture(vec![LockControllerSimpleV0Capability::Fund, capability]);
+        lock_fixture(vec![LockControllerSimpleV0Capability::Hold, capability]);
     let sender_address = context.external.account_canonical_address(sender);
     let result = state.execute_transaction(
         &mut context,

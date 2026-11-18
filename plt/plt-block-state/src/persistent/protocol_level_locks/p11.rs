@@ -380,7 +380,7 @@ pub struct LockControllerSimpleV0Capabilities(u8);
 impl LockControllerSimpleV0Capabilities {
     fn bit(role: LockControllerSimpleV0Capability) -> u8 {
         match role {
-            LockControllerSimpleV0Capability::Fund => 0x01,
+            LockControllerSimpleV0Capability::Hold => 0x01,
             LockControllerSimpleV0Capability::Release => 0x02,
             LockControllerSimpleV0Capability::Send => 0x04,
             LockControllerSimpleV0Capability::Cancel => 0x08,
@@ -406,7 +406,7 @@ impl LockControllerSimpleV0Capabilities {
         Self(self.0 | other.0)
     }
 
-    /// Iterate in canonical Fund, Release, Send, Cancel order.
+    /// Iterate in canonical Hold, Release, Send, Cancel order.
     pub fn iter(self) -> impl Iterator<Item = LockControllerSimpleV0Capability> {
         CANONICAL_ROLES
             .into_iter()
@@ -430,7 +430,7 @@ impl Deserial for LockControllerSimpleV0Capabilities {
 }
 
 const CANONICAL_ROLES: [LockControllerSimpleV0Capability; 4] = [
-    LockControllerSimpleV0Capability::Fund,
+    LockControllerSimpleV0Capability::Hold,
     LockControllerSimpleV0Capability::Release,
     LockControllerSimpleV0Capability::Send,
     LockControllerSimpleV0Capability::Cancel,
@@ -463,7 +463,7 @@ impl LockControllerSimpleV0Grant {
         self.account
     }
 
-    /// Return the capabilities granted to the account in Fund, Release, Send, Cancel order.
+    /// Return the capabilities granted to the account in Hold, Release, Send, Cancel order.
     pub fn roles(&self) -> Vec<LockControllerSimpleV0Capability> {
         self.roles.iter().collect()
     }
@@ -518,8 +518,8 @@ mod test {
         // Unsorted input includes duplicate account 9 and an empty grant for account 5.
         let input = vec![
             grant(9, vec![Send]),
-            grant(1, vec![Fund]),
-            grant(9, vec![Release, Fund]),
+            grant(1, vec![Hold]),
+            grant(9, vec![Release, Hold]),
             grant(5, vec![]),
         ];
         // Input order must not affect the normalized configuration or its encoding.
@@ -537,15 +537,15 @@ mod test {
             vec![1, 5, 9]
         );
         // Lookup finds original roles and the union of account 9's separate grants.
-        assert!(first.has_role(AccountIndex::from(1), Fund));
-        for role in [Fund, Release, Send] {
+        assert!(first.has_role(AccountIndex::from(1), Hold));
+        for role in [Hold, Release, Send] {
             assert!(first.has_role(AccountIndex::from(9), role));
         }
         // Missing roles, empty grants, missing accounts, and an empty configuration deny access.
         assert!(!first.has_role(AccountIndex::from(9), Cancel));
-        assert!(!first.has_role(AccountIndex::from(5), Fund));
-        assert!(!first.has_role(AccountIndex::from(7), Fund));
-        assert!(!config_with_grants(vec![]).has_role(AccountIndex::from(1), Fund));
+        assert!(!first.has_role(AccountIndex::from(5), Hold));
+        assert!(!first.has_role(AccountIndex::from(7), Hold));
+        assert!(!config_with_grants(vec![]).has_role(AccountIndex::from(1), Hold));
         // Equivalent normalized configurations must produce identical lock hashes.
         let mut store = BlobStoreStub::default();
         let lock = PersistentLockP11::new(LockConfig::SimpleV0(first.clone()), 1234.into());
@@ -656,7 +656,7 @@ mod test {
 
             grants: vec![LockControllerSimpleV0Grant::new(
                 AccountIndex::from(1u64),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             )],
             tokens: vec!["token1".parse().unwrap()],
             memo: None,
@@ -936,7 +936,7 @@ mod test {
         let grant = LockControllerSimpleV0Grant::new(
             AccountIndex::from(42u64),
             vec![
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Release,
             ],
         );
@@ -956,7 +956,7 @@ mod test {
             expiry: TransactionTime::from(0u64),
             grants: vec![LockControllerSimpleV0Grant::new(
                 AccountIndex::from(1u64),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
             memo: Some(CborMemo::Raw(
@@ -1001,14 +1001,14 @@ mod test {
             AccountIndex::from(0),
             vec![
                 LockControllerSimpleV0Capability::Cancel,
-                LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
+                LockControllerSimpleV0Capability::Hold,
             ],
         );
         assert_eq!(
             grant.roles(),
             [
-                LockControllerSimpleV0Capability::Fund,
+                LockControllerSimpleV0Capability::Hold,
                 LockControllerSimpleV0Capability::Cancel,
             ]
         );
@@ -1111,7 +1111,7 @@ mod test {
             expiry: TransactionTime::from(0u64),
             grants: vec![LockControllerSimpleV0Grant::new(
                 AccountIndex::from(1u64),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockControllerSimpleV0Capability::Hold],
             )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
             memo: None,
