@@ -53,7 +53,7 @@ testMaxLockDurationUpdate :: IO ()
 testMaxLockDurationUpdate = do
     let effectiveTime = 123 :: TransactionTime
         newDuration = Duration 123456
-        update :: UpdateValue 'ChainParametersV3 'AuthorizationsVersion3
+        update :: UpdateValue 'ChainParametersV4 'AuthorizationsVersion3
         update = UVMaxLockDuration newDuration
     (effects, oldMaxLockDuration, newMaxLockDuration) <- liftIO . runBlobStoreTemp "." $ do
         (u0 :: BufferedRef (PU.Updates 'P11)) <-
@@ -84,7 +84,7 @@ testMaxLockDurationUpdate = do
         oldMaxLockDuration
     assertEqual
         "The public chain-parameter view should expose the updated max lock duration"
-        (SomeParam (Just newDuration))
+        (SomeParam newDuration)
         newMaxLockDuration
 
 tests :: Spec
