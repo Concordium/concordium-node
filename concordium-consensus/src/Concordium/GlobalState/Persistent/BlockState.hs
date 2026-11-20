@@ -2682,7 +2682,7 @@ doUpdateBakerStake pbs ai newStake = do
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldownEpochs <-
-                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . PCP.persistentChainParametersToChainParameters
+                        (2 +) . _cpBakerExtraCooldownEpochs . PCP.pcpCooldownParameters
                             <$> refLoad (currentParameters upds)
 
                     bakerStakeThreshold <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
@@ -2741,7 +2741,7 @@ doRemoveBaker pbs ai = do
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldownEpochs <-
-                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . PCP.persistentChainParametersToChainParameters
+                        (2 +) . _cpBakerExtraCooldownEpochs . PCP.pcpCooldownParameters
                             <$> refLoad (currentParameters upds)
                     let updAcc =
                             setAccountStakePendingChange $
@@ -3526,7 +3526,7 @@ doGetCurrentElectionDifficulty ::
 doGetCurrentElectionDifficulty pbs = do
     bsp <- loadPBS pbs
     upds <- refLoad (bspUpdates bsp)
-    _cpElectionDifficulty . _cpConsensusParameters . PCP.persistentChainParametersToChainParameters <$> refLoad (currentParameters upds)
+    _cpElectionDifficulty . PCP.pcpConsensusParameters <$> refLoad (currentParameters upds)
 
 doGetUpdates :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (UQ.Updates pv)
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
@@ -4997,8 +4997,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.
     let newTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
-    chainParams <- PCP.persistentChainParametersToChainParameters <$> (refLoad . currentParameters =<< refLoad newUpdates)
-    let timeParams = _cpTimeParameters chainParams
+    chainParams <- refLoad . currentParameters =<< refLoad newUpdates
+    let timeParams = PCP.pcpTimeParameters chainParams
     logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails

@@ -16,7 +16,6 @@
 module Concordium.GlobalState.Persistent.BlockState.Parameters (
     PersistentChainParameters (..),
     makePersistentChainParameters,
-    persistentChainParametersToChainParameters,
     persistentChainParametersToChainParametersM,
     updateChainParameters,
     executeExternalChainParameterUpdate,
@@ -109,30 +108,7 @@ makeInitialExternalChainParameters chainParameters = case protocolVersion @pv of
     SP8 -> return CFalse
     SP9 -> return CFalse
     SP10 -> return CFalse
-    SP11 ->
-        CTrue <$> case _cpMaxLockDuration chainParameters of
-            SomeParam (Just duration) -> ECP.p11NewExternalChainParameters duration
-            SomeParam Nothing -> error "P11 external chain parameters require max lock duration"
-
--- | Placeholder public-view value for the max-lock-duration field.
---
--- The authoritative P11 value is in the external chain-parameters component.
-maxLockDurationPlaceholder :: SChainParametersVersion cpv -> OParam 'PTMaxLockDuration cpv (Maybe Duration)
-maxLockDurationPlaceholder = \case
-    SChainParametersV0 -> NoParam
-    SChainParametersV1 -> NoParam
-    SChainParametersV2 -> NoParam
-    SChainParametersV3 -> SomeParam Nothing
-
--- | Convert persistent chain parameters to the public/wire view, using the
--- placeholder external fields.
-persistentChainParametersToChainParameters ::
-    forall pv.
-    (IsProtocolVersion pv) =>
-    PersistentChainParameters pv ->
-    ChainParameters pv
-persistentChainParametersToChainParameters params =
-    makeChainParametersView params (maxLockDurationPlaceholder (chainParametersVersion @(ChainParametersVersionFor pv)))
+    SP11 -> CTrue <$> ECP.p11NewExternalChainParameters (unOParam (_cpMaxLockDuration chainParameters))
 
 -- | Convert persistent chain parameters to the public/wire view, sourcing
 -- externally-managed fields from the external chain-parameters component when present.
@@ -142,20 +118,27 @@ persistentChainParametersToChainParametersM ::
     PersistentChainParameters pv ->
     m (ChainParameters pv)
 persistentChainParametersToChainParametersM params@PersistentChainParameters{..} = do
-    maxLockDuration <- case pcpExternalChainParameters of
-        CFalse -> return $ maxLockDurationPlaceholder (chainParametersVersion @(ChainParametersVersionFor pv))
-        CTrue external -> case chainParametersVersion @(ChainParametersVersionFor pv) of
-            SChainParametersV3 -> do
-                duration <- liftIO $ ECP.getMaxLockDuration external
-                return $ SomeParam (Just duration)
-            _ -> return $ maxLockDurationPlaceholder (chainParametersVersion @(ChainParametersVersionFor pv))
+    maxLockDuration <- case (protocolVersion @pv, pcpExternalChainParameters) of
+        (SP1, CFalse) -> return NoParam
+        (SP2, CFalse) -> return NoParam
+        (SP3, CFalse) -> return NoParam
+        (SP4, CFalse) -> return NoParam
+        (SP5, CFalse) -> return NoParam
+        (SP6, CFalse) -> return NoParam
+        (SP7, CFalse) -> return NoParam
+        (SP8, CFalse) -> return NoParam
+        (SP9, CFalse) -> return NoParam
+        (SP10, CFalse) -> return NoParam
+        (SP11, CTrue external) -> do
+            duration <- liftIO $ ECP.getMaxLockDuration external
+            return $ SomeParam duration
     return $ makeChainParametersView params maxLockDuration
 
 -- | Construct the public/wire view from persistent fields and a supplied
 -- max-lock-duration value.
 makeChainParametersView ::
     PersistentChainParameters pv ->
-    OParam 'PTMaxLockDuration (ChainParametersVersionFor pv) (Maybe Duration) ->
+    OParam 'PTMaxLockDuration (ChainParametersVersionFor pv) Duration ->
     ChainParameters pv
 makeChainParametersView PersistentChainParameters{..} maxLockDuration =
     ChainParameters
@@ -214,23 +197,24 @@ putPersistentChainParameters PersistentChainParameters{..} = do
     S.put pcpFinalizationCommitteeParameters
     S.put pcpValidatorScoreParameters
 
--- | Deserialize persistent chain parameters, excluding the external component.
---
--- This is an internal helper function
-getPersistentChainParametersFields :: forall pv. (IsProtocolVersion pv) => S.Get (ChainParameters pv)
+-- | Read the Haskell-managed fields and return a constructor for the full persistent value.
+-- The caller must supply the separately loaded external component.
+getPersistentChainParametersFields ::
+    forall pv.
+    (IsProtocolVersion pv) =>
+    S.Get (Conditionally (SupportsRustManagedECP pv) (ECP.ForeignExternalChainParametersPtr pv) -> PersistentChainParameters pv)
 getPersistentChainParametersFields = do
-    _cpConsensusParameters <- withIsConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) S.get
-    _cpExchangeRates <- S.get
-    _cpCooldownParameters <- withIsCooldownParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) S.get
-    _cpTimeParameters <- S.get
-    _cpAccountCreationLimit <- S.get
-    _cpRewardParameters <- S.get
-    _cpFoundationAccount <- S.get
-    _cpPoolParameters <- withIsPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) S.get
-    _cpFinalizationCommitteeParameters <- S.get
-    _cpValidatorScoreParameters <- S.get
-    let _cpMaxLockDuration = maxLockDurationPlaceholder (chainParametersVersion @(ChainParametersVersionFor pv))
-    return ChainParameters{..}
+    pcpConsensusParameters <- withIsConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) S.get
+    pcpExchangeRates <- S.get
+    pcpCooldownParameters <- withIsCooldownParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) S.get
+    pcpTimeParameters <- S.get
+    pcpAccountCreationLimit <- S.get
+    pcpRewardParameters <- S.get
+    pcpFoundationAccount <- S.get
+    pcpPoolParameters <- withIsPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) S.get
+    pcpFinalizationCommitteeParameters <- S.get
+    pcpValidatorScoreParameters <- S.get
+    return $ \pcpExternalChainParameters -> PersistentChainParameters{..}
 
 instance
     (MonadBlobStore m, IsProtocolVersion pv) =>
@@ -250,11 +234,11 @@ instance
               newParams
             )
     load = do
-        chainParameters <- getPersistentChainParametersFields @pv
+        makeParameters <- getPersistentChainParametersFields @pv
         mExternal <- conditionallyA (sSupportsRustManagedECP (protocolVersion @pv)) load
         return $ do
             externalChainParameters <- sequenceA mExternal
-            return $ fromChainParameters chainParameters externalChainParameters
+            return $ makeParameters externalChainParameters
 
 instance
     (MonadBlobStore m) =>
