@@ -5,16 +5,14 @@ use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
 use concordium_base::protocol_level_tokens::{
     Operation, RawCbor, TokenAmount, TokenId, TokenModuleAccountState,
 };
 use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
 use concordium_base::transactions::cost;
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
-use plt_block_state::{
-    entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
-};
+use plt_block_state::{entity::entity_test_stub, persistent::protocol_level_locks::p11::LockRole};
 use plt_scheduler_types::types::events::{BlockItemEvent, UnlockAmountEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -85,12 +83,9 @@ fn test_lock_release_updates_account_balance() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             owner.account_index(),
-            vec![
-                LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Release,
-            ],
+            vec![LockCapability::Fund, LockCapability::Release],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -191,9 +186,9 @@ fn test_lock_release_rejects_unauthorized_sender() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -215,26 +210,30 @@ fn test_lock_release_rejects_unauthorized_sender() {
     let owner_addr = context
         .external
         .account_canonical_address(owner.account_index());
-    let summary = execute_unscoped_update!(
-        &mut context,
-        &mut block_state,
-        owner.account_index(),
-        0,
-        vec![operations::release_locked_tokens(
-            token_id,
-            lock_id.clone(),
-            owner_addr,
-            TokenAmount::from_raw(1, 4),
-            None,
-        )],
-    );
-    assert_eq!(
-        summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
-        Energy::from(250),
-    );
-    assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
-        assert_eq!(reason, TransactionRejectReason::LockReleaseNotAuthorized(lock_id, owner_addr));
-    });
+    // Neither funding permission nor recipient-only membership permits release.
+    for sender in [owner.account_index(), recipient.account_index()] {
+        let sender_addr = context.external.account_canonical_address(sender);
+        let summary = execute_unscoped_update!(
+            &mut context,
+            &mut block_state,
+            sender,
+            0,
+            vec![operations::release_locked_tokens(
+                token_id.clone(),
+                lock_id.clone(),
+                owner_addr,
+                TokenAmount::from_raw(1, 4),
+                None,
+            )],
+        );
+        assert_eq!(
+            summary.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+            Energy::from(250)
+        );
+        assert_matches!(summary.outcome, TransactionOutcome::Rejected(reason) => {
+            assert_eq!(reason, TransactionRejectReason::LockReleaseNotAuthorized(lock_id.clone(), sender_addr));
+        });
+    }
 }
 
 #[test]
@@ -264,12 +263,9 @@ fn test_lock_release_rejects_after_expiry() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             owner.account_index(),
-            vec![
-                LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Release,
-            ],
+            vec![LockCapability::Fund, LockCapability::Release],
         )],
         tokens: vec![token_id.clone()],
         expiry: 10,

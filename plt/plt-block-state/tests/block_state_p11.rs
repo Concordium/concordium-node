@@ -2,16 +2,13 @@
 
 use concordium_base::base::AccountIndex;
 use concordium_base::common::types::TransactionTime;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-use concordium_base::protocol_level_tokens::{
-    CborMemo, RawCbor, TokenAdminRole, TokenId, TokenModuleRef,
-};
-use concordium_base::transactions::Memo;
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
+use concordium_base::protocol_level_tokens::{RawCbor, TokenAdminRole, TokenId, TokenModuleRef};
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::entity::protocol_level_tokens::p11::Roles;
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
+    LockConfig, LockConfigSimpleV0, LockRecipients, LockRole,
 };
 use plt_block_state::persistent::protocol_level_tokens::p9::TokenConfiguration;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -262,15 +259,11 @@ fn test_create_lock() {
         LockConfigSimpleV0::new(
             LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)]).unwrap(),
             TransactionTime::from(100u64),
-            vec![LockControllerSimpleV0Grant::new(
+            vec![LockRole::new(
                 AccountIndex::from(1),
-                vec![
-                    LockControllerSimpleV0Capability::Cancel,
-                    LockControllerSimpleV0Capability::Fund,
-                ],
+                vec![LockCapability::Cancel, LockCapability::Fund],
             )],
             vec!["tokenid1".parse().unwrap(), "tokenid2".parse().unwrap()],
-            Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
             Some(metadata),
         )
         .unwrap(),
@@ -323,7 +316,6 @@ fn test_lock_by_id() {
             Vec::new(),
             Vec::new(),
             None,
-            None,
         )
         .unwrap(),
     );
@@ -372,7 +364,6 @@ fn lock_balance_references_are_unique_ordered_and_removable() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            None,
             None,
         )
         .unwrap(),
@@ -445,7 +436,6 @@ fn test_create_and_delete_lock() {
             Vec::new(),
             Vec::new(),
             None,
-            None,
         )
         .unwrap(),
     );
@@ -504,7 +494,6 @@ fn test_lock_list() {
             Vec::new(),
             Vec::new(),
             None,
-            None,
         )
         .unwrap(),
     );
@@ -520,7 +509,6 @@ fn test_lock_list() {
             TransactionTime::from(0u64),
             Vec::new(),
             Vec::new(),
-            None,
             None,
         )
         .unwrap(),

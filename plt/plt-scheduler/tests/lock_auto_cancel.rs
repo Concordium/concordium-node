@@ -3,11 +3,11 @@
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, operations};
 use plt_block_state::entity::entity_test_stub;
 use plt_block_state::persistent::protocol_level_locks::p11::{
-    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockRecipients,
+    LockConfig, LockConfigSimpleV0, LockRecipients, LockRole,
 };
 use plt_scheduler::protocol_level_locks::p11::cancel_expired_locks;
 use plt_scheduler_types::types::events::{BlockItemEvent, LockDestroyEvent};
@@ -64,15 +64,9 @@ fn order_skip_exact_fit_and_retry() {
                 expiry.into(),
                 holders
                     .iter()
-                    .map(|holder| {
-                        LockControllerSimpleV0Grant::new(
-                            *holder,
-                            vec![LockControllerSimpleV0Capability::Fund],
-                        )
-                    })
+                    .map(|holder| LockRole::new(*holder, vec![LockCapability::Fund]))
                     .collect(),
                 vec![token_id.clone()],
-                None,
                 None,
             )
             .unwrap(),
@@ -212,7 +206,6 @@ fn empty_locks_require_energy_budget_and_strict_expiry() {
                         expiry.into(),
                         vec![],
                         vec![],
-                        None,
                         None,
                     )
                     .unwrap(),

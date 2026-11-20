@@ -10,7 +10,7 @@ mod utils;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::{
-    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
+    LockCapability, LockCreateConfig, LockCreateConfigSimpleV0, LockId, LockRecipients,
 };
 use concordium_base::protocol_level_tokens::{
     Operation, Operations, OperationsPayload, operations, token_operations,
@@ -21,7 +21,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use divan::Bencher;
 use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
-use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
+use plt_block_state::persistent::protocol_level_locks::p11::LockRole;
 use plt_scheduler::scheduler::TransactionExecutionError;
 use plt_scheduler_types::types::execution::{TransactionExecutionSummary, TransactionOutcome};
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -172,7 +172,16 @@ fn prepare_allow_list_insert(existing_entry_count: usize) -> PreparedOperation {
 fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
-    let sender = context.external.create_account().account_index();
+    let token_id: TokenId = "benchmark-lock-token".parse().unwrap();
+    let (sender, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let sender = sender.account_index();
     for sequence_number in 1..=existing_lock_count as u64 {
         let lock_id = LockId::new(sender, sequence_number, 0);
         utils::create_lock(
@@ -181,19 +190,19 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
             &lock_id,
             utils::CreateLockSimpleConfig {
                 recipients: vec![sender],
-                grants: vec![],
-                tokens: vec![],
+                roles: vec![],
+                tokens: vec![token_id.clone()],
                 expiry: 1_804_806_000,
             },
         );
         assert!(matches!(state.lock_by_id(&context, &lock_id), Ok(Ok(_))));
     }
-    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
         recipients: LockRecipients::Any,
+        holders: vec![context.external.account_canonical_address(sender).into()],
         expiry: 1_804_806_000.into(),
-        grants: vec![],
-        tokens: vec![],
-        memo: None,
+        roles: vec![],
+        tokens: vec![token_id],
         metadata: None,
     });
     PreparedOperation {
@@ -270,12 +279,12 @@ fn prepare_lock_balance_operation(
         &lock_id,
         utils::CreateLockSimpleConfig {
             recipients: vec![sender],
-            grants: vec![LockControllerSimpleV0Grant::new(
+            roles: vec![LockRole::new(
                 sender,
                 vec![if release_one {
-                    LockControllerSimpleV0Capability::Release
+                    LockCapability::Release
                 } else {
-                    LockControllerSimpleV0Capability::Cancel
+                    LockCapability::Cancel
                 }],
             )],
             tokens: token_ids.clone(),
@@ -463,10 +472,7 @@ fn lock_release_many_accounts_many_tokens(bencher: Bencher, reference_count: usi
 ///
 /// `grant_count` distinct ascending accounts all receive `capability`; the executor additionally
 /// receives Fund for send/release. Setup is untimed.
-fn prepare_lock_grants(
-    grant_count: usize,
-    capability: LockControllerSimpleV0Capability,
-) -> PreparedOperation {
+fn prepare_lock_grants(grant_count: usize, capability: LockCapability) -> PreparedOperation {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
     let token_id: TokenId = "PLT".parse().unwrap();
@@ -483,14 +489,14 @@ fn prepare_lock_grants(
         .map(|_| context.external.create_account().account_index())
         .collect();
     let sender = accounts[grant_count - 1];
-    let grants = accounts
+    let roles = accounts
         .iter()
         .map(|&account| {
             let mut roles = vec![capability.clone()];
-            if account == sender && capability != LockControllerSimpleV0Capability::Fund {
-                roles.push(LockControllerSimpleV0Capability::Fund);
+            if account == sender && capability != LockCapability::Fund {
+                roles.push(LockCapability::Fund);
             }
-            LockControllerSimpleV0Grant::new(account, roles)
+            LockRole::new(account, roles)
         })
         .collect();
     let lock_id = LockId::new(sender, 1, 0);
@@ -500,7 +506,7 @@ fn prepare_lock_grants(
         &lock_id,
         utils::CreateLockSimpleConfig {
             recipients: vec![recipient],
-            grants,
+            roles,
             tokens: vec![token_id.clone()],
             expiry: 1_804_806_000,
         },
@@ -523,10 +529,8 @@ fn prepare_lock_grants(
     let sender_address = context.external.account_canonical_address(sender);
     let amount = TokenAmount::from_raw(10, 0);
     let operation = match capability {
-        LockControllerSimpleV0Capability::Fund => {
-            operations::fund_lock(token_id, lock_id, amount, None)
-        }
-        LockControllerSimpleV0Capability::Send => operations::send_locked_tokens(
+        LockCapability::Fund => operations::fund_lock(token_id, lock_id, amount, None),
+        LockCapability::Send => operations::send_locked_tokens(
             token_id,
             lock_id,
             sender_address,
@@ -534,7 +538,7 @@ fn prepare_lock_grants(
             amount,
             None,
         ),
-        LockControllerSimpleV0Capability::Release => {
+        LockCapability::Release => {
             operations::release_locked_tokens(token_id, lock_id, sender_address, amount, None)
         }
         _ => unreachable!("only fund/send/release are measured"),
@@ -552,7 +556,7 @@ fn prepare_lock_grants(
 #[divan::bench(args = GRANT_COUNTS)]
 fn lock_fund_by_grant_count(bencher: Bencher, grant_count: usize) {
     bencher
-        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Fund))
+        .with_inputs(|| prepare_lock_grants(grant_count, LockCapability::Fund))
         .bench_local_values(execute);
 }
 
@@ -560,7 +564,7 @@ fn lock_fund_by_grant_count(bencher: Bencher, grant_count: usize) {
 #[divan::bench(args = GRANT_COUNTS)]
 fn lock_send_by_grant_count(bencher: Bencher, grant_count: usize) {
     bencher
-        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Send))
+        .with_inputs(|| prepare_lock_grants(grant_count, LockCapability::Send))
         .bench_local_values(execute);
 }
 
@@ -568,6 +572,6 @@ fn lock_send_by_grant_count(bencher: Bencher, grant_count: usize) {
 #[divan::bench(args = GRANT_COUNTS)]
 fn lock_release_by_grant_count(bencher: Bencher, grant_count: usize) {
     bencher
-        .with_inputs(|| prepare_lock_grants(grant_count, LockControllerSimpleV0Capability::Release))
+        .with_inputs(|| prepare_lock_grants(grant_count, LockCapability::Release))
         .bench_local_values(execute);
 }

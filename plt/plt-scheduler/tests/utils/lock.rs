@@ -11,14 +11,15 @@ use plt_block_state::entity::EntityContext;
 use plt_block_state::entity::accounts::Accounts;
 use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::entity_test_stub::StubbedEntityContext;
-use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
+use plt_block_state::persistent::protocol_level_locks::p11::LockRole;
+use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
 /// Simple configuration for creating a lock in tests.
 #[derive(Debug, Clone)]
 pub struct CreateLockSimpleConfig {
     pub recipients: Vec<AccountIndex>,
-    pub grants: Vec<LockControllerSimpleV0Grant>,
+    pub roles: Vec<LockRole>,
     pub tokens: Vec<TokenId>,
     pub expiry: u64,
 }
@@ -45,31 +46,51 @@ pub fn create_lock(
     };
     let recipients =
         LockRecipients::Limited(config.recipients.iter().map(resolve_account).collect());
-    let grants = config
-        .grants
+    let mut holders: Vec<_> = config
+        .roles
         .iter()
-        .map(
-            |grant| concordium_base::protocol_level_locks::LockControllerSimpleV0Grant {
-                account: resolve_account(&grant.account()),
-                roles: grant.roles(),
-            },
-        )
+        .filter(|role| role.roles().contains(&LockCapability::Fund))
+        .map(|role| resolve_account(&role.account()))
+        .collect();
+    // Role-only fixtures use the creator to satisfy the required nonempty holder input.
+    if holders.is_empty() {
+        holders.push(resolve_account(&lock_id.account_index()));
+    }
+    let roles = config
+        .roles
+        .iter()
+        .filter_map(|role| {
+            let roles: Vec<_> = role
+                .roles()
+                .into_iter()
+                .filter_map(|capability| match capability {
+                    LockCapability::Fund => None,
+                    LockCapability::Release => Some(LockCreateCapability::Release),
+                    LockCapability::Send => Some(LockCreateCapability::Send),
+                    LockCapability::Cancel => Some(LockCreateCapability::Cancel),
+                })
+                .collect();
+            (!roles.is_empty()).then(|| LockCreateRole {
+                account: resolve_account(&role.account()),
+                roles,
+            })
+        })
         .collect();
     let operations = Operations {
         operations: vec![
-            operations::create_lock(LockConfig::SimpleV0(LockConfigSimpleV0 {
+            operations::create_lock(LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
                 recipients,
+                holders,
                 expiry: TransactionTime::from(config.expiry),
-                grants,
+                roles,
                 tokens: config.tokens,
-                memo: None,
                 metadata: None,
             }))
             .into(),
         ],
     };
 
-    block_state
+    let summary = block_state
         .execute_transaction(
             context,
             plt_scheduler::TransactionContext {
@@ -87,6 +108,7 @@ pub fn create_lock(
             },
         )
         .expect("create lock transaction must succeed");
+    assert_matches!(summary.outcome, TransactionOutcome::Success(_));
 }
 
 /// Track a `(account, token)` balance reference under the given lock and record the
