@@ -16,9 +16,9 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use concordium_base::transactions;
 use plt_block_state::entity::accounts::Accounts;
-use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::protocol_level_locks::p11::LockP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByIndexError;

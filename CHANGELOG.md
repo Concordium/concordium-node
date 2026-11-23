@@ -6,11 +6,15 @@
 
 ## Unreleased changes (Devnet)
 
-- Add the `GetLocksByGrantAccount` gRPC endpoint to stream lock IDs and CBOR-encoded configurations for locks whose grants include an account at the selected block.
-- Implemented P11 lock operation execution costs: create `100 + 500 × H × T + 10 × G` NRG,
+- Add the `GetLocksByGrantAccount` gRPC endpoint to stream lock IDs and CBOR-encoded configurations for locks where an account has effective operation permissions at the selected block. Recipient-only membership does not match.
+- **BREAKING**: Split P11 lock creation and output configurations. Creation specifies holders and explicit roles; holders implicitly receive `fund`.
+  Creation events and lock queries return flat configurations with `version: 0`, `variant: "simpleV0"`, and effective roles.
+  Remove creation `memo`; metadata remains opaque. The changed wire and persistent formats have no migration; existing devnet state may require a fresh start.
+- Implemented P11 lock operation execution costs: create `100 + 500 × H × T + 10 × R` NRG,
   fund/send/release 250 NRG each, and cancel `500 × B` NRG.
-  H counts distinct Fund-authorized accounts, T case-insensitively distinct configured tokens,
-  G canonical account grants, and B current balance references controlled by the lock.
+  H is the number of unique holders; T is the number of unique configured token identifiers, compared case-insensitively;
+  R is the number of unique accounts that are holders, have explicit roles, or both; B counts current balance references controlled by the lock.
+  Recipient-only accounts do not contribute to R. Empty holder, token, and role-capability lists are rejected after charging creation energy.
 
 ## 11.2.3 (Devnet)
 
