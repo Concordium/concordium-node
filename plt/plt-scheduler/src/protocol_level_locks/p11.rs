@@ -16,9 +16,9 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use concordium_base::transactions;
 use plt_block_state::entity::accounts::Accounts;
+use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::block_state::LockNotFoundByIdError;
 use plt_block_state::entity::block_state::TokenNotFoundByIdError;
-use plt_block_state::entity::block_state::p11::BlockStateP11;
 use plt_block_state::entity::protocol_level_locks::p11::LockP11;
 use plt_block_state::entity::{EntityContext, EntityContextTypes};
 use plt_block_state::external::AccountNotFoundByIndexError;
@@ -456,6 +456,14 @@ fn execute_lock_create<C: EntityContextTypes>(
 
     if expiry_millis - transaction_timestamp.timestamp_millis() > max_lock_duration.millis() {
         return Err(TransactionRejectReason::LockDurationTooLong(lock_id).into());
+    }
+
+    // Nonempty constraints apply after charging creation complexity.
+    if config.holders.is_empty()
+        || config.tokens.is_empty()
+        || config.roles.iter().any(|role| role.roles.is_empty())
+    {
+        return Err(TransactionRejectReason::SerializationFailure.into());
     }
 
     let configuration = lock_configuration::from_cbor_config(

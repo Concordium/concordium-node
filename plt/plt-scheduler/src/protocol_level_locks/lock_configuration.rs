@@ -3,8 +3,8 @@
 use crate::failure::ResultWithBlockStateFailure;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockConfig as CborLockConfig, LockConfigVersion, LockCreateCapability,
-    LockCreateConfig, LockRecipients, LockRole as CborLockRole, LockVariant,
+    LockCapability, LockConfig as CborLockConfig, LockConfigVersion, LockCreateConfig,
+    LockRecipients, LockRole as CborLockRole, LockVariant, SimpleLockConfigCapability,
 };
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use concordium_base::protocol_level_tokens::{
@@ -133,20 +133,13 @@ pub fn validate_operation(
 }
 
 /// Resolve creation input and normalize effective roles, recipients, and registered tokens.
-/// Rejects invalid creation-only constraints, unknown references, and normalized collection overflow.
+/// Rejects unknown references and normalized collection overflow.
 pub fn from_cbor_config<C: EntityContextTypes>(
     context: &EntityContext<C>,
     block_state: &BlockStateP11,
     cbor_config: LockCreateConfig,
 ) -> ResultWithBlockStateFailure<LockConfig, TransactionRejectReason> {
     let LockCreateConfig::SimpleV0(cbor_config) = cbor_config;
-    // Direct Rust callers do not pass through the creation decoder.
-    if cbor_config.holders.is_empty()
-        || cbor_config.tokens.is_empty()
-        || cbor_config.roles.iter().any(|role| role.roles.is_empty())
-    {
-        return Err(TransactionRejectReason::SerializationFailure.into());
-    }
     let mut roles = Vec::with_capacity(cbor_config.holders.len() + cbor_config.roles.len());
     for holder in cbor_config.holders {
         let account = context.account_by_address(&holder.address).map_err(
@@ -170,9 +163,9 @@ pub fn from_cbor_config<C: EntityContextTypes>(
             role.roles
                 .into_iter()
                 .map(|capability| match capability {
-                    LockCreateCapability::Release => LockCapability::Release,
-                    LockCreateCapability::Send => LockCapability::Send,
-                    LockCreateCapability::Cancel => LockCapability::Cancel,
+                    SimpleLockConfigCapability::Release => LockCapability::Release,
+                    SimpleLockConfigCapability::Send => LockCapability::Send,
+                    SimpleLockConfigCapability::Cancel => LockCapability::Cancel,
                 })
                 .collect(),
         ));

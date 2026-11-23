@@ -23,7 +23,7 @@ use concordium_base::common::cbor;
 use concordium_base::constants::MAX_PAYLOAD_SIZE;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockCreateConfig, LockCreateConfigSimpleV0, LockId, LockRecipients,
+    LockCapability, LockCreateConfig, LockId, LockRecipients, SimpleLockConfigV0,
 };
 use concordium_base::protocol_level_tokens::{
     Operation, Operations, OperationsPayload, operations, token_operations,
@@ -448,7 +448,7 @@ fn prepare_lock_create(count: usize) -> Fixture {
     );
     let sender = sender.account_index();
     let sender_address = context.external.account_canonical_address(sender);
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![sender_address.into()],
         expiry: 1_804_806_000.into(),
@@ -512,7 +512,7 @@ fn prepare_empty_lock_cancellation(count: usize) -> EmptyLockCancellationFixture
     );
     let sender = sender.account_index();
     let sender_address = context.external.account_canonical_address(sender);
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![sender_address.into()],
         expiry: 1.into(),
@@ -688,7 +688,7 @@ fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
         }
     }
     fixture.payload = unscoped_payload(vec![
-        operations::create_lock(LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+        operations::create_lock(LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
             recipients: match count {
                 None => LockRecipients::Any,
                 Some(_) => {

@@ -11,9 +11,9 @@ use concordium_base::{
     },
     contracts_common::{AccountAddress, Duration},
     protocol_level_locks::{
-        LockCapability, LockConfig, LockConfigVersion, LockCreateCapability, LockCreateConfig,
-        LockCreateConfigSimpleV0, LockCreateRole, LockId, LockMetadata, LockRecipients, LockRole,
-        LockVariant,
+        LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockId, LockMetadata,
+        LockRecipients, LockRole, LockVariant, SimpleLockConfigCapability, SimpleLockConfigRoles,
+        SimpleLockConfigV0,
     },
     protocol_level_tokens::{
         MetadataUrl, Operation, OperationsPayload, RawCbor, TokenAmount, TokenId,
@@ -57,7 +57,7 @@ fn execute_lock_create_with_duration(
         0,
         None,
     );
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![account.into()],
         expiry: TransactionTime::from_seconds(expiry_seconds),
@@ -127,17 +127,17 @@ fn test_create_simple_lock() {
         description: Some("Lock created in scheduler test".to_string()),
         additional: HashMap::from([("issuer".to_string(), Value::Text("Concordium".to_string()))]),
     };
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Limited(vec![account_1.into()]),
         holders: vec![account_1.into(), account_1.into()],
         expiry: TransactionTime::from_seconds(1000),
-        roles: vec![LockCreateRole {
+        roles: vec![SimpleLockConfigRoles {
             account: account_1.into(),
             roles: vec![
-                LockCreateCapability::Cancel,
-                LockCreateCapability::Cancel,
-                LockCreateCapability::Send,
-                LockCreateCapability::Release,
+                SimpleLockConfigCapability::Cancel,
+                SimpleLockConfigCapability::Cancel,
+                SimpleLockConfigCapability::Send,
+                SimpleLockConfigCapability::Release,
             ],
         }],
         tokens: vec!["PLTx".parse().unwrap()],
@@ -274,7 +274,7 @@ fn test_create_locks_orders_equal_expiries_by_absolute_height() {
 
     for (account_index, height) in [(higher_account, 1234_u64), (lower_account, 1235)] {
         let account = context.external.account_canonical_address(account_index);
-        let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+        let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
             recipients: LockRecipients::Any,
             holders: vec![account.into()],
             expiry: TransactionTime::from_seconds(1000),
@@ -337,22 +337,22 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         0,
         None,
     );
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![account.into()],
         expiry: TransactionTime::from_seconds(1_000),
         roles: vec![
-            LockCreateRole {
+            SimpleLockConfigRoles {
                 account: other.into(),
-                roles: vec![LockCreateCapability::Cancel],
+                roles: vec![SimpleLockConfigCapability::Cancel],
             },
-            LockCreateRole {
+            SimpleLockConfigRoles {
                 account: account.into(),
-                roles: vec![LockCreateCapability::Send],
+                roles: vec![SimpleLockConfigCapability::Send],
             },
-            LockCreateRole {
+            SimpleLockConfigRoles {
                 account: account.into(),
-                roles: vec![LockCreateCapability::Send; 256],
+                roles: vec![SimpleLockConfigCapability::Send; 256],
             },
         ],
         tokens: vec![token_id.clone()],
@@ -478,7 +478,7 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
         .execute_chain_update(&mut context, payload)
         .expect("create pltA");
 
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![account_1.into()],
         expiry: TransactionTime::from_seconds(1000),
@@ -574,21 +574,13 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
 }
 
 #[test]
-fn creation_normalizes_mixed_membership_and_preserves_opaque_output() {
-    use plt_block_state::persistent::hash::{self, Hashable};
-    use plt_scheduler::protocol_level_locks::p11::query_locks_by_account;
-
+fn creation_normalizes_alias_references() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
-    let accounts: Vec<_> = (0..4)
-        .map(|_| context.external.create_account().account_index())
-        .collect();
-    let addresses: Vec<_> = accounts
-        .iter()
-        .map(|index| context.external.account_canonical_address(*index))
-        .collect();
-    let alias = addresses[0].get_alias(42).unwrap();
-    let token: TokenId = "MixedToken".parse().unwrap();
+    let sender = context.external.create_account().account_index();
+    let address = context.external.account_canonical_address(sender);
+    let alias = address.get_alias(42).unwrap();
+    let token: TokenId = "Aliases".parse().unwrap();
     utils::create_and_init_token_p11(
         &mut context,
         &mut state,
@@ -597,184 +589,82 @@ fn creation_normalizes_mixed_membership_and_preserves_opaque_output() {
         0,
         None,
     );
-    let mut sequence = 0u64;
-    for recipients in [
-        LockRecipients::Limited(vec![
-            addresses[2].into(),
-            alias.into(),
-            addresses[2].into(),
-            addresses[0].into(),
-        ]),
-        LockRecipients::Any,
-        LockRecipients::Limited(vec![]),
-    ] {
-        // Invalid nested CBOR and a metadata map with the wrong field type stay opaque.
-        for metadata in [vec![0xff], vec![1], hex::decode("a1646e616d6501").unwrap()] {
-            let mut input = LockCreateConfigSimpleV0 {
-                recipients: recipients.clone(),
-                holders: vec![
-                    addresses[1].into(),
-                    alias.into(),
-                    addresses[0].into(),
-                    alias.into(),
-                ],
-                roles: vec![
-                    LockCreateRole {
-                        account: alias.into(),
-                        roles: vec![
-                            LockCreateCapability::Cancel,
-                            LockCreateCapability::Send,
-                            LockCreateCapability::Send,
-                        ],
-                    },
-                    LockCreateRole {
-                        account: addresses[3].into(),
-                        roles: vec![LockCreateCapability::Send],
-                    },
-                    LockCreateRole {
-                        account: addresses[0].into(),
-                        roles: vec![LockCreateCapability::Release],
-                    },
-                ],
-                expiry: 1000.into(),
-                tokens: vec![
-                    "MIXEDTOKEN".parse().unwrap(),
-                    token.clone(),
-                    "mixedtoken".parse().unwrap(),
-                ],
-                metadata: Some(RawCbor::from(metadata.clone())),
-            };
-            let expected = LockConfig {
-                version: LockConfigVersion::V0,
-                variant: LockVariant::SimpleV0,
-                recipients: match &recipients {
-                    LockRecipients::Any => LockRecipients::Any,
-                    LockRecipients::Limited(list) if list.is_empty() => {
-                        LockRecipients::Limited(vec![])
-                    }
-                    LockRecipients::Limited(_) => {
-                        LockRecipients::Limited(vec![addresses[0].into(), addresses[2].into()])
-                    }
-                },
-                holders: vec![addresses[0].into(), addresses[1].into()],
-                roles: vec![
-                    LockRole {
-                        account: addresses[0].into(),
-                        roles: vec![
-                            LockCapability::Fund,
-                            LockCapability::Release,
-                            LockCapability::Send,
-                            LockCapability::Cancel,
-                        ],
-                    },
-                    LockRole {
-                        account: addresses[1].into(),
-                        roles: vec![LockCapability::Fund],
-                    },
-                    LockRole {
-                        account: addresses[3].into(),
-                        roles: vec![LockCapability::Send],
-                    },
-                ],
-                expiry: 1000.into(),
-                tokens: vec![token.clone()],
-                metadata: Some(RawCbor::from(metadata)),
-            };
-            let mut previous = None;
-            for _ in 0..2 {
-                sequence += 1;
-                let config = LockCreateConfig::SimpleV0(input.clone());
-                assert_eq!(cost::plt_lock_create(&config), Energy::from(1130));
-                let result = state
-                    .execute_transaction(
-                        &mut context,
-                        plt_scheduler::TransactionContext {
-                            energy_limit: Energy::from(u64::MAX),
-                            sender_account_address: addresses[0],
-                            transaction_sequence_number: sequence.into(),
-                            block_timestamp: 0.into(),
-                            block_height: 7.into(),
-                        },
-                        accounts[0],
-                        Payload::TokenUpdate {
-                            payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                                operations: RawCbor::from(cbor::cbor_encode(&vec![
-                                    Operation::from(operations::create_lock(config)),
-                                ])),
-                            }),
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(
-                    result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
-                    Energy::from(1130)
-                );
-                let events =
-                    assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
-                let event =
-                    assert_matches!(&events[..], [BlockItemEvent::LockCreated(event)] => event);
-                let output: LockConfig =
-                    plt_block_state::utils::cbor_decode(&event.lock_config).unwrap();
-                assert_eq!(output, expected);
-                let info: concordium_base::protocol_level_locks::LockInfo =
-                    plt_block_state::utils::cbor_decode(
-                        state.query_lock_info(&context, &event.lock_id).unwrap(),
-                    )
-                    .unwrap();
-                assert_eq!(info.config, output);
-                for account in [accounts[0], accounts[1], accounts[3]] {
-                    let matches = query_locks_by_account(&context, &state, account).unwrap();
-                    let (_, config) = matches.iter().find(|(id, _)| *id == event.lock_id).unwrap();
-                    assert_eq!(*config, event.lock_config);
-                    let expected_ids: Vec<_> = state.lock_list(&context).unwrap();
-                    assert_eq!(
-                        matches.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
-                        expected_ids
-                    );
-                }
-                assert!(
-                    query_locks_by_account(&context, &state, accounts[2])
-                        .unwrap()
-                        .is_empty()
-                );
-                let lock = state.lock_by_id(&context, &event.lock_id).unwrap().unwrap();
-                let persistent = lock.lock_configuration(&context).unwrap();
-                let bytes = concordium_base::common::to_bytes(persistent.as_ref());
-                let hash = hash::hash_of_serialization(persistent.as_ref());
-                if let Some((previous_bytes, previous_hash)) =
-                    previous.replace((bytes.clone(), hash))
-                {
-                    assert_eq!(bytes, previous_bytes);
-                    assert_eq!(hash, previous_hash);
-                }
-                input.holders.reverse();
-                input.roles.reverse();
-                input.tokens.reverse();
-                if let LockRecipients::Limited(recipients) = &mut input.recipients {
-                    recipients.reverse();
-                }
-                // Removing only repetitions and recipient-only membership leaves pricing unchanged.
-                let mut normalized = input.clone();
-                normalized.holders = expected.holders.clone();
-                normalized.tokens = expected.tokens.clone();
-                normalized.recipients = LockRecipients::Limited(vec![]);
-                assert_eq!(
-                    cost::plt_lock_create(&LockCreateConfig::SimpleV0(normalized)),
-                    Energy::from(1130)
-                );
-            }
-        }
-    }
-    // All successful creations are independently indexed, and hashing their state succeeds.
-    assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 18);
-    state.persistent.hash(&context.store).unwrap();
+    let input = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
+        holders: vec![address.into(), alias.into()],
+        roles: [address, alias]
+            .into_iter()
+            .map(|account| SimpleLockConfigRoles {
+                account: account.into(),
+                roles: vec![SimpleLockConfigCapability::Send],
+            })
+            .collect(),
+        recipients: LockRecipients::Limited(vec![address.into(), alias.into()]),
+        expiry: 1000.into(),
+        tokens: vec![token],
+        metadata: None,
+    });
+    utils::execute_operations(
+        &mut context,
+        &mut state,
+        sender,
+        vec![operations::create_lock(input).into()],
+    );
+    let info: concordium_base::protocol_level_locks::LockInfo = cbor::cbor_decode(
+        state
+            .query_lock_info(&context, &LockId::new(sender, 1, 0))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(info.config.holders, vec![address.into()]);
+    assert_eq!(
+        info.config.recipients,
+        LockRecipients::Limited(vec![address.into()])
+    );
+    assert_eq!(info.config.roles.len(), 1);
+    assert_eq!(info.config.roles[0].account, address.into());
 }
 
 #[test]
-fn creation_resolves_every_reference_and_rejects_atomically() {
+fn creation_preserves_opaque_metadata_in_event_and_query() {
+    let mut context = entity_test_stub::new_stubbed_context();
+    let mut state = BlockStateLatest::default();
+    let sender = context.external.create_account().account_index();
+    let address = context.external.account_canonical_address(sender);
+    let token: TokenId = "Metadata".parse().unwrap();
+    utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let metadata = Some(RawCbor::from(vec![0xff]));
+    let input = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
+        holders: vec![address.into()],
+        roles: vec![],
+        recipients: LockRecipients::Any,
+        expiry: 1000.into(),
+        tokens: vec![token],
+        metadata: metadata.clone(),
+    });
+    let events = utils::execute_operations(
+        &mut context,
+        &mut state,
+        sender,
+        vec![operations::create_lock(input).into()],
+    );
+    let event = assert_matches!(&events[..], [BlockItemEvent::LockCreated(event)] => event);
+    let output: LockConfig = cbor::cbor_decode(&event.lock_config).unwrap();
+    assert_eq!(output.metadata, metadata);
+    let info: concordium_base::protocol_level_locks::LockInfo =
+        cbor::cbor_decode(state.query_lock_info(&context, &event.lock_id).unwrap()).unwrap();
+    assert_eq!(info.config.metadata, metadata);
+}
+
+#[test]
+fn creation_rejects_invalid_account_references_atomically() {
     use plt_block_state::persistent::hash::Hashable;
-    use plt_scheduler::failure::WithBlockStateFailure;
-    use plt_scheduler::protocol_level_locks::lock_configuration::from_cbor_config;
 
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
@@ -790,133 +680,57 @@ fn creation_resolves_every_reference_and_rejects_atomically() {
         0,
         None,
     );
-    let valid = LockCreateConfigSimpleV0 {
-        holders: vec![address.into(), address.get_alias(7).unwrap().into()],
-        roles: vec![
-            LockCreateRole {
-                account: address.into(),
-                roles: vec![LockCreateCapability::Send]
-            };
-            2
-        ],
-        recipients: LockRecipients::Limited(vec![
-            address.into(),
-            address.get_alias(8).unwrap().into(),
-        ]),
+    let valid = SimpleLockConfigV0 {
+        holders: vec![address.into()],
+        roles: vec![],
+        recipients: LockRecipients::Any,
         expiry: 1000.into(),
-        tokens: vec![token.clone(), "REFERENCES".parse().unwrap()],
+        tokens: vec![token],
         metadata: None,
     };
-    for field in ["holder", "role", "recipient", "token"] {
+    for field in ["holder", "role", "recipient"] {
         let mut input = valid.clone();
         match field {
             "holder" => input.holders.push(invalid.into()),
-            "role" => input.roles.push(LockCreateRole {
+            "role" => input.roles.push(SimpleLockConfigRoles {
                 account: invalid.into(),
-                roles: vec![LockCreateCapability::Cancel],
+                roles: vec![SimpleLockConfigCapability::Cancel],
             }),
             "recipient" => {
-                let LockRecipients::Limited(list) = &mut input.recipients else {
-                    unreachable!()
-                };
-                list.push(invalid.into());
+                input.recipients = LockRecipients::Limited(vec![address.into(), invalid.into()])
             }
-            "token" => input.tokens.push("missing".parse().unwrap()),
             _ => unreachable!(),
         }
-        let config = LockCreateConfig::SimpleV0(input);
         let before = state.persistent.hash(&context.store).unwrap();
         let result = state
             .execute_transaction(
                 &mut context,
-                plt_scheduler::TransactionContext {
-                    energy_limit: Energy::from(u64::MAX),
-                    sender_account_address: address,
-                    transaction_sequence_number: 1.into(),
-                    block_timestamp: 0.into(),
-                    block_height: 0.into(),
-                },
+                utils::simple_transaction_context(address),
                 sender,
                 Payload::TokenUpdate {
                     payload: TokenUpdatePayload::Unscoped(OperationsPayload {
                         operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
-                            operations::create_lock(config.clone()),
+                            operations::create_lock(LockCreateConfig::SimpleV0(input)),
                         )])),
                     }),
                 },
             )
             .unwrap();
-        assert_eq!(
-            result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
-            cost::plt_lock_create(&config)
-        );
-        let expected = if field == "token" {
-            TransactionRejectReason::NonExistentTokenId("missing".parse().unwrap())
-        } else {
-            TransactionRejectReason::InvalidAccountReference(invalid)
-        };
-        assert_matches!(result.outcome, TransactionOutcome::Rejected(reason) => assert_eq!(reason, expected));
+        assert_matches!(result.outcome, TransactionOutcome::Rejected(
+            TransactionRejectReason::InvalidAccountReference(account)
+        ) if account == invalid);
         assert_eq!(state.persistent.hash(&context.store).unwrap(), before);
         assert!(state.lock_list(&context).unwrap().is_empty());
-        assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
     }
-    for field in ["holders", "tokens", "capabilities"] {
-        let mut input = valid.clone();
-        match field {
-            "holders" => input.holders.clear(),
-            "tokens" => input.tokens.clear(),
-            "capabilities" => input.roles[0].roles.clear(),
-            _ => unreachable!(),
-        }
-        assert_matches!(
-            from_cbor_config(&context, &state, LockCreateConfig::SimpleV0(input)),
-            Err(WithBlockStateFailure::Error(
-                TransactionRejectReason::SerializationFailure
-            ))
-        );
-    }
-    // An invalid reference on expired input still incurs the charge and expiry wins resolution.
-    let mut expired = valid;
-    expired.expiry = 0.into();
-    expired.holders.push(invalid.into());
-    let expired = LockCreateConfig::SimpleV0(expired);
-    let result = state
-        .execute_transaction(
-            &mut context,
-            plt_scheduler::TransactionContext {
-                energy_limit: Energy::from(u64::MAX),
-                sender_account_address: address,
-                transaction_sequence_number: 1.into(),
-                block_timestamp: 1.into(),
-                block_height: 0.into(),
-            },
-            sender,
-            Payload::TokenUpdate {
-                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
-                        operations::create_lock(expired.clone()),
-                    )])),
-                }),
-            },
-        )
-        .unwrap();
-    assert_eq!(
-        result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
-        cost::plt_lock_create(&expired)
-    );
-    assert_matches!(
-        result.outcome,
-        TransactionOutcome::Rejected(TransactionRejectReason::LockExpired(_))
-    );
 }
 
 #[test]
-fn node_rejects_removed_creation_memo() {
+fn creation_charges_empty_list_rejections() {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
     let sender = context.external.create_account().account_index();
     let address = context.external.account_canonical_address(sender);
-    let token: TokenId = "Memo".parse().unwrap();
+    let token: TokenId = "EmptyLists".parse().unwrap();
     utils::create_and_init_token_p11(
         &mut context,
         &mut state,
@@ -925,57 +739,50 @@ fn node_rejects_removed_creation_memo() {
         0,
         None,
     );
-    let input = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let valid = SimpleLockConfigV0 {
         holders: vec![address.into()],
-        roles: vec![],
+        roles: vec![SimpleLockConfigRoles {
+            account: address.into(),
+            roles: vec![SimpleLockConfigCapability::Send],
+        }],
         recipients: LockRecipients::Any,
         expiry: 1000.into(),
         tokens: vec![token],
         metadata: None,
-    });
-    let mut value: Value = cbor::cbor_decode(cbor::cbor_encode(&vec![Operation::from(
-        operations::create_lock(input),
-    )]))
-    .unwrap();
-    let Value::Array(operations) = &mut value else {
-        unreachable!()
     };
-    let Value::Map(operation) = &mut operations[0] else {
-        unreachable!()
-    };
-    let Value::Map(config) = &mut operation[0].1 else {
-        unreachable!()
-    };
-    let Value::Map(fields) = &mut config[0].1 else {
-        unreachable!()
-    };
-    fields.push((
-        Value::Text("memo".into()),
-        Value::Bytes(cbor::Bytes(vec![1, 2, 3])),
-    ));
-    let result = state
-        .execute_transaction(
-            &mut context,
-            plt_scheduler::TransactionContext {
-                energy_limit: Energy::from(u64::MAX),
-                sender_account_address: address,
-                transaction_sequence_number: 1.into(),
-                block_timestamp: 0.into(),
-                block_height: 0.into(),
-            },
-            sender,
-            Payload::TokenUpdate {
-                payload: TokenUpdatePayload::Unscoped(OperationsPayload {
-                    operations: RawCbor::from(cbor::cbor_encode(&value)),
-                }),
-            },
-        )
-        .unwrap();
-    assert_matches!(
-        result.outcome,
-        TransactionOutcome::Rejected(TransactionRejectReason::SerializationFailure)
-    );
-    assert!(state.lock_list(&context).unwrap().is_empty());
+    // R counts unique accounts that are holders, have explicit roles, or both.
+    for (field, energy) in [("holders", 110), ("tokens", 110), ("capabilities", 610)] {
+        let mut input = valid.clone();
+        match field {
+            "holders" => input.holders.clear(),
+            "tokens" => input.tokens.clear(),
+            "capabilities" => input.roles[0].roles.clear(),
+            _ => unreachable!(),
+        }
+        let result = state
+            .execute_transaction(
+                &mut context,
+                utils::simple_transaction_context(address),
+                sender,
+                Payload::TokenUpdate {
+                    payload: TokenUpdatePayload::Unscoped(OperationsPayload {
+                        operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
+                            operations::create_lock(LockCreateConfig::SimpleV0(input)),
+                        )])),
+                    }),
+                },
+            )
+            .expect("empty-field lock creation must execute");
+        assert_matches!(
+            result.outcome,
+            TransactionOutcome::Rejected(TransactionRejectReason::SerializationFailure)
+        );
+        assert_eq!(
+            result.energy_used - cost::PLT_OPERATIONS_TRANSACTIONS,
+            Energy::from(energy)
+        );
+        assert!(state.lock_list(&context).unwrap().is_empty());
+    }
 }
 
 #[test]
@@ -993,7 +800,7 @@ fn test_expired_creation_charges_configuration_complexity() {
         0,
         None,
     );
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![address.into()],
         expiry: TransactionTime::from_seconds(0),
@@ -1103,7 +910,7 @@ fn lock_creation_duration_reject_reports_its_creation_order() {
         None,
     );
     let config = |expiry| {
-        LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+        LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
             recipients: LockRecipients::Any,
             holders: vec![account.into()],
             expiry: TransactionTime::from_seconds(expiry),

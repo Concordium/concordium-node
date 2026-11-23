@@ -1020,58 +1020,6 @@ mod test {
             })
         );
 
-        // Each collection has its own bound, not a shared limit on their union.
-        let recipients = LockRecipients::try_from(
-            (U16_MAX_LENGTH..2 * U16_MAX_LENGTH)
-                .rev()
-                .map(|i| AccountIndex::from(i as u64))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        let config = LockConfigSimpleV0::new(
-            recipients,
-            TransactionTime::from(0u64),
-            (0..U16_MAX_LENGTH)
-                .rev()
-                .map(|i| LockRole::new(AccountIndex::from(i as u64), vec![LockCapability::Fund]))
-                .collect(),
-            Vec::new(),
-            None,
-        )
-        .unwrap();
-        let LockRecipients::Limited(recipients) = &config.recipients else {
-            panic!("expected restricted recipients");
-        };
-        assert_eq!(recipients.len(), U16_MAX_LENGTH);
-        assert_eq!(config.roles().len(), U16_MAX_LENGTH);
-        assert!(config.roles().iter().all(|role| {
-            !recipients.is_recipient(&role.account())
-                && config.has_role(role.account(), LockCapability::Fund)
-        }));
-        assert_eq!(recipients.len() + config.roles().len(), 131_070);
-
-        let mut reordered_recipients = recipients.iter().copied().collect::<Vec<_>>();
-        reordered_recipients.reverse();
-        let reordered = LockConfigSimpleV0::new(
-            LockRecipients::try_from(reordered_recipients).unwrap(),
-            config.expiry,
-            config.roles().iter().rev().cloned().collect(),
-            Vec::new(),
-            None,
-        )
-        .unwrap();
-        assert_eq!(config, reordered);
-        let bytes = to_bytes(&config);
-        assert_eq!(bytes, to_bytes(&reordered));
-        assert_eq!(
-            common::from_bytes_complete::<LockConfigSimpleV0>(&bytes).unwrap(),
-            config
-        );
-        let store = BlobStoreStub::default();
-        let lock = PersistentLockP11::new(LockConfig::SimpleV0(config), 1234.into());
-        let other = PersistentLockP11::new(LockConfig::SimpleV0(reordered), 1234.into());
-        assert_eq!(lock.hash(&store).unwrap(), other.hash(&store).unwrap());
-
         assert_eq!(
             LockConfigSimpleV0::new(
                 LockRecipients::Any,

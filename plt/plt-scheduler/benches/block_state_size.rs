@@ -10,7 +10,7 @@ mod utils;
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockCreateConfig, LockCreateConfigSimpleV0, LockId, LockRecipients,
+    LockCapability, LockCreateConfig, LockId, LockRecipients, SimpleLockConfigV0,
 };
 use concordium_base::protocol_level_tokens::{
     Operation, Operations, OperationsPayload, operations, token_operations,
@@ -197,7 +197,7 @@ fn prepare_lock_create(existing_lock_count: usize) -> PreparedOperation {
         );
         assert!(matches!(state.lock_by_id(&context, &lock_id), Ok(Ok(_))));
     }
-    let config = LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
         holders: vec![context.external.account_canonical_address(sender).into()],
         expiry: 1_804_806_000.into(),

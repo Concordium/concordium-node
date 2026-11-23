@@ -9,8 +9,8 @@ use concordium_base::common::cbor::value::Value;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockCreateConfigSimpleV0,
-    LockId, LockMetadata, LockRecipients, LockVariant,
+    LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockId, LockMetadata,
+    LockRecipients, LockVariant, SimpleLockConfigV0,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
 use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
@@ -150,7 +150,7 @@ fn test_query_lock_info_any_recipient() {
     };
     let operations = Operations {
         operations: vec![
-            operations::create_lock(LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+            operations::create_lock(LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
                 recipients: LockRecipients::Any,
                 holders: vec![CborHolderAccount::from(sender_addr)],
                 expiry: TransactionTime::from(1_804_806_000u64),

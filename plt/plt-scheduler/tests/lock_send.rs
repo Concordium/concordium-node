@@ -7,9 +7,9 @@ use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockConfig, LockConfigVersion, LockCreateCapability, LockCreateConfig,
-    LockCreateConfigSimpleV0, LockCreateRole, LockId, LockRecipients, LockRole as CborLockRole,
-    LockVariant,
+    LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockId, LockRecipients,
+    LockRole as CborLockRole, LockVariant, SimpleLockConfigCapability, SimpleLockConfigRoles,
+    SimpleLockConfigV0,
 };
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, Operation, OperationNotPermittedRejectReason, Operations, OperationsPayload,
@@ -255,13 +255,13 @@ fn test_lock_send_allows_any_recipient() {
 
     let lock_id = LockId::new(owner.account_index(), 1u64, 0); // 1 matches the seq number given by `execute_unscoped_update`
     let operations = vec![
-        operations::create_lock(LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+        operations::create_lock(LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
             recipients: LockRecipients::Any,
             holders: vec![CborHolderAccount::from(owner_addr)],
             expiry: 1_804_806_000.into(),
-            roles: vec![LockCreateRole {
+            roles: vec![SimpleLockConfigRoles {
                 account: CborHolderAccount::from(owner_addr),
-                roles: vec![LockCreateCapability::Send],
+                roles: vec![SimpleLockConfigCapability::Send],
             }],
             tokens: vec![token_id.clone()],
             metadata: None,

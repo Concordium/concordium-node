@@ -65,12 +65,12 @@ pub fn create_lock(
                 .into_iter()
                 .filter_map(|capability| match capability {
                     LockCapability::Fund => None,
-                    LockCapability::Release => Some(LockCreateCapability::Release),
-                    LockCapability::Send => Some(LockCreateCapability::Send),
-                    LockCapability::Cancel => Some(LockCreateCapability::Cancel),
+                    LockCapability::Release => Some(SimpleLockConfigCapability::Release),
+                    LockCapability::Send => Some(SimpleLockConfigCapability::Send),
+                    LockCapability::Cancel => Some(SimpleLockConfigCapability::Cancel),
                 })
                 .collect();
-            (!roles.is_empty()).then(|| LockCreateRole {
+            (!roles.is_empty()).then(|| SimpleLockConfigRoles {
                 account: resolve_account(&role.account()),
                 roles,
             })
@@ -78,7 +78,7 @@ pub fn create_lock(
         .collect();
     let operations = Operations {
         operations: vec![
-            operations::create_lock(LockCreateConfig::SimpleV0(LockCreateConfigSimpleV0 {
+            operations::create_lock(LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
                 recipients,
                 holders,
                 expiry: TransactionTime::from(config.expiry),
