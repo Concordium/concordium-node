@@ -14,7 +14,7 @@
   fund/send/release 250 NRG each, and cancel `500 × B` NRG.
   H is the number of unique holders; T is the number of unique configured token identifiers, compared case-insensitively;
   R is the number of unique accounts that are holders, have explicit roles, or both; B counts current balance references controlled by the lock.
-  Recipient-only accounts do not contribute to R. Empty holder, token, and role-capability lists are rejected after charging creation energy.
+  Recipient-only accounts do not contribute to R. Empty holder and token lists are rejected after charging creation energy. Empty roles lists are allowed, but any roles entry must have a non-empty capabilities list.
 
 ## 11.2.3 (Devnet)
 
