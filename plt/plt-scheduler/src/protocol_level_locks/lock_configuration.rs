@@ -3,8 +3,8 @@
 use crate::failure::ResultWithBlockStateFailure;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockConfig as CborLockConfig, LockConfigVersion, LockCreateConfig,
-    LockRecipients, LockRole as CborLockRole, LockVariant, SimpleLockConfigCapability,
+    LockCapability, LockConfig as CborLockConfig, LockConfigV0, LockCreateConfig, LockRecipients,
+    LockRole as CborLockRole, LockVariant, SimpleLockConfigCapability,
 };
 use concordium_base::protocol_level_tokens::CborHolderAccount;
 use concordium_base::protocol_level_tokens::{
@@ -223,8 +223,7 @@ pub fn to_cbor_config<C: EntityContextTypes>(
             roles: capabilities,
         });
     }
-    Ok(CborLockConfig {
-        version: LockConfigVersion::V0,
+    Ok(CborLockConfig::V0(LockConfigV0 {
         variant: LockVariant::SimpleV0,
         holders,
         roles,
@@ -232,5 +231,5 @@ pub fn to_cbor_config<C: EntityContextTypes>(
         expiry: config.expiry,
         tokens: config.tokens().to_vec(),
         metadata: config.metadata.clone(),
-    })
+    }))
 }

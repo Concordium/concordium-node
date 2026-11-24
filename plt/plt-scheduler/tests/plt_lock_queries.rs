@@ -9,7 +9,7 @@ use concordium_base::common::cbor::value::Value;
 use concordium_base::common::types::TransactionTime;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockId, LockMetadata,
+    LockCapability, LockConfig, LockConfigV0, LockCreateConfig, LockId, LockMetadata,
     LockRecipients, LockVariant, SimpleLockConfigV0,
 };
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenId};
@@ -93,8 +93,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
     assert_eq!(decoded.lock, lock_id);
     assert_eq!(
         decoded.config,
-        LockConfig {
-            version: LockConfigVersion::V0,
+        LockConfig::V0(LockConfigV0 {
             variant: LockVariant::SimpleV0,
             recipients: LockRecipients::Limited(vec![CborHolderAccount::from(recipient_addr)]),
             holders: vec![CborHolderAccount::from(funding_addr)],
@@ -105,7 +104,7 @@ fn test_query_lock_info_cbor_round_trip_with_funded_balances() {
             }],
             tokens: vec![token_id.clone()],
             metadata: None,
-        }
+        })
     );
     assert_eq!(decoded.funds.len(), 1);
     assert_eq!(
@@ -186,8 +185,9 @@ fn test_query_lock_info_any_recipient() {
     let decoded: LockInfo =
         cbor::cbor_decode(&bytes).expect("CBOR encoding produced by query_lock_info must decode");
 
-    assert_eq!(decoded.config.recipients, LockRecipients::Any);
-    assert_eq!(decoded.config.metadata, Some(metadata.encode_raw_cbor()));
+    let LockConfig::V0(config) = decoded.config;
+    assert_eq!(config.recipients, LockRecipients::Any);
+    assert_eq!(config.metadata, Some(metadata.encode_raw_cbor()));
 }
 
 #[test]

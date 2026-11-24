@@ -11,7 +11,7 @@ use concordium_base::{
     },
     contracts_common::{AccountAddress, Duration},
     protocol_level_locks::{
-        LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockId, LockMetadata,
+        LockCapability, LockConfig, LockConfigV0, LockCreateConfig, LockId, LockMetadata,
         LockRecipients, LockRole, LockVariant, SimpleLockConfigCapability, SimpleLockConfigRoles,
         SimpleLockConfigV0,
     },
@@ -143,8 +143,7 @@ fn test_create_simple_lock() {
         tokens: vec!["PLTx".parse().unwrap()],
         metadata: Some(metadata.encode_raw_cbor()),
     });
-    let canonical_config = LockConfig {
-        version: LockConfigVersion::V0,
+    let canonical_config = LockConfig::V0(LockConfigV0 {
         variant: LockVariant::SimpleV0,
         recipients: LockRecipients::Limited(vec![account_1.into()]),
         holders: vec![account_1.into()],
@@ -160,7 +159,7 @@ fn test_create_simple_lock() {
         }],
         tokens: vec![plt_x.clone()],
         metadata: Some(metadata.encode_raw_cbor()),
-    };
+    });
 
     let operations = vec![Operation::from(operations::create_lock(config))];
     let payload = OperationsPayload {
@@ -358,8 +357,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         tokens: vec![token_id.clone()],
         metadata: None,
     });
-    let expected = LockConfig {
-        version: LockConfigVersion::V0,
+    let expected = LockConfig::V0(LockConfigV0 {
         variant: LockVariant::SimpleV0,
         holders: vec![account.into()],
         roles: vec![
@@ -376,7 +374,7 @@ fn test_create_lock_with_256_duplicate_roles_persists_and_reloads() {
         expiry: TransactionTime::from_seconds(1_000),
         tokens: vec![token_id],
         metadata: None,
-    };
+    });
     let payload = OperationsPayload {
         operations: RawCbor::from(cbor::cbor_encode(&vec![Operation::from(
             operations::create_lock(config),
@@ -486,8 +484,7 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
         tokens: vec![plt_a.clone(), plt_x.clone()],
         metadata: None,
     });
-    let expected = LockConfig {
-        version: LockConfigVersion::V0,
+    let expected = LockConfig::V0(LockConfigV0 {
         variant: LockVariant::SimpleV0,
         recipients: LockRecipients::Any,
         holders: vec![account_1.into()],
@@ -498,7 +495,7 @@ fn test_create_any_recipient_lock_normalizes_tokens() {
         }],
         tokens: vec![plt_a.clone(), plt_x.clone()],
         metadata: None,
-    };
+    });
     for (index, references) in [
         vec!["PLTx", "plta", "pltx", "PLTA"],
         vec!["PLTA", "pltX", "pltA", "PLTX"],
@@ -615,13 +612,14 @@ fn creation_normalizes_alias_references() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(info.config.holders, vec![address.into()]);
+    let LockConfig::V0(config) = info.config;
+    assert_eq!(config.holders, vec![address.into()]);
     assert_eq!(
-        info.config.recipients,
+        config.recipients,
         LockRecipients::Limited(vec![address.into()])
     );
-    assert_eq!(info.config.roles.len(), 1);
-    assert_eq!(info.config.roles[0].account, address.into());
+    assert_eq!(config.roles.len(), 1);
+    assert_eq!(config.roles[0].account, address.into());
 }
 
 #[test]
@@ -655,11 +653,12 @@ fn creation_preserves_opaque_metadata_in_event_and_query() {
         vec![operations::create_lock(input).into()],
     );
     let event = assert_matches!(&events[..], [BlockItemEvent::LockCreated(event)] => event);
-    let output: LockConfig = cbor::cbor_decode(&event.lock_config).unwrap();
+    let LockConfig::V0(output) = cbor::cbor_decode::<LockConfig>(&event.lock_config).unwrap();
     assert_eq!(output.metadata, metadata);
     let info: concordium_base::protocol_level_locks::LockInfo =
         cbor::cbor_decode(state.query_lock_info(&context, &event.lock_id).unwrap()).unwrap();
-    assert_eq!(info.config.metadata, metadata);
+    let LockConfig::V0(config) = info.config;
+    assert_eq!(config.metadata, metadata);
 }
 
 #[test]

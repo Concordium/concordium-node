@@ -7,7 +7,7 @@ use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
 use concordium_base::protocol_level_locks::{
-    LockCapability, LockConfig, LockConfigVersion, LockCreateConfig, LockId, LockRecipients,
+    LockCapability, LockConfig, LockConfigV0, LockCreateConfig, LockId, LockRecipients,
     LockRole as CborLockRole, LockVariant, SimpleLockConfigCapability, SimpleLockConfigRoles,
     SimpleLockConfigV0,
 };
@@ -299,8 +299,7 @@ fn test_lock_send_allows_any_recipient() {
     .expect("lock info must decode");
     assert_eq!(
         lock_info.config,
-        LockConfig {
-            version: LockConfigVersion::V0,
+        LockConfig::V0(LockConfigV0 {
             variant: LockVariant::SimpleV0,
             recipients: LockRecipients::Any,
             holders: vec![CborHolderAccount::from(owner_addr)],
@@ -311,7 +310,7 @@ fn test_lock_send_allows_any_recipient() {
             }],
             tokens: vec![token_id.clone()],
             metadata: None
-        }
+        })
     );
 }
 
