@@ -23,7 +23,7 @@ use concordium_base::common::cbor;
 use concordium_base::constants::MAX_PAYLOAD_SIZE;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_locks::{
-    LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Capability, LockId, LockRecipients,
+    LockCapability, LockCreateConfig, LockId, LockRecipients, SimpleLockConfigV0,
 };
 use concordium_base::protocol_level_tokens::{
     Operation, Operations, OperationsPayload, operations, token_operations,
@@ -34,7 +34,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::{Payload, PayloadLike, TokenUpdatePayload, construct, cost};
 use divan::Bencher;
 use plt_block_state::entity::entity_test_stub::{self, StubbedEntityContext};
-use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
+use plt_block_state::persistent::protocol_level_locks::p11::LockRole;
 use plt_scheduler::scheduler::TransactionExecutionError;
 use plt_scheduler_types::types::events::BlockItemEvent;
 use plt_scheduler_types::types::execution::{TransactionExecutionSummary, TransactionOutcome};
@@ -376,11 +376,11 @@ fn unscoped_payload(operations: Vec<Operation>) -> Payload {
 fn lock_config(
     sender: concordium_base::base::AccountIndex,
     token_id: TokenId,
-    roles: Vec<LockControllerSimpleV0Capability>,
+    roles: Vec<LockCapability>,
 ) -> utils::CreateLockSimpleConfig {
     utils::CreateLockSimpleConfig {
         recipients: vec![sender],
-        grants: vec![LockControllerSimpleV0Grant::new(sender, roles)],
+        roles: vec![LockRole::new(sender, roles)],
         tokens: vec![token_id],
         expiry: 1_804_806_000,
     }
@@ -392,7 +392,7 @@ fn lock_config(
 ///
 /// - `roles`: Controller capabilities granted to the sender.
 fn lock_fixture(
-    roles: Vec<LockControllerSimpleV0Capability>,
+    roles: Vec<LockCapability>,
 ) -> (
     StubbedEntityContext,
     BlockStateLatest,
@@ -436,15 +436,24 @@ fn lock_fixture(
 /// - `count`: Number of locks created by the transaction.
 fn prepare_lock_create(count: usize) -> Fixture {
     let mut context = entity_test_stub::new_stubbed_context();
-    let state = BlockStateLatest::default();
-    let sender = context.external.create_account().account_index();
+    let mut state = BlockStateLatest::default();
+    let token_id: TokenId = "benchmark-lock-token".parse().unwrap();
+    let (sender, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let sender = sender.account_index();
     let sender_address = context.external.account_canonical_address(sender);
-    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
+        holders: vec![sender_address.into()],
         expiry: 1_804_806_000.into(),
-        grants: vec![],
-        tokens: vec![],
-        memo: None,
+        roles: vec![],
+        tokens: vec![token_id],
         metadata: None,
     });
     Fixture {
@@ -492,14 +501,23 @@ fn empty_lock_transaction_context(
 fn prepare_empty_lock_cancellation(count: usize) -> EmptyLockCancellationFixture {
     let mut context = entity_test_stub::new_stubbed_context();
     let mut state = BlockStateLatest::default();
-    let sender = context.external.create_account().account_index();
+    let token_id: TokenId = "benchmark-lock-token".parse().unwrap();
+    let (sender, _) = utils::create_and_init_token_p11(
+        &mut context,
+        &mut state,
+        token_id.clone(),
+        TokenInitTestParams::default(),
+        0,
+        None,
+    );
+    let sender = sender.account_index();
     let sender_address = context.external.account_canonical_address(sender);
-    let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
+    let config = LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
         recipients: LockRecipients::Any,
+        holders: vec![sender_address.into()],
         expiry: 1.into(),
-        grants: vec![],
-        tokens: vec![],
-        memo: None,
+        roles: vec![],
+        tokens: vec![token_id],
         metadata: None,
     });
     let mut lock_ids = Vec::with_capacity(count);
@@ -670,17 +688,23 @@ fn prepare_lock_recipients(count: Option<usize>, shuffled: bool) -> Fixture {
         }
     }
     fixture.payload = unscoped_payload(vec![
-        operations::create_lock(LockConfig::SimpleV0(LockConfigSimpleV0 {
+        operations::create_lock(LockCreateConfig::SimpleV0(SimpleLockConfigV0 {
             recipients: match count {
                 None => LockRecipients::Any,
                 Some(_) => {
                     LockRecipients::Limited(recipients.into_iter().map(Into::into).collect())
                 }
             },
+            holders: vec![
+                fixture
+                    .context
+                    .external
+                    .account_canonical_address(fixture.sender)
+                    .into(),
+            ],
             expiry: 1_804_806_000.into(),
-            grants: vec![],
-            tokens: vec![],
-            memo: None,
+            roles: vec![],
+            tokens: vec!["benchmark-lock-token".parse().unwrap()],
             metadata: None,
         }))
         .into(),
@@ -733,7 +757,7 @@ fn create_lock_recipients_shuffled(bencher: Bencher, count: usize) {
 /// - `existing_reference`: Whether setup first funds the same `(account, token)` pair.
 fn prepare_lock_fund(existing_reference: bool) -> Fixture {
     let (mut context, mut state, sender, token_id, lock_id) =
-        lock_fixture(vec![LockControllerSimpleV0Capability::Fund]);
+        lock_fixture(vec![LockCapability::Fund]);
     if existing_reference {
         let sender_address = context.external.account_canonical_address(sender);
         let payload = unscoped_payload(vec![
@@ -776,12 +800,12 @@ fn prepare_lock_fund(existing_reference: bool) -> Fixture {
 /// - `drain`: Whether the operation consumes the complete balance and removes its reference.
 fn prepare_lock_transfer(release_funds: bool, drain: bool) -> Fixture {
     let capability = if release_funds {
-        LockControllerSimpleV0Capability::Release
+        LockCapability::Release
     } else {
-        LockControllerSimpleV0Capability::Send
+        LockCapability::Send
     };
     let (mut context, mut state, sender, token_id, lock_id) =
-        lock_fixture(vec![LockControllerSimpleV0Capability::Fund, capability]);
+        lock_fixture(vec![LockCapability::Fund, capability]);
     let sender_address = context.external.account_canonical_address(sender);
     let result = state.execute_transaction(
         &mut context,

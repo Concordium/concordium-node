@@ -5,7 +5,7 @@ use crate::utils::{BlockStateLatest, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
@@ -13,9 +13,7 @@ use concordium_base::protocol_level_tokens::{
     TokenOperationsPayload, TokenPauseDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload, TokenUpdatePayload};
-use plt_block_state::{
-    entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
-};
+use plt_block_state::{entity::entity_test_stub, persistent::protocol_level_locks::p11::LockRole};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
 
@@ -292,9 +290,9 @@ fn test_transfer_insufficient_available_balance() {
         &lock_id,
         utils::CreateLockSimpleConfig {
             recipients: vec![receiver.account_index()],
-            grants: vec![LockControllerSimpleV0Grant::new(
+            roles: vec![LockRole::new(
                 sender.account_index(),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockCapability::Fund],
             )],
             tokens: vec![token_id.clone()],
             expiry: 1_804_806_000,

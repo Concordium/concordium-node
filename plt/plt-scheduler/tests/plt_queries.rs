@@ -6,14 +6,14 @@ use crate::utils::entity_traits::scheduler::SchedulerOperations;
 use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
     TokenModuleState, TokenOperation, TokenOperationsPayload,
 };
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
 use plt_block_state::entity::entity_test_stub;
-use plt_block_state::persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant;
+use plt_block_state::persistent::protocol_level_locks::p11::LockRole;
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::tokens::RawTokenAmount;
@@ -187,9 +187,9 @@ fn test_query_token_account_info_available_with_locked_balance() {
     };
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -258,9 +258,9 @@ fn test_query_token_account_info_available_with_multiple_locks() {
     };
     let lock_config1 = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -273,9 +273,9 @@ fn test_query_token_account_info_available_with_multiple_locks() {
     };
     let lock_config2 = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -353,9 +353,9 @@ fn test_query_token_account_info_available_zero_when_fully_locked() {
     };
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             account.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,

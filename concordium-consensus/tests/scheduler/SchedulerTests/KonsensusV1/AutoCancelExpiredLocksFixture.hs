@@ -13,7 +13,7 @@ import Data.Bool.Singletons
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-import qualified Data.Sequence as Seq
+import Data.Text (Text)
 import Lens.Micro.Platform
 import Test.HUnit
 
@@ -33,7 +33,6 @@ import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.TransactionVerification as Verification
 import Concordium.Types.Accounts
-import qualified Concordium.Types.Locks.CBOR as Locks
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 import Concordium.Types.Queries.Tokens
 import qualified SchedulerTests.Helpers as Helpers
@@ -124,31 +123,40 @@ makeFixture count funded = do
                   tipAdditional = Map.empty
                 }
         createToken = CreatePLT token tokenModuleV0Ref 0 $ rawCborFromBytes $ CBOR.tokenInitializationParametersToBytes tokenParams
+        lockConfig :: Encoding
         lockConfig =
-            Locks.LockConfigSimpleV0 $
-                Locks.SimpleLockConfigV0
-                    { lcsv0Recipients = Locks.LockRecipientsAny,
-                      lcsv0Expiry = 10,
-                      lcsv0Grants =
-                        Seq.singleton $
-                            Locks.LockControllerSimpleV0Grant
-                                (CBOR.accountTokenHolder ownerAddress)
-                                (Seq.singleton Locks.LockControllerSimpleV0Fund),
-                      lcsv0Tokens = Seq.singleton token,
-                      lcsv0Memo = Nothing,
-                      lcsv0Metadata = Nothing
-                    }
+            encodeMapLen 1
+                <> encodeString "simpleV0"
+                <> CBOR.encodeMapDeterministic
+                    ( Map.fromList
+                        [ (key "holders", encodeListLen 1 <> CBOR.encodeCborAccountAddress (CBOR.accountTokenHolder ownerAddress)),
+                          (key "roles", encodeListLen 0),
+                          (key "recipients", encodeString "any"),
+                          (key "expiry", encodeTag 1 <> encodeWord64 10),
+                          (key "tokens", encodeListLen 1 <> CBOR.encodeTokenId token)
+                        ]
+                    )
+        key :: Text -> CBOR.MapKeyEncoding
+        key = CBOR.makeMapKeyEncoding . encodeString
+        encodeLockId :: LockId -> Encoding
+        encodeLockId LockId{..} =
+            encodeTag 40920
+                <> encodeListLen 3
+                <> encodeWord64 liAccountIndex
+                <> encodeWord64 liSequenceNumber
+                <> encodeWord64 liCreationOrder
+        createLock :: LockId -> Encoding
         createLock lockId =
             encodeMapLen 1
                 <> encodeString "lockCreate"
-                <> Locks.encodeLockConfig lockConfig
+                <> lockConfig
                 <> if funded
                     then
                         encodeMapLen 1
                             <> encodeString "lockFund"
                             <> encodeMapLen 3
                             <> encodeString "lock"
-                            <> Locks.encodeLockId lockId
+                            <> encodeLockId lockId
                             <> encodeString "token"
                             <> CBOR.encodeTokenId token
                             <> encodeString "amount"

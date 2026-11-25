@@ -6,16 +6,14 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_locks::LockInfo;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
 use concordium_base::protocol_level_tokens::{
     Operation, RawCbor, TokenAmount, TokenId, TokenModuleAccountState, TokenModuleRejectReason,
 };
 use concordium_base::protocol_level_tokens::{Operations, OperationsPayload, operations};
 use concordium_base::transactions::cost;
 use concordium_base::transactions::{Payload, TokenUpdatePayload};
-use plt_block_state::{
-    entity::entity_test_stub, persistent::protocol_level_locks::p11::LockControllerSimpleV0Grant,
-};
+use plt_block_state::{entity::entity_test_stub, persistent::protocol_level_locks::p11::LockRole};
 use plt_scheduler_types::types::events::{BlockItemEvent, LockAmountEvent};
 use plt_scheduler_types::types::execution::TransactionOutcome;
 use plt_scheduler_types::types::reject_reasons::TransactionRejectReason;
@@ -110,9 +108,9 @@ fn test_lock_fund_updates_account_and_lock_state() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             sender.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -208,9 +206,9 @@ fn test_lock_fund_persists_canonical_references_for_multiple_tokens() {
         &lock_id,
         utils::CreateLockSimpleConfig {
             recipients: vec![recipient.account_index()],
-            grants: vec![LockControllerSimpleV0Grant::new(
+            roles: vec![LockRole::new(
                 sender.account_index(),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockCapability::Fund],
             )],
             tokens: vec![first_token_id.clone(), second_token_id.clone()],
             expiry: 1_804_806_000,
@@ -276,9 +274,9 @@ fn test_lock_fund_rejects_when_amount_exceeds_available_balance() {
     let lock_id = LockId::new(sender.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             sender.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
@@ -346,13 +344,15 @@ fn test_lock_fund_rejects_unauthorized_sender() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 1_804_806_000,
     };
+    let mut lock_config = lock_config;
+    lock_config.recipients.push(other.account_index());
     utils::create_lock(&mut context, &mut block_state, &lock_id, lock_config);
 
     let other_addr = context
@@ -406,9 +406,9 @@ fn test_lock_fund_rejects_after_expiry() {
     let lock_id = LockId::new(owner.account_index(), 7u64, 0);
     let lock_config = utils::CreateLockSimpleConfig {
         recipients: vec![recipient.account_index()],
-        grants: vec![LockControllerSimpleV0Grant::new(
+        roles: vec![LockRole::new(
             owner.account_index(),
-            vec![LockControllerSimpleV0Capability::Fund],
+            vec![LockCapability::Fund],
         )],
         tokens: vec![token_id.clone()],
         expiry: 10,

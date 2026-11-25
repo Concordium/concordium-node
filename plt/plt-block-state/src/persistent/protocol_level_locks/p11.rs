@@ -15,8 +15,8 @@ use concordium_base::common::{
     deserial_vector_no_length, from_bytes_complete, to_bytes,
 };
 use concordium_base::hashes::Hash;
-use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-use concordium_base::protocol_level_tokens::{CborMemo, RawCbor, TokenId};
+use concordium_base::protocol_level_locks::{LockCapability, LockId};
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId};
 use std::io::Read;
 
 /// Persistent collection of protocol-level locks on P11 and later protocols.
@@ -191,7 +191,7 @@ fn check_u16_length(field: &'static str, length: usize) -> Result<(), ContainerS
 
 // Represents a list of lock recipients. This type enforces that the inner list is always sorted
 // to enable binary search.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serial)]
 pub struct LockRecipientsList {
     #[size_length = 2]
     recipients: Vec<AccountIndex>,
@@ -200,8 +200,9 @@ pub struct LockRecipientsList {
 impl LockRecipientsList {
     /// Create a new list of lock recipients from the given account index list
     pub fn new(mut recipients: Vec<AccountIndex>) -> Result<Self, ContainerSizeOverflow> {
+        recipients.sort_unstable();
+        recipients.dedup();
         check_u16_length("LockRecipientsList.recipients", recipients.len())?;
-        recipients.sort();
         Ok(Self { recipients })
     }
 
@@ -223,6 +224,19 @@ impl LockRecipientsList {
     /// Check whether the list is empty
     pub fn is_empty(&self) -> bool {
         self.recipients.is_empty()
+    }
+}
+
+impl Deserial for LockRecipientsList {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
+        let count: u16 = source.get()?;
+        let recipients: Vec<AccountIndex> = deserial_vector_no_length(source, count.into())?;
+        if !recipients.windows(2).all(|pair| pair[0] < pair[1]) {
+            return Err(
+                BlockStateFailure::Invariant("Non-canonical lock recipients".into()).into(),
+            );
+        }
+        Ok(Self { recipients })
     }
 }
 
@@ -271,44 +285,28 @@ pub struct LockConfigSimpleV0 {
     pub recipients: LockRecipients,
     /// Expiry time of the lock (seconds since epoch).
     pub expiry: TransactionTime,
-    /// Capability grants to accounts.
+    /// Effective operation permissions in ascending account-index order.
     #[size_length = 2]
-    grants: Vec<LockControllerSimpleV0Grant>,
+    roles: Vec<LockRole>,
     /// Tokens affected by this lock.
     #[size_length = 2]
     tokens: Vec<TokenId>,
-    /// Optional memo attached to the lock.
-    pub memo: Option<CborMemo>,
     /// Optional raw CBOR-encoded user-facing lock metadata.
     pub metadata: Option<RawCbor>,
 }
 
 impl LockConfigSimpleV0 {
-    /// Create a persistent SimpleV0 lock configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `recipients` - Accounts eligible to receive locked funds.
-    /// * `expiry` - Time at which the lock expires.
-    /// * `grants` - Capability grants controlling lock operations.
-    /// * `tokens` - Resolved tokens in registered spelling, sorted and deduplicated before storage.
-    /// * `memo` - Optional lock memo.
-    /// * `metadata` - Optional opaque CBOR metadata.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ContainerSizeOverflow`] when normalized unique grants or tokens exceed the
-    /// serialized u16 size bound.
+    /// Normalize effective roles and resolved tokens in registered spelling.
+    /// Returns [`ContainerSizeOverflow`] if either normalized collection exceeds its u16 bound.
     pub fn new(
         recipients: LockRecipients,
         expiry: TransactionTime,
-        mut grants: Vec<LockControllerSimpleV0Grant>,
+        mut roles: Vec<LockRole>,
         mut tokens: Vec<TokenId>,
-        memo: Option<CborMemo>,
         metadata: Option<RawCbor>,
     ) -> Result<Self, ContainerSizeOverflow> {
-        grants.sort_unstable_by_key(|grant| grant.account);
-        grants.dedup_by(|next, previous| {
+        roles.sort_unstable_by_key(|role| role.account);
+        roles.dedup_by(|next, previous| {
             if next.account == previous.account {
                 previous.roles = previous.roles.union(next.roles);
                 true
@@ -316,33 +314,32 @@ impl LockConfigSimpleV0 {
                 false
             }
         });
-        check_u16_length("LockConfigSimpleV0.grants", grants.len())?;
+        check_u16_length("LockConfigSimpleV0.roles", roles.len())?;
         tokens.sort_unstable();
         tokens.dedup();
         check_u16_length("LockConfigSimpleV0.tokens", tokens.len())?;
         Ok(Self {
             recipients,
             expiry,
-            grants,
+            roles,
             tokens,
-            memo,
             metadata,
         })
     }
 
-    /// Return unique capability grants in ascending account-index order.
-    pub fn grants(&self) -> &[LockControllerSimpleV0Grant] {
-        &self.grants
+    /// Return unique effective roles in ascending account-index order.
+    pub fn roles(&self) -> &[LockRole] {
+        &self.roles
     }
     /// Return tokens that may be funded into the lock.
     pub fn tokens(&self) -> &[TokenId] {
         &self.tokens
     }
     /// Return whether an account has the requested lock capability.
-    pub fn has_role(&self, account: AccountIndex, role: LockControllerSimpleV0Capability) -> bool {
-        self.grants
-            .binary_search_by_key(&account, |grant| grant.account)
-            .is_ok_and(|index| self.grants[index].roles.contains(role))
+    pub fn has_role(&self, account: AccountIndex, role: LockCapability) -> bool {
+        self.roles
+            .binary_search_by_key(&account, |role| role.account)
+            .is_ok_and(|index| self.roles[index].roles.contains(role))
     }
 }
 
@@ -351,44 +348,42 @@ impl Deserial for LockConfigSimpleV0 {
         let recipients = source.get()?;
         let expiry = source.get()?;
         let count: u16 = source.get()?;
-        let grants: Vec<LockControllerSimpleV0Grant> =
-            deserial_vector_no_length(source, count.into())?;
-        if !grants
+        let roles: Vec<LockRole> = deserial_vector_no_length(source, count.into())?;
+        if !roles
             .windows(2)
             .all(|pair| pair[0].account < pair[1].account)
         {
             return Err(
-                BlockStateFailure::Invariant("Non-canonical lock grants".to_string()).into(),
+                BlockStateFailure::Invariant("Non-canonical lock roles".to_string()).into(),
             );
         }
         let count: u16 = source.get()?;
         Ok(Self {
             recipients,
             expiry,
-            grants,
+            roles,
             tokens: deserial_vector_no_length(source, count.into())?,
-            memo: source.get()?,
             metadata: source.get()?,
         })
     }
 }
 
-/// SimpleV0 capabilities bitmap representation.
+/// SimpleV0 operation capabilities bitmap.
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serial)]
-pub struct LockControllerSimpleV0Capabilities(u8);
+pub struct LockCapabilities(u8);
 
-impl LockControllerSimpleV0Capabilities {
-    fn bit(role: LockControllerSimpleV0Capability) -> u8 {
+impl LockCapabilities {
+    fn bit(role: LockCapability) -> u8 {
         match role {
-            LockControllerSimpleV0Capability::Fund => 0x01,
-            LockControllerSimpleV0Capability::Release => 0x02,
-            LockControllerSimpleV0Capability::Send => 0x04,
-            LockControllerSimpleV0Capability::Cancel => 0x08,
+            LockCapability::Fund => 0x01,
+            LockCapability::Release => 0x02,
+            LockCapability::Send => 0x04,
+            LockCapability::Cancel => 0x08,
         }
     }
 
-    /// Construct from supported roles, ignoring repetitions and input order.
-    pub fn new(roles: impl IntoIterator<Item = LockControllerSimpleV0Capability>) -> Self {
+    /// Construct from supported capabilities, ignoring repetitions and input order.
+    pub fn new(roles: impl IntoIterator<Item = LockCapability>) -> Self {
         Self(
             roles
                 .into_iter()
@@ -397,7 +392,7 @@ impl LockControllerSimpleV0Capabilities {
     }
 
     /// Check whether `role` belongs to this set.
-    pub fn contains(self, role: LockControllerSimpleV0Capability) -> bool {
+    pub fn contains(self, role: LockCapability) -> bool {
         self.0 & Self::bit(role) != 0
     }
 
@@ -407,19 +402,19 @@ impl LockControllerSimpleV0Capabilities {
     }
 
     /// Iterate in canonical Fund, Release, Send, Cancel order.
-    pub fn iter(self) -> impl Iterator<Item = LockControllerSimpleV0Capability> {
+    pub fn iter(self) -> impl Iterator<Item = LockCapability> {
         CANONICAL_ROLES
             .into_iter()
             .filter(move |role| self.contains(role.clone()))
     }
 }
 
-const INVALID_GRANTS_MASK: u8 = !0x0f;
+const INVALID_ROLES_MASK: u8 = !0x0f;
 
-impl Deserial for LockControllerSimpleV0Capabilities {
+impl Deserial for LockCapabilities {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
         let bitmap: u8 = source.get()?;
-        if bitmap & INVALID_GRANTS_MASK != 0 {
+        if bitmap & INVALID_ROLES_MASK != 0 {
             return Err(BlockStateFailure::Invariant(
                 "Found unknown lock capabilities bit".to_string(),
             )
@@ -429,42 +424,37 @@ impl Deserial for LockControllerSimpleV0Capabilities {
     }
 }
 
-const CANONICAL_ROLES: [LockControllerSimpleV0Capability; 4] = [
-    LockControllerSimpleV0Capability::Fund,
-    LockControllerSimpleV0Capability::Release,
-    LockControllerSimpleV0Capability::Send,
-    LockControllerSimpleV0Capability::Cancel,
+const CANONICAL_ROLES: [LockCapability; 4] = [
+    LockCapability::Fund,
+    LockCapability::Release,
+    LockCapability::Send,
+    LockCapability::Cancel,
 ];
 
-/// A grant of capabilities to a specific account for a SimpleV0 lock
-/// controller.
-///
-/// Each grant assigns zero or more [`LockControllerSimpleV0Capability`] roles
-/// to the given account, authorizing it to perform the corresponding lock
-/// operations.
+/// Effective operation capabilities for an account, independent of recipient membership.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct LockControllerSimpleV0Grant {
-    /// The account receiving the grant.
+pub struct LockRole {
     account: AccountIndex,
-    /// The capabilities granted to the account.
-    roles: LockControllerSimpleV0Capabilities,
+    roles: LockCapabilities,
 }
 
-impl LockControllerSimpleV0Grant {
-    /// Construct a grant for `account`, removing duplicate `roles`.
-    /// Empty roles are valid and authorize no operation.
-    pub fn new(account: AccountIndex, roles: Vec<LockControllerSimpleV0Capability>) -> Self {
-        let roles = LockControllerSimpleV0Capabilities::new(roles);
-        Self { account, roles }
+impl LockRole {
+    /// Construct an effective role, removing duplicate capabilities.
+    /// Empty roles authorize no operation.
+    pub fn new(account: AccountIndex, roles: Vec<LockCapability>) -> Self {
+        Self {
+            account,
+            roles: LockCapabilities::new(roles),
+        }
     }
 
-    /// Return the account receiving the grant.
+    /// Return the account receiving these capabilities.
     pub fn account(&self) -> AccountIndex {
         self.account
     }
 
-    /// Return the capabilities granted to the account in Fund, Release, Send, Cancel order.
-    pub fn roles(&self) -> Vec<LockControllerSimpleV0Capability> {
+    /// Return capabilities in Fund, Release, Send, Cancel order.
+    pub fn roles(&self) -> Vec<LockCapability> {
         self.roles.iter().collect()
     }
 }
@@ -476,16 +466,14 @@ mod test {
     use crate::persistent::blob_store::test_stub::BlobStoreStub;
     use crate::persistent::hash::Hashable;
     use concordium_base::common;
-    use concordium_base::transactions::Memo;
     use std::borrow::Borrow;
 
-    fn config_with_grants(grants: Vec<LockControllerSimpleV0Grant>) -> LockConfigSimpleV0 {
+    fn config_with_roles(roles: Vec<LockRole>) -> LockConfigSimpleV0 {
         LockConfigSimpleV0::new(
             LockRecipients::Any,
             TransactionTime::from(0),
-            grants,
+            roles,
             vec![],
-            None,
             None,
         )
         .unwrap()
@@ -494,13 +482,13 @@ mod test {
     #[test]
     fn capability_bitmap_roundtrips_and_rejects_unknown_bits() {
         for mask in 0u8..=255 {
-            let parsed = common::from_bytes_complete::<LockControllerSimpleV0Capabilities>(&[mask]);
+            let parsed = common::from_bytes_complete::<LockCapabilities>(&[mask]);
 
             // any bitmask value above 15 is not supported and should fail
             if mask <= 15 {
                 let roles = parsed.unwrap();
                 assert_eq!(to_bytes(&roles), vec![mask]);
-                assert_eq!(LockControllerSimpleV0Capabilities::new(roles.iter()), roles);
+                assert_eq!(LockCapabilities::new(roles.iter()), roles);
                 for (index, role) in CANONICAL_ROLES.into_iter().enumerate() {
                     assert_eq!(roles.contains(role), mask & (1 << index) != 0);
                 }
@@ -511,41 +499,44 @@ mod test {
     }
 
     #[test]
-    fn grants_normalize_union_lookup_and_hash_deterministically() {
-        use LockControllerSimpleV0Capability::*;
-        let grant =
-            |account, roles| LockControllerSimpleV0Grant::new(AccountIndex::from(account), roles);
-        // Unsorted input includes duplicate account 9 and an empty grant for account 5.
+    fn roles_normalize_union_lookup_and_hash_deterministically() {
+        use LockCapability::*;
+        let role = |account, roles| LockRole::new(AccountIndex::from(account), roles);
+        // Persistent state permits empty roles, though the node never creates them.
         let input = vec![
-            grant(9, vec![Send]),
-            grant(1, vec![Fund]),
-            grant(9, vec![Release, Fund]),
-            grant(5, vec![]),
+            role(9, vec![Send]),
+            role(1, vec![Fund]),
+            role(9, vec![Release, Fund]),
+            role(5, vec![]),
         ];
         // Input order must not affect the normalized configuration or its encoding.
-        let first = config_with_grants(input.clone());
-        let second = config_with_grants(input.into_iter().rev().collect());
+        let first = config_with_roles(input.clone());
+        let second = config_with_roles(input.into_iter().rev().collect());
         assert_eq!(first, second);
         assert_eq!(to_bytes(&first), to_bytes(&second));
-        // Normalization sorts accounts, merges duplicates, and retains empty grants.
+        // Normalization sorts accounts, merges duplicates, and retains empty roles.
         assert_eq!(
             first
-                .grants()
+                .roles()
                 .iter()
-                .map(|g| g.account().index)
+                .map(|role| role.account().index)
                 .collect::<Vec<_>>(),
             vec![1, 5, 9]
         );
-        // Lookup finds original roles and the union of account 9's separate grants.
+        assert!(first.roles()[1].roles().is_empty());
+        assert_eq!(first.roles()[2].roles(), vec![Fund, Release, Send]);
+        // Lookup finds original capabilities and the union of account 9's roles.
         assert!(first.has_role(AccountIndex::from(1), Fund));
         for role in [Fund, Release, Send] {
             assert!(first.has_role(AccountIndex::from(9), role));
         }
-        // Missing roles, empty grants, missing accounts, and an empty configuration deny access.
+        // Missing capabilities, empty roles, and missing accounts deny access.
         assert!(!first.has_role(AccountIndex::from(9), Cancel));
-        assert!(!first.has_role(AccountIndex::from(5), Fund));
+        for capability in CANONICAL_ROLES {
+            assert!(!first.has_role(AccountIndex::from(5), capability));
+        }
         assert!(!first.has_role(AccountIndex::from(7), Fund));
-        assert!(!config_with_grants(vec![]).has_role(AccountIndex::from(1), Fund));
+        assert!(!config_with_roles(vec![]).has_role(AccountIndex::from(1), Fund));
         // Equivalent normalized configurations must produce identical lock hashes.
         let mut store = BlobStoreStub::default();
         let lock = PersistentLockP11::new(LockConfig::SimpleV0(first.clone()), 1234.into());
@@ -562,11 +553,12 @@ mod test {
     }
 
     #[test]
-    fn grant_capacity_is_checked_after_merging_duplicates() {
-        // Oversized duplicate input fits because only one unique account grant is stored.
-        let grant = LockControllerSimpleV0Grant::new(AccountIndex::from(1), vec![]);
-        let config = config_with_grants(vec![grant; U16_MAX_LENGTH + 1]);
-        assert_eq!(config.grants().len(), 1);
+    fn role_capacity_is_checked_after_merging_duplicates() {
+        // Oversized duplicate input fits because only one unique account role is stored.
+        let role = LockRole::new(AccountIndex::from(1), vec![LockCapability::Fund]);
+        let config = config_with_roles(vec![role; U16_MAX_LENGTH + 1]);
+        assert_eq!(config.roles().len(), 1);
+        assert!(config.has_role(AccountIndex::from(1), LockCapability::Fund));
     }
 
     #[test]
@@ -577,7 +569,6 @@ mod test {
                 TransactionTime::from(0),
                 vec![],
                 tokens,
-                None,
                 None,
             )
             .unwrap()
@@ -599,7 +590,6 @@ mod test {
             vec![],
             vec!["ExampleToken".parse().unwrap(); U16_MAX_LENGTH + 1],
             None,
-            None,
         )
         .unwrap();
         assert_eq!(
@@ -609,22 +599,19 @@ mod test {
     }
 
     #[test]
-    fn persisted_grants_reject_noncanonical_accounts_and_masks() {
-        // accounts serialized out of order rejected.
+    fn persisted_roles_reject_noncanonical_accounts_and_masks() {
+        // Accounts serialized out of order or repeated are rejected.
         for accounts in [[2, 1], [1, 1]] {
-            let mut config = config_with_grants(vec![]);
-            config.grants = accounts
+            let mut config = config_with_roles(vec![]);
+            config.roles = accounts
                 .into_iter()
-                .map(|a| LockControllerSimpleV0Grant::new(AccountIndex::from(a), vec![]))
+                .map(|a| LockRole::new(AccountIndex::from(a), vec![]))
                 .collect();
             assert!(common::from_bytes_complete::<LockConfigSimpleV0>(&to_bytes(&config)).is_err());
         }
 
         // unsupported bitmap bits rejected
-        let config = config_with_grants(vec![LockControllerSimpleV0Grant::new(
-            AccountIndex::from(1),
-            vec![],
-        )]);
+        let config = config_with_roles(vec![LockRole::new(AccountIndex::from(1), vec![])]);
         let mut bytes = to_bytes(&config);
         bytes[19] = 0x10; // add non-supported bitmap
         assert!(matches!(
@@ -644,7 +631,7 @@ mod test {
     #[test]
     fn test_lock_configuration_serial() {
         use concordium_base::common::types::TransactionTime;
-        use concordium_base::protocol_level_locks::LockControllerSimpleV0Capability;
+        use concordium_base::protocol_level_locks::LockCapability;
 
         let lock_config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::try_from(vec![
@@ -654,19 +641,18 @@ mod test {
             .unwrap(),
             expiry: TransactionTime::from(1000u64),
 
-            grants: vec![LockControllerSimpleV0Grant::new(
+            roles: vec![LockRole::new(
                 AccountIndex::from(1u64),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockCapability::Fund],
             )],
             tokens: vec!["token1".parse().unwrap()],
-            memo: None,
             metadata: None,
         });
 
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "000100020000000000000001000000000000000200000000000003e80001000000000000000101000106746f6b656e310000"
+            "000100020000000000000001000000000000000200000000000003e80001000000000000000101000106746f6b656e3100"
         );
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
@@ -681,14 +667,13 @@ mod test {
             recipients: LockRecipients::try_from(vec![]).unwrap(),
             expiry: TransactionTime::from(500u64),
 
-            grants: vec![],
+            roles: vec![],
             tokens: vec![],
-            memo: None,
             metadata: None,
         });
 
         let bytes = common::to_bytes(&lock_config);
-        assert_eq!(hex::encode(&bytes), "0001000000000000000001f4000000000000");
+        assert_eq!(hex::encode(&bytes), "0001000000000000000001f40000000000");
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
@@ -701,9 +686,8 @@ mod test {
         let lock_config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
-            grants: vec![],
+            roles: vec![],
             tokens: vec![],
-            memo: None,
             metadata: Some(RawCbor::from(vec![
                 0xa1, 0x64, b'n', b'a', b'm', b'e', 0x64, b't', b'e', b's', b't',
             ])),
@@ -712,7 +696,7 @@ mod test {
         let bytes = common::to_bytes(&lock_config);
         assert_eq!(
             hex::encode(&bytes),
-            "000000000000000001f40000000000010000000ba1646e616d656474657374"
+            "000000000000000001f400000000010000000ba1646e616d656474657374"
         );
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
@@ -726,7 +710,6 @@ mod test {
                 TransactionTime::from(1000),
                 Vec::new(),
                 Vec::new(),
-                None,
                 None,
             )
             .unwrap(),
@@ -891,16 +874,35 @@ mod test {
     }
 
     #[test]
-    fn test_lock_recipients_limited_sorts_accounts() {
-        let recipients =
-            LockRecipients::try_from(vec![AccountIndex::from(2u64), AccountIndex::from(1u64)])
-                .unwrap();
-
-        assert_eq!(
-            recipients,
+    fn test_lock_recipients_limited_sorts_and_deduplicates_accounts() {
+        let recipients = LockRecipients::try_from(vec![
+            AccountIndex::from(2u64),
+            AccountIndex::from(1u64),
+            AccountIndex::from(2u64),
+        ])
+        .unwrap();
+        let canonical =
             LockRecipients::try_from(vec![AccountIndex::from(1u64), AccountIndex::from(2u64)])
-                .unwrap()
+                .unwrap();
+        assert_eq!(recipients, canonical);
+        assert_eq!(to_bytes(&recipients), to_bytes(&canonical));
+        assert_eq!(
+            common::from_bytes_complete::<LockRecipients>(&to_bytes(&recipients)).unwrap(),
+            recipients
         );
+        assert!(recipients.is_recipient(&AccountIndex::from(1)));
+        assert!(recipients.is_recipient(&AccountIndex::from(2)));
+        assert!(!recipients.is_recipient(&AccountIndex::from(3)));
+
+        for accounts in [[2, 1], [1, 1]] {
+            let list = LockRecipientsList {
+                recipients: accounts.into_iter().map(AccountIndex::from).collect(),
+            };
+            assert!(common::from_bytes_complete::<LockRecipientsList>(&to_bytes(&list)).is_err());
+            let mut config = config_with_roles(vec![]);
+            config.recipients = LockRecipients::Limited(list);
+            assert!(common::from_bytes_complete::<LockConfigSimpleV0>(&to_bytes(&config)).is_err());
+        }
     }
 
     #[test]
@@ -911,9 +913,8 @@ mod test {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(500u64),
 
-            grants: vec![],
+            roles: vec![],
             tokens: vec![],
-            memo: None,
             metadata: None,
         });
 
@@ -923,7 +924,7 @@ mod test {
         assert!(config.recipients.is_recipient(&AccountIndex::from(42u64)));
 
         let bytes = common::to_bytes(&lock_config);
-        assert_eq!(hex::encode(&bytes), "000000000000000001f4000000000000");
+        assert_eq!(hex::encode(&bytes), "000000000000000001f40000000000");
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(deserialized, lock_config);
@@ -932,125 +933,108 @@ mod test {
     }
 
     #[test]
-    fn test_lock_controller_simple_v0_grant_serial() {
-        let grant = LockControllerSimpleV0Grant::new(
+    fn test_lock_role_serial() {
+        let role = LockRole::new(
             AccountIndex::from(42u64),
-            vec![
-                LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Release,
-            ],
+            vec![LockCapability::Fund, LockCapability::Release],
         );
 
-        let bytes = common::to_bytes(&grant);
+        let bytes = common::to_bytes(&role);
         assert_eq!(hex::encode(&bytes), "000000000000002a03");
 
-        let deserialized: LockControllerSimpleV0Grant =
-            common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(deserialized, grant);
+        let deserialized: LockRole = common::from_bytes_complete(bytes.as_slice()).unwrap();
+        assert_eq!(deserialized, role);
     }
 
     #[test]
-    fn test_lock_controller_simple_v0_serial() {
-        let controller = LockConfigSimpleV0 {
+    fn test_lock_configuration_simple_v0_serial() {
+        let config = LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(0u64),
-            grants: vec![LockControllerSimpleV0Grant::new(
+            roles: vec![LockRole::new(
                 AccountIndex::from(1u64),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockCapability::Fund],
             )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
-            memo: Some(CborMemo::Raw(
-                Memo::try_from(vec![0x01, 0x02, 0x03]).unwrap(),
-            )),
             metadata: None,
         };
 
-        let bytes = common::to_bytes(&controller);
+        let bytes = common::to_bytes(&config);
         assert_eq!(
             hex::encode(&bytes),
-            "0000000000000000000001000000000000000101000106746f6b656e310100000301020300"
+            "0000000000000000000001000000000000000101000106746f6b656e3100"
         );
 
         let deserialized: LockConfigSimpleV0 =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(deserialized, controller);
+        assert_eq!(deserialized, config);
     }
 
     #[test]
-    fn test_lock_controller_simple_v0_serial_minimal() {
-        let controller = LockConfigSimpleV0 {
+    fn test_lock_configuration_simple_v0_serial_minimal() {
+        let config = LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(0u64),
-            grants: vec![],
+            roles: vec![],
             tokens: vec![],
-            memo: None,
             metadata: None,
         };
 
-        let bytes = common::to_bytes(&controller);
-        assert_eq!(hex::encode(&bytes), "000000000000000000000000000000");
+        let bytes = common::to_bytes(&config);
+        assert_eq!(hex::encode(&bytes), "0000000000000000000000000000");
 
         let deserialized: LockConfigSimpleV0 =
             common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(deserialized, controller);
+        assert_eq!(deserialized, config);
     }
 
     #[test]
-    fn grant_roles_are_canonicalized() {
-        let grant = LockControllerSimpleV0Grant::new(
+    fn role_capabilities_are_canonicalized() {
+        let role = LockRole::new(
             AccountIndex::from(0),
             vec![
-                LockControllerSimpleV0Capability::Cancel,
-                LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Fund,
+                LockCapability::Cancel,
+                LockCapability::Fund,
+                LockCapability::Fund,
             ],
         );
-        assert_eq!(
-            grant.roles(),
-            [
-                LockControllerSimpleV0Capability::Fund,
-                LockControllerSimpleV0Capability::Cancel,
-            ]
-        );
+        assert_eq!(role.roles(), [LockCapability::Fund, LockCapability::Cancel]);
     }
 
     #[test]
     fn persistent_container_capacity_limits() {
         assert!(LockRecipients::try_from(vec![AccountIndex::from(0); U16_MAX_LENGTH]).is_ok());
+        let duplicates =
+            LockRecipientsList::new(vec![AccountIndex::from(0); U16_MAX_LENGTH + 1]).unwrap();
+        assert_eq!(duplicates.len(), 1);
         assert_eq!(
-            LockRecipients::try_from(vec![AccountIndex::from(0); U16_MAX_LENGTH + 1]),
+            LockRecipients::try_from(
+                (0..=U16_MAX_LENGTH)
+                    .map(|i| AccountIndex::from(i as u64))
+                    .collect::<Vec<_>>()
+            ),
             Err(ContainerSizeOverflow {
                 field: "LockRecipientsList.recipients",
                 length: U16_MAX_LENGTH + 1,
                 max_length: U16_MAX_LENGTH,
             })
         );
-        assert!(
-            LockConfigSimpleV0::new(
-                LockRecipients::Any,
-                TransactionTime::from(0u64),
-                (0..U16_MAX_LENGTH)
-                    .map(|i| LockControllerSimpleV0Grant::new(AccountIndex::from(i as u64), vec![]))
-                    .collect(),
-                Vec::new(),
-                None,
-                None,
-            )
-            .is_ok()
-        );
+
         assert_eq!(
             LockConfigSimpleV0::new(
                 LockRecipients::Any,
                 TransactionTime::from(0u64),
                 (0..=U16_MAX_LENGTH)
-                    .map(|i| LockControllerSimpleV0Grant::new(AccountIndex::from(i as u64), vec![]))
+                    .map(|i| LockRole::new(
+                        AccountIndex::from(i as u64),
+                        vec![LockCapability::Fund]
+                    ))
                     .collect(),
                 Vec::new(),
                 None,
-                None,
             ),
             Err(ContainerSizeOverflow {
-                field: "LockConfigSimpleV0.grants",
+                field: "LockConfigSimpleV0.roles",
                 length: U16_MAX_LENGTH + 1,
                 max_length: U16_MAX_LENGTH,
             })
@@ -1064,7 +1048,6 @@ mod test {
                     .map(|i| format!("token{i}").parse().unwrap())
                     .collect(),
                 None,
-                None,
             )
             .is_ok()
         );
@@ -1076,7 +1059,6 @@ mod test {
                 (0..=U16_MAX_LENGTH)
                     .map(|i| format!("token{i}").parse().unwrap())
                     .collect(),
-                None,
                 None,
             ),
             Err(ContainerSizeOverflow {
@@ -1090,14 +1072,13 @@ mod test {
                 LockRecipients::Any,
                 TransactionTime::from(0u64),
                 (0..=U16_MAX_LENGTH)
-                    .map(|i| LockControllerSimpleV0Grant::new(AccountIndex::from(i as u64), vec![]))
+                    .map(|i| LockRole::new(AccountIndex::from(i as u64), vec![]))
                     .collect(),
                 vec!["token".parse().unwrap(); U16_MAX_LENGTH + 1],
                 None,
-                None,
             ),
             Err(ContainerSizeOverflow {
-                field: "LockConfigSimpleV0.grants",
+                field: "LockConfigSimpleV0.roles",
                 length: U16_MAX_LENGTH + 1,
                 max_length: U16_MAX_LENGTH,
             })
@@ -1105,26 +1086,25 @@ mod test {
     }
 
     #[test]
-    fn test_lock_controller_serial() {
-        let controller = LockConfig::SimpleV0(LockConfigSimpleV0 {
+    fn test_lock_configuration_enum_serial() {
+        let config = LockConfig::SimpleV0(LockConfigSimpleV0 {
             recipients: LockRecipients::Any,
             expiry: TransactionTime::from(0u64),
-            grants: vec![LockControllerSimpleV0Grant::new(
+            roles: vec![LockRole::new(
                 AccountIndex::from(1u64),
-                vec![LockControllerSimpleV0Capability::Fund],
+                vec![LockCapability::Fund],
             )],
             tokens: vec!["token1".parse::<TokenId>().unwrap()],
-            memo: None,
             metadata: None,
         });
 
-        let bytes = common::to_bytes(&controller);
+        let bytes = common::to_bytes(&config);
         assert_eq!(
             hex::encode(&bytes),
-            "000000000000000000000001000000000000000101000106746f6b656e310000"
+            "000000000000000000000001000000000000000101000106746f6b656e3100"
         );
 
         let deserialized: LockConfig = common::from_bytes_complete(bytes.as_slice()).unwrap();
-        assert_eq!(deserialized, controller);
+        assert_eq!(deserialized, config);
     }
 }

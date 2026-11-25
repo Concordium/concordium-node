@@ -41,7 +41,7 @@ pub fn query_lock_list<C: EntityContextTypes>(
     block_state.lock_list(context)
 }
 
-/// Get ID/configuration CBOR pairs for membership in any grant, including empty grants.
+/// Get ID/configuration CBOR pairs for accounts with effective operation permissions.
 ///
 /// `account_index` must be resolved by the caller in the selected block. Results follow
 /// lock-list order and contain no balances. This scans all configurations and buffers only
@@ -57,9 +57,9 @@ pub fn query_locks_by_account<C: EntityContextTypes>(
     block_state.visit_lock_configurations(context, |id, configuration| {
         let LockConfig::SimpleV0(simple) = configuration;
         if simple
-            .grants()
-            .binary_search_by_key(&account_index, |grant| grant.account())
-            .is_ok()
+            .roles()
+            .binary_search_by_key(&account_index, |role| role.account())
+            .is_ok_and(|index| !simple.roles()[index].roles().is_empty())
         {
             let config = lock_configuration::to_cbor_config(context, configuration)?;
             matches.push((id, RawCbor::from(cbor::cbor_encode(&config))));
@@ -441,7 +441,7 @@ fn execute_lock_create<C: EntityContextTypes>(
     let sequence_number = transaction_execution.transaction_sequence_number();
     let creation_order = transaction_execution.next_lock_creation_order();
     let lock_id = LockId::new(account_index, sequence_number, creation_order);
-    let concordium_base::protocol_level_locks::LockConfig::SimpleV0(config) = details.config;
+    let concordium_base::protocol_level_locks::LockCreateConfig::SimpleV0(config) = details.config;
     let expiry = config.expiry;
 
     let transaction_timestamp = transaction_execution.timestamp();
@@ -458,10 +458,18 @@ fn execute_lock_create<C: EntityContextTypes>(
         return Err(TransactionRejectReason::LockDurationTooLong(lock_id).into());
     }
 
+    // Nonempty constraints apply after charging creation complexity.
+    if config.holders.is_empty()
+        || config.tokens.is_empty()
+        || config.roles.iter().any(|role| role.roles.is_empty())
+    {
+        return Err(TransactionRejectReason::SerializationFailure.into());
+    }
+
     let configuration = lock_configuration::from_cbor_config(
         context,
         block_state,
-        concordium_base::protocol_level_locks::LockConfig::SimpleV0(config),
+        concordium_base::protocol_level_locks::LockCreateConfig::SimpleV0(config),
     )?;
 
     let config = lock_configuration::to_cbor_config(context, &configuration)?;

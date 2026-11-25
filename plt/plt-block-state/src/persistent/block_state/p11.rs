@@ -88,16 +88,15 @@ mod test {
     use crate::persistent::block_state::p11::PersistentBlockStateP11;
     use crate::persistent::hash::Hashable;
     use crate::persistent::protocol_level_locks::p11::{
-        LockConfig, LockConfigSimpleV0, LockControllerSimpleV0Grant, LockExpiryKey, LockRecipients,
+        LockConfig, LockConfigSimpleV0, LockExpiryKey, LockRecipients, LockRole,
         PersistentLockExpiryIndexP11,
     };
     use crate::persistent::protocol_level_tokens::p9::TokenConfiguration;
     use concordium_base::base::AccountIndex;
     use concordium_base::common::to_bytes;
     use concordium_base::common::types::TransactionTime;
-    use concordium_base::protocol_level_locks::{LockControllerSimpleV0Capability, LockId};
-    use concordium_base::protocol_level_tokens::{CborMemo, TokenId, TokenModuleRef};
-    use concordium_base::transactions::Memo;
+    use concordium_base::protocol_level_locks::{LockCapability, LockId};
+    use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
     use plt_scheduler_types::types::tokens::RawTokenAmount;
 
     /// The expiry schedule tracks lock lifecycle changes.
@@ -108,8 +107,7 @@ mod test {
         let empty_hash = state.persistent.hash(&context.store).unwrap();
         assert_eq!(state.lock_expiry_index(&context).unwrap().size(), 0);
         let configuration = LockConfig::SimpleV0(
-            LockConfigSimpleV0::new(LockRecipients::Any, 100.into(), vec![], vec![], None, None)
-                .unwrap(),
+            LockConfigSimpleV0::new(LockRecipients::Any, 100.into(), vec![], vec![], None).unwrap(),
         );
         let id = LockId::new(1, 2, 3);
         let key = LockExpiryKey {
@@ -197,8 +195,7 @@ mod test {
         let mut context = entity_test_stub::new_no_external_context();
         let mut state = BlockStateP11::default();
         let configuration = LockConfig::SimpleV0(
-            LockConfigSimpleV0::new(LockRecipients::Any, 100.into(), vec![], vec![], None, None)
-                .unwrap(),
+            LockConfigSimpleV0::new(LockRecipients::Any, 100.into(), vec![], vec![], None).unwrap(),
         );
         let id = LockId::new(1, 1, 0);
         state
@@ -262,15 +259,11 @@ mod test {
                 LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
                     .unwrap(),
                 TransactionTime::from(100u64),
-                vec![LockControllerSimpleV0Grant::new(
+                vec![LockRole::new(
                     AccountIndex::from(1),
-                    vec![
-                        LockControllerSimpleV0Capability::Cancel,
-                        LockControllerSimpleV0Capability::Fund,
-                    ],
+                    vec![LockCapability::Cancel, LockCapability::Fund],
                 )],
                 vec![token_id.clone(), token_id_2.clone()],
-                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
                 None,
             )
             .unwrap(),
@@ -302,7 +295,6 @@ mod test {
                 Vec::new(),
                 Vec::new(),
                 None,
-                None,
             )
             .unwrap(),
         );
@@ -322,7 +314,6 @@ mod test {
                 TransactionTime::from(0u64),
                 Vec::new(),
                 Vec::new(),
-                None,
                 None,
             )
             .unwrap(),
@@ -391,7 +382,6 @@ mod test {
                 TransactionTime::from(100),
                 Vec::new(),
                 Vec::new(),
-                None,
                 None,
             )
             .unwrap(),
@@ -521,15 +511,11 @@ mod test {
                 LockRecipients::try_from(vec![AccountIndex::from(1), AccountIndex::from(2)])
                     .unwrap(),
                 TransactionTime::from(100u64),
-                vec![LockControllerSimpleV0Grant::new(
+                vec![LockRole::new(
                     AccountIndex::from(1),
-                    vec![
-                        LockControllerSimpleV0Capability::Cancel,
-                        LockControllerSimpleV0Capability::Fund,
-                    ],
+                    vec![LockCapability::Cancel, LockCapability::Fund],
                 )],
                 vec![token_id.clone(), token_id_2.clone()],
-                Some(CborMemo::Raw(Memo::try_from(vec![0, 1]).unwrap())),
                 None,
             )
             .unwrap(),
@@ -560,7 +546,6 @@ mod test {
                 Vec::new(),
                 Vec::new(),
                 None,
-                None,
             )
             .unwrap(),
         );
@@ -572,14 +557,14 @@ mod test {
         let hash = block_state.persistent.hash(&context.store).expect("hash");
         assert_eq!(
             format!("{}", hash),
-            "9b93ce7a9d564819fb80677f23b94201872a879f95a72c5b9da0969828bf0572"
+            "c41fe130a537e5983750554c6dcfa96088a44a86a2fcb02942a88aab0ce16648"
         );
 
         // Assert storage
         blob_store::store_to_store(&mut context.store, &block_state.persistent);
         assert_eq!(
             hex::encode(context.store.0),
-            "000000000000002806546f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806546f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000000c01000706546f6b656e310000000000000000000c01000706546f6b656e320000000000000000001d000006000000000000000200000000000000018f0100000000000001a3000000000000003e000100020000000000000001000000000000000200000000000000640001000000000000000109000206546f6b656e3106546f6b656e3201000002000100000000000000003b01000000000000000200000000010000000000000001b700000000000001dc00000000000004d20010000000000000000100000000000000000000000000000000001200010000000000000000000000000000000000000000000000320100000000000000000000000000000000000000026500000000000004d20010000000000000000700000000000000000000000000000000001d000006000000000000000201000000000000022202000000000000027f0000000000000016000000000000000200000000010000000000000002b9000000000000002501002000000000000004d20000000000000002000000000000000700000000000000000000000000000000002501002000000000000004d20000000000000001000000000000000100000000000000000000000000000000001d00000600000000000000020000000000000002fc6400000000000003290000000000000016000000000000000200000000010000000000000003560000000000000018000000000000016600000000000002de000000000000037b"
+            "000000000000002806546f6b656e310505050505050505050505050505050505050505050505050505050505050505020000000000000025edbda48b85971b3a874334ca94f07e55e6a6e63eabca968d1257a3223e1b84e14002010100000000000000002503b0eab929105fd6df1ec793cbaf1b554a7a385520a9f7c902adf0219ace6dab4002000000000000000000003648b07111a93452374c7bcf66ee01959af6b4a52cb7cd299341e9ea77b378b0230300000201000000000000005d020000000000000030000000000000000901000000000000008a0000000000000011000000000000000000000000000000c86400000000000000090000000000000000d9000000000000002806546f6b656e3205050505050505050505050505050505050505050505050505050505050505050400000000000000010000000000000000110000000000000103000000000000013300000000000000000900000000000000013c0000000000000021000000000000000201000000000000000000000000000000f20000000000000155000000000000000c01000706546f6b656e310000000000000000000c01000706546f6b656e320000000000000000001d000006000000000000000200000000000000018f0100000000000001a30000000000000038000100020000000000000001000000000000000200000000000000640001000000000000000109000206546f6b656e3106546f6b656e3200000000000000003b01000000000000000200000000010000000000000001b700000000000001dc00000000000004d200100000000000000001000000000000000000000000000000000011000100000000000000000000000000000000000000000000320100000000000000000000000000000000000000025f00000000000004d20010000000000000000700000000000000000000000000000000001d000006000000000000000201000000000000021c0200000000000002780000000000000016000000000000000200000000010000000000000002b2000000000000002501002000000000000004d20000000000000002000000000000000700000000000000000000000000000000002501002000000000000004d20000000000000001000000000000000100000000000000000000000000000000001d00000600000000000000020000000000000002f564000000000000032200000000000000160000000000000002000000000100000000000000034f0000000000000018000000000000016600000000000002d70000000000000374"
         );
     }
 }
