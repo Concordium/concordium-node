@@ -93,9 +93,10 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
                   icSenderPolicies = []
                 }
     let initInterpreterEnergy = 1_000_000_000
+    let enableCopyMetering = Types.applyCopyMetering (Types.protocolVersion :: Types.SProtocolVersion pv)
     cbk <- Blob.getCallbacks
     artifact <- BS.getModuleArtifact (GSWasm.miModule miv)
-    case WasmV1.applyInitFun cbk artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
+    case WasmV1.applyInitFun cbk artifact cm initContext initName initParam False enableCopyMetering initAmount initInterpreterEnergy of
         Nothing ->
             -- out of energy
             liftIO $ assertFailure "Initialization ran out of energy."
@@ -137,7 +138,7 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
                 }
     let initInterpreterEnergy = 1_000_000_000
     artifact <- BS.getModuleArtifact (GSWasm.miModule miv)
-    case WasmV0.applyInitFun artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
+    case WasmV0.applyInitFun artifact cm initContext initName initParam False True initAmount initInterpreterEnergy of
         Nothing ->
             -- out of energy
             liftIO $ assertFailure "Initialization ran out of energy."
