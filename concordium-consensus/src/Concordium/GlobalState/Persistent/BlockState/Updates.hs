@@ -906,7 +906,7 @@ loadChainParametersRef ::
     HashedBufferedRef (PCP.PersistentChainParameters pv) ->
     m (ChainParameters pv)
 loadChainParametersRef currentParameters =
-    PCP.persistentChainParametersToChainParameters <$> refLoad currentParameters
+    PCP.persistentChainParametersToChainParametersM =<< refLoad currentParameters
 
 -- | Store a new chain-parameter value while preserving node-internal external state.
 makeUpdatedChainParametersRef ::

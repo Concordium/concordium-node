@@ -6,7 +6,6 @@
 
 module GlobalStateTests.PersistentChainParameters (tests) where
 
-import Control.Exception (ErrorCall, evaluate, try)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 import qualified Data.Serialize as S
@@ -82,7 +81,7 @@ assertOldLayoutLoadsAsPersistent ::
     Assertion
 assertOldLayoutLoadsAsPersistent chainParameters = runWithNewMemBlobStore $ do
     persistent <- loadOldLayoutAsPersistent @pv chainParameters
-    let publicView = PCP.persistentChainParametersToChainParameters persistent
+    publicView <- PCP.persistentChainParametersToChainParametersM persistent
     liftIO $ assertEqual "old persistent layout should load as the new persistent type" chainParameters publicView
 
 -- | Assert that hashing pre-P11 persistent chain parameters is unchanged from
@@ -99,10 +98,10 @@ assertOldLayoutHashCompatible chainParameters = runWithNewMemBlobStore $ do
     liftIO $ assertEqual "persistent chain-parameter hash should match the historical layout hash" oldHash persistentHash
 
 p10ChainParameters :: ChainParameters' 'ChainParametersV3
-p10ChainParameters = dummyChainParameters' & cpMaxLockDuration .~ SomeParam Nothing
+p10ChainParameters = dummyChainParameters'
 
-p11ChainParameters :: Duration -> ChainParameters' 'ChainParametersV3
-p11ChainParameters duration = dummyChainParameters' & cpMaxLockDuration .~ SomeParam (Just duration)
+p11ChainParameters :: Duration -> ChainParameters' 'ChainParametersV4
+p11ChainParameters duration = dummyChainParameters' & cpMaxLockDuration .~ SomeParam duration
 
 p11ProtocolUpdateData :: Duration -> P11.ProtocolUpdateData
 p11ProtocolUpdateData duration =
@@ -121,7 +120,7 @@ assertP10P11MigrationExposesMaxLockDuration = runWithNewMemBlobStore $ do
         Nothing -> liftIO $ assertFailure "P10-to-P11 chain-parameter migration unexpectedly failed"
         Just migrated -> return migrated
     publicView <- PCP.persistentChainParametersToChainParametersM migrated
-    liftIO $ assertEqual "P10-to-P11 migration should expose protocol-update maxLockDuration" (SomeParam (Just duration)) (publicView ^. cpMaxLockDuration)
+    liftIO $ assertEqual "P10-to-P11 migration should expose protocol-update maxLockDuration" (SomeParam duration) (publicView ^. cpMaxLockDuration)
 
 assertP11InitialPersistentStateExposesMaxLockDuration :: Assertion
 assertP11InitialPersistentStateExposesMaxLockDuration = runTestBlockState @'P11 $ do
@@ -138,24 +137,7 @@ assertP11InitialPersistentStateExposesMaxLockDuration = runTestBlockState @'P11 
     bsp <- PBS.loadPBS (PBS.hpbsPointers hpbs)
     updates <- refLoad (PBS.bspUpdates bsp)
     basicUpdates <- PU.makeBasicUpdates updates
-    liftIO $ assertEqual "P11 initial state should expose genesis maxLockDuration" (SomeParam (Just duration)) (UQ._currentParameters basicUpdates ^. cpMaxLockDuration)
-
-assertP11InitialPersistentStateRequiresMaxLockDuration :: Assertion
-assertP11InitialPersistentStateRequiresMaxLockDuration = do
-    result <- try $ runTestBlockState @'P11 $ do
-        hpbs <-
-            PBS.initialPersistentState @'P11
-                (dummySeedState SP11)
-                dummyCryptographicParameters
-                []
-                dummyIdentityProviders
-                dummyArs
-                (dummyKeyCollection @'AuthorizationsVersion3)
-                p10ChainParameters
-        liftIO $ evaluate hpbs
-    case result of
-        Left (_ :: ErrorCall) -> return ()
-        Right _ -> assertFailure "P11 initial persistent state should require maxLockDuration"
+    liftIO $ assertEqual "P11 initial state should expose genesis maxLockDuration" (SomeParam duration) (UQ._currentParameters basicUpdates ^. cpMaxLockDuration)
 
 assertP11RoundtripExposesMaxLockDuration :: Assertion
 assertP11RoundtripExposesMaxLockDuration = runWithNewMemBlobStore $ do
@@ -167,7 +149,7 @@ assertP11RoundtripExposesMaxLockDuration = runWithNewMemBlobStore $ do
     persistent2 <- cache persistent1
     publicView <- PCP.persistentChainParametersToChainParametersM persistent2
     liftIO $ do
-        assertEqual "P11 maxLockDuration should survive store/load/cache" (SomeParam (Just duration)) (publicView ^. cpMaxLockDuration)
+        assertEqual "P11 maxLockDuration should survive store/load/cache" (SomeParam duration) (publicView ^. cpMaxLockDuration)
         assertEqual "P11 persistent chain-parameter hash should survive store/load" hash0 hash1
 
 assertP11HashIncludesExternalChainParameters :: Assertion
@@ -177,15 +159,6 @@ assertP11HashIncludesExternalChainParameters = runWithNewMemBlobStore $ do
     (hash1 :: H.Hash) <- getHashM persistent1
     (hash2 :: H.Hash) <- getHashM persistent2
     liftIO $ assertBool "P11 persistent chain-parameter hash should include external maxLockDuration" (hash1 /= hash2)
-
-assertP11ConstructionRequiresMaxLockDuration :: Assertion
-assertP11ConstructionRequiresMaxLockDuration = do
-    result <- try $ runWithNewMemBlobStore $ do
-        persistent <- PCP.makePersistentChainParameters @(MemBlobStoreT IO) @'P11 p10ChainParameters
-        liftIO $ evaluate persistent
-    case result of
-        Left (_ :: ErrorCall) -> return ()
-        Right _ -> assertFailure "P11 persistent chain-parameter construction should require maxLockDuration"
 
 tests :: Spec
 tests = describe "GlobalStateTests.PersistentChainParameters" $ do
@@ -206,11 +179,7 @@ tests = describe "GlobalStateTests.PersistentChainParameters" $ do
         assertP10P11MigrationExposesMaxLockDuration
     it "initializes P11 persistent state with genesis maxLockDuration" $
         assertP11InitialPersistentStateExposesMaxLockDuration
-    it "rejects P11 initial persistent state without maxLockDuration" $
-        assertP11InitialPersistentStateRequiresMaxLockDuration
     it "stores, loads, caches, hashes, and exposes P11 external maxLockDuration" $
         assertP11RoundtripExposesMaxLockDuration
     it "includes P11 external maxLockDuration in the persistent chain-parameter hash" $
         assertP11HashIncludesExternalChainParameters
-    it "rejects P11 persistent construction without maxLockDuration" $
-        assertP11ConstructionRequiresMaxLockDuration

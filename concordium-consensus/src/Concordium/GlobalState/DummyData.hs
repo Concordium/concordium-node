@@ -380,9 +380,7 @@ dummyValidatorScoreParameters =
 -- For P11 this includes an initial max lock duration, which is required by the
 -- node-owned external chain-parameters component.
 dummyChainParameters :: forall pv. (IsProtocolVersion pv) => ChainParameters pv
-dummyChainParameters = case protocolVersion @pv of
-    SP11 -> (dummyChainParameters' @(ChainParametersVersionFor pv)){_cpMaxLockDuration = SomeParam (Just (Duration 42))}
-    _ -> dummyChainParameters' @(ChainParametersVersionFor pv)
+dummyChainParameters = dummyChainParameters' @(ChainParametersVersionFor pv)
 
 -- | Dummy chain parameters for the given chain-parameters version.
 --
@@ -528,8 +526,18 @@ dummyChainParameters' = case chainParametersVersion @cpv of
                     },
               _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters,
               _cpValidatorScoreParameters = SomeParam dummyValidatorScoreParameters,
-              _cpMaxLockDuration = SomeParam Nothing
+              _cpMaxLockDuration = NoParam
             }
+    SChainParametersV4 ->
+        let ChainParameters{..} = dummyChainParameters' @'ChainParametersV3
+        in  ChainParameters
+                { _cpTimeParameters = SomeParam (unOParam _cpTimeParameters),
+                  _cpRewardParameters = case _cpRewardParameters of RewardParameters{..} -> RewardParameters{..},
+                  _cpFinalizationCommitteeParameters = SomeParam (unOParam _cpFinalizationCommitteeParameters),
+                  _cpValidatorScoreParameters = SomeParam (unOParam _cpValidatorScoreParameters),
+                  _cpMaxLockDuration = SomeParam (Duration 42),
+                  ..
+                }
   where
     fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
     cooldown = DurationSeconds (24 * 60 * 60)

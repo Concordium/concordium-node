@@ -185,7 +185,7 @@ increaseLimit newLimit (bs2, ai) = do
     updates <- refLoad (PBS.bspUpdates bsp)
     -- load the current parameters
     currentPersistentParams <- refLoad (PU.currentParameters updates)
-    let currentParams = PCP.persistentChainParametersToChainParameters currentPersistentParams
+    currentParams <- PCP.persistentChainParametersToChainParametersM currentPersistentParams
     -- store the new parameters
     newParams <- refMake $ PCP.updateChainParameters (currentParams & cpPoolParameters . ppMinimumEquityCapital .~ newLimit) currentPersistentParams
     -- store the new updates
