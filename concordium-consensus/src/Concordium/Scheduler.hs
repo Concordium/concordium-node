@@ -883,7 +883,7 @@ handleInitContract wtc initAmount modref initName param =
         -- Check whether the number of logs and the size of return values are limited in the current protocol version.
         let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
 
-        let enableCopyMetering = enableCopyMetering $ protocolVersion @(MPV m)
+        let enableCopyMetering = applyCopyMetering $ protocolVersion @(MPV m)
 
         unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (wtc ^. wtcSenderAddress)) initAmount)
 
@@ -1735,7 +1735,7 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
               rcSupportAccountSignatureChecks = supportsAccountSignatureChecks $ protocolVersion @(MPV m),
               rcSupportContractInspectionQueries = supportsContractInspectionQueries $ protocolVersion @(MPV m)
             }
-    enableCopyMetering = enableCopyMetering $ protocolVersion @(MPV m)
+    enableCopyMetering = applyCopyMetering $ protocolVersion @(MPV m)
     transferAccountSync ::
         AccountAddress -> -- The target account address.
         UInstanceInfoV m GSWasm.V1 -> -- The sender of this transfer.
@@ -1834,7 +1834,7 @@ handleContractUpdateV0 depth originAddr istance checkAndGetSender transferAmount
     let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
     -- Check whether the number of logs and the size of return values are limited in the current protocol version.
     let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
-    let enableCopyMetering = supportsCopyMetering $ protocolVersion @(MPV m)
+    let enableCopyMetering = applyCopyMetering $ protocolVersion @(MPV m)
     result <-
         runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter maxParameterLen limitLogsAndRvs enableCopyMetering transferAmount model)
             `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
