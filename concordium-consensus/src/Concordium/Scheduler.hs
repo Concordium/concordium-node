@@ -883,6 +883,8 @@ handleInitContract wtc initAmount modref initName param =
         -- Check whether the number of logs and the size of return values are limited in the current protocol version.
         let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
 
+        let enableCopyMetering = enableCopyMetering $ protocolVersion @(MPV m)
+
         unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (wtc ^. wtcSenderAddress)) initAmount)
 
         -- First try to get the module interface of the parent module of the contract.
@@ -910,7 +912,7 @@ handleInitContract wtc initAmount modref initName param =
                             }
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
                 result <-
-                    runInterpreter (return . WasmV0.applyInitFun artifact cm initCtx initName param limitLogsAndRvs initAmount)
+                    runInterpreter (return . WasmV0.applyInitFun artifact cm initCtx initName param limitLogsAndRvs enableCopyMetering initAmount)
                         `rejectingWith'` wasmRejectToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -941,7 +943,7 @@ handleInitContract wtc initAmount modref initName param =
                             }
                 stateContext <- getV1StateContext
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
-                interpreterResult <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs initAmount)
+                interpreterResult <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs enableCopyMetering initAmount)
                 -- If the result includes a return value, set it.
                 case interpreterResult of
                     Left WasmV1.LogicReject{..} -> transactionReturnValue ?= cerReturnValue
@@ -1721,7 +1723,7 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
             withToContractAmountV1 sender istance transferAmount $ do
                 foreignModel <- getRuntimeReprV1 model
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
-                go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel rcConfig)
+                go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel rcConfig enableCopyMetering)
   where
     rcConfig =
         WasmV1.RuntimeConfig
@@ -1733,6 +1735,7 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
               rcSupportAccountSignatureChecks = supportsAccountSignatureChecks $ protocolVersion @(MPV m),
               rcSupportContractInspectionQueries = supportsContractInspectionQueries $ protocolVersion @(MPV m)
             }
+    enableCopyMetering = enableCopyMetering $ protocolVersion @(MPV m)
     transferAccountSync ::
         AccountAddress -> -- The target account address.
         UInstanceInfoV m GSWasm.V1 -> -- The sender of this transfer.
@@ -1831,8 +1834,9 @@ handleContractUpdateV0 depth originAddr istance checkAndGetSender transferAmount
     let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
     -- Check whether the number of logs and the size of return values are limited in the current protocol version.
     let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
+    let enableCopyMetering = supportsCopyMetering $ protocolVersion @(MPV m)
     result <-
-        runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter maxParameterLen limitLogsAndRvs transferAmount model)
+        runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter maxParameterLen limitLogsAndRvs enableCopyMetering transferAmount model)
             `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
 
     -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.

@@ -248,6 +248,8 @@ foreign import ccall "call_init_v1"
         Ptr CSize ->
         -- | Location where the pointer to the mutable state will be written.
         Ptr (Ptr StateV1.MutableStateInner) ->
+        -- | Non-zero if runtime copy metering is enabled.
+        Word8 ->
         -- | New state and logs, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
@@ -304,6 +306,8 @@ foreign import ccall "call_receive_v1"
         Word8 ->
         -- | Non-zero to enable support for contract module reference and name queries.
         Word8 ->
+        -- | Non-zero if runtime copy metering is enabled.
+        Word8 ->
         -- | New state, logs, and actions, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
@@ -354,6 +358,8 @@ applyInitFun ::
     Parameter ->
     -- | Limit number of logs and size of return values.
     Bool ->
+    -- | Whether runtime copy metering is enabled.
+    Bool ->
     -- | Amount the contract is going to be initialized with.
     Amount ->
     -- | Maximum amount of energy that can be used by the interpreter.
@@ -361,7 +367,7 @@ applyInitFun ::
     -- | Nothing if execution ran out of energy.
     --  Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
     Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy)
-applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = unsafePerformIO $ do
+applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs enableCopyMetering amnt iEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifactBytes $ \(wasmArtifactPtr, wasmArtifactLen) ->
         BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
             BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -386,6 +392,7 @@ applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = un
                                 returnValuePtrPtr
                                 outputLenPtr
                                 statePtrPtr
+                                (if enableCopyMetering then 1 else 0)
                         -- This case should not happen, it means a mismatch between two sides of FFI.
                         if outPtr == nullPtr
                             then return (Just (Left Trap, 0))
@@ -726,12 +733,14 @@ applyReceiveFun ::
     -- | State of the contract to start in, and a way to use it.
     StateV1.MutableState ->
     RuntimeConfig ->
+    -- | Whether runtime copy metering is enabled.
+    Bool ->
     -- | Amount of energy available for execution.
     InterpreterEnergy ->
     -- | Nothing if execution used up all the energy, and otherwise the result
     --  of execution with the amount of energy remaining.
     Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
-applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState RuntimeConfig{..} initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState RuntimeConfig{..} enableCopyMetering initialEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
         BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
             BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -766,6 +775,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
                                     (if rcSupportChainQueries then 1 else 0)
                                     (if rcSupportAccountSignatureChecks then 1 else 0)
                                     (if rcSupportContractInspectionQueries then 1 else 0)
+                                    (if enableCopyMetering then 1 else 0)
                             if outPtr == nullPtr
                                 then return (Just (Left Trap, 0)) -- this case should not happen
                                 else do
