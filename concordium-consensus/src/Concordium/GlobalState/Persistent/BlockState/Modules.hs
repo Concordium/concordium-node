@@ -578,7 +578,7 @@ migrateModules migration mods = do
                     StateMigrationParametersP7ToP8{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
                     StateMigrationParametersP8ToP9{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
                     StateMigrationParametersP9ToP10{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP10ToP11{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP10ToP11{} -> migrateToP11 @v wasmMod -- recompile to new V2 cost configuration
         -- store the module into the new state, and remove it from memory
         makeFlushedHashedCachedRef $!
             mkModule (getWasmVersion @v) $!
@@ -619,6 +619,22 @@ migrateModules migration mods = do
                         return $! makePersistentInstrumentedModuleV <$> iface
             SV1 ->
                 case WasmV1.processModuleConfig WasmV1.processingConfigRecompileForP7 wasmMod of
+                    Nothing -> error "Stored V1 module that is not valid."
+                    Just iface -> do
+                        return $! makePersistentInstrumentedModuleV <$> iface
+
+    -- Recompile a wasm module from the given source for protocol 11
+    -- cost semantics (i.e., the protocol version of @t m@).
+    migrateToP11 :: forall v. (MPV (t m) ~ P11, IsWasmVersion v) => WasmModuleV v -> t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v))
+    migrateToP11 wasmMod = do
+        case getWasmVersion @v of
+            SV0 ->
+                case WasmV0.processModule (protocolVersion @(MPV (t m))) wasmMod of
+                    Nothing -> error "Stored V0 module that is not valid."
+                    Just iface -> do
+                        return $! makePersistentInstrumentedModuleV <$> iface
+            SV1 ->
+                case WasmV1.processModuleConfig WasmV1.processingConfigRecompileForP11 wasmMod of
                     Nothing -> error "Stored V1 module that is not valid."
                     Just iface -> do
                         return $! makePersistentInstrumentedModuleV <$> iface

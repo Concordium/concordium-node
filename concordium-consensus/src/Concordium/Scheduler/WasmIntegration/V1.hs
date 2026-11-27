@@ -32,6 +32,7 @@ module Concordium.Scheduler.WasmIntegration.V1 (
     RuntimeConfig (..),
     validationConfigAllowP1P6,
     processingConfigRecompileForP7,
+    processingConfigRecompileForP11,
 ) where
 
 import Control.Monad
@@ -891,6 +892,16 @@ processingConfigRecompileForP7 =
         { pcValidationConfig = validationConfigAllowP1P6 CSV1,
           pcOmitCustomSectionSize = True
         }
+
+-- | Processing configuration that will accept all modules that are valid in
+--  any of the protocol version 1-6, and compile with cost semantics defined by P11.
+processingConfigRecompileForP11 :: ProcessingConfig
+processingConfigRecompileForP11 =
+    ProcessingConfig
+        { pcValidationConfig = validationConfigAllowP1P6 CSV2,
+          pcOmitCustomSectionSize = True
+        }
+
 
 -- | Process a module as received and make a module interface.
 --  This
