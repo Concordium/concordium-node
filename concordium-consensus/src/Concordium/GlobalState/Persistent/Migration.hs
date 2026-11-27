@@ -30,6 +30,7 @@ data ChainParametersMigration (cpvOld :: ChainParametersVersion) (cpvNew :: Chai
     ChainParametersMigrationCPV0toCPV1 :: ChainParametersMigration 'ChainParametersV0 'ChainParametersV1
     ChainParametersMigrationCPV1toCPV2 :: ChainParametersMigration 'ChainParametersV1 'ChainParametersV2
     ChainParametersMigrationCPV2toCPV3 :: ChainParametersMigration 'ChainParametersV2 'ChainParametersV3
+    ChainParametersMigrationCPV3toCPV4 :: ChainParametersMigration 'ChainParametersV3 'ChainParametersV4
 
 -- | Get a 'ChainParametersMigration' witness from 'StateMigrationParameters'.
 chainParametersMigrationFor ::
@@ -45,7 +46,7 @@ chainParametersMigrationFor StateMigrationParametersP6ToP7{} = ChainParametersMi
 chainParametersMigrationFor StateMigrationParametersP7ToP8{} = ChainParametersMigrationCPV2toCPV3
 chainParametersMigrationFor StateMigrationParametersP8ToP9{} = ChainParametersMigrationTrivial
 chainParametersMigrationFor StateMigrationParametersP9ToP10{} = ChainParametersMigrationTrivial
-chainParametersMigrationFor StateMigrationParametersP10ToP11{} = ChainParametersMigrationTrivial
+chainParametersMigrationFor StateMigrationParametersP10ToP11{} = ChainParametersMigrationCPV3toCPV4
 
 -- | A witness for the migration of 'AccountVersion's between two protocol versions.
 --  This is used to select the correct migration for types parametrised by 'AccountVersion',
@@ -140,6 +141,7 @@ migrateMintDistribution migration = case chainParametersMigrationFor migration o
         MintDistribution{_mdMintPerSlot = CFalse, ..}
     ChainParametersMigrationCPV1toCPV2 -> id
     ChainParametersMigrationCPV2toCPV3 -> id
+    ChainParametersMigrationCPV3toCPV4 -> id
 
 -- | Apply a state migration to a 'PoolParameters' structure.
 --
@@ -156,6 +158,7 @@ migratePoolParameters migration = case chainParametersMigrationFor migration of
             \_ -> P4.updatePoolParameters (P4.migrationProtocolUpdateData migrationData)
     ChainParametersMigrationCPV1toCPV2 -> id
     ChainParametersMigrationCPV2toCPV3 -> id
+    ChainParametersMigrationCPV3toCPV4 -> id
 
 -- | Apply a state migration to a 'GASRewards' structure.
 --
@@ -173,6 +176,7 @@ migrateGASRewards migration = case chainParametersMigrationFor migration of
         StateMigrationParametersP5ToP6{} ->
             \GASRewards{..} -> GASRewards{_gasFinalizationProof = CFalse, ..}
     ChainParametersMigrationCPV2toCPV3 -> id
+    ChainParametersMigrationCPV3toCPV4 -> id
 
 -- | Apply a state migration to a 'ChainParameters' structure.
 --
@@ -257,6 +261,20 @@ migrateChainParameters migration = case chainParametersMigrationFor migration of
           where
             P8.ProtocolUpdateData{..} = P8.migrationProtocolUpdateData migrationData
             RewardParameters{..} = pcpRewardParameters
+    ChainParametersMigrationCPV3toCPV4 -> \PersistentChainParameters{..} -> case migration of
+        StateMigrationParametersP10ToP11 migrationData -> do
+            externalChainParameters <- CTrue <$> ECP.p11NewExternalChainParameters updateMaxLockDuration
+            return $
+                PersistentChainParameters
+                    { pcpTimeParameters = SomeParam (unOParam pcpTimeParameters),
+                      pcpFinalizationCommitteeParameters = SomeParam (unOParam pcpFinalizationCommitteeParameters),
+                      pcpValidatorScoreParameters = SomeParam (unOParam pcpValidatorScoreParameters),
+                      pcpRewardParameters = case pcpRewardParameters of RewardParameters{..} -> RewardParameters{..},
+                      pcpExternalChainParameters = externalChainParameters,
+                      ..
+                    }
+          where
+            P11.ProtocolUpdateData{..} = P11.migrationProtocolUpdateData migrationData
 
 -- | Migrate persistent chain parameters when the chain parameter version is unchanged.
 migrateChainParametersVersionUnchanged ::
@@ -278,11 +296,6 @@ migrateChainParametersVersionUnchanged StateMigrationParametersP8ToP9{} Persiste
     return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
 migrateChainParametersVersionUnchanged StateMigrationParametersP9ToP10{} PersistentChainParameters{..} =
     return PersistentChainParameters{pcpExternalChainParameters = CFalse, ..}
-migrateChainParametersVersionUnchanged (StateMigrationParametersP10ToP11 migration) PersistentChainParameters{..} = do
-    newExternalChainParameters <- CTrue <$> ECP.p11NewExternalChainParameters updateMaxLockDuration
-    return PersistentChainParameters{pcpExternalChainParameters = newExternalChainParameters, ..}
-  where
-    P11.ProtocolUpdateData{..} = P11.migrationProtocolUpdateData migration
 migrateChainParametersVersionUnchanged _ _ = error "migrateChainParametersVersionUnchanged called for non-trivial chain parameter version migration"
 
 -- | Migrate time of the effective change from V0 to V1 accounts. Currently this
