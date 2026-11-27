@@ -902,7 +902,6 @@ processingConfigRecompileForP11 =
           pcOmitCustomSectionSize = True
         }
 
-
 -- | Process a module as received and make a module interface.
 --  This
 --  - checks the module is well-formed, and has the right imports and exports for a V1 module.

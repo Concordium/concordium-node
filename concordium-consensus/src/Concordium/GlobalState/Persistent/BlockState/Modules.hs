@@ -560,26 +560,21 @@ migrateModules migration mods = do
 
         artifact <- lift (loadInstrumentedModuleV (GSWasm.miModule moduleVInterface))
         newModuleVInterface <-
-            -- If it is a legacy artifact then we want to migrate it over to the new
-            -- version by recompiling since execution no longer supports the old format.
-            if GSWasm.isV0LegacyArtifact (GSWasm.imWasmArtifactBytes artifact)
-                then recompileArtifact @v wasmMod moduleVInterface
-                -- If it is not a legacy module then we don't have to recompile
-                -- unless we're migrating from P6 to P7 where the new reduced
-                -- execution costs were introduced.
-                else case migration of
-                    StateMigrationParametersTrivial -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP1P2 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP2P3 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP3ToP4{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP4ToP5{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP5ToP6{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP6ToP7{} -> migrateToP7 @v wasmMod -- always recompile to lower transaction costs.
-                    StateMigrationParametersP7ToP8{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP8ToP9{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP9ToP10{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                    StateMigrationParametersP10ToP11{} -> migrateToP11 @v wasmMod -- recompile to new V2 cost configuration
-        -- store the module into the new state, and remove it from memory
+            -- Notice that V0 artifacts are recompiled to V1 artifacts using cost configuration V0 when loaded
+            -- in loadDirect on Module. Hence, there has already been some "premigration" at this point.
+            case migration of
+                StateMigrationParametersTrivial -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP1P2 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP2P3 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP3ToP4{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP4ToP5{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP5ToP6{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP6ToP7{} -> migrateToP7 @v wasmMod -- always recompile to lower transaction costs.
+                StateMigrationParametersP7ToP8{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP8ToP9{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP9ToP10{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                StateMigrationParametersP10ToP11{} -> migrateToP11 @v wasmMod -- recompile to new V2 cost configuration
+                -- store the module into the new state, and remove it from memory
         makeFlushedHashedCachedRef $!
             mkModule (getWasmVersion @v) $!
                 ModuleV
@@ -590,22 +585,6 @@ migrateModules migration mods = do
     mkModule :: SWasmVersion v -> ModuleV v -> Module
     mkModule SV0 = ModuleV0
     mkModule SV1 = ModuleV1
-
-    -- Recompile a wasm module from the given source for protocols 1-6.
-    -- This does not change the semantics, but does convert the artifact into the new format.
-    recompileArtifact :: forall v iface. (IsWasmVersion v) => WasmModuleV v -> GSWasm.ModuleInterfaceA iface -> t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v))
-    recompileArtifact wasmMod oldIface = do
-        case getWasmVersion @v of
-            SV0 ->
-                case WasmV0.compileModule CSV0 wasmMod of
-                    Nothing -> error "Stored V0 module that is not valid."
-                    Just (_, compiled) -> do
-                        return $! oldIface{GSWasm.miModule = PIMVMem compiled}
-            SV1 ->
-                case WasmV1.compileModule (WasmV1.validationConfigAllowP1P6 CSV0) wasmMod of
-                    Nothing -> error "Stored V1 module that is not valid."
-                    Just (_, compiled) -> do
-                        return $! oldIface{GSWasm.miModule = PIMVMem compiled}
 
     -- Recompile a wasm module from the given source for protocol 7
     -- cost semantics (i.e., the protocol version of @t m@).

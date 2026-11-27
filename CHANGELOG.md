@@ -4,7 +4,7 @@
 
 - Upgraded rust version to 1.98.1. Notice that 1.95 and 1.96 has performance regressions affecting the WASM interpreter and should not be used.
 - Smart contracts have a new cost configuration on P11 that charges non-zero energy for the local set/tee WASM operations. This change is made to make
-  the cost reflect the actual work done when executing the complied WASM.
+  the cost reflect the actual work done when executing the compiled WASM.
 
 ## Unreleased changes (Devnet)
 
