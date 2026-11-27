@@ -894,7 +894,7 @@ processingConfigRecompileForP7 =
         }
 
 -- | Processing configuration that will accept all modules that are valid in
---  any of the protocol version 1-6, and compile with cost semantics defined by P11.
+--  any of the protocol version 1-10, and compile with cost semantics defined by P11.
 processingConfigRecompileForP11 :: ProcessingConfig
 processingConfigRecompileForP11 =
     ProcessingConfig
