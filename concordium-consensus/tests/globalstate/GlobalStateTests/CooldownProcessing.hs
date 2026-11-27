@@ -40,7 +40,7 @@ propProcessPrePreCooldowns cds = runTestBlockState @P7 $ do
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
             DummyData.dummyKeyCollection
-            DummyData.dummyChainParameters
+            (DummyData.dummyChainParameters @P7)
     bs' <- bsoProcessPrePreCooldowns (hpbsPointers initialBS)
     newCooldowns <- checkCooldowns bs'
     liftIO $ assertEqual "Cooldowns" (processPrePreCooldown <$> cds) newCooldowns
@@ -57,7 +57,7 @@ propProcessCooldowns cds expire new = runTestBlockState @P7 $ do
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
             DummyData.dummyKeyCollection
-            DummyData.dummyChainParameters
+            (DummyData.dummyChainParameters @P7)
     bs' <- bsoProcessCooldowns (hpbsPointers initialBS) expire new
     newCooldowns <- checkCooldowns bs'
     liftIO $ assertEqual "Cooldowns" (processPreCooldown new . processCooldowns expire <$> cds) newCooldowns

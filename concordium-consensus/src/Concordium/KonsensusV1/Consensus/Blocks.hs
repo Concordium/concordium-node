@@ -729,6 +729,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             rejectBlock
         | otherwise = continue
     checkBlockExecution GenesisMetadata{..} parentBF continue = do
+        genesisBlockHeightInfo <- use genesisBlockHeight
         let missedRounds =
                 computeMissedRounds
                     (blockQuorumCertificate pendingBlock)
@@ -740,6 +741,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
                       bedEpochDuration = genesisEpochDuration gmParameters,
                       bedTimestamp = blockTimestamp pendingBlock,
+                      bedAbsoluteBlockHeight = localToAbsoluteBlockHeight (gbhiAbsoluteHeight genesisBlockHeightInfo) (1 + blockHeight parent),
                       bedBlockNonce = blockNonce pendingBlock,
                       bedParentState = bpState parent,
                       bedParticipatingBakers =
@@ -1220,11 +1222,13 @@ bakeBlock BakeBlockInputs{..} = do
                 bbiTimeoutCertificate
                 bbiEpochBakers
                 bbiLeadershipElectionNonce
+    genesisBlockHeightInfo <- use genesisBlockHeight
     let executionData =
             BlockExecutionData
                 { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,
                   bedEpochDuration = epochDuration,
                   bedTimestamp = bbTimestamp,
+                  bedAbsoluteBlockHeight = localToAbsoluteBlockHeight (gbhiAbsoluteHeight genesisBlockHeightInfo) (1 + blockHeight bbiParent),
                   bedBlockNonce = bbNonce,
                   bedParentState = bpState bbiParent,
                   bedParticipatingBakers =

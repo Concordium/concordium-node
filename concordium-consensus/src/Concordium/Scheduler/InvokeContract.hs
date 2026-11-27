@@ -33,13 +33,13 @@ import Concordium.GlobalState.TreeState (MGSTrans (..))
 import Concordium.GlobalState.Types
 import qualified Concordium.ID.Types as ID
 import Concordium.Logger
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import Concordium.Types.InvokeContract (ContractContext (..), InvokeContractResult (..))
 import qualified Concordium.Wasm as Wasm
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Scheduler
 import Concordium.Scheduler.Environment
-import Concordium.Scheduler.EnvironmentImplementation (ContextState (..), accountCreationLimit, chainMetadata, maxBlockEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 
@@ -102,6 +102,8 @@ instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) whe
 invokeContract ::
     forall m.
     (BS.BlockStateQuery m) =>
+    -- | Absolute height of the block whose state is used for invocation.
+    AbsoluteBlockHeight ->
     -- | Context in which to invoke the contract.
     ContractContext ->
     -- | Chain metadata corresponding to the block state.
@@ -109,7 +111,7 @@ invokeContract ::
     -- | The block state in which to invoke the contract.
     BlockState m ->
     m InvokeContractResult
-invokeContract ContractContext{..} cm bs
+invokeContract blockHeight ContractContext{..} cm bs
     -- check that the parameter being used conforms to the limitations of the
     -- protocol version of the block that the query is being invoked in.
     | Wasm.parameterLen ccParameter > fromIntegral (Wasm.maxParameterLen (protocolVersion @(MPV m))) =
@@ -184,7 +186,8 @@ invokeContract ContractContext{..} cm bs
                         return (r, _energyLeft cs)
             contextState =
                 ContextState
-                    { _maxBlockEnergy = ccEnergy,
+                    { _absoluteBlockHeight = blockHeight,
+                      _maxBlockEnergy = ccEnergy,
                       _accountCreationLimit = 0,
                       _chainMetadata = cm
                     }
